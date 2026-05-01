@@ -55,7 +55,7 @@ Implemented:
 - `DevMachineEngine` with `load`, `plan`, `apply`, `fork`, `attachTerminal`, `listWorkspaces`, and `deleteWorkspace`
 - Freestyle provider for VM create, snapshot, create-from-snapshot, exec, and SSH command generation
 - local `.fdev/state.json` snapshot/workspace cache
-- Commander-based `fdev` CLI for `init`, `plan`, `apply`, `fork`, `ls`, `ssh`, `snapshot`, `rm`, and `gc`
+- Commander-based `fdev` CLI for `init`, `plan`, `apply`, `fork`, `ls`, `ssh`, `snapshot`, and `rm`
 - pnpm/turbo workspace with separate CLI package, app placeholder, and smoke example
 
 The app is intentionally not implemented yet. It should later wrap the same `DevMachineEngine`.

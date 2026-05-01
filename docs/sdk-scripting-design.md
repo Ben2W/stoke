@@ -860,7 +860,6 @@ fdev ls
 fdev ssh fix-auth-bug
 fdev snapshot fix-auth-bug --label experiments/fix-auth-bug
 fdev rm fix-auth-bug --yes
-fdev gc
 ```
 
 Suggested command responsibilities:
@@ -872,7 +871,6 @@ Suggested command responsibilities:
 - `ssh`: attach to a workspace or VM
 - `snapshot`: capture a workspace
 - `rm`: delete a workspace VM and remove it from local state
-- `gc`: clean stale local cache entries for old machine chains
 
 The CLI should use `fdev.config.ts` in the current directory by default. `-C <dir>` selects another project directory and loads `<dir>/fdev.config.ts`. `--config <file>` loads an exact file. `--json` prints machine-readable output for automation.
 

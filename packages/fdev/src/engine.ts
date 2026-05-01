@@ -52,14 +52,6 @@ export type MachineSummary = {
   workspace?: LoadedMachine["workspace"];
 };
 
-export type GarbageCollectResult = {
-  staleSnapshots: SnapshotRecord[];
-  staleWorkspaces: WorkspaceRecord[];
-  removedSnapshots: number;
-  removedWorkspaces: number;
-  dryRun: boolean;
-};
-
 export class DevMachineEngine {
   private readonly projectDir: string;
   private readonly configPath: string;
@@ -316,35 +308,6 @@ export class DevMachineEngine {
     });
 
     return workspace;
-  }
-
-  async gc(input: { dryRun?: boolean } = {}): Promise<GarbageCollectResult> {
-    const machine = this.getMachine(undefined);
-    const chain = this.buildChain(machine);
-    const state = this.state.read();
-    const staleSnapshots = state.snapshots.filter(
-      (snapshot) => snapshot.machine !== machine.name || snapshot.machineKey !== chain.machineKey,
-    );
-    const staleWorkspaces = Object.values(state.workspaces).filter((workspace) => workspace.machine !== machine.name);
-
-    if (!input.dryRun && (staleSnapshots.length > 0 || staleWorkspaces.length > 0)) {
-      this.state.update((next) => {
-        const staleSnapshotIds = new Set(staleSnapshots.map((snapshot) => snapshot.id));
-        const staleWorkspaceNames = new Set(staleWorkspaces.map((workspace) => workspace.name));
-        next.snapshots = next.snapshots.filter((snapshot) => !staleSnapshotIds.has(snapshot.id));
-        for (const name of staleWorkspaceNames) {
-          delete next.workspaces[name];
-        }
-      });
-    }
-
-    return {
-      staleSnapshots,
-      staleWorkspaces,
-      removedSnapshots: input.dryRun ? 0 : staleSnapshots.length,
-      removedWorkspaces: input.dryRun ? 0 : staleWorkspaces.length,
-      dryRun: input.dryRun ?? false,
-    };
   }
 
   async snapshotWorkspace(input: { workspace: string; label?: string; machine?: string }): Promise<SnapshotRecord> {

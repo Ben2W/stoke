@@ -39,11 +39,6 @@ type RemoveOptions = GlobalOptions & {
   yes?: boolean;
 };
 
-type GcOptions = GlobalOptions & {
-  yes?: boolean;
-  dryRun?: boolean;
-};
-
 const program = new Command();
 
 program
@@ -220,24 +215,6 @@ program
     console.log(`removed ${removed.name} ${removed.vmId}`);
   });
 
-program
-  .command("gc")
-  .description("Clean stale local cache entries for old machine chains")
-  .option("--dry-run", "Show what would be removed")
-  .option("-y, --yes", "Remove stale entries")
-  .option("--json", "Print machine-readable JSON")
-  .action(async function (this: Command) {
-    const options = this.optsWithGlobals() as GcOptions;
-    const dryRun = Boolean(options.dryRun || !options.yes);
-    const engine = await loadEngine(this);
-    const result = await engine.gc({ dryRun });
-    if (wantsJson(this)) {
-      printJson(result);
-      return;
-    }
-    printGc(result);
-  });
-
 if (process.argv.length <= 2) {
   program.help();
 }
@@ -370,21 +347,6 @@ function printConfig(info: ReturnType<DevMachineEngine["getProjectInfo"]>): void
     ["image", info.machine?.image ?? ""],
   ];
   printTable(["key", "value"], rows);
-}
-
-function printGc(result: {
-  staleSnapshots: SnapshotRecord[];
-  staleWorkspaces: WorkspaceRecord[];
-  removedSnapshots: number;
-  removedWorkspaces: number;
-  dryRun: boolean;
-}): void {
-  const action = result.dryRun ? "would remove" : "removed";
-  console.log(`${action} ${result.dryRun ? result.staleSnapshots.length : result.removedSnapshots} stale snapshots`);
-  console.log(`${action} ${result.dryRun ? result.staleWorkspaces.length : result.removedWorkspaces} stale workspaces`);
-  if (result.dryRun && (result.staleSnapshots.length > 0 || result.staleWorkspaces.length > 0)) {
-    console.log("Pass --yes to remove these local cache entries.");
-  }
 }
 
 function normalizeListTarget(target: string | undefined): "workspaces" | "snapshots" | "config" {
