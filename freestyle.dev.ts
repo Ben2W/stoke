@@ -13,7 +13,7 @@ const smokeMigration = defineMigration("fdev:smoke", async ({ vm, step }) => {
 });
 
 export default defineDevMachine({
-  name: "freestyle-platform",
+  name: "smoke",
   apiKey: env("FREESTYLE_API_KEY"),
   image: "ubuntu-24.04",
   migrations: [smokeMigration],
