@@ -1,10 +1,13 @@
 import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 export function loadDotEnv(projectDir: string): void {
-  const path = join(projectDir, ".env");
-  if (!existsSync(path)) return;
+  for (const path of findDotEnvFiles(projectDir)) {
+    loadDotEnvFile(path);
+  }
+}
 
+function loadDotEnvFile(path: string): void {
   const content = readFileSync(path, "utf8");
   for (const rawLine of content.split(/\r?\n/)) {
     const line = rawLine.trim();
@@ -20,6 +23,22 @@ export function loadDotEnv(projectDir: string): void {
   }
 }
 
+function findDotEnvFiles(projectDir: string): string[] {
+  const files: string[] = [];
+  let current = projectDir;
+
+  while (true) {
+    const candidate = join(current, ".env");
+    if (existsSync(candidate)) files.unshift(candidate);
+
+    const parent = dirname(current);
+    if (parent === current) break;
+    current = parent;
+  }
+
+  return files;
+}
+
 function parseEnvValue(rawValue: string): string {
   const trimmed = rawValue.trim();
   if (
@@ -31,4 +50,3 @@ function parseEnvValue(rawValue: string): string {
 
   return trimmed;
 }
-

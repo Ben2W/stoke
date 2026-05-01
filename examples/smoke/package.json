@@ -1,0 +1,20 @@
+{
+  "name": "@freestyle/fdev-example-smoke",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "plan": "fdev plan smoke",
+    "apply": "fdev apply smoke",
+    "fork": "fdev fork smoke --name smoke-workspace",
+    "typecheck": "tsc --noEmit",
+    "test": "echo no smoke example tests yet"
+  },
+  "dependencies": {
+    "@freestyle/fdev": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "latest"
+  }
+}

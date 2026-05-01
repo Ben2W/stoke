@@ -1,25 +1,20 @@
 {
-  "name": "@freestyle/dev-machines",
+  "name": "declarative-dev-servers",
   "version": "0.0.0",
   "private": true,
-  "type": "module",
-  "bin": {
-    "fdev": "./src/cli.ts"
-  },
-  "exports": {
-    ".": "./src/index.ts"
-  },
+  "packageManager": "pnpm@9.15.9",
   "scripts": {
-    "fdev": "bun src/cli.ts",
-    "plan": "bun src/cli.ts plan",
-    "typecheck": "tsc --noEmit",
-    "test": "bun test"
-  },
-  "dependencies": {
-    "freestyle": "latest"
+    "build": "turbo build",
+    "dev": "turbo dev",
+    "typecheck": "turbo typecheck",
+    "test": "turbo test",
+    "fdev": "pnpm --filter @freestyle/fdev fdev",
+    "smoke:plan": "pnpm --filter @freestyle/fdev fdev --project ../../examples/smoke plan smoke",
+    "smoke:apply": "pnpm --filter @freestyle/fdev fdev --project ../../examples/smoke apply smoke"
   },
   "devDependencies": {
-    "@types/bun": "latest",
+    "turbo": "latest",
     "typescript": "latest"
   }
 }
+

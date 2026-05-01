@@ -8,6 +8,5 @@
     "allowImportingTsExtensions": true,
     "noEmit": true,
     "types": ["bun"]
-  },
-  "include": ["src/**/*.ts", "freestyle.dev.ts"]
+  }
 }

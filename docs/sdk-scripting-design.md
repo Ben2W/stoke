@@ -202,7 +202,7 @@ import {
   defineDevMachine,
   defineMigration,
   env,
-} from "@freestyle/dev-machines";
+} from "@freestyle/fdev";
 
 const systemPackages = defineMigration("system:packages", async ({ vm, step }) => {
   const git = await vm.exec("command -v git").catch(() => null);
@@ -749,7 +749,7 @@ The repo is where teams and users iterate on remote dev state over time. It shou
     "apply": "fdev apply"
   },
   "dependencies": {
-    "@freestyle/dev-machines": "latest"
+    "@freestyle/fdev": "latest"
   }
 }
 ```
@@ -760,7 +760,7 @@ Then a v1 workflow is:
 git clone git@github.com:freestyle-sh/dev-machines.git
 cd dev-machines
 cp .env.example .env
-bun install
+pnpm install
 fdev plan
 fdev apply freestyle-platform
 ```

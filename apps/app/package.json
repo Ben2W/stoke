@@ -1,0 +1,19 @@
+{
+  "name": "@freestyle/fdev-app",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun src/index.ts",
+    "build": "tsc --noEmit",
+    "typecheck": "tsc --noEmit",
+    "test": "echo no app tests yet"
+  },
+  "dependencies": {
+    "@freestyle/fdev": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "latest"
+  }
+}

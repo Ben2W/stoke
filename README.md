@@ -1,6 +1,15 @@
 # Freestyle Dev Machines
 
-`fdev` is a Bun-based CLI and engine for building forkable Freestyle dev machines from ordered migrations.
+`fdev` is a CLI and engine for building forkable Freestyle dev machines from ordered migrations.
+
+This repo is a pnpm/turbo workspace:
+
+```text
+packages/fdev/      CLI, SDK authoring API, engine, Freestyle provider
+apps/app/           placeholder for the future app
+examples/smoke/     runnable smoke dev machine
+docs/               design docs
+```
 
 ## Setup
 
@@ -13,20 +22,26 @@ FREESTYLE_API_KEY=fs_live_...
 Install dependencies:
 
 ```bash
-bun install
+pnpm install
 ```
 
 ## Commands
 
 ```bash
-bun src/cli.ts machines
-bun src/cli.ts plan freestyle-platform
-bun src/cli.ts apply freestyle-platform
-bun src/cli.ts fork freestyle-platform --name my-workspace
-bun src/cli.ts terminal my-workspace --print
+pnpm typecheck
+pnpm test
+pnpm smoke:plan
+pnpm smoke:apply
+pnpm --filter @freestyle/fdev fdev --project ../../examples/smoke fork smoke --name my-workspace
+pnpm --filter @freestyle/fdev fdev --project ../../examples/smoke terminal my-workspace --print
 ```
 
-The package also exposes a `fdev` bin when installed or linked.
+The CLI also has built-in help:
+
+```bash
+pnpm --filter @freestyle/fdev fdev help
+pnpm --filter @freestyle/fdev fdev help fork
+```
 
 ## Current Scope
 
@@ -38,5 +53,6 @@ Implemented:
 - Freestyle provider for VM create, snapshot, create-from-snapshot, exec, and SSH command generation
 - local `.fdev/state.json` snapshot/workspace cache
 - `fdev` CLI for `machines`, `plan`, `apply`, `fork`, `terminal`, and `snapshot`
+- pnpm/turbo workspace with separate CLI package, app placeholder, and smoke example
 
 The app is intentionally not implemented yet. It should later wrap the same `DevMachineEngine`.

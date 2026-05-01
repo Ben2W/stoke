@@ -9,14 +9,15 @@ type ParsedArgs = {
 };
 
 async function main(): Promise<void> {
-  const args = parseArgs(process.argv.slice(2));
+  const args = parseArgs(process.argv.slice(2).filter((arg) => arg !== "--"));
+  const projectDir = getStringFlag(args, "project") ?? getStringFlag(args, "cwd") ?? process.cwd();
 
   if (args.command === "help" || args.flags.help || args.flags.h) {
-    printHelp();
+    printHelp(args.positionals[0]);
     return;
   }
 
-  const engine = await createDevMachineEngine({ projectDir: process.cwd() });
+  const engine = await createDevMachineEngine({ projectDir });
   engine.onEvent(renderEvent);
   await engine.load();
 
@@ -74,19 +75,23 @@ async function main(): Promise<void> {
         printHelp();
         return;
       }
-      throw new Error(`Unknown command ${args.command}`);
+      throw new Error(`Unknown command ${args.command}. Run "fdev help" for usage.`);
   }
 }
 
 function parseArgs(argv: string[]): ParsedArgs {
-  const [command = "help", ...rest] = argv;
+  let command = "";
   const flags: Record<string, string | boolean> = {};
   const positionals: string[] = [];
 
-  for (let index = 0; index < rest.length; index += 1) {
-    const arg = rest[index]!;
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index]!;
     if (!arg.startsWith("--")) {
-      positionals.push(arg);
+      if (!command) {
+        command = arg;
+      } else {
+        positionals.push(arg);
+      }
       continue;
     }
 
@@ -97,7 +102,7 @@ function parseArgs(argv: string[]): ParsedArgs {
       continue;
     }
 
-    const next = rest[index + 1];
+    const next = argv[index + 1];
     if (next && !next.startsWith("--")) {
       flags[raw] = next;
       index += 1;
@@ -107,7 +112,7 @@ function parseArgs(argv: string[]): ParsedArgs {
     flags[raw] = true;
   }
 
-  return { command, positionals, flags };
+  return { command: command || "help", positionals, flags };
 }
 
 function getStringFlag(args: ParsedArgs, name: string): string | undefined {
@@ -152,8 +157,13 @@ function renderEvent(event: DevMachineEvent): void {
   }
 }
 
-function printHelp(): void {
-  console.log(`fdev
+function printHelp(command?: string): void {
+  if (command && commandHelp[command]) {
+    console.log(commandHelp[command]);
+    return;
+  }
+
+  console.log(`fdev - Freestyle dev machine CLI
 
 Commands:
   fdev machines
@@ -162,8 +172,69 @@ Commands:
   fdev fork [machine] --name <workspace>
   fdev terminal <workspace-or-vm-id> [--print]
   fdev snapshot <workspace> [--label <label>]
+
+Global options:
+  --project <dir>       Directory containing freestyle.dev.ts
+  --help, -h            Show help
+
+Examples:
+  fdev --project examples/smoke plan smoke
+  fdev --project examples/smoke apply smoke
+  fdev --project examples/smoke fork smoke --name smoke-1
+  fdev --project examples/smoke terminal smoke-1 --print
+
+Command help:
+  fdev help plan
+  fdev help apply
+  fdev help fork
+  fdev help terminal
 `);
 }
+
+const commandHelp: Record<string, string> = {
+  machines: `fdev machines
+
+List machines exported by freestyle.dev.ts.
+
+Usage:
+  fdev machines [--project <dir>]
+`,
+  plan: `fdev plan [machine]
+
+Load freestyle.dev.ts, compute migration keys, and show which migrations are cached or pending.
+
+Usage:
+  fdev plan [machine] [--project <dir>]
+`,
+  apply: `fdev apply [machine]
+
+Resolve a dev machine by running missing migrations and snapshotting after each successful migration.
+
+Usage:
+  fdev apply [machine] [--project <dir>]
+`,
+  fork: `fdev fork <machine> --name <workspace>
+
+Resolve a dev machine and create a workspace VM from its latest snapshot.
+
+Usage:
+  fdev fork <machine> --name <workspace> [--project <dir>]
+`,
+  terminal: `fdev terminal <workspace-or-vm-id>
+
+Open SSH to a workspace or VM. Use --print to print the SSH command without executing it.
+
+Usage:
+  fdev terminal <workspace-or-vm-id> [--print] [--project <dir>]
+`,
+  snapshot: `fdev snapshot <workspace>
+
+Create a snapshot from a workspace VM.
+
+Usage:
+  fdev snapshot <workspace> [--label <label>] [--project <dir>]
+`,
+};
 
 main().catch((error) => {
   console.error(error instanceof Error ? error.message : String(error));

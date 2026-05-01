@@ -1,0 +1,26 @@
+{
+  "name": "@freestyle/fdev",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "fdev": "./src/cli.ts"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "fdev": "bun src/cli.ts",
+    "plan": "bun src/cli.ts plan",
+    "build": "tsc --noEmit",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "freestyle": "latest"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "latest"
+  }
+}
