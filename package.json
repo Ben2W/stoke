@@ -9,12 +9,11 @@
     "typecheck": "turbo typecheck",
     "test": "turbo test",
     "fdev": "pnpm --filter @freestyle/fdev fdev",
-    "smoke:plan": "pnpm --filter @freestyle/fdev fdev --project ../../examples/smoke plan smoke",
-    "smoke:apply": "pnpm --filter @freestyle/fdev fdev --project ../../examples/smoke apply smoke"
+    "smoke:plan": "pnpm --filter @freestyle/fdev fdev -C ../../examples/smoke plan",
+    "smoke:apply": "pnpm --filter @freestyle/fdev fdev -C ../../examples/smoke apply"
   },
   "devDependencies": {
     "turbo": "latest",
     "typescript": "latest"
   }
 }
-

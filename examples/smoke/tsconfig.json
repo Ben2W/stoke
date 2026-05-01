@@ -1,5 +1,4 @@
 {
   "extends": "../../tsconfig.base.json",
-  "include": ["freestyle.dev.ts"]
+  "include": ["fdev.config.ts"]
 }
-

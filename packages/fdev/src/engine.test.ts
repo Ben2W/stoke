@@ -10,7 +10,7 @@ describe("DevMachineEngine", () => {
   test("plans, applies migrations, reuses cached prefixes, and forks workspaces", async () => {
     const projectDir = mkdtempSync(join(tmpdir(), "fdev-"));
     writeFileSync(
-      join(projectDir, "freestyle.dev.ts"),
+      join(projectDir, "fdev.config.ts"),
       `
         import { defineDevMachine, defineMigration } from "${import.meta.dir}/index.ts";
 
@@ -42,19 +42,23 @@ describe("DevMachineEngine", () => {
 
     await engine.load();
 
-    const initial = await engine.plan({ machine: "test" });
+    const initial = await engine.plan();
     expect(initial.cachedPrefixLength).toBe(0);
 
-    const applied = await engine.apply({ machine: "test" });
+    const applied = await engine.apply();
     expect(applied.snapshotId).toBe("snap-2");
     expect(provider.snapshots).toHaveLength(2);
 
-    const cached = await engine.plan({ machine: "test" });
+    const cached = await engine.plan();
     expect(cached.cachedPrefixLength).toBe(2);
 
-    const workspace = await engine.fork({ machine: "test", name: "work" });
+    const workspace = await engine.fork({ name: "work" });
     expect(workspace.snapshotId).toBe("snap-2");
     expect(workspace.name).toBe("work");
+    expect(engine.listWorkspaces()).toHaveLength(1);
+
+    await engine.deleteWorkspace({ workspace: "work" });
+    expect(engine.listWorkspaces()).toHaveLength(0);
   });
 });
 

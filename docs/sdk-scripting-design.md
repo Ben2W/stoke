@@ -102,6 +102,8 @@ export default defineDevMachine({
 });
 ```
 
+For v1, a config file exports exactly one dev machine. Multiple machines should be represented as multiple config files or directories, selected with `-C <dir>` or `--config <file>`.
+
 The `apiKey` authenticates the SDK against the Freestyle API. The `image`, CPU, memory, and disk settings describe the root machine substrate. Everything that mutates the filesystem, shell, repos, tools, auth, or config should be a migration.
 
 ### Migration
@@ -197,7 +199,7 @@ The important contract is that `apiKey` authenticates the SDK with Freestyle; mi
 ### Full Example
 
 ```ts
-// freestyle.dev.ts
+// fdev.config.ts
 import {
   defineDevMachine,
   defineMigration,
@@ -408,7 +410,7 @@ export const teamMigrations = [
 ```
 
 ```ts
-// freestyle.dev.ts
+// fdev.config.ts
 import { teamMigrations } from "@freestyle/team-dev-machine";
 
 const benDotfiles = defineMigration("user:ben-dotfiles", async ({ vm, step }) => {
@@ -685,9 +687,9 @@ The SDK provides control flow and VM access. The user owns the definition of "re
 The dev machine chain produces a current snapshot. Workspaces fork from that snapshot.
 
 ```bash
-fdev apply freestyle-platform
-fdev fork freestyle-platform --name fix-billing-bug
-fdev terminal fix-billing-bug
+fdev apply
+fdev fork --name fix-billing-bug
+fdev ssh fix-billing-bug
 fdev run fix-billing-bug --agent codex
 ```
 
@@ -725,7 +727,7 @@ Most users should maintain dev machine definitions in a dedicated repo, similar 
 ```text
 freestyle-dev-machines/
   package.json
-  freestyle.dev.ts
+  fdev.config.ts
   .env
   .env.example
   migrations/
@@ -733,12 +735,9 @@ freestyle-dev-machines/
     repos.ts
     auth.ts
     dotfiles.ts
-  machines/
-    platform.ts
-    personal.ts
 ```
 
-The repo is where teams and users iterate on remote dev state over time. It should be editable, reviewable, and shareable. A team can own shared migrations, and each user can add private migrations or machine definitions.
+The repo is where teams and users iterate on remote dev state over time. It should be editable, reviewable, and shareable. A team can own shared migrations, and each user can add private migrations in their own config repo or with `--config` pointed at a personal config file.
 
 `package.json` can expose the CLI commands for the repo:
 
@@ -762,7 +761,7 @@ cd dev-machines
 cp .env.example .env
 pnpm install
 fdev plan
-fdev apply freestyle-platform
+fdev apply
 ```
 
 Later, once the app exists, `bun start` can become `fdev app` and open the local cmux-like UI for the same repo.
@@ -784,7 +783,7 @@ There should be a shared execution layer between the SDK definitions and every u
 The architecture should be:
 
 ```text
-freestyle.dev.ts
+fdev.config.ts
   -> SDK loader and planner
   -> DevMachineEngine
   -> Freestyle provider
@@ -801,7 +800,7 @@ fdev app ----/
 
 The engine owns:
 
-- loading `freestyle.dev.ts`
+- loading `fdev.config.ts`
 - loading `.env` and resolving `env(...)`
 - validating `defineDevMachine` definitions
 - constructing the Freestyle provider from `apiKey`
@@ -815,9 +814,9 @@ The engine owns:
 - attaching terminals
 - emitting structured events
 
-The CLI should parse arguments, call the engine, render events, and set exit codes. It should not duplicate planner or runner logic.
+The CLI should use Commander for argument parsing and help text. It should call the engine, render events, and set exit codes. It should not duplicate planner or runner logic.
 
-The app should come later as another client of the same engine. In practice, `fdev app` can start a local web server plus an engine process. The browser UI talks to localhost, and that local process reads `.env`, loads `freestyle.dev.ts`, and calls Freestyle with `FREESTYLE_API_KEY`.
+The app should come later as another client of the same engine. In practice, `fdev app` can start a local web server plus an engine process. The browser UI talks to localhost, and that local process reads `.env`, loads `fdev.config.ts`, and calls Freestyle with `FREESTYLE_API_KEY`.
 
 Initial engine API shape:
 
@@ -833,20 +832,17 @@ engine.onEvent((event) => {
 await engine.load();
 
 const plan = await engine.plan({
-  machine: "freestyle-platform",
 });
 
 await engine.apply({
-  machine: "freestyle-platform",
 });
 
 const workspace = await engine.fork({
-  machine: "freestyle-platform",
   name: "fix-billing-bug",
 });
 
 await engine.attachTerminal({
-  workspace: workspace.id,
+  workspaceOrVmId: workspace.name,
 });
 ```
 
@@ -858,12 +854,12 @@ The `fdev` CLI should be the first consumer of the SDK.
 
 ```bash
 fdev plan
-fdev apply freestyle-platform
-fdev fork freestyle-platform --name fix-auth-bug
-fdev terminal fix-auth-bug
+fdev apply
+fdev fork --name fix-auth-bug
+fdev ls
+fdev ssh fix-auth-bug
 fdev snapshot fix-auth-bug --label experiments/fix-auth-bug
-fdev promote experiments/fix-auth-bug --to freestyle-platform
-fdev destroy fix-auth-bug
+fdev rm fix-auth-bug --yes
 fdev gc
 ```
 
@@ -872,10 +868,13 @@ Suggested command responsibilities:
 - `plan`: load TypeScript, validate the migration chain, and print the graph
 - `apply`: resolve the dev machine by running missing migrations
 - `fork`: create a workspace VM from the resolved dev machine snapshot
-- `terminal`: attach to a workspace
+- `ls`: list workspace forks, snapshots, or config metadata
+- `ssh`: attach to a workspace or VM
 - `snapshot`: capture a workspace
-- `promote`: explicitly move a dev machine pointer to a snapshot
-- `gc`: clean old workspaces and unreferenced snapshots
+- `rm`: delete a workspace VM and remove it from local state
+- `gc`: clean stale local cache entries for old machine chains
+
+The CLI should use `fdev.config.ts` in the current directory by default. `-C <dir>` selects another project directory and loads `<dir>/fdev.config.ts`. `--config <file>` loads an exact file. `--json` prints machine-readable output for automation.
 
 ## App Integration
 
@@ -947,7 +946,7 @@ export interface DevMachineProvider {
   openBrowser(vm: VmHandle, options?: BrowserOptions): Promise<BrowserSession>;
   exposePort(vm: VmHandle, port: number): Promise<PortHandle>;
   snapshot(vm: VmHandle, options: SnapshotOptions): Promise<SnapshotHandle>;
-  destroyVm(vm: VmHandle): Promise<void>;
+  deleteVm(vm: VmHandle): Promise<void>;
 }
 ```
 
@@ -957,10 +956,10 @@ The top-level SDK should expose dev machine concepts. Provider-specific Freestyl
 
 Build the engine and CLI first. Do not build the app in the first implementation pass.
 
-1. TypeScript loader for `freestyle.dev.ts`.
+1. TypeScript loader for `fdev.config.ts`.
 2. Authoring API: `defineDevMachine({ name, apiKey, image, migrations })`.
 3. Authoring API: `defineMigration(name, fn)` and typed migration inputs.
-4. `DevMachineEngine` with `load`, `plan`, `apply`, `fork`, and `attachTerminal`.
+4. `DevMachineEngine` with `load`, `plan`, `apply`, `fork`, `attachTerminal`, workspace listing, and workspace deletion.
 5. Freestyle provider constructed from `defineDevMachine.apiKey`.
 6. Migration context with `vm`, `step`, `interact.terminal`, and `snapshot`.
 7. Snapshot after each successful migration.
@@ -969,7 +968,9 @@ Build the engine and CLI first. Do not build the app in the first implementation
 10. `fdev plan`.
 11. `fdev apply`.
 12. `fdev fork`.
-13. `fdev terminal`.
+13. `fdev ls`.
+14. `fdev ssh`.
+15. `fdev rm`.
 
 This proves the state model and CLI loop before building the app or multi-agent experience.
 

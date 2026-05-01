@@ -17,6 +17,7 @@
     "test": "bun test"
   },
   "dependencies": {
+    "commander": "^14.0.3",
     "freestyle": "latest"
   },
   "devDependencies": {

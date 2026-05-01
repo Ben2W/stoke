@@ -8,7 +8,8 @@ Run from this directory:
 pnpm plan
 pnpm apply
 pnpm fork
-pnpm exec fdev terminal smoke-workspace --print
+pnpm exec fdev ls
+pnpm exec fdev ssh smoke-workspace --print
 ```
 
-The Freestyle API key is read from the repo root `.env` when commands are run from the root with `--project`, or from this directory's environment when run directly.
+The Freestyle API key is read from the repo root `.env` when commands are run from the root with `-C examples/smoke`, or from this directory's environment when run directly.

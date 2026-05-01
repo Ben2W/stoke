@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { isDevMachine, isMigration } from "./authoring.ts";
 import { loadDotEnv } from "./env-file.ts";
@@ -22,22 +22,57 @@ import type {
 
 export type CreateDevMachineEngineOptions = {
   projectDir?: string;
+  configPath?: string;
   providerFactory?: (apiKey: string) => DevMachineProvider;
 };
 
 export type EngineLoadResult = {
+  machine: LoadedMachine;
   machines: LoadedMachine[];
+  projectDir: string;
+  configPath: string;
+  statePath: string;
+};
+
+export type EngineProjectInfo = {
+  projectDir: string;
+  configPath: string;
+  statePath: string;
+  machine?: MachineSummary;
+};
+
+export type MachineSummary = {
+  name: string;
+  image: string;
+  cpu?: number;
+  memory?: string | number;
+  disk?: string | number;
+  idleTimeoutSeconds?: number | null;
+  migrations: string[];
+  workspace?: LoadedMachine["workspace"];
+};
+
+export type GarbageCollectResult = {
+  staleSnapshots: SnapshotRecord[];
+  staleWorkspaces: WorkspaceRecord[];
+  removedSnapshots: number;
+  removedWorkspaces: number;
+  dryRun: boolean;
 };
 
 export class DevMachineEngine {
   private readonly projectDir: string;
+  private readonly configPath: string;
   private readonly state: StateStore;
   private readonly providerFactory: (apiKey: string) => DevMachineProvider;
   private readonly handlers = new Set<EventHandler>();
   private machines = new Map<string, LoadedMachine>();
 
   constructor(options: CreateDevMachineEngineOptions = {}) {
-    this.projectDir = resolve(options.projectDir ?? process.cwd());
+    this.configPath = options.configPath
+      ? resolve(options.configPath)
+      : join(resolve(options.projectDir ?? process.cwd()), "fdev.config.ts");
+    this.projectDir = resolve(options.configPath ? dirname(this.configPath) : options.projectDir ?? process.cwd());
     this.state = new StateStore(this.projectDir);
     this.providerFactory = options.providerFactory ?? ((apiKey) => createFreestyleProvider({ apiKey }));
   }
@@ -50,16 +85,18 @@ export class DevMachineEngine {
   async load(): Promise<EngineLoadResult> {
     loadDotEnv(this.projectDir);
 
-    const configPath = await findConfig(this.projectDir);
-    if (!configPath) {
-      throw new Error(`No freestyle.dev.ts found in ${this.projectDir}`);
+    if (!existsSync(this.configPath)) {
+      throw new Error(
+        `No fdev config found at ${this.configPath}. Create one with "fdev init" or pass --config <file>.`,
+      );
     }
 
-    const moduleUrl = pathToFileURL(configPath);
+    const moduleUrl = pathToFileURL(this.configPath);
     moduleUrl.searchParams.set("t", String(Date.now()));
     const mod = await import(moduleUrl.href);
-    const definitions = normalizeDefinitions(mod.default ?? mod.machines);
-    const loaded = await Promise.all(definitions.map((definition) => this.resolveMachine(definition)));
+    const definition = normalizeDefinition(mod.default ?? mod.machine);
+    const machine = await this.resolveMachine(definition);
+    const loaded = [machine];
 
     this.machines = new Map(loaded.map((machine) => [machine.name, machine]));
 
@@ -67,11 +104,34 @@ export class DevMachineEngine {
       this.emit({ type: "definition.loaded", machine: machine.name });
     }
 
-    return { machines: loaded };
+    return {
+      machine,
+      machines: loaded,
+      projectDir: this.projectDir,
+      configPath: this.configPath,
+      statePath: this.state.path,
+    };
   }
 
   listMachines(): LoadedMachine[] {
     return [...this.machines.values()];
+  }
+
+  getProjectInfo(): EngineProjectInfo {
+    return {
+      projectDir: this.projectDir,
+      configPath: this.configPath,
+      statePath: this.state.path,
+      machine: this.machines.size === 1 ? summarizeMachine([...this.machines.values()][0]!) : undefined,
+    };
+  }
+
+  listWorkspaces(): WorkspaceRecord[] {
+    return Object.values(this.state.read().workspaces).sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  listSnapshots(): SnapshotRecord[] {
+    return [...this.state.read().snapshots].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
 
   async plan(input: { machine?: string } = {}): Promise<MachinePlan> {
@@ -218,13 +278,18 @@ export class DevMachineEngine {
     return workspace;
   }
 
-  async attachTerminal(input: { workspaceOrVmId: string; machine?: string; printOnly?: boolean }): Promise<{ command: string }> {
+  async attachTerminal(input: {
+    workspaceOrVmId: string;
+    machine?: string;
+    printOnly?: boolean;
+    user?: string;
+  }): Promise<{ command: string }> {
     const state = this.state.read();
     const workspace = state.workspaces[input.workspaceOrVmId];
     const vmId = workspace?.vmId ?? input.workspaceOrVmId;
     const machine = this.getMachine(input.machine ?? workspace?.machine);
     const provider = this.providerFactory(machine.apiKey);
-    const terminal = await provider.openTerminal({ vmId });
+    const terminal = await provider.openTerminal({ vmId }, { user: input.user });
 
     if (!input.printOnly) {
       const proc = Bun.spawn(["sh", "-lc", terminal.command], {
@@ -236,6 +301,50 @@ export class DevMachineEngine {
     }
 
     return terminal;
+  }
+
+  async deleteWorkspace(input: { workspace: string; machine?: string }): Promise<WorkspaceRecord> {
+    const workspace = this.state.read().workspaces[input.workspace];
+    if (!workspace) throw new Error(`Unknown workspace ${input.workspace}`);
+
+    const machine = this.getMachine(input.machine ?? workspace.machine);
+    const provider = this.providerFactory(machine.apiKey);
+    await provider.deleteVm({ vmId: workspace.vmId });
+
+    this.state.update((state) => {
+      delete state.workspaces[input.workspace];
+    });
+
+    return workspace;
+  }
+
+  async gc(input: { dryRun?: boolean } = {}): Promise<GarbageCollectResult> {
+    const machine = this.getMachine(undefined);
+    const chain = this.buildChain(machine);
+    const state = this.state.read();
+    const staleSnapshots = state.snapshots.filter(
+      (snapshot) => snapshot.machine !== machine.name || snapshot.machineKey !== chain.machineKey,
+    );
+    const staleWorkspaces = Object.values(state.workspaces).filter((workspace) => workspace.machine !== machine.name);
+
+    if (!input.dryRun && (staleSnapshots.length > 0 || staleWorkspaces.length > 0)) {
+      this.state.update((next) => {
+        const staleSnapshotIds = new Set(staleSnapshots.map((snapshot) => snapshot.id));
+        const staleWorkspaceNames = new Set(staleWorkspaces.map((workspace) => workspace.name));
+        next.snapshots = next.snapshots.filter((snapshot) => !staleSnapshotIds.has(snapshot.id));
+        for (const name of staleWorkspaceNames) {
+          delete next.workspaces[name];
+        }
+      });
+    }
+
+    return {
+      staleSnapshots,
+      staleWorkspaces,
+      removedSnapshots: input.dryRun ? 0 : staleSnapshots.length,
+      removedWorkspaces: input.dryRun ? 0 : staleWorkspaces.length,
+      dryRun: input.dryRun ?? false,
+    };
   }
 
   async snapshotWorkspace(input: { workspace: string; label?: string; machine?: string }): Promise<SnapshotRecord> {
@@ -472,21 +581,27 @@ export async function createDevMachineEngine(
   return new DevMachineEngine(options);
 }
 
-async function findConfig(projectDir: string): Promise<string | undefined> {
-  for (const name of ["freestyle.dev.ts", "freestyle.dev.mts", "freestyle.dev.js", "freestyle.dev.mjs"]) {
-    const path = join(projectDir, name);
-    if (existsSync(path)) return path;
+function normalizeDefinition(value: unknown): DevMachineDefinition<any> {
+  if (Array.isArray(value)) {
+    throw new Error(`fdev.config.ts must default export exactly one dev machine`);
   }
-  return undefined;
+  if (!isDevMachine(value)) {
+    throw new Error(`fdev.config.ts must default export defineDevMachine({ ... })`);
+  }
+  return value;
 }
 
-function normalizeDefinitions(value: unknown): DevMachineDefinition<any>[] {
-  const values = Array.isArray(value) ? value : [value];
-  const definitions = values.filter(isDevMachine);
-  if (definitions.length === 0) {
-    throw new Error(`freestyle.dev.ts must default export a dev machine or array of dev machines`);
-  }
-  return definitions;
+function summarizeMachine(machine: LoadedMachine): MachineSummary {
+  return {
+    name: machine.name,
+    image: machine.image,
+    cpu: machine.cpu,
+    memory: machine.memory,
+    disk: machine.disk,
+    idleTimeoutSeconds: machine.idleTimeoutSeconds,
+    migrations: machine.migrations.map((migration) => migration.name),
+    workspace: machine.workspace,
+  };
 }
 
 function isPrefix(prefix: string[], full: string[]): boolean {
