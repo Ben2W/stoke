@@ -8,6 +8,7 @@ install_dir="${FDEV_INSTALL_DIR:-$fdev_home/bin}"
 
 os="$(uname -s)"
 arch="$(uname -m)"
+shell_name="$(basename "${SHELL:-}")"
 
 case "$os" in
   Darwin) os_name="darwin" ;;
@@ -58,8 +59,7 @@ update_path() {
   if grep -F "$install_dir" "$profile" >/dev/null 2>&1; then
     echo ""
     echo "fdev install directory is already referenced in $profile"
-    echo "Restart your shell or run:"
-    echo "  source \"$profile\""
+    print_current_shell_instructions
     return
   fi
 
@@ -82,11 +82,7 @@ update_path() {
 
   echo ""
   echo "Added fdev to PATH in $profile"
-  echo "Restart your shell or run:"
-  case "$profile" in
-    *.fish) echo "  source \"$profile\"" ;;
-    *) echo "  . \"$profile\"" ;;
-  esac
+  print_current_shell_instructions
 }
 
 detect_profile() {
@@ -95,7 +91,6 @@ detect_profile() {
     return
   fi
 
-  shell_name="$(basename "${SHELL:-}")"
   case "$shell_name" in
     zsh)
       echo "$HOME/.zshrc"
@@ -129,7 +124,19 @@ detect_profile() {
 print_path_instructions() {
   echo ""
   echo "Add this to your shell profile:"
-  echo "  export PATH=\"$install_dir:\$PATH\""
+  case "$shell_name" in
+    fish) echo "  fish_add_path \"$install_dir\"" ;;
+    *) echo "  export PATH=\"$install_dir:\$PATH\"" ;;
+  esac
+  print_current_shell_instructions
+}
+
+print_current_shell_instructions() {
+  echo "Restart your shell, or run this now:"
+  case "$shell_name" in
+    fish) echo "  set -gx PATH \"$install_dir\" \$PATH" ;;
+    *) echo "  export PATH=\"$install_dir:\$PATH\"" ;;
+  esac
 }
 
 tmp_dir="$(mktemp -d)"
