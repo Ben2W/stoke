@@ -26,6 +26,7 @@ type InitOptions = GlobalOptions & {
   force?: boolean;
   name?: string;
   apiKey?: string;
+  packageManager?: PackageManager;
 };
 
 type ApplyOptions = GlobalOptions & {
@@ -49,6 +50,14 @@ type RemoveOptions = GlobalOptions & {
   yes?: boolean;
 };
 
+type PackageManager = "npm" | "bun" | "pnpm" | "skip";
+
+type InitInstallResult = {
+  packageManager: PackageManager;
+  command?: string;
+  skipped: boolean;
+};
+
 const program = new Command();
 
 program
@@ -65,6 +74,7 @@ program
   .description("Initialize an fdev project")
   .option("--name <name>", "Project and dev machine name")
   .option("--api-key <key>", "Freestyle API key")
+  .option("--package-manager <manager>", "Install with npm, bun, pnpm, or skip", parsePackageManager)
   .option("--force", "Overwrite an existing config file")
   .option("--json", "Print machine-readable JSON")
   .action(async function (this: Command) {
@@ -252,25 +262,30 @@ async function runInit(command: Command, options: InitOptions): Promise<void> {
     apiKey: answers.apiKey,
     force: options.force,
   });
+  const install = await runPackageManagerInstall(paths.projectDir, answers.packageManager, wantsJson(command));
 
   if (wantsJson(command)) {
-    printJson(result);
+    printJson({ ...result, install });
     return;
   }
 
-  printInitResult(result);
+  printInitResult(result, install);
 }
 
 async function resolveInitAnswers(
   projectDir: string,
   options: InitOptions,
   jsonMode: boolean,
-): Promise<{ name: string; apiKey: string }> {
-  if (jsonMode && (!options.name || !options.apiKey)) {
+): Promise<{ name: string; apiKey: string; packageManager: PackageManager }> {
+  if (jsonMode && (options.name === undefined || !options.apiKey?.trim())) {
     throw new Error(`fdev init --json requires --name and --api-key`);
   }
 
-  if (!options.name || !options.apiKey) {
+  if (jsonMode && options.packageManager && options.packageManager !== "skip") {
+    throw new Error(`fdev init --json only supports --package-manager skip`);
+  }
+
+  if (options.name === undefined || !options.apiKey) {
     assertInteractiveInit();
   }
 
@@ -280,20 +295,26 @@ async function resolveInitAnswers(
     console.log("");
   }
 
-  const name = options.name
+  const name = options.name !== undefined
     ? normalizeMachineName(options.name)
     : await promptName(defaultProjectName(projectDir));
   const apiKey = options.apiKey?.trim() || await promptRequiredSecret("Freestyle API key");
+  const packageManager = options.packageManager ?? (jsonMode || !canPrompt() ? "skip" : await promptPackageManager("skip"));
 
   return {
     name,
     apiKey,
+    packageManager,
   };
 }
 
 function assertInteractiveInit(): void {
-  if (process.stdin.isTTY && process.stdout.isTTY) return;
+  if (canPrompt()) return;
   throw new Error(`fdev init needs --name and --api-key when not running in an interactive terminal`);
+}
+
+function canPrompt(): boolean {
+  return Boolean(process.stdin.isTTY && process.stdout.isTTY);
 }
 
 async function promptName(defaultName: string): Promise<string> {
@@ -319,6 +340,23 @@ async function promptRequiredSecret(label: string): Promise<string> {
     const value = (await promptSecret(label)).trim();
     if (value) return value;
     console.log(chalk.red(`${label} is required.`));
+  }
+}
+
+async function promptPackageManager(defaultValue: PackageManager): Promise<PackageManager> {
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  const choices = "npm, bun, pnpm, skip";
+
+  try {
+    for (;;) {
+      const prompt = `${chalk.cyan("?")} Install dependencies with which package manager? ${chalk.dim(`(${choices}; default ${defaultValue})`)} `;
+      const answer = (await rl.question(prompt)).trim().toLowerCase();
+      const value = answer || defaultValue;
+      if (isPackageManager(value)) return value;
+      console.log(chalk.red(`Choose one of: ${choices}.`));
+    }
+  } finally {
+    rl.close();
   }
 }
 
@@ -393,7 +431,37 @@ async function promptSecret(label: string): Promise<string> {
   });
 }
 
-function printInitResult(result: InitProjectResult): void {
+async function runPackageManagerInstall(
+  projectDir: string,
+  packageManager: PackageManager,
+  jsonMode: boolean,
+): Promise<InitInstallResult> {
+  if (packageManager === "skip") {
+    return { packageManager, skipped: true };
+  }
+
+  const command = packageManagerInstallCommand(packageManager);
+  if (!jsonMode) {
+    console.log("");
+    console.log(`${chalk.cyan("installing")} ${command.join(" ")}`);
+  }
+
+  const proc = Bun.spawn(command, {
+    cwd: projectDir,
+    stdin: "inherit",
+    stdout: jsonMode ? "pipe" : "inherit",
+    stderr: jsonMode ? "pipe" : "inherit",
+  });
+  const exitCode = await proc.exited;
+
+  if (exitCode !== 0) {
+    throw new Error(`${command.join(" ")} failed with exit code ${exitCode}`);
+  }
+
+  return { packageManager, command: command.join(" "), skipped: false };
+}
+
+function printInitResult(result: InitProjectResult, install: InitInstallResult): void {
   console.log("");
   console.log(`${chalk.green("fdev initialized")} ${chalk.bold(result.name)}`);
   printInitLine(result.created.config ? "created" : "updated", result.configPath);
@@ -406,9 +474,17 @@ function printInitResult(result: InitProjectResult): void {
     console.log(`${chalk.green("pinned")} ${SDK_PACKAGE_NAME}@${FDEV_CLI_VERSION}`);
   }
 
+  if (install.skipped) {
+    console.log(`${chalk.dim("install")} skipped`);
+  } else if (install.command) {
+    console.log(`${chalk.green("installed")} ${install.command}`);
+  }
+
   console.log("");
   console.log(chalk.bold("Next steps"));
-  console.log(`  ${detectInstallCommand(result.packageJsonPath)}`);
+  if (install.skipped) {
+    console.log(`  ${detectInstallCommand(result.packageJsonPath)}`);
+  }
   console.log("  fdev plan");
 }
 
@@ -424,6 +500,27 @@ function detectInstallCommand(packageJsonPath: string): string {
   if (existsSync(join(projectDir, "yarn.lock"))) return "yarn install";
   if (existsSync(join(projectDir, "package-lock.json"))) return "npm install";
   return "npm install";
+}
+
+function parsePackageManager(value: string): PackageManager {
+  const normalized = value.trim().toLowerCase();
+  if (isPackageManager(normalized)) return normalized;
+  throw new Error(`Expected npm, bun, pnpm, or skip`);
+}
+
+function isPackageManager(value: string): value is PackageManager {
+  return value === "npm" || value === "bun" || value === "pnpm" || value === "skip";
+}
+
+function packageManagerInstallCommand(packageManager: Exclude<PackageManager, "skip">): string[] {
+  switch (packageManager) {
+    case "bun":
+      return ["bun", "install"];
+    case "pnpm":
+      return ["pnpm", "install"];
+    case "npm":
+      return ["npm", "install"];
+  }
 }
 
 async function loadEngine(command: Command): Promise<DevMachineEngine> {

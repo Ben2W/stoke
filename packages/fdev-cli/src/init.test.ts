@@ -70,4 +70,9 @@ describe("normalizeMachineName", () => {
   test("normalizes human names into machine names", () => {
     expect(normalizeMachineName("  My Platform API  ")).toBe("my-platform-api");
   });
+
+  test("defaults empty names to fdev", () => {
+    expect(normalizeMachineName("   ")).toBe("fdev");
+    expect(normalizeMachineName("!!!")).toBe("fdev");
+  });
 });

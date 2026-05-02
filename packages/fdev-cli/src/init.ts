@@ -3,6 +3,8 @@ import { basename, join } from "node:path";
 import { FDEV_CLI_VERSION } from "./version.ts";
 import { SDK_PACKAGE_NAME } from "./project.ts";
 
+export const DEFAULT_MACHINE_NAME = "fdev";
+
 export type InitProjectInput = {
   projectDir: string;
   configPath: string;
@@ -86,8 +88,7 @@ export function defaultProjectName(projectDir: string): string {
 
 export function normalizeMachineName(value: string): string {
   const name = value.trim().toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
-  if (!name) throw new Error("Name is required.");
-  return name;
+  return name || DEFAULT_MACHINE_NAME;
 }
 
 export function starterConfig(name: string): string {
