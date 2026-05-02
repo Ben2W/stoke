@@ -1,6 +1,8 @@
 #!/usr/bin/env bun
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { basename, dirname, join } from "node:path";
+import { existsSync, mkdirSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { createInterface } from "node:readline/promises";
+import chalk from "chalk";
 import { Command } from "commander";
 import {
   createDevMachineEngine,
@@ -12,6 +14,7 @@ import {
 } from "@freestyle/fdev-engine";
 import { assertVersionAlignment, DEFAULT_CONFIG_FILE, resolveConfigPaths, SDK_PACKAGE_NAME } from "./project.ts";
 import { FDEV_CLI_VERSION } from "./version.ts";
+import { defaultProjectName, initProject, normalizeMachineName, type InitProjectResult } from "./init.ts";
 
 type GlobalOptions = {
   project?: string;
@@ -21,6 +24,8 @@ type GlobalOptions = {
 
 type InitOptions = GlobalOptions & {
   force?: boolean;
+  name?: string;
+  apiKey?: string;
 };
 
 type ApplyOptions = GlobalOptions & {
@@ -57,7 +62,9 @@ program
 
 program
   .command("init")
-  .description(`Create a starter ${DEFAULT_CONFIG_FILE}`)
+  .description("Initialize an fdev project")
+  .option("--name <name>", "Project and dev machine name")
+  .option("--api-key <key>", "Freestyle API key")
   .option("--force", "Overwrite an existing config file")
   .option("--json", "Print machine-readable JSON")
   .action(async function (this: Command) {
@@ -231,50 +238,192 @@ program.parseAsync(process.argv).catch((error) => {
 
 async function runInit(command: Command, options: InitOptions): Promise<void> {
   const paths = resolveCommandConfigPaths(command);
-  mkdirSync(dirname(paths.configPath), { recursive: true });
+  mkdirSync(paths.projectDir, { recursive: true });
 
   if (existsSync(paths.configPath) && !options.force) {
     throw new Error(`${paths.configPath} already exists. Pass --force to overwrite it.`);
   }
 
-  const wroteConfig = !existsSync(paths.configPath) || Boolean(options.force);
-  if (wroteConfig) {
-    writeFileSync(paths.configPath, starterConfig());
-  }
-
-  const envExamplePath = join(dirname(paths.configPath), ".env.example");
-  const wroteEnvExample = !existsSync(envExamplePath);
-  if (wroteEnvExample) {
-    writeFileSync(envExamplePath, "FREESTYLE_API_KEY=\n");
-  }
-
-  const packageJson = ensureProjectPackageJson(paths.projectDir);
-
-  const result = {
+  const answers = await resolveInitAnswers(paths.projectDir, options, wantsJson(command));
+  const result = initProject({
+    projectDir: paths.projectDir,
     configPath: paths.configPath,
-    envExamplePath,
-    packageJsonPath: packageJson.path,
-    created: {
-      config: wroteConfig,
-      envExample: wroteEnvExample,
-      packageJson: packageJson.created,
-    },
-    updated: {
-      sdkDependency: packageJson.sdkDependencyChanged,
-    },
-  };
+    name: answers.name,
+    apiKey: answers.apiKey,
+    force: options.force,
+  });
 
   if (wantsJson(command)) {
     printJson(result);
     return;
   }
 
-  console.log(`created ${paths.configPath}`);
-  if (wroteEnvExample) console.log(`created ${envExamplePath}`);
-  if (packageJson.created) console.log(`created ${packageJson.path}`);
-  if (packageJson.sdkDependencyChanged) {
-    console.log(`pinned ${SDK_PACKAGE_NAME}@${FDEV_CLI_VERSION}`);
+  printInitResult(result);
+}
+
+async function resolveInitAnswers(
+  projectDir: string,
+  options: InitOptions,
+  jsonMode: boolean,
+): Promise<{ name: string; apiKey: string }> {
+  if (jsonMode && (!options.name || !options.apiKey)) {
+    throw new Error(`fdev init --json requires --name and --api-key`);
   }
+
+  if (!options.name || !options.apiKey) {
+    assertInteractiveInit();
+  }
+
+  if (!jsonMode) {
+    console.log(chalk.bold("Initialize fdev"));
+    console.log(chalk.dim("This creates fdev.config.ts, .env, package.json, and local ignore rules."));
+    console.log("");
+  }
+
+  const name = options.name
+    ? normalizeMachineName(options.name)
+    : await promptName(defaultProjectName(projectDir));
+  const apiKey = options.apiKey?.trim() || await promptRequiredSecret("Freestyle API key");
+
+  return {
+    name,
+    apiKey,
+  };
+}
+
+function assertInteractiveInit(): void {
+  if (process.stdin.isTTY && process.stdout.isTTY) return;
+  throw new Error(`fdev init needs --name and --api-key when not running in an interactive terminal`);
+}
+
+async function promptName(defaultName: string): Promise<string> {
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+
+  try {
+    for (;;) {
+      const prompt = `${chalk.cyan("?")} What do you want to call it? ${chalk.dim(`(${defaultName})`)} `;
+      const answer = await rl.question(prompt);
+      try {
+        return normalizeMachineName(answer || defaultName);
+      } catch (error) {
+        console.log(chalk.red(error instanceof Error ? error.message : String(error)));
+      }
+    }
+  } finally {
+    rl.close();
+  }
+}
+
+async function promptRequiredSecret(label: string): Promise<string> {
+  for (;;) {
+    const value = (await promptSecret(label)).trim();
+    if (value) return value;
+    console.log(chalk.red(`${label} is required.`));
+  }
+}
+
+async function promptSecret(label: string): Promise<string> {
+  const stdin = process.stdin;
+  const stdout = process.stdout;
+  const canUseRawMode = Boolean(stdin.isTTY && stdout.isTTY && stdin.setRawMode);
+
+  if (!canUseRawMode) {
+    const rl = createInterface({ input: stdin, output: stdout });
+    try {
+      return await rl.question(`${chalk.cyan("?")} ${label}: `);
+    } finally {
+      rl.close();
+    }
+  }
+
+  return new Promise<string>((resolve, reject) => {
+    let value = "";
+    const wasRaw = stdin.isRaw;
+
+    const cleanup = () => {
+      stdin.off("data", onData);
+      stdin.setRawMode(wasRaw);
+      stdin.pause();
+    };
+
+    const finish = () => {
+      cleanup();
+      stdout.write("\n");
+      resolve(value);
+    };
+
+    const cancel = () => {
+      cleanup();
+      stdout.write("\n");
+      reject(new Error("Init cancelled."));
+    };
+
+    const onData = (chunk: Buffer | string) => {
+      for (const char of String(chunk)) {
+        if (char === "\u0003") {
+          cancel();
+          return;
+        }
+
+        if (char === "\r" || char === "\n") {
+          finish();
+          return;
+        }
+
+        if (char === "\u007f" || char === "\b") {
+          if (value.length > 0) {
+            value = value.slice(0, -1);
+            stdout.write("\b \b");
+          }
+          continue;
+        }
+
+        if (char >= " ") {
+          value += char;
+          stdout.write("*");
+        }
+      }
+    };
+
+    stdout.write(`${chalk.cyan("?")} ${label}: `);
+    stdin.resume();
+    stdin.setRawMode(true);
+    stdin.setEncoding("utf8");
+    stdin.on("data", onData);
+  });
+}
+
+function printInitResult(result: InitProjectResult): void {
+  console.log("");
+  console.log(`${chalk.green("fdev initialized")} ${chalk.bold(result.name)}`);
+  printInitLine(result.created.config ? "created" : "updated", result.configPath);
+  printInitLine(result.created.env ? "created" : result.updated.envApiKey ? "updated" : "kept", result.envPath);
+  printInitLine(result.created.envExample ? "created" : "kept", result.envExamplePath);
+  printInitLine(result.created.packageJson ? "created" : result.updated.packageJson ? "updated" : "kept", result.packageJsonPath);
+  printInitLine(result.created.gitignore ? "created" : result.updated.gitignore ? "updated" : "kept", result.gitignorePath);
+
+  if (result.updated.sdkDependency) {
+    console.log(`${chalk.green("pinned")} ${SDK_PACKAGE_NAME}@${FDEV_CLI_VERSION}`);
+  }
+
+  console.log("");
+  console.log(chalk.bold("Next steps"));
+  console.log(`  ${detectInstallCommand(result.packageJsonPath)}`);
+  console.log("  fdev plan");
+}
+
+function printInitLine(status: "created" | "updated" | "kept", path: string): void {
+  const color = status === "kept" ? chalk.dim : status === "updated" ? chalk.yellow : chalk.green;
+  console.log(`${color(status.padEnd(7))} ${path}`);
+}
+
+function detectInstallCommand(packageJsonPath: string): string {
+  const projectDir = dirname(packageJsonPath);
+  if (existsSync(join(projectDir, "bun.lock")) || existsSync(join(projectDir, "bun.lockb"))) return "bun install";
+  if (existsSync(join(projectDir, "pnpm-lock.yaml"))) return "pnpm install";
+  if (existsSync(join(projectDir, "yarn.lock"))) return "yarn install";
+  if (existsSync(join(projectDir, "package-lock.json"))) return "npm install";
+  return "npm install";
 }
 
 async function loadEngine(command: Command): Promise<DevMachineEngine> {
@@ -421,62 +570,4 @@ function renderEvent(event: DevMachineEvent): void {
     default:
       return;
   }
-}
-
-function starterConfig(): string {
-  return `import { defineDevMachine, defineMigration, env } from "@freestyle/fdev-sdk";
-
-const verifyNode = defineMigration("verify node 22", async ({ step }) => {
-  await step.assert("node is v22", async ({ vm }) => {
-    const result = await vm.exec("node --version");
-    return result.ok && result.stdout.trim().startsWith("v22.");
-  });
-});
-
-export default defineDevMachine({
-  name: "dev",
-  apiKey: () => env("FREESTYLE_API_KEY"),
-  image: "node-22",
-  migrations: [verifyNode],
-});
-`;
-}
-
-function ensureProjectPackageJson(projectDir: string): { path: string; created: boolean; sdkDependencyChanged: boolean } {
-  const path = join(projectDir, "package.json");
-  const created = !existsSync(path);
-  const pkg = created
-    ? {
-        name: packageNameFromDir(projectDir),
-        private: true,
-        type: "module",
-        scripts: {
-          plan: "fdev plan",
-          apply: "fdev apply",
-        },
-      }
-    : JSON.parse(readFileSync(path, "utf8")) as Record<string, any>;
-
-  const devDependencies = isRecord(pkg.devDependencies) ? pkg.devDependencies : {};
-  const sdkDependencyChanged = devDependencies[SDK_PACKAGE_NAME] !== FDEV_CLI_VERSION;
-  devDependencies[SDK_PACKAGE_NAME] = FDEV_CLI_VERSION;
-  pkg.devDependencies = sortObject(devDependencies);
-
-  if (created || sdkDependencyChanged) {
-    writeFileSync(path, `${JSON.stringify(pkg, null, 2)}\n`);
-  }
-
-  return { path, created, sdkDependencyChanged };
-}
-
-function packageNameFromDir(projectDir: string): string {
-  return basename(projectDir).toLowerCase().replace(/[^a-z0-9._-]+/g, "-") || "fdev-project";
-}
-
-function isRecord(value: unknown): value is Record<string, any> {
-  return Boolean(value && typeof value === "object" && !Array.isArray(value));
-}
-
-function sortObject<T>(value: Record<string, T>): Record<string, T> {
-  return Object.fromEntries(Object.entries(value).sort(([left], [right]) => left.localeCompare(right)));
 }

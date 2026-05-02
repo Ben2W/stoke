@@ -48,6 +48,18 @@ pnpm --filter @freestyle/fdev-cli fdev help
 pnpm --filter @freestyle/fdev-cli fdev help fork
 ```
 
+Initialize a new fdev project:
+
+```bash
+fdev init
+```
+
+`fdev init` asks for a project name and Freestyle API key, then creates `fdev.config.ts`, `.env`, `.env.example`, `package.json`, and `.gitignore` entries. For non-interactive setup:
+
+```bash
+fdev init --name platform --api-key fs_live_...
+```
+
 By default `fdev` loads `fdev.config.ts` from the current directory. Use `-C <dir>` to point at another project directory, or `--config <file>` to load an exact config file.
 
 ## Current Scope
