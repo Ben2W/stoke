@@ -1,0 +1,67 @@
+name: Publish npm Packages
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+jobs:
+  publish-npm:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@9.15.9 --activate
+
+      - name: Setup npm auth
+        run: |
+          if [ -z "${NPM_TOKEN:-}" ]; then
+            echo "Missing NPM_TOKEN secret" >&2
+            exit 1
+          fi
+          echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > "$HOME/.npmrc"
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Check release versions
+        run: |
+          if [ "${GITHUB_REF_TYPE}" != "tag" ]; then
+            version="$(node -p "require('./packages/fdev-cli/package.json').version")"
+            export GITHUB_REF_NAME="v${version}"
+          fi
+          pnpm release:check
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Test
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build
+
+      - name: Dry run package publish
+        run: |
+          pnpm --filter @freestyle/fdev-sdk publish --access public --dry-run --no-git-checks
+          pnpm --filter @freestyle/fdev-engine publish --access public --dry-run --no-git-checks
+          pnpm --filter @freestyle/fdev-cli publish --access public --dry-run --no-git-checks
+
+      - name: Publish packages
+        run: |
+          pnpm --filter @freestyle/fdev-sdk publish --access public --no-git-checks
+          pnpm --filter @freestyle/fdev-engine publish --access public --no-git-checks
+          pnpm --filter @freestyle/fdev-cli publish --access public --no-git-checks

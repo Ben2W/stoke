@@ -15,7 +15,20 @@ git tag v0.1.0
 git push origin v0.1.0
 ```
 
-Pushing a `v*` tag runs `.github/workflows/release-cli.yml`. The workflow verifies that the tag matches the package version, runs checks, builds the Bun-compiled CLI binaries, and creates the GitHub Release assets.
+Pushing a `v*` tag runs:
+
+- `.github/workflows/release-cli.yml`
+- `.github/workflows/publish-npm.yml`
+
+The CLI release workflow verifies that the tag matches the package version, runs checks, builds the Bun-compiled CLI binaries, and creates the GitHub Release assets.
+
+The npm publish workflow verifies the same tag, runs checks, dry-runs package publishing, then publishes the packages to npm in dependency order:
+
+```text
+@freestyle/fdev-sdk
+@freestyle/fdev-engine
+@freestyle/fdev-cli
+```
 
 The release tag, package versions, and hardcoded runtime versions must match exactly:
 
@@ -44,9 +57,25 @@ Even in that model, the published release still comes from a tag.
 
 ## Manual Dispatch
 
-The GitHub workflow also supports manual `workflow_dispatch`. That path derives the tag from `packages/fdev-cli/package.json`.
+The GitHub release workflow also supports manual `workflow_dispatch`. That path derives the tag from `packages/fdev-cli/package.json`.
 
 Use tag pushes for normal releases. Manual dispatch is mainly a convenience for rerunning the current package version from GitHub Actions.
+
+## npm Publishing
+
+npm publishing is CI-only. Do not publish from a laptop.
+
+The GitHub repo must have an `NPM_TOKEN` secret with permission to publish:
+
+```text
+@freestyle/fdev-sdk
+@freestyle/fdev-engine
+@freestyle/fdev-cli
+```
+
+Use an npm automation or granular access token for the `@freestyle` scope. The packages are public scoped packages, so the workflow publishes with `--access public`.
+
+The packages use `workspace:*` dependencies inside the repo. Publishing uses `pnpm publish` so those workspace dependencies are converted to real package versions in the packed artifacts.
 
 ## Installer
 
