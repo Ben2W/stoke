@@ -3,7 +3,8 @@ set -eu
 
 repo="${FDEV_REPO:-freestyle-sh/fdev}"
 version="${FDEV_VERSION:-latest}"
-install_dir="${FDEV_INSTALL_DIR:-$HOME/.freestyle/bin}"
+fdev_home="${FDEV_HOME:-$HOME/.fdev}"
+install_dir="${FDEV_INSTALL_DIR:-$fdev_home/bin}"
 
 os="$(uname -s)"
 arch="$(uname -m)"
@@ -34,6 +35,102 @@ else
   download_url="${base_url}/download/${tag}/${asset}"
   checksum_url="${base_url}/download/${tag}/checksums.txt"
 fi
+
+update_path() {
+  case ":$PATH:" in
+    *":$install_dir:"*) return ;;
+  esac
+
+  if [ "${FDEV_NO_MODIFY_PATH:-}" = "1" ]; then
+    print_path_instructions
+    return
+  fi
+
+  profile="$(detect_profile)"
+  if [ -z "$profile" ]; then
+    print_path_instructions
+    return
+  fi
+
+  mkdir -p "$(dirname "$profile")"
+  touch "$profile"
+
+  if grep -F "$install_dir" "$profile" >/dev/null 2>&1; then
+    echo ""
+    echo "fdev install directory is already referenced in $profile"
+    echo "Restart your shell or run:"
+    echo "  source \"$profile\""
+    return
+  fi
+
+  case "$profile" in
+    *.fish)
+      {
+        echo ""
+        echo "# fdev"
+        echo "fish_add_path \"$install_dir\""
+      } >> "$profile"
+      ;;
+    *)
+      {
+        echo ""
+        echo "# fdev"
+        echo "export PATH=\"$install_dir:\$PATH\""
+      } >> "$profile"
+      ;;
+  esac
+
+  echo ""
+  echo "Added fdev to PATH in $profile"
+  echo "Restart your shell or run:"
+  case "$profile" in
+    *.fish) echo "  source \"$profile\"" ;;
+    *) echo "  . \"$profile\"" ;;
+  esac
+}
+
+detect_profile() {
+  if [ -n "${FDEV_PROFILE:-}" ]; then
+    echo "$FDEV_PROFILE"
+    return
+  fi
+
+  shell_name="$(basename "${SHELL:-}")"
+  case "$shell_name" in
+    zsh)
+      echo "$HOME/.zshrc"
+      return
+      ;;
+    bash)
+      if [ "$os_name" = "darwin" ]; then
+        echo "$HOME/.bash_profile"
+      else
+        echo "$HOME/.bashrc"
+      fi
+      return
+      ;;
+    fish)
+      echo "$HOME/.config/fish/config.fish"
+      return
+      ;;
+  esac
+
+  if [ -f "$HOME/.zshrc" ]; then
+    echo "$HOME/.zshrc"
+  elif [ -f "$HOME/.bashrc" ]; then
+    echo "$HOME/.bashrc"
+  elif [ -f "$HOME/.profile" ]; then
+    echo "$HOME/.profile"
+  else
+    echo "$HOME/.profile"
+  fi
+}
+
+print_path_instructions() {
+  echo ""
+  echo "Add this to your shell profile:"
+  echo "  export PATH=\"$install_dir:\$PATH\""
+}
 
 tmp_dir="$(mktemp -d)"
 trap 'rm -rf "$tmp_dir"' EXIT
@@ -69,13 +166,6 @@ chmod +x "$install_dir/fdev"
 
 echo "Installed fdev to $install_dir/fdev"
 
-case ":$PATH:" in
-  *":$install_dir:"*) ;;
-  *)
-    echo ""
-    echo "Add this to your shell profile:"
-    echo "  export PATH=\"$install_dir:\$PATH\""
-    ;;
-esac
+update_path
 
 "$install_dir/fdev" --version

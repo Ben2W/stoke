@@ -56,4 +56,6 @@ The installer downloads from GitHub Releases:
 curl -fsSL https://raw.githubusercontent.com/freestyle-sh/fdev/main/scripts/install-fdev.sh | sh
 ```
 
+It installs to `~/.fdev/bin/fdev` by default and adds `~/.fdev/bin` to the detected shell profile. Set `FDEV_INSTALL_DIR` to override the install location, or `FDEV_NO_MODIFY_PATH=1` to skip shell profile edits.
+
 `freestyle.sh/fdev/install` can later proxy, redirect, or serve a pinned copy of that script.

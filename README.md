@@ -85,4 +85,4 @@ The release workflow builds:
 - `fdev-linux-x64.tar.gz`
 - `checksums.txt`
 
-The installer script in `scripts/install-fdev.sh` downloads from `github.com/freestyle-sh/fdev` by default and installs to `~/.freestyle/bin/fdev`.
+The installer script in `scripts/install-fdev.sh` downloads from `github.com/freestyle-sh/fdev` by default, installs to `~/.fdev/bin/fdev`, and adds that directory to the detected shell profile.
