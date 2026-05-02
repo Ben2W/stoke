@@ -42,7 +42,12 @@ jobs:
             echo "Missing NPM_BOOTSTRAP_TOKEN secret" >&2
             exit 1
           fi
-          echo "//registry.npmjs.org/:_authToken=${NPM_BOOTSTRAP_TOKEN}" > "$HOME/.npmrc"
+          npmrc="${NPM_CONFIG_USERCONFIG:-$HOME/.npmrc}"
+          mkdir -p "$(dirname "$npmrc")"
+          {
+            echo "registry=https://registry.npmjs.org/"
+            echo "//registry.npmjs.org/:_authToken=${NPM_BOOTSTRAP_TOKEN}"
+          } > "$npmrc"
         env:
           NPM_BOOTSTRAP_TOKEN: ${{ secrets.NPM_BOOTSTRAP_TOKEN }}
 
