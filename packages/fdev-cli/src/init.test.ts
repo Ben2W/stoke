@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { initProject, normalizeMachineName } from "./init.ts";
@@ -8,7 +8,8 @@ import { FDEV_CLI_VERSION } from "./version.ts";
 
 describe("initProject", () => {
   test("creates a full fdev project", () => {
-    const projectDir = mkdtempSync(join(tmpdir(), "fdev-init-"));
+    const parentDir = mkdtempSync(join(tmpdir(), "fdev-init-"));
+    const projectDir = join(parentDir, "platform-api");
     const result = initProject({
       projectDir,
       configPath: join(projectDir, "fdev.config.ts"),
@@ -17,6 +18,8 @@ describe("initProject", () => {
     });
 
     expect(result.name).toBe("platform-api");
+    expect(result.projectDir).toBe(projectDir);
+    expect(existsSync(projectDir)).toBe(true);
     expect(result.created).toEqual({
       config: true,
       env: true,
@@ -71,8 +74,8 @@ describe("normalizeMachineName", () => {
     expect(normalizeMachineName("  My Platform API  ")).toBe("my-platform-api");
   });
 
-  test("defaults empty names to fdev", () => {
-    expect(normalizeMachineName("   ")).toBe("fdev");
-    expect(normalizeMachineName("!!!")).toBe("fdev");
+  test("rejects empty names", () => {
+    expect(() => normalizeMachineName("   ")).toThrow("Project name is required.");
+    expect(() => normalizeMachineName("!!!")).toThrow("Project name is required.");
   });
 });

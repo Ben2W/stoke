@@ -1,9 +1,7 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { basename, join } from "node:path";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { FDEV_CLI_VERSION } from "./version.ts";
 import { SDK_PACKAGE_NAME } from "./project.ts";
-
-export const DEFAULT_MACHINE_NAME = "fdev";
 
 export type InitProjectInput = {
   projectDir: string;
@@ -15,6 +13,7 @@ export type InitProjectInput = {
 
 export type InitProjectResult = {
   name: string;
+  projectDir: string;
   configPath: string;
   envPath: string;
   envExamplePath: string;
@@ -37,6 +36,7 @@ export type InitProjectResult = {
 
 export function initProject(input: InitProjectInput): InitProjectResult {
   const name = normalizeMachineName(input.name);
+  mkdirSync(input.projectDir, { recursive: true });
 
   if (existsSync(input.configPath) && !input.force) {
     throw new Error(`${input.configPath} already exists. Pass --force to overwrite it.`);
@@ -61,6 +61,7 @@ export function initProject(input: InitProjectInput): InitProjectResult {
 
   return {
     name,
+    projectDir: input.projectDir,
     configPath: input.configPath,
     envPath,
     envExamplePath,
@@ -82,13 +83,12 @@ export function initProject(input: InitProjectInput): InitProjectResult {
   };
 }
 
-export function defaultProjectName(projectDir: string): string {
-  return normalizeMachineName(packageNameFromDir(projectDir));
-}
-
 export function normalizeMachineName(value: string): string {
   const name = value.trim().toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
-  return name || DEFAULT_MACHINE_NAME;
+  if (!name) {
+    throw new Error("Project name is required.");
+  }
+  return name;
 }
 
 export function starterConfig(name: string): string {
@@ -206,10 +206,6 @@ function ensureProjectPackageJson(
   }
 
   return { path, created, updated, sdkDependencyChanged };
-}
-
-function packageNameFromDir(projectDir: string): string {
-  return basename(projectDir).toLowerCase().replace(/[^a-z0-9._-]+/g, "-") || "fdev-project";
 }
 
 function isRecord(value: unknown): value is Record<string, any> {

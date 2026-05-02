@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
-import { existsSync, mkdirSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { existsSync } from "node:fs";
+import { dirname, join, relative, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
 import chalk from "chalk";
 import { Command } from "commander";
@@ -14,7 +14,7 @@ import {
 } from "@freestyle-sh/fdev-engine";
 import { assertVersionAlignment, DEFAULT_CONFIG_FILE, resolveConfigPaths, SDK_PACKAGE_NAME } from "./project.ts";
 import { FDEV_CLI_VERSION } from "./version.ts";
-import { defaultProjectName, initProject, normalizeMachineName, type InitProjectResult } from "./init.ts";
+import { initProject, normalizeMachineName, type InitProjectResult } from "./init.ts";
 
 type GlobalOptions = {
   project?: string;
@@ -247,14 +247,13 @@ program.parseAsync(process.argv).catch((error) => {
 });
 
 async function runInit(command: Command, options: InitOptions): Promise<void> {
-  const paths = resolveCommandConfigPaths(command);
-  mkdirSync(paths.projectDir, { recursive: true });
+  const answers = await resolveInitAnswers(options, wantsJson(command));
+  const paths = resolveInitProjectPaths(command, answers.name);
 
   if (existsSync(paths.configPath) && !options.force) {
     throw new Error(`${paths.configPath} already exists. Pass --force to overwrite it.`);
   }
 
-  const answers = await resolveInitAnswers(paths.projectDir, options, wantsJson(command));
   const result = initProject({
     projectDir: paths.projectDir,
     configPath: paths.configPath,
@@ -273,7 +272,6 @@ async function runInit(command: Command, options: InitOptions): Promise<void> {
 }
 
 async function resolveInitAnswers(
-  projectDir: string,
   options: InitOptions,
   jsonMode: boolean,
 ): Promise<{ name: string; apiKey: string; packageManager: PackageManager }> {
@@ -291,13 +289,13 @@ async function resolveInitAnswers(
 
   if (!jsonMode) {
     console.log(chalk.bold("Initialize fdev"));
-    console.log(chalk.dim("This creates fdev.config.ts, .env, package.json, and local ignore rules."));
+    console.log(chalk.dim("This creates a project folder with fdev.config.ts, .env, package.json, and local ignore rules."));
     console.log("");
   }
 
   const name = options.name !== undefined
     ? normalizeMachineName(options.name)
-    : await promptName(defaultProjectName(projectDir));
+    : await promptName();
   const apiKey = options.apiKey?.trim() || await promptRequiredSecret("Freestyle API key");
   const packageManager = options.packageManager ?? (jsonMode || !canPrompt() ? "skip" : await promptPackageManager("skip"));
 
@@ -317,15 +315,29 @@ function canPrompt(): boolean {
   return Boolean(process.stdin.isTTY && process.stdout.isTTY);
 }
 
-async function promptName(defaultName: string): Promise<string> {
+function resolveInitProjectPaths(command: Command, name: string): { projectDir: string; configPath: string } {
+  const options = command.optsWithGlobals() as GlobalOptions;
+  if (options.config) {
+    throw new Error(`fdev init does not support --config. Use -C/--project to choose the parent directory.`);
+  }
+
+  const parentDir = resolve(process.cwd(), options.project ?? ".");
+  const projectDir = resolve(parentDir, name);
+  return {
+    projectDir,
+    configPath: join(projectDir, DEFAULT_CONFIG_FILE),
+  };
+}
+
+async function promptName(): Promise<string> {
   const rl = createInterface({ input: process.stdin, output: process.stdout });
 
   try {
     for (;;) {
-      const prompt = `${chalk.cyan("?")} What do you want to call it? ${chalk.dim(`(${defaultName})`)} `;
+      const prompt = `${chalk.cyan("?")} Project name: `;
       const answer = await rl.question(prompt);
       try {
-        return normalizeMachineName(answer || defaultName);
+        return normalizeMachineName(answer);
       } catch (error) {
         console.log(chalk.red(error instanceof Error ? error.message : String(error)));
       }
@@ -344,6 +356,21 @@ async function promptRequiredSecret(label: string): Promise<string> {
 }
 
 async function promptPackageManager(defaultValue: PackageManager): Promise<PackageManager> {
+  const choices: Array<{ value: PackageManager; label: string; hint: string }> = [
+    { value: "npm", label: "npm", hint: "npm install" },
+    { value: "bun", label: "bun", hint: "bun install" },
+    { value: "pnpm", label: "pnpm", hint: "pnpm install" },
+    { value: "skip", label: "skip", hint: "do not install now" },
+  ];
+  const stdin = process.stdin;
+  if (stdin.isTTY && process.stdout.isTTY) {
+    return await promptSelect("Install dependencies?", choices, defaultValue);
+  }
+
+  return await promptPackageManagerText(defaultValue);
+}
+
+async function promptPackageManagerText(defaultValue: PackageManager): Promise<PackageManager> {
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   const choices = "npm, bun, pnpm, skip";
 
@@ -358,6 +385,119 @@ async function promptPackageManager(defaultValue: PackageManager): Promise<Packa
   } finally {
     rl.close();
   }
+}
+
+async function promptSelect<T extends string>(
+  label: string,
+  choices: Array<{ value: T; label: string; hint?: string }>,
+  defaultValue: T,
+): Promise<T> {
+  const stdin = process.stdin;
+  const stdout = process.stdout;
+  const defaultIndex = choices.findIndex((choice) => choice.value === defaultValue);
+  let index = defaultIndex >= 0 ? defaultIndex : 0;
+  let rendered = false;
+  const lineCount = choices.length + 1;
+
+  return new Promise<T>((resolvePromise, reject) => {
+    const wasRaw = stdin.isRaw;
+
+    const render = () => {
+      if (rendered) {
+        stdout.write(`\x1b[${lineCount}A\x1b[J`);
+      }
+      rendered = true;
+      stdout.write(`${chalk.cyan("?")} ${label}\n`);
+      for (const [choiceIndex, choice] of choices.entries()) {
+        const selected = choiceIndex === index;
+        const pointer = selected ? chalk.cyan("›") : " ";
+        const name = selected ? chalk.cyan(choice.label) : choice.label;
+        const hint = choice.hint ? chalk.dim(` ${choice.hint}`) : "";
+        stdout.write(`${pointer} ${name}${hint}\n`);
+      }
+    };
+
+    const cleanup = () => {
+      stdin.off("data", onData);
+      stdin.setRawMode(wasRaw);
+      stdin.pause();
+      stdout.write("\x1b[?25h");
+    };
+
+    const finish = () => {
+      const selected = choices[index]!;
+      if (rendered) {
+        stdout.write(`\x1b[${lineCount}A\x1b[J`);
+      }
+      cleanup();
+      stdout.write(`${chalk.cyan("?")} ${label} ${chalk.green(selected.label)}\n`);
+      resolvePromise(selected.value);
+    };
+
+    const cancel = () => {
+      cleanup();
+      stdout.write("\n");
+      reject(new Error("Init cancelled."));
+    };
+
+    const move = (delta: number) => {
+      index = (index + delta + choices.length) % choices.length;
+      render();
+    };
+
+    const onData = (chunk: Buffer | string) => {
+      const key = String(chunk);
+      if (key.includes("\u0003")) {
+        cancel();
+        return;
+      }
+
+      for (let offset = 0; offset < key.length;) {
+        if (key.startsWith("\u001b[A", offset)) {
+          move(-1);
+          offset += 3;
+          continue;
+        }
+        if (key.startsWith("\u001b[B", offset)) {
+          move(1);
+          offset += 3;
+          continue;
+        }
+
+        const char = key[offset]!;
+        if (char === "\r" || char === "\n" || char === " ") {
+          finish();
+          return;
+        }
+        if (char === "k") {
+          move(-1);
+          offset += 1;
+          continue;
+        }
+        if (char === "j") {
+          move(1);
+          offset += 1;
+          continue;
+        }
+
+        const numericChoice = Number(char);
+        if (Number.isInteger(numericChoice) && numericChoice >= 1 && numericChoice <= choices.length) {
+          index = numericChoice - 1;
+          finish();
+          return;
+        }
+
+        offset += 1;
+      }
+    };
+
+    stdout.write("\x1b[?25l");
+    stdin.resume();
+    stdin.setRawMode(true);
+    stdin.setEncoding("utf8");
+    stdin.on("data", onData);
+    render();
+  });
 }
 
 async function promptSecret(label: string): Promise<string> {
@@ -482,10 +622,16 @@ function printInitResult(result: InitProjectResult, install: InitInstallResult):
 
   console.log("");
   console.log(chalk.bold("Next steps"));
+  console.log(`  cd ${displayProjectDir(result.projectDir)}`);
   if (install.skipped) {
     console.log(`  ${detectInstallCommand(result.packageJsonPath)}`);
   }
   console.log("  fdev plan");
+}
+
+function displayProjectDir(projectDir: string): string {
+  const path = relative(process.cwd(), projectDir);
+  return path && !path.startsWith("..") ? path : projectDir;
 }
 
 function printInitLine(status: "created" | "updated" | "kept", path: string): void {

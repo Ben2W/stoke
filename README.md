@@ -54,13 +54,15 @@ Initialize a new fdev project:
 fdev init
 ```
 
-`fdev init` asks for a project name, Freestyle API key, and whether to install dependencies with npm, bun, pnpm, or skip. It then creates `fdev.config.ts`, `.env`, `.env.example`, `package.json`, and `.gitignore` entries. For non-interactive setup:
+`fdev init` asks for a project name, Freestyle API key, and whether to install dependencies with npm, bun, pnpm, or skip. It then creates a project folder with `fdev.config.ts`, `.env`, `.env.example`, `package.json`, and `.gitignore` entries. For non-interactive setup:
 
 ```bash
 fdev init --name platform --api-key fs_live_... --package-manager pnpm
 ```
 
-By default `fdev` loads `fdev.config.ts` from the current directory. Use `-C <dir>` to point at another project directory, or `--config <file>` to load an exact config file.
+That creates `./platform`. Use `-C <dir>` with `init` to choose a parent directory for the new project.
+
+By default other `fdev` commands load `fdev.config.ts` from the current directory. Use `-C <dir>` to point at another project directory, or `--config <file>` to load an exact config file.
 
 ## Current Scope
 
