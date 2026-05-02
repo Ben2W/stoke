@@ -10,7 +10,7 @@
     "test": "echo no app tests yet"
   },
   "dependencies": {
-    "@freestyle/fdev": "workspace:*"
+    "@freestyle/fdev-engine": "workspace:*"
   },
   "devDependencies": {
     "@types/bun": "latest",

@@ -11,9 +11,10 @@
     "test": "echo no smoke example tests yet"
   },
   "dependencies": {
-    "@freestyle/fdev": "workspace:*"
+    "@freestyle/fdev-sdk": "workspace:*"
   },
   "devDependencies": {
+    "@freestyle/fdev-cli": "workspace:*",
     "@types/bun": "latest",
     "typescript": "latest"
   }

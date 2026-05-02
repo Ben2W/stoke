@@ -1,12 +1,17 @@
 #!/usr/bin/env bun
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
 import { Command } from "commander";
-import { createDevMachineEngine, type DevMachineEngine } from "./engine.ts";
-import type { SnapshotRecord } from "./state.ts";
-import type { DevMachineEvent, MachinePlan, WorkspaceRecord } from "./types.ts";
-
-const DEFAULT_CONFIG_FILE = "fdev.config.ts";
+import {
+  createDevMachineEngine,
+  type DevMachineEngine,
+  type DevMachineEvent,
+  type MachinePlan,
+  type SnapshotRecord,
+  type WorkspaceRecord,
+} from "@freestyle/fdev-engine";
+import { assertVersionAlignment, DEFAULT_CONFIG_FILE, resolveConfigPaths, SDK_PACKAGE_NAME } from "./project.ts";
+import { FDEV_CLI_VERSION } from "./version.ts";
 
 type GlobalOptions = {
   project?: string;
@@ -44,7 +49,7 @@ const program = new Command();
 program
   .name("fdev")
   .description("Freestyle dev machine CLI")
-  .version("0.0.0")
+  .version(FDEV_CLI_VERSION)
   .showHelpAfterError()
   .option("-C, --project <dir>", `Project directory containing ${DEFAULT_CONFIG_FILE}`)
   .option("--config <file>", "Exact config file to load")
@@ -225,7 +230,7 @@ program.parseAsync(process.argv).catch((error) => {
 });
 
 async function runInit(command: Command, options: InitOptions): Promise<void> {
-  const paths = resolveConfigPaths(command);
+  const paths = resolveCommandConfigPaths(command);
   mkdirSync(dirname(paths.configPath), { recursive: true });
 
   if (existsSync(paths.configPath) && !options.force) {
@@ -243,12 +248,19 @@ async function runInit(command: Command, options: InitOptions): Promise<void> {
     writeFileSync(envExamplePath, "FREESTYLE_API_KEY=\n");
   }
 
+  const packageJson = ensureProjectPackageJson(paths.projectDir);
+
   const result = {
     configPath: paths.configPath,
     envExamplePath,
+    packageJsonPath: packageJson.path,
     created: {
       config: wroteConfig,
       envExample: wroteEnvExample,
+      packageJson: packageJson.created,
+    },
+    updated: {
+      sdkDependency: packageJson.sdkDependencyChanged,
     },
   };
 
@@ -259,27 +271,31 @@ async function runInit(command: Command, options: InitOptions): Promise<void> {
 
   console.log(`created ${paths.configPath}`);
   if (wroteEnvExample) console.log(`created ${envExamplePath}`);
+  if (packageJson.created) console.log(`created ${packageJson.path}`);
+  if (packageJson.sdkDependencyChanged) {
+    console.log(`pinned ${SDK_PACKAGE_NAME}@${FDEV_CLI_VERSION}`);
+  }
 }
 
 async function loadEngine(command: Command): Promise<DevMachineEngine> {
-  const engine = await createDevMachineEngine(resolveEngineOptions(command));
+  const engineOptions = resolveEngineOptions(command);
+  assertVersionAlignment(engineOptions.projectDir);
+  const engine = await createDevMachineEngine(engineOptions);
   if (!wantsJson(command)) engine.onEvent(renderEvent);
   await engine.load();
   return engine;
 }
 
-function resolveEngineOptions(command: Command): { projectDir?: string; configPath?: string } {
-  const paths = resolveConfigPaths(command);
+function resolveEngineOptions(command: Command): { projectDir: string; configPath?: string } {
+  const paths = resolveCommandConfigPaths(command);
   const options = command.optsWithGlobals() as GlobalOptions;
-  if (options.config) return { configPath: paths.configPath };
+  if (options.config) return { projectDir: paths.projectDir, configPath: paths.configPath };
   return { projectDir: paths.projectDir };
 }
 
-function resolveConfigPaths(command: Command): { projectDir: string; configPath: string } {
+function resolveCommandConfigPaths(command: Command): { projectDir: string; configPath: string } {
   const options = command.optsWithGlobals() as GlobalOptions;
-  const projectDir = resolve(options.project ?? process.cwd());
-  const configPath = options.config ? resolve(projectDir, options.config) : join(projectDir, DEFAULT_CONFIG_FILE);
-  return { projectDir: dirname(configPath), configPath };
+  return resolveConfigPaths({ project: options.project, config: options.config });
 }
 
 function wantsJson(command: Command): boolean {
@@ -408,7 +424,7 @@ function renderEvent(event: DevMachineEvent): void {
 }
 
 function starterConfig(): string {
-  return `import { defineDevMachine, defineMigration, env } from "@freestyle/fdev";
+  return `import { defineDevMachine, defineMigration, env } from "@freestyle/fdev-sdk";
 
 const verifyNode = defineMigration("verify node 22", async ({ step }) => {
   await step.assert("node is v22", async ({ vm }) => {
@@ -424,4 +440,43 @@ export default defineDevMachine({
   migrations: [verifyNode],
 });
 `;
+}
+
+function ensureProjectPackageJson(projectDir: string): { path: string; created: boolean; sdkDependencyChanged: boolean } {
+  const path = join(projectDir, "package.json");
+  const created = !existsSync(path);
+  const pkg = created
+    ? {
+        name: packageNameFromDir(projectDir),
+        private: true,
+        type: "module",
+        scripts: {
+          plan: "fdev plan",
+          apply: "fdev apply",
+        },
+      }
+    : JSON.parse(readFileSync(path, "utf8")) as Record<string, any>;
+
+  const devDependencies = isRecord(pkg.devDependencies) ? pkg.devDependencies : {};
+  const sdkDependencyChanged = devDependencies[SDK_PACKAGE_NAME] !== FDEV_CLI_VERSION;
+  devDependencies[SDK_PACKAGE_NAME] = FDEV_CLI_VERSION;
+  pkg.devDependencies = sortObject(devDependencies);
+
+  if (created || sdkDependencyChanged) {
+    writeFileSync(path, `${JSON.stringify(pkg, null, 2)}\n`);
+  }
+
+  return { path, created, sdkDependencyChanged };
+}
+
+function packageNameFromDir(projectDir: string): string {
+  return basename(projectDir).toLowerCase().replace(/[^a-z0-9._-]+/g, "-") || "fdev-project";
+}
+
+function isRecord(value: unknown): value is Record<string, any> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function sortObject<T>(value: Record<string, T>): Record<string, T> {
+  return Object.fromEntries(Object.entries(value).sort(([left], [right]) => left.localeCompare(right)));
 }

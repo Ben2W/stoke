@@ -204,7 +204,7 @@ import {
   defineDevMachine,
   defineMigration,
   env,
-} from "@freestyle/fdev";
+} from "@freestyle/fdev-sdk";
 
 const systemPackages = defineMigration("system:packages", async ({ vm, step }) => {
   const git = await vm.exec("command -v git").catch(() => null);
@@ -747,8 +747,8 @@ The repo is where teams and users iterate on remote dev state over time. It shou
     "plan": "fdev plan",
     "apply": "fdev apply"
   },
-  "dependencies": {
-    "@freestyle/fdev": "latest"
+  "devDependencies": {
+    "@freestyle/fdev-sdk": "0.1.0"
   }
 }
 ```
@@ -784,7 +784,8 @@ The architecture should be:
 
 ```text
 fdev.config.ts
-  -> SDK loader and planner
+  -> @freestyle/fdev-sdk authoring objects
+  -> @freestyle/fdev-engine loader and planner
   -> DevMachineEngine
   -> Freestyle provider
   -> Freestyle API
@@ -815,6 +816,16 @@ The engine owns:
 - emitting structured events
 
 The CLI should use Commander for argument parsing and help text. It should call the engine, render events, and set exit codes. It should not duplicate planner or runner logic.
+
+The package split should keep dependency direction clear:
+
+```text
+@freestyle/fdev-sdk <- @freestyle/fdev-engine <- @freestyle/fdev-cli
+                                      \
+                                       <- @freestyle/fdev-app later
+```
+
+Projects install `@freestyle/fdev-sdk` locally for config authoring and typechecking. The global `@freestyle/fdev-cli` bundles the engine and enforces exact v0 version alignment with the project SDK before running.
 
 The app should come later as another client of the same engine. In practice, `fdev app` can start a local web server plus an engine process. The browser UI talks to localhost, and that local process reads `.env`, loads `fdev.config.ts`, and calls Freestyle with `FREESTYLE_API_KEY`.
 

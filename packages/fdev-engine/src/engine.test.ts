@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createDevMachineEngine } from "./engine.ts";
 import type { DevMachineProvider, SnapshotHandle, TerminalHandle, VmHandle } from "./provider/types.ts";
-import type { ExecOptions, ExecResult } from "./types.ts";
+import type { ExecOptions, ExecResult } from "@freestyle/fdev-sdk";
 
 describe("DevMachineEngine", () => {
   test("plans, applies migrations, reuses cached prefixes, and forks workspaces", async () => {
@@ -12,7 +12,7 @@ describe("DevMachineEngine", () => {
     writeFileSync(
       join(projectDir, "fdev.config.ts"),
       `
-        import { defineDevMachine, defineMigration } from "${import.meta.dir}/index.ts";
+        import { defineDevMachine, defineMigration } from "${import.meta.dir}/../../fdev-sdk/src/index.ts";
 
         const first = defineMigration("first", async (c) => {
           c.set("first", true);
@@ -56,6 +56,11 @@ describe("DevMachineEngine", () => {
     expect(workspace.snapshotId).toBe("snap-2");
     expect(workspace.name).toBe("work");
     expect(engine.listWorkspaces()).toHaveLength(1);
+
+    const workspaceSnapshot = await engine.snapshotWorkspace({ workspace: "work", label: "verified-work" });
+    expect(workspaceSnapshot.snapshotId).toBe("snap-3");
+    expect(workspaceSnapshot.migrationName).toBe("verified-work");
+    expect(engine.listSnapshots()).toHaveLength(3);
 
     await engine.deleteWorkspace({ workspace: "work" });
     expect(engine.listWorkspaces()).toHaveLength(0);

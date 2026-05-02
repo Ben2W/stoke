@@ -1,27 +1,29 @@
 {
-  "name": "@freestyle/fdev",
-  "version": "0.0.0",
-  "private": true,
+  "name": "@freestyle/fdev-engine",
+  "version": "0.1.0",
   "type": "module",
-  "bin": {
-    "fdev": "./src/cli.ts"
-  },
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./package.json": "./package.json"
   },
+  "files": [
+    "src",
+    "README.md"
+  ],
   "scripts": {
-    "fdev": "bun src/cli.ts",
-    "plan": "bun src/cli.ts plan",
     "build": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
     "test": "bun test"
   },
   "dependencies": {
-    "commander": "^14.0.3",
+    "@freestyle/fdev-sdk": "workspace:*",
     "freestyle": "latest"
   },
   "devDependencies": {
     "@types/bun": "latest",
     "typescript": "latest"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

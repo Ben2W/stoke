@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import type { JsonValue, WorkspaceRecord } from "./types.ts";
+import type { JsonValue, WorkspaceRecord } from "@freestyle/fdev-sdk";
 
 export type SnapshotRecord = {
   id: string;
@@ -54,4 +54,3 @@ export class StateStore {
     return state;
   }
 }
-

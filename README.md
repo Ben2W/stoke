@@ -5,10 +5,12 @@
 This repo is a pnpm/turbo workspace:
 
 ```text
-packages/fdev/      CLI, SDK authoring API, engine, Freestyle provider
-apps/app/           placeholder for the future app
-examples/smoke/     runnable smoke dev machine
-docs/               design docs
+packages/fdev-sdk/      SDK authoring API and public config types
+packages/fdev-engine/   config loader, migration engine, state, Freestyle provider
+packages/fdev-cli/      global `fdev` command
+apps/app/               placeholder for the future app
+examples/smoke/         runnable smoke dev machine
+docs/                   design docs
 ```
 
 ## Setup
@@ -30,18 +32,20 @@ pnpm install
 ```bash
 pnpm typecheck
 pnpm test
+pnpm release:check
+pnpm build:cli-binaries
 pnpm smoke:plan
 pnpm smoke:apply
-pnpm --filter @freestyle/fdev fdev -C ../../examples/smoke fork --name my-workspace
-pnpm --filter @freestyle/fdev fdev -C ../../examples/smoke ls
-pnpm --filter @freestyle/fdev fdev -C ../../examples/smoke ssh my-workspace --print
+pnpm --filter @freestyle/fdev-cli fdev -C ../../examples/smoke fork --name my-workspace
+pnpm --filter @freestyle/fdev-cli fdev -C ../../examples/smoke ls
+pnpm --filter @freestyle/fdev-cli fdev -C ../../examples/smoke ssh my-workspace --print
 ```
 
 The CLI also has built-in help:
 
 ```bash
-pnpm --filter @freestyle/fdev fdev help
-pnpm --filter @freestyle/fdev fdev help fork
+pnpm --filter @freestyle/fdev-cli fdev help
+pnpm --filter @freestyle/fdev-cli fdev help fork
 ```
 
 By default `fdev` loads `fdev.config.ts` from the current directory. Use `-C <dir>` to point at another project directory, or `--config <file>` to load an exact config file.
@@ -56,6 +60,27 @@ Implemented:
 - Freestyle provider for VM create, snapshot, create-from-snapshot, exec, and SSH command generation
 - local `.fdev/state.json` snapshot/workspace cache
 - Commander-based `fdev` CLI for `init`, `plan`, `apply`, `fork`, `ls`, `ssh`, `snapshot`, and `rm`
-- pnpm/turbo workspace with separate CLI package, app placeholder, and smoke example
+- pnpm/turbo workspace with separate SDK, engine, CLI packages, app placeholder, and smoke example
 
 The app is intentionally not implemented yet. It should later wrap the same `DevMachineEngine`.
+
+## CLI Releases
+
+The global `fdev` command is distributed as Bun-compiled binaries through GitHub Releases.
+
+Release tags use the package version:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+The release workflow builds:
+
+- `fdev-darwin-arm64.tar.gz`
+- `fdev-darwin-x64.tar.gz`
+- `fdev-linux-arm64.tar.gz`
+- `fdev-linux-x64.tar.gz`
+- `checksums.txt`
+
+The installer script in `scripts/install-fdev.sh` downloads from `github.com/freestyle-sh/fdev` by default and installs to `~/.freestyle/bin/fdev`.

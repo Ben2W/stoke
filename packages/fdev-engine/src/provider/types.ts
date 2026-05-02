@@ -1,4 +1,4 @@
-import type { ExecOptions, ExecResult } from "../types.ts";
+import type { ExecOptions, ExecResult } from "@freestyle/fdev-sdk";
 
 export type CreateVmInput = {
   image: string;
@@ -32,4 +32,3 @@ export interface DevMachineProvider {
   openTerminal(vm: VmHandle, options?: { user?: string }): Promise<TerminalHandle>;
   deleteVm(vm: VmHandle): Promise<void>;
 }
-

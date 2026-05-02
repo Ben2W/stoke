@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { isDevMachine, isMigration } from "./authoring.ts";
+import { isDevMachine, isMigration } from "@freestyle/fdev-sdk";
 import { loadDotEnv } from "./env-file.ts";
 import { hash, stableJson } from "./hash.ts";
 import { createFreestyleProvider } from "./provider/freestyle.ts";
@@ -18,7 +18,7 @@ import type {
   MigrationInstance,
   MigrationRuntimeContext,
   WorkspaceRecord,
-} from "./types.ts";
+} from "@freestyle/fdev-sdk";
 
 export type CreateDevMachineEngineOptions = {
   projectDir?: string;
