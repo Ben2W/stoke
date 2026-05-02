@@ -68,6 +68,8 @@ The app is intentionally not implemented yet. It should later wrap the same `Dev
 
 The global `fdev` command is distributed as Bun-compiled binaries through GitHub Releases.
 
+See [docs/release.md](docs/release.md) for the release model.
+
 Release tags use the package version:
 
 ```bash
