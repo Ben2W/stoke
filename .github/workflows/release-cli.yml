@@ -4,7 +4,6 @@ on:
   push:
     tags:
       - "v*"
-  workflow_dispatch:
 
 permissions:
   contents: write
@@ -55,12 +54,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           tag="${GITHUB_REF_NAME}"
-          case "$tag" in
-            v*) ;;
-            *)
-              tag="v$(node -p "require('./packages/fdev-cli/package.json').version")"
-              ;;
-          esac
 
           if gh release view "$tag" >/dev/null 2>&1; then
             echo "Release $tag already exists" >&2

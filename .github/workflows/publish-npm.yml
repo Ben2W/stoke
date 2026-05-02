@@ -4,7 +4,6 @@ on:
   push:
     tags:
       - "v*"
-  workflow_dispatch:
 
 permissions:
   contents: read
@@ -38,12 +37,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Check release versions
-        run: |
-          if [ "${GITHUB_REF_TYPE}" != "tag" ]; then
-            version="$(node -p "require('./packages/fdev-cli/package.json').version")"
-            export GITHUB_REF_NAME="v${version}"
-          fi
-          pnpm release:check
+        run: pnpm release:check
 
       - name: Typecheck
         run: pnpm typecheck

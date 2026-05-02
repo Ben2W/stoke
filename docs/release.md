@@ -55,12 +55,6 @@ v0.1.1        tag on a release/0.1 commit
 
 Even in that model, the published release still comes from a tag.
 
-## Manual Dispatch
-
-The GitHub release workflow also supports manual `workflow_dispatch`. That path derives the tag from `packages/fdev-cli/package.json`.
-
-Use tag pushes for normal releases. Manual dispatch is mainly a convenience for rerunning the current package version from GitHub Actions.
-
 ## npm Publishing
 
 npm publishing is CI-only. Do not publish regular releases from a laptop.
@@ -87,7 +81,7 @@ Important bootstrap constraint: npm trusted publishers can only be configured af
 
 For the first publish only:
 
-1. Create a temporary granular npm token with publish access to the `@freestyle` scope.
+1. Create a temporary granular npm token with publish access to the `@freestyle-sh` scope.
 2. Add it as a repo secret named `NPM_BOOTSTRAP_TOKEN`.
 3. Run `.github/workflows/bootstrap-npm.yml` with the release tag.
 4. Delete the `NPM_BOOTSTRAP_TOKEN` secret.
