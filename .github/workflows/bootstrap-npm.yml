@@ -51,6 +51,9 @@ jobs:
         env:
           NPM_BOOTSTRAP_TOKEN: ${{ secrets.NPM_BOOTSTRAP_TOKEN }}
 
+      - name: Verify npm auth
+        run: npm whoami
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
