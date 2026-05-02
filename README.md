@@ -9,6 +9,7 @@ packages/fdev-sdk/      SDK authoring API and public config types
 packages/fdev-engine/   config loader, migration engine, state, Freestyle provider
 packages/fdev-cli/      global `fdev` command
 apps/app/               placeholder for the future app
+apps/install-worker/    Cloudflare Worker for install and release metadata
 examples/smoke/         runnable smoke dev machine
 docs/                   design docs
 ```
@@ -99,4 +100,4 @@ The release workflow builds:
 - `fdev-linux-x64.tar.gz`
 - `checksums.txt`
 
-The installer script in `scripts/install-fdev.sh` downloads from `github.com/freestyle-sh/fdev` by default, installs to `~/.fdev/bin/fdev`, and adds that directory to the detected shell profile.
+The install Worker serves `curl -fsSL https://fdev.freestyle.sh/install | sh`. It reads GitHub Releases as the source of truth, redirects downloads to the release assets, installs to `~/.fdev/bin/fdev`, and adds that directory to the detected shell profile.

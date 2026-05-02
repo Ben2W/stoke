@@ -97,12 +97,14 @@ After that, use OIDC Trusted Publishing for all later releases.
 
 ## Installer
 
-The installer downloads from GitHub Releases:
+The public installer is served by the install Worker:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/freestyle-sh/fdev/main/scripts/install-fdev.sh | sh
+curl -fsSL https://fdev.freestyle.sh/install | sh
 ```
+
+The Worker uses GitHub Releases as the source of truth, serves latest-version metadata, and redirects downloads to GitHub release assets. No R2 bucket is used.
 
 It installs to `~/.fdev/bin/fdev` by default and adds `~/.fdev/bin` to the detected shell profile. Set `FDEV_INSTALL_DIR` to override the install location, or `FDEV_NO_MODIFY_PATH=1` to skip shell profile edits.
 
-`freestyle.sh/fdev/install` can later proxy, redirect, or serve a pinned copy of that script.
+The repo-local `scripts/install-fdev.sh` remains a fallback for direct GitHub installs.

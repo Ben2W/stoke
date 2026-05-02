@@ -1,0 +1,13 @@
+name = "fdev-install-worker"
+main = "src/index.ts"
+compatibility_date = "2026-05-02"
+workers_dev = true
+
+routes = [
+  { pattern = "fdev.freestyle.sh", custom_domain = true }
+]
+
+[vars]
+GITHUB_REPO = "freestyle-sh/fdev"
+PUBLIC_BASE_URL = "https://fdev.freestyle.sh"
+CACHE_TTL_SECONDS = "300"
