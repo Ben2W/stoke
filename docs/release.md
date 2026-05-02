@@ -83,7 +83,23 @@ npx npm@latest trust github @freestyle/fdev-cli --repo freestyle-sh/fdev --file 
 
 The packages use `workspace:*` dependencies inside the repo. The workflow uses `pnpm pack` first so those workspace dependencies are converted to real package versions in the packed artifacts, then `npm publish` publishes the tarballs through Trusted Publishing.
 
-Important bootstrap constraint: npm trusted publishers can only be configured after a package already exists on npm. For the first publish of a brand-new package, either publish once manually or run a one-time CI bootstrap with a granular npm token. After the package exists, configure trusted publishing and use OIDC for all later releases.
+Important bootstrap constraint: npm trusted publishers can only be configured after a package already exists on npm. The normal `publish-npm.yml` workflow skips publishing until the packages exist.
+
+For the first publish only:
+
+1. Create a temporary granular npm token with publish access to the `@freestyle` scope.
+2. Add it as a repo secret named `NPM_BOOTSTRAP_TOKEN`.
+3. Run `.github/workflows/bootstrap-npm.yml` with the release tag.
+4. Delete the `NPM_BOOTSTRAP_TOKEN` secret.
+5. Configure trusted publishing:
+
+```bash
+npx npm@latest trust github @freestyle/fdev-sdk --repo freestyle-sh/fdev --file publish-npm.yml -y
+npx npm@latest trust github @freestyle/fdev-engine --repo freestyle-sh/fdev --file publish-npm.yml -y
+npx npm@latest trust github @freestyle/fdev-cli --repo freestyle-sh/fdev --file publish-npm.yml -y
+```
+
+After that, use OIDC Trusted Publishing for all later releases.
 
 ## Installer
 
