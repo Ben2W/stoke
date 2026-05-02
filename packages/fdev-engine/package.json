@@ -2,6 +2,11 @@
   "name": "@freestyle/fdev-engine",
   "version": "0.1.2",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/freestyle-sh/fdev.git",
+    "directory": "packages/fdev-engine"
+  },
   "exports": {
     ".": "./src/index.ts",
     "./package.json": "./package.json"

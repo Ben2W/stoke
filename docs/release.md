@@ -22,7 +22,7 @@ Pushing a `v*` tag runs:
 
 The CLI release workflow verifies that the tag matches the package version, runs checks, builds the Bun-compiled CLI binaries, and creates the GitHub Release assets.
 
-The npm publish workflow verifies the same tag, runs checks, dry-runs package publishing, then publishes the packages to npm in dependency order:
+The npm publish workflow verifies the same tag, runs checks, packs each package with pnpm, dry-runs package publishing, then publishes the tarballs to npm in dependency order:
 
 ```text
 @freestyle/fdev-sdk
@@ -63,19 +63,27 @@ Use tag pushes for normal releases. Manual dispatch is mainly a convenience for 
 
 ## npm Publishing
 
-npm publishing is CI-only. Do not publish from a laptop.
+npm publishing is CI-only. Do not publish regular releases from a laptop.
 
-The GitHub repo must have an `NPM_TOKEN` secret with permission to publish:
+The npm publish workflow uses npm Trusted Publishing. It does not use an `NPM_TOKEN` secret. The workflow has:
 
-```text
-@freestyle/fdev-sdk
-@freestyle/fdev-engine
-@freestyle/fdev-cli
+```yaml
+permissions:
+  contents: read
+  id-token: write
 ```
 
-Use an npm automation or granular access token for the `@freestyle` scope. The packages are public scoped packages, so the workflow publishes with `--access public`.
+Each package must have a trusted publisher configured on npm:
 
-The packages use `workspace:*` dependencies inside the repo. Publishing uses `pnpm publish` so those workspace dependencies are converted to real package versions in the packed artifacts.
+```bash
+npx npm@latest trust github @freestyle/fdev-sdk --repo freestyle-sh/fdev --file publish-npm.yml -y
+npx npm@latest trust github @freestyle/fdev-engine --repo freestyle-sh/fdev --file publish-npm.yml -y
+npx npm@latest trust github @freestyle/fdev-cli --repo freestyle-sh/fdev --file publish-npm.yml -y
+```
+
+The packages use `workspace:*` dependencies inside the repo. The workflow uses `pnpm pack` first so those workspace dependencies are converted to real package versions in the packed artifacts, then `npm publish` publishes the tarballs through Trusted Publishing.
+
+Important bootstrap constraint: npm trusted publishers can only be configured after a package already exists on npm. For the first publish of a brand-new package, either publish once manually or run a one-time CI bootstrap with a granular npm token. After the package exists, configure trusted publishing and use OIDC for all later releases.
 
 ## Installer
 
