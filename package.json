@@ -10,9 +10,9 @@
     "test": "turbo test",
     "release:check": "bun scripts/check-release-versions.ts",
     "build:cli-binaries": "bun scripts/build-cli-binaries.ts",
-    "fdev": "pnpm --filter @freestyle/fdev-cli fdev",
-    "smoke:plan": "pnpm --filter @freestyle/fdev-cli fdev -C ../../examples/smoke plan",
-    "smoke:apply": "pnpm --filter @freestyle/fdev-cli fdev -C ../../examples/smoke apply"
+    "fdev": "pnpm --filter @freestyle-sh/fdev-cli fdev",
+    "smoke:plan": "pnpm --filter @freestyle-sh/fdev-cli fdev -C ../../examples/smoke plan",
+    "smoke:apply": "pnpm --filter @freestyle-sh/fdev-cli fdev -C ../../examples/smoke apply"
   },
   "devDependencies": {
     "turbo": "latest",

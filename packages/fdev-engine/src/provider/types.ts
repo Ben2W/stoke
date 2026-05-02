@@ -1,4 +1,4 @@
-import type { ExecOptions, ExecResult } from "@freestyle/fdev-sdk";
+import type { ExecOptions, ExecResult } from "@freestyle-sh/fdev-sdk";
 
 export type CreateVmInput = {
   image: string;

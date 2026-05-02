@@ -1,4 +1,4 @@
-# @freestyle/fdev-engine
+# @freestyle-sh/fdev-engine
 
 Runtime engine for Freestyle dev machines.
 

@@ -94,7 +94,7 @@ export function normalizeMachineName(value: string): string {
 export function starterConfig(name: string): string {
   const machineName = JSON.stringify(normalizeMachineName(name));
 
-  return `import { defineDevMachine, defineMigration, env } from "@freestyle/fdev-sdk";
+  return `import { defineDevMachine, defineMigration, env } from "@freestyle-sh/fdev-sdk";
 
 const verifyNode = defineMigration("verify node 22", async ({ step }) => {
   await step.assert("node is v22", async ({ vm }) => {

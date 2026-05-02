@@ -1,5 +1,5 @@
 import { Freestyle, VmBaseImage } from "freestyle";
-import type { ExecOptions, ExecResult } from "@freestyle/fdev-sdk";
+import type { ExecOptions, ExecResult } from "@freestyle-sh/fdev-sdk";
 import type { CreateVmInput, DevMachineProvider, SnapshotHandle, TerminalHandle, VmHandle } from "./types.ts";
 
 type FreestyleVm = Awaited<ReturnType<Freestyle["vms"]["create"]>>["vm"];

@@ -1,10 +1,10 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { FDEV_ENGINE_VERSION } from "@freestyle/fdev-engine";
+import { FDEV_ENGINE_VERSION } from "@freestyle-sh/fdev-engine";
 import { FDEV_CLI_VERSION } from "./version.ts";
 
 export const DEFAULT_CONFIG_FILE = "fdev.config.ts";
-export const SDK_PACKAGE_NAME = "@freestyle/fdev-sdk";
+export const SDK_PACKAGE_NAME = "@freestyle-sh/fdev-sdk";
 
 export type ConfigPathOptions = {
   project?: string;
@@ -55,7 +55,7 @@ export function assertVersionAlignment(projectDir: string): void {
       `project SDK: ${projectSdk.version}`,
       ``,
       `Install matching versions:`,
-      `  npm i -g @freestyle/fdev-cli@${projectSdk.version}`,
+      `  npm i -g @freestyle-sh/fdev-cli@${projectSdk.version}`,
       `or`,
       `  pnpm add -D ${SDK_PACKAGE_NAME}@${FDEV_CLI_VERSION}`,
     ].join("\n"),
@@ -63,7 +63,7 @@ export function assertVersionAlignment(projectDir: string): void {
 }
 
 export function readLocalSdkVersion(projectDir: string): { version: string; packageJsonPath: string } | undefined {
-  const packageJsonPath = join(projectDir, "node_modules", "@freestyle", "fdev-sdk", "package.json");
+  const packageJsonPath = join(projectDir, "node_modules", "@freestyle-sh", "fdev-sdk", "package.json");
   if (!existsSync(packageJsonPath)) return undefined;
 
   const parsed = JSON.parse(readFileSync(packageJsonPath, "utf8")) as { version?: unknown };

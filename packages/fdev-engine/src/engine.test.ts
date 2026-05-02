@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createDevMachineEngine } from "./engine.ts";
 import type { DevMachineProvider, SnapshotHandle, TerminalHandle, VmHandle } from "./provider/types.ts";
-import type { ExecOptions, ExecResult } from "@freestyle/fdev-sdk";
+import type { ExecOptions, ExecResult } from "@freestyle-sh/fdev-sdk";
 
 describe("DevMachineEngine", () => {
   test("plans, applies migrations, reuses cached prefixes, and forks workspaces", async () => {

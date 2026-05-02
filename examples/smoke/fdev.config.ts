@@ -1,4 +1,4 @@
-import { defineDevMachine, defineMigration, env } from "@freestyle/fdev-sdk";
+import { defineDevMachine, defineMigration, env } from "@freestyle-sh/fdev-sdk";
 
 const smokeMigration = defineMigration("fdev:smoke", async ({ vm, step }) => {
   const ready = await vm.exec("test -f /tmp/fdev-ready").catch(() => null);

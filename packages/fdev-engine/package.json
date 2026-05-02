@@ -1,6 +1,6 @@
 {
-  "name": "@freestyle/fdev-engine",
-  "version": "0.1.3",
+  "name": "@freestyle-sh/fdev-engine",
+  "version": "0.1.4",
   "type": "module",
   "repository": {
     "type": "git",
@@ -21,7 +21,7 @@
     "test": "bun test"
   },
   "dependencies": {
-    "@freestyle/fdev-sdk": "workspace:*",
+    "@freestyle-sh/fdev-sdk": "workspace:*",
     "freestyle": "latest"
   },
   "devDependencies": {

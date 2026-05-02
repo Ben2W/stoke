@@ -204,7 +204,7 @@ import {
   defineDevMachine,
   defineMigration,
   env,
-} from "@freestyle/fdev-sdk";
+} from "@freestyle-sh/fdev-sdk";
 
 const systemPackages = defineMigration("system:packages", async ({ vm, step }) => {
   const git = await vm.exec("command -v git").catch(() => null);
@@ -399,7 +399,7 @@ export default defineDevMachine({
 Teams should be able to publish shared migration arrays. Users should be able to append private migrations without copying the team setup.
 
 ```ts
-// @freestyle/team-dev-machine
+// @freestyle-sh/team-dev-machine
 export const teamMigrations = [
   systemPackages,
   node22,
@@ -411,7 +411,7 @@ export const teamMigrations = [
 
 ```ts
 // fdev.config.ts
-import { teamMigrations } from "@freestyle/team-dev-machine";
+import { teamMigrations } from "@freestyle-sh/team-dev-machine";
 
 const benDotfiles = defineMigration("user:ben-dotfiles", async ({ vm, step }) => {
   if (await vm.exists("~/.dotfiles")) return;
@@ -748,7 +748,7 @@ The repo is where teams and users iterate on remote dev state over time. It shou
     "apply": "fdev apply"
   },
   "devDependencies": {
-    "@freestyle/fdev-sdk": "0.1.0"
+    "@freestyle-sh/fdev-sdk": "0.1.0"
   }
 }
 ```
@@ -784,8 +784,8 @@ The architecture should be:
 
 ```text
 fdev.config.ts
-  -> @freestyle/fdev-sdk authoring objects
-  -> @freestyle/fdev-engine loader and planner
+  -> @freestyle-sh/fdev-sdk authoring objects
+  -> @freestyle-sh/fdev-engine loader and planner
   -> DevMachineEngine
   -> Freestyle provider
   -> Freestyle API
@@ -820,12 +820,12 @@ The CLI should use Commander for argument parsing and help text. It should call 
 The package split should keep dependency direction clear:
 
 ```text
-@freestyle/fdev-sdk <- @freestyle/fdev-engine <- @freestyle/fdev-cli
+@freestyle-sh/fdev-sdk <- @freestyle-sh/fdev-engine <- @freestyle-sh/fdev-cli
                                       \
-                                       <- @freestyle/fdev-app later
+                                       <- @freestyle-sh/fdev-app later
 ```
 
-Projects install `@freestyle/fdev-sdk` locally for config authoring and typechecking. The global `@freestyle/fdev-cli` bundles the engine and enforces exact v0 version alignment with the project SDK before running.
+Projects install `@freestyle-sh/fdev-sdk` locally for config authoring and typechecking. The global `@freestyle-sh/fdev-cli` bundles the engine and enforces exact v0 version alignment with the project SDK before running.
 
 The app should come later as another client of the same engine. In practice, `fdev app` can start a local web server plus an engine process. The browser UI talks to localhost, and that local process reads `.env`, loads `fdev.config.ts`, and calls Freestyle with `FREESTYLE_API_KEY`.
 

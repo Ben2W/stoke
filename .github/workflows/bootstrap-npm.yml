@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag to publish, for example v0.1.3"
+        description: "Release tag to publish, for example v0.1.4"
         required: true
 
 permissions:
@@ -74,7 +74,7 @@ jobs:
       - name: Verify packages are not already published
         run: |
           version="${GITHUB_REF_NAME#v}"
-          for pkg in @freestyle/fdev-sdk @freestyle/fdev-engine @freestyle/fdev-cli; do
+          for pkg in @freestyle-sh/fdev-sdk @freestyle-sh/fdev-engine @freestyle-sh/fdev-cli; do
             if npm view "${pkg}@${version}" version >/dev/null 2>&1; then
               echo "${pkg}@${version} is already published" >&2
               exit 1
@@ -92,12 +92,12 @@ jobs:
 
       - name: Dry run package publish
         run: |
-          npx npm@latest publish dist/npm/freestyle-fdev-sdk-*.tgz --access public --dry-run
-          npx npm@latest publish dist/npm/freestyle-fdev-engine-*.tgz --access public --dry-run
-          npx npm@latest publish dist/npm/freestyle-fdev-cli-*.tgz --access public --dry-run
+          npx npm@latest publish dist/npm/freestyle-sh-fdev-sdk-*.tgz --access public --dry-run
+          npx npm@latest publish dist/npm/freestyle-sh-fdev-engine-*.tgz --access public --dry-run
+          npx npm@latest publish dist/npm/freestyle-sh-fdev-cli-*.tgz --access public --dry-run
 
       - name: Publish packages
         run: |
-          npx npm@latest publish dist/npm/freestyle-fdev-sdk-*.tgz --access public
-          npx npm@latest publish dist/npm/freestyle-fdev-engine-*.tgz --access public
-          npx npm@latest publish dist/npm/freestyle-fdev-cli-*.tgz --access public
+          npx npm@latest publish dist/npm/freestyle-sh-fdev-sdk-*.tgz --access public
+          npx npm@latest publish dist/npm/freestyle-sh-fdev-engine-*.tgz --access public
+          npx npm@latest publish dist/npm/freestyle-sh-fdev-cli-*.tgz --access public

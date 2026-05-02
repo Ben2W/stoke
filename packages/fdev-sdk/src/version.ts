@@ -1,1 +1,1 @@
-export const FDEV_SDK_VERSION = "0.1.3";
+export const FDEV_SDK_VERSION = "0.1.4";

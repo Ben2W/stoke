@@ -57,7 +57,7 @@ jobs:
       - name: Check npm bootstrap status
         id: bootstrap
         run: |
-          if npm view @freestyle/fdev-sdk name >/dev/null 2>&1; then
+          if npm view @freestyle-sh/fdev-sdk name >/dev/null 2>&1; then
             echo "published=true" >> "$GITHUB_OUTPUT"
           else
             echo "published=false" >> "$GITHUB_OUTPUT"
@@ -75,13 +75,13 @@ jobs:
       - name: Dry run package publish
         if: steps.bootstrap.outputs.published == 'true'
         run: |
-          npx npm@latest publish dist/npm/freestyle-fdev-sdk-*.tgz --access public --dry-run
-          npx npm@latest publish dist/npm/freestyle-fdev-engine-*.tgz --access public --dry-run
-          npx npm@latest publish dist/npm/freestyle-fdev-cli-*.tgz --access public --dry-run
+          npx npm@latest publish dist/npm/freestyle-sh-fdev-sdk-*.tgz --access public --dry-run
+          npx npm@latest publish dist/npm/freestyle-sh-fdev-engine-*.tgz --access public --dry-run
+          npx npm@latest publish dist/npm/freestyle-sh-fdev-cli-*.tgz --access public --dry-run
 
       - name: Publish packages
         if: steps.bootstrap.outputs.published == 'true'
         run: |
-          npx npm@latest publish dist/npm/freestyle-fdev-sdk-*.tgz --access public
-          npx npm@latest publish dist/npm/freestyle-fdev-engine-*.tgz --access public
-          npx npm@latest publish dist/npm/freestyle-fdev-cli-*.tgz --access public
+          npx npm@latest publish dist/npm/freestyle-sh-fdev-sdk-*.tgz --access public
+          npx npm@latest publish dist/npm/freestyle-sh-fdev-engine-*.tgz --access public
+          npx npm@latest publish dist/npm/freestyle-sh-fdev-cli-*.tgz --access public

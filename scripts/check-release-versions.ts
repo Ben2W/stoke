@@ -4,19 +4,19 @@ import { join } from "node:path";
 const root = join(import.meta.dir, "..");
 const packages = [
   {
-    name: "@freestyle/fdev-sdk",
+    name: "@freestyle-sh/fdev-sdk",
     dir: "packages/fdev-sdk",
     versionFile: "packages/fdev-sdk/src/version.ts",
     constant: "FDEV_SDK_VERSION",
   },
   {
-    name: "@freestyle/fdev-engine",
+    name: "@freestyle-sh/fdev-engine",
     dir: "packages/fdev-engine",
     versionFile: "packages/fdev-engine/src/version.ts",
     constant: "FDEV_ENGINE_VERSION",
   },
   {
-    name: "@freestyle/fdev-cli",
+    name: "@freestyle-sh/fdev-cli",
     dir: "packages/fdev-cli",
     versionFile: "packages/fdev-cli/src/version.ts",
     constant: "FDEV_CLI_VERSION",

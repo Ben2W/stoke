@@ -36,16 +36,16 @@ pnpm release:check
 pnpm build:cli-binaries
 pnpm smoke:plan
 pnpm smoke:apply
-pnpm --filter @freestyle/fdev-cli fdev -C ../../examples/smoke fork --name my-workspace
-pnpm --filter @freestyle/fdev-cli fdev -C ../../examples/smoke ls
-pnpm --filter @freestyle/fdev-cli fdev -C ../../examples/smoke ssh my-workspace --print
+pnpm --filter @freestyle-sh/fdev-cli fdev -C ../../examples/smoke fork --name my-workspace
+pnpm --filter @freestyle-sh/fdev-cli fdev -C ../../examples/smoke ls
+pnpm --filter @freestyle-sh/fdev-cli fdev -C ../../examples/smoke ssh my-workspace --print
 ```
 
 The CLI also has built-in help:
 
 ```bash
-pnpm --filter @freestyle/fdev-cli fdev help
-pnpm --filter @freestyle/fdev-cli fdev help fork
+pnpm --filter @freestyle-sh/fdev-cli fdev help
+pnpm --filter @freestyle-sh/fdev-cli fdev help fork
 ```
 
 Initialize a new fdev project:

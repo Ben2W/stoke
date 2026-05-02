@@ -1,5 +1,5 @@
 {
-  "name": "@freestyle/fdev-app",
+  "name": "@freestyle-sh/fdev-app",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -10,7 +10,7 @@
     "test": "echo no app tests yet"
   },
   "dependencies": {
-    "@freestyle/fdev-engine": "workspace:*"
+    "@freestyle-sh/fdev-engine": "workspace:*"
   },
   "devDependencies": {
     "@types/bun": "latest",

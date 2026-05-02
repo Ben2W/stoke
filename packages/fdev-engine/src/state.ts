@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import type { JsonValue, WorkspaceRecord } from "@freestyle/fdev-sdk";
+import type { JsonValue, WorkspaceRecord } from "@freestyle-sh/fdev-sdk";
 
 export type SnapshotRecord = {
   id: string;

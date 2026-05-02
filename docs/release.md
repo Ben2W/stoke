@@ -25,18 +25,18 @@ The CLI release workflow verifies that the tag matches the package version, runs
 The npm publish workflow verifies the same tag, runs checks, packs each package with pnpm, dry-runs package publishing, then publishes the tarballs to npm in dependency order:
 
 ```text
-@freestyle/fdev-sdk
-@freestyle/fdev-engine
-@freestyle/fdev-cli
+@freestyle-sh/fdev-sdk
+@freestyle-sh/fdev-engine
+@freestyle-sh/fdev-cli
 ```
 
 The release tag, package versions, and hardcoded runtime versions must match exactly:
 
 ```text
 tag:                  v0.1.0
-@freestyle/fdev-sdk:  0.1.0
-@freestyle/fdev-engine: 0.1.0
-@freestyle/fdev-cli:  0.1.0
+@freestyle-sh/fdev-sdk:  0.1.0
+@freestyle-sh/fdev-engine: 0.1.0
+@freestyle-sh/fdev-cli:  0.1.0
 ```
 
 ## Branches vs Tags
@@ -76,9 +76,9 @@ permissions:
 Each package must have a trusted publisher configured on npm:
 
 ```bash
-npx npm@latest trust github @freestyle/fdev-sdk --repo freestyle-sh/fdev --file publish-npm.yml -y
-npx npm@latest trust github @freestyle/fdev-engine --repo freestyle-sh/fdev --file publish-npm.yml -y
-npx npm@latest trust github @freestyle/fdev-cli --repo freestyle-sh/fdev --file publish-npm.yml -y
+npx npm@latest trust github @freestyle-sh/fdev-sdk --repo freestyle-sh/fdev --file publish-npm.yml -y
+npx npm@latest trust github @freestyle-sh/fdev-engine --repo freestyle-sh/fdev --file publish-npm.yml -y
+npx npm@latest trust github @freestyle-sh/fdev-cli --repo freestyle-sh/fdev --file publish-npm.yml -y
 ```
 
 The packages use `workspace:*` dependencies inside the repo. The workflow uses `pnpm pack` first so those workspace dependencies are converted to real package versions in the packed artifacts, then `npm publish` publishes the tarballs through Trusted Publishing.
@@ -94,9 +94,9 @@ For the first publish only:
 5. Configure trusted publishing:
 
 ```bash
-npx npm@latest trust github @freestyle/fdev-sdk --repo freestyle-sh/fdev --file publish-npm.yml -y
-npx npm@latest trust github @freestyle/fdev-engine --repo freestyle-sh/fdev --file publish-npm.yml -y
-npx npm@latest trust github @freestyle/fdev-cli --repo freestyle-sh/fdev --file publish-npm.yml -y
+npx npm@latest trust github @freestyle-sh/fdev-sdk --repo freestyle-sh/fdev --file publish-npm.yml -y
+npx npm@latest trust github @freestyle-sh/fdev-engine --repo freestyle-sh/fdev --file publish-npm.yml -y
+npx npm@latest trust github @freestyle-sh/fdev-cli --repo freestyle-sh/fdev --file publish-npm.yml -y
 ```
 
 After that, use OIDC Trusted Publishing for all later releases.

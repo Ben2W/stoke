@@ -11,7 +11,7 @@ import {
   type MachinePlan,
   type SnapshotRecord,
   type WorkspaceRecord,
-} from "@freestyle/fdev-engine";
+} from "@freestyle-sh/fdev-engine";
 import { assertVersionAlignment, DEFAULT_CONFIG_FILE, resolveConfigPaths, SDK_PACKAGE_NAME } from "./project.ts";
 import { FDEV_CLI_VERSION } from "./version.ts";
 import { defaultProjectName, initProject, normalizeMachineName, type InitProjectResult } from "./init.ts";

@@ -36,13 +36,13 @@ describe("version alignment", () => {
 
   test("errors when the local SDK is missing", () => {
     const projectDir = mkdtempSync(join(tmpdir(), "fdev-cli-"));
-    expect(() => assertVersionAlignment(projectDir)).toThrow("No local @freestyle/fdev-sdk install found");
+    expect(() => assertVersionAlignment(projectDir)).toThrow("No local @freestyle-sh/fdev-sdk install found");
   });
 });
 
 function projectWithSdkVersion(version: string): string {
   const projectDir = mkdtempSync(join(tmpdir(), "fdev-cli-"));
-  const packageDir = join(projectDir, "node_modules", "@freestyle", "fdev-sdk");
+  const packageDir = join(projectDir, "node_modules", "@freestyle-sh", "fdev-sdk");
   mkdirSync(packageDir, { recursive: true });
   writeFileSync(join(packageDir, "package.json"), `${JSON.stringify({ version }, null, 2)}\n`);
   return projectDir;

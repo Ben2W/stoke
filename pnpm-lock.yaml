@@ -17,7 +17,7 @@ importers:
 
   apps/app:
     dependencies:
-      '@freestyle/fdev-engine':
+      '@freestyle-sh/fdev-engine':
         specifier: workspace:*
         version: link:../../packages/fdev-engine
     devDependencies:
@@ -30,11 +30,11 @@ importers:
 
   examples/smoke:
     dependencies:
-      '@freestyle/fdev-sdk':
+      '@freestyle-sh/fdev-sdk':
         specifier: workspace:*
         version: link:../../packages/fdev-sdk
     devDependencies:
-      '@freestyle/fdev-cli':
+      '@freestyle-sh/fdev-cli':
         specifier: workspace:*
         version: link:../../packages/fdev-cli
       '@types/bun':
@@ -46,7 +46,7 @@ importers:
 
   packages/fdev-cli:
     dependencies:
-      '@freestyle/fdev-engine':
+      '@freestyle-sh/fdev-engine':
         specifier: workspace:*
         version: link:../fdev-engine
       chalk:
@@ -65,7 +65,7 @@ importers:
 
   packages/fdev-engine:
     dependencies:
-      '@freestyle/fdev-sdk':
+      '@freestyle-sh/fdev-sdk':
         specifier: workspace:*
         version: link:../fdev-sdk
       freestyle:

@@ -1,5 +1,5 @@
 {
-  "name": "@freestyle/fdev-example-smoke",
+  "name": "@freestyle-sh/fdev-example-smoke",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -11,10 +11,10 @@
     "test": "echo no smoke example tests yet"
   },
   "dependencies": {
-    "@freestyle/fdev-sdk": "workspace:*"
+    "@freestyle-sh/fdev-sdk": "workspace:*"
   },
   "devDependencies": {
-    "@freestyle/fdev-cli": "workspace:*",
+    "@freestyle-sh/fdev-cli": "workspace:*",
     "@types/bun": "latest",
     "typescript": "latest"
   }
