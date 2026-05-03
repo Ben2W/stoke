@@ -14,6 +14,16 @@ GET /checksums/:version
 
 No R2 bucket is used.
 
+Set a GitHub token as a Worker secret so release metadata requests do not rely on anonymous GitHub API quota:
+
+```sh
+pnpm --filter @freestyle-sh/fdev-install-worker exec wrangler secret put GITHUB_TOKEN
+```
+
+A fine-grained, read-only token scoped to `freestyle-sh/fdev` is enough.
+
+For local development, copy `.dev.vars.example` to `.dev.vars` and set the same value there. `.dev.vars` is ignored by git.
+
 Deploy:
 
 ```sh

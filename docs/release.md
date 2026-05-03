@@ -105,6 +105,16 @@ curl -fsSL https://fdev.freestyle.sh/install | sh
 
 The Worker uses GitHub Releases as the source of truth, serves latest-version metadata, and redirects downloads to GitHub release assets. No R2 bucket is used.
 
+Set `GITHUB_TOKEN` as a Worker secret so metadata requests use authenticated GitHub API quota:
+
+```bash
+pnpm --filter @freestyle-sh/fdev-install-worker exec wrangler secret put GITHUB_TOKEN
+```
+
+Use a fine-grained, read-only token scoped to `freestyle-sh/fdev`.
+
+For local development, copy `apps/install-worker/.dev.vars.example` to `apps/install-worker/.dev.vars` and set the same value there. `.dev.vars` is ignored by git.
+
 It installs to `~/.fdev/bin/fdev` by default and adds `~/.fdev/bin` to the detected shell profile. Set `FDEV_INSTALL_DIR` to override the install location, or `FDEV_NO_MODIFY_PATH=1` to skip shell profile edits.
 
 The repo-local `scripts/install-fdev.sh` remains a fallback for direct GitHub installs.

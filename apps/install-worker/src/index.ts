@@ -1,5 +1,6 @@
 type Env = {
   GITHUB_REPO?: string;
+  GITHUB_TOKEN?: string;
   PUBLIC_BASE_URL?: string;
   CACHE_TTL_SECONDS?: string;
 };
@@ -166,10 +167,7 @@ async function buildMetadata(request: Request, env: Env, release: GithubRelease)
 
 async function fetchGithubRelease(env: Env, path: "latest" | `tags/${string}`): Promise<GithubRelease> {
   const response = await fetch(`https://api.github.com/repos/${repo(env)}/releases/${path}`, {
-    headers: {
-      "Accept": "application/vnd.github+json",
-      "User-Agent": "freestyle-sh-fdev-install-worker",
-    },
+    headers: githubApiHeaders(env),
   });
 
   if (response.status === 404) {
@@ -177,10 +175,33 @@ async function fetchGithubRelease(env: Env, path: "latest" | `tags/${string}`): 
   }
 
   if (!response.ok) {
-    throw new HttpError(502, `GitHub release lookup failed with ${response.status}`);
+    const hint = response.status === 403
+      ? githubToken(env)
+        ? ". Check GITHUB_TOKEN permissions or rate limit."
+        : ". Configure the GITHUB_TOKEN Worker secret to avoid anonymous GitHub API limits."
+      : "";
+    throw new HttpError(502, `GitHub release lookup failed with ${response.status}${hint}`);
   }
 
   return await response.json() as GithubRelease;
+}
+
+function githubApiHeaders(env: Env): Headers {
+  const headers = new Headers({
+    "Accept": "application/vnd.github+json",
+    "User-Agent": "freestyle-sh-fdev-install-worker",
+    "X-GitHub-Api-Version": "2022-11-28",
+  });
+
+  const token = githubToken(env);
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+
+  return headers;
+}
+
+function githubToken(env: Env): string | undefined {
+  const token = env.GITHUB_TOKEN?.trim();
+  return token || undefined;
 }
 
 async function fetchChecksums(url: string): Promise<Record<string, string>> {

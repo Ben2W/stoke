@@ -65,6 +65,29 @@ describe("install worker", () => {
     expect(response.headers.get("location")).toBe("https://github.com/freestyle-sh/fdev/releases/download/v0.1.6/fdev-darwin-arm64.tar.gz");
   });
 
+  test("uses the GitHub token for release API requests when configured", async () => {
+    const requests = mockGithubFetch();
+
+    const response = await dispatch("https://fdev.freestyle.sh/latest.json", {
+      GITHUB_TOKEN: "github-token",
+    });
+    expect(response.status).toBe(200);
+
+    const releaseRequest = requests.find((item) => item.url === "https://api.github.com/repos/freestyle-sh/fdev/releases/latest");
+    expect(releaseRequest?.headers.get("authorization")).toBe("Bearer github-token");
+    expect(releaseRequest?.headers.get("x-github-api-version")).toBe("2022-11-28");
+  });
+
+  test("does not require the GitHub token locally", async () => {
+    const requests = mockGithubFetch();
+
+    const response = await dispatch("https://fdev.freestyle.sh/latest.json");
+    expect(response.status).toBe(200);
+
+    const releaseRequest = requests.find((item) => item.url === "https://api.github.com/repos/freestyle-sh/fdev/releases/latest");
+    expect(releaseRequest?.headers.has("authorization")).toBe(false);
+  });
+
   test("redirects versioned checksum requests to GitHub", async () => {
     mockGithubFetch();
 
@@ -92,11 +115,12 @@ describe("install worker", () => {
   });
 });
 
-function dispatch(url: string): Promise<Response> {
+function dispatch(url: string, env: Partial<Record<"GITHUB_TOKEN", string>> = {}): Promise<Response> {
   return worker.fetch(new Request(url), {
     GITHUB_REPO: "freestyle-sh/fdev",
     PUBLIC_BASE_URL: "https://fdev.freestyle.sh",
     CACHE_TTL_SECONDS: "300",
+    ...env,
   }, {
     waitUntil: () => undefined,
     passThroughOnException: () => undefined,
@@ -104,9 +128,13 @@ function dispatch(url: string): Promise<Response> {
   } as ExecutionContext);
 }
 
-function mockGithubFetch(): void {
-  globalThis.fetch = (async (input: URL | RequestInfo) => {
+function mockGithubFetch(): Array<{ url: string; headers: Headers }> {
+  const requests: Array<{ url: string; headers: Headers }> = [];
+
+  globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
     const url = String(input instanceof Request ? input.url : input);
+    requests.push({ url, headers: new Headers(input instanceof Request ? input.headers : init?.headers) });
+
     if (url === "https://api.github.com/repos/freestyle-sh/fdev/releases/latest") {
       return Response.json(release);
     }
@@ -118,6 +146,8 @@ function mockGithubFetch(): void {
     }
     return new Response("not found", { status: 404 });
   }) as typeof fetch;
+
+  return requests;
 }
 
 function asset(name: string): { name: string; browser_download_url: string } {

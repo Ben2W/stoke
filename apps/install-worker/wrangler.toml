@@ -11,3 +11,6 @@ routes = [
 GITHUB_REPO = "freestyle-sh/fdev"
 PUBLIC_BASE_URL = "https://fdev.freestyle.sh"
 CACHE_TTL_SECONDS = "300"
+
+[secrets]
+required = ["GITHUB_TOKEN"]
