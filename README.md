@@ -6,7 +6,8 @@ This repo is a pnpm/turbo workspace:
 
 ```text
 packages/fdev-sdk/      SDK authoring API and public config types
-packages/fdev-engine/   config loader, step engine, state, Freestyle provider
+packages/fdev-engine/   config loader, step engine, provider contracts, state
+packages/fdev-provider-freestyle/ Freestyle provider implementation
 packages/fdev-cli/      global `fdev` command
 apps/app/               placeholder for the future app
 apps/install-worker/    Cloudflare Worker for install and release metadata
@@ -58,7 +59,7 @@ eval "$(fdev completion zsh)"
 ```
 
 The installer adds the completion hook for new installs.
-Completion includes dynamic workspace targets, so `fdev ssh <tab>` suggests locally known workspaces from `.fdev/state.json`.
+Completion includes dynamic workspace targets, so `fdev ssh <tab>` suggests locally known workspaces from `.fdev/state.sqlite`.
 
 Initialize a new fdev project:
 
@@ -80,11 +81,11 @@ By default other `fdev` commands load `fdev.config.ts` from the current director
 
 Implemented:
 
-- `defineDevMachine({ name, apiKey, image, steps })`
+- `defineDevMachine({ name, provider, image, steps })`
 - `defineStep(name, fn)` with typed dependency context
 - `DevMachineEngine` with `load`, `plan`, `apply`, `fork`, `attachTerminal`, `listWorkspaces`, and `deleteWorkspace`
-- Freestyle provider for VM create, snapshot, create-from-snapshot, exec, and SSH command generation
-- local `.fdev/state.json` snapshot/workspace cache
+- Freestyle provider package for VM create, snapshot, create-from-snapshot, exec, and SSH command generation
+- local `.fdev/state.sqlite` snapshot/workspace cache
 - Commander-based `fdev` CLI for `init`, `plan`, `apply`, `fork`, `ls`, `ssh`, `snapshot`, and `rm`
 - pnpm/turbo workspace with separate SDK, engine, CLI packages, app placeholder, and smoke example
 

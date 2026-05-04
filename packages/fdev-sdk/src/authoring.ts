@@ -1,6 +1,7 @@
 import type {
   DependencyContext,
   DevMachineDefinition,
+  DevProviderDefinition,
   EnvResolver,
   StepDefinition,
   StepDefinitionOptions,
@@ -76,12 +77,32 @@ export function defineDevMachine<Options = undefined>(
   return machine;
 }
 
+export function defineProvider<
+  const ProviderId extends string,
+  const Config extends object,
+>(
+  providerId: ProviderId,
+  config: DevProviderDefinition<ProviderId, Config>["config"],
+  plugin?: unknown,
+): DevProviderDefinition<ProviderId, Config> {
+  return {
+    kind: "fdev.provider",
+    providerId,
+    config,
+    plugin,
+  };
+}
+
 export function isStep(value: unknown): value is StepInstance<any, any> {
-  return Boolean(value && (typeof value === "object" || typeof value === "function") && (value as any).kind === "fdev.step");
+  return Boolean(value && (typeof value === "object" || typeof value === "function") && getKind(value) === "fdev.step");
 }
 
 export function isDevMachine(value: unknown): value is DevMachineDefinition<any> {
-  return Boolean(value && typeof value === "object" && (value as any).kind === "fdev.machine");
+  return Boolean(value && typeof value === "object" && getKind(value) === "fdev.machine");
+}
+
+export function isProviderDefinition(value: unknown): value is DevProviderDefinition {
+  return Boolean(value && typeof value === "object" && getKind(value) === "fdev.provider");
 }
 
 export function validateStepDependencies(machineName: string, steps: readonly StepInstance<any, any>[]): void {
@@ -128,4 +149,8 @@ function createStepInstance<Input>(input: {
 
 function stepKey(step: StepInstance<any, any>): string {
   return `${step.name}\0${JSON.stringify(step.input ?? null)}`;
+}
+
+function getKind(value: object | Function): unknown {
+  return (value as { kind?: unknown }).kind;
 }

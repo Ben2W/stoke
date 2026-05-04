@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Database } from "bun:sqlite";
 import { completeFdev, formatCompletionItems, renderCompletionScript } from "./completion.ts";
 
 describe("CLI completion", () => {
@@ -60,27 +61,34 @@ function projectWithWorkspaces(): string {
 function writeState(projectDir: string): void {
   const stateDir = join(projectDir, ".fdev");
   mkdirSync(stateDir, { recursive: true });
-  writeFileSync(
-    join(stateDir, "state.json"),
-    `${JSON.stringify({
-      version: 1,
-      snapshots: [],
-      workspaces: {
-        web: {
-          name: "web",
-          vmId: "vm-web",
-          machine: "test",
-          snapshotId: "snap-web",
-          createdAt: "2026-01-01T00:00:00.000Z",
-        },
-        api: {
-          name: "api",
-          vmId: "vm-api",
-          machine: "test",
-          snapshotId: "snap-api",
-          createdAt: "2026-01-01T00:00:00.000Z",
-        },
-      },
-    }, null, 2)}\n`,
-  );
+  const db = new Database(join(stateDir, "state.sqlite"), { create: true });
+  db.run(`
+    CREATE TABLE workspaces (
+      id TEXT PRIMARY KEY NOT NULL,
+      name TEXT NOT NULL,
+      provider_id TEXT NOT NULL,
+      vm_id TEXT NOT NULL,
+      machine TEXT NOT NULL,
+      snapshot_id TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      metadata_json TEXT NOT NULL
+    )
+  `);
+  const insert = db.query(`
+    INSERT INTO workspaces (
+      id,
+      name,
+      provider_id,
+      vm_id,
+      machine,
+      snapshot_id,
+      created_at,
+      updated_at,
+      metadata_json
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  insert.run("workspace-web", "web", "freestyle", "vm-web", "test", "snap-web", "2026-01-01T00:00:00.000Z", "2026-01-01T00:00:00.000Z", "{}");
+  insert.run("workspace-api", "api", "freestyle", "vm-api", "test", "snap-api", "2026-01-01T00:00:00.000Z", "2026-01-01T00:00:00.000Z", "{}");
+  db.close();
 }

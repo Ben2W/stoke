@@ -74,7 +74,7 @@ jobs:
       - name: Verify packages are not already published
         run: |
           version="${GITHUB_REF_NAME#v}"
-          for pkg in @freestyle-sh/fdev-sdk @freestyle-sh/fdev-engine @freestyle-sh/fdev-cli; do
+          for pkg in @freestyle-sh/fdev-sdk @freestyle-sh/fdev-engine @freestyle-sh/fdev-provider-freestyle @freestyle-sh/fdev-cli; do
             if npm view "${pkg}@${version}" version >/dev/null 2>&1; then
               echo "${pkg}@${version} is already published" >&2
               exit 1
@@ -88,16 +88,19 @@ jobs:
           mkdir -p dist/npm
           pnpm -C packages/fdev-sdk pack --pack-destination ../../dist/npm
           pnpm -C packages/fdev-engine pack --pack-destination ../../dist/npm
+          pnpm -C packages/fdev-provider-freestyle pack --pack-destination ../../dist/npm
           pnpm -C packages/fdev-cli pack --pack-destination ../../dist/npm
 
       - name: Dry run package publish
         run: |
           npx npm@latest publish dist/npm/freestyle-sh-fdev-sdk-*.tgz --access public --dry-run
           npx npm@latest publish dist/npm/freestyle-sh-fdev-engine-*.tgz --access public --dry-run
+          npx npm@latest publish dist/npm/freestyle-sh-fdev-provider-freestyle-*.tgz --access public --dry-run
           npx npm@latest publish dist/npm/freestyle-sh-fdev-cli-*.tgz --access public --dry-run
 
       - name: Publish packages
         run: |
           npx npm@latest publish dist/npm/freestyle-sh-fdev-sdk-*.tgz --access public
           npx npm@latest publish dist/npm/freestyle-sh-fdev-engine-*.tgz --access public
+          npx npm@latest publish dist/npm/freestyle-sh-fdev-provider-freestyle-*.tgz --access public
           npx npm@latest publish dist/npm/freestyle-sh-fdev-cli-*.tgz --access public

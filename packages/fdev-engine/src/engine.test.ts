@@ -3,7 +3,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createDevMachineEngine } from "./engine.ts";
-import type { DevMachineProvider, SnapshotHandle, TerminalHandle, VmHandle } from "./provider/types.ts";
+import type { DevMachineProvider, SnapshotHandle, SshConnection, VmHandle } from "./provider/types.ts";
 import type { ExecOptions, ExecResult } from "@freestyle-sh/fdev-sdk";
 
 describe("DevMachineEngine", () => {
@@ -12,7 +12,7 @@ describe("DevMachineEngine", () => {
     writeFileSync(
       join(projectDir, "fdev.config.ts"),
       `
-        import { defineDevMachine, defineStep } from "${import.meta.dir}/../../fdev-sdk/src/index.ts";
+        import { defineDevMachine, defineProvider, defineStep } from "${import.meta.dir}/../../fdev-sdk/src/index.ts";
 
         const first = defineStep("first", async (c) => {
           const missing = await c.step.probe("test -e /tmp/missing", { name: "probe missing" });
@@ -29,7 +29,7 @@ describe("DevMachineEngine", () => {
 
         export default defineDevMachine({
           name: "test",
-          apiKey: "test-key",
+          provider: defineProvider("test", { token: "test-key" }),
           image: "ubuntu-24.04",
           steps: [first, second],
         });
@@ -73,7 +73,7 @@ describe("DevMachineEngine", () => {
     writeFileSync(
       join(projectDir, "fdev.config.ts"),
       `
-        import { defineDevMachine, defineStep } from "${import.meta.dir}/../../fdev-sdk/src/index.ts";
+        import { defineDevMachine, defineProvider, defineStep } from "${import.meta.dir}/../../fdev-sdk/src/index.ts";
 
         const fails = defineStep("fails", async ({ step }) => {
           const missing = await step.probe("test -e /tmp/missing", { name: "probe missing" });
@@ -83,7 +83,7 @@ describe("DevMachineEngine", () => {
 
         export default defineDevMachine({
           name: "test",
-          apiKey: "test-key",
+          provider: defineProvider("test", { token: "test-key" }),
           image: "ubuntu-24.04",
           steps: [fails],
         });
@@ -103,6 +103,7 @@ describe("DevMachineEngine", () => {
 });
 
 class FakeProvider implements DevMachineProvider {
+  readonly providerId = "test";
   snapshots: SnapshotHandle[] = [];
   private nextVm = 1;
   private files = new Map<string, Set<string>>();
@@ -144,12 +145,14 @@ class FakeProvider implements DevMachineProvider {
     return snapshot;
   }
 
-  async forkVm(): Promise<VmHandle> {
-    return this.createHandle();
-  }
-
-  async openTerminal(): Promise<TerminalHandle> {
-    return { command: "ssh fake" };
+  async ssh(): Promise<SshConnection> {
+    return {
+      kind: "ssh",
+      host: "fake",
+      username: "fake",
+      auth: { type: "token", token: "fake" },
+      command: "ssh fake",
+    };
   }
 
   async deleteVm(): Promise<void> {}

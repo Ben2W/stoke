@@ -64,6 +64,7 @@ jobs:
           mkdir -p dist/npm
           pnpm -C packages/fdev-sdk pack --pack-destination ../../dist/npm
           pnpm -C packages/fdev-engine pack --pack-destination ../../dist/npm
+          pnpm -C packages/fdev-provider-freestyle pack --pack-destination ../../dist/npm
           pnpm -C packages/fdev-cli pack --pack-destination ../../dist/npm
 
       - name: Dry run package publish
@@ -71,6 +72,7 @@ jobs:
         run: |
           npx npm@latest publish dist/npm/freestyle-sh-fdev-sdk-*.tgz --access public --dry-run
           npx npm@latest publish dist/npm/freestyle-sh-fdev-engine-*.tgz --access public --dry-run
+          npx npm@latest publish dist/npm/freestyle-sh-fdev-provider-freestyle-*.tgz --access public --dry-run
           npx npm@latest publish dist/npm/freestyle-sh-fdev-cli-*.tgz --access public --dry-run
 
       - name: Publish packages
@@ -78,4 +80,5 @@ jobs:
         run: |
           npx npm@latest publish dist/npm/freestyle-sh-fdev-sdk-*.tgz --access public
           npx npm@latest publish dist/npm/freestyle-sh-fdev-engine-*.tgz --access public
+          npx npm@latest publish dist/npm/freestyle-sh-fdev-provider-freestyle-*.tgz --access public
           npx npm@latest publish dist/npm/freestyle-sh-fdev-cli-*.tgz --access public

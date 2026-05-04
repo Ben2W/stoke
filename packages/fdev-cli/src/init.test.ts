@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { initProject, normalizeMachineName } from "./init.ts";
-import { SDK_PACKAGE_NAME } from "./project.ts";
+import { FREESTYLE_PROVIDER_PACKAGE_NAME, SDK_PACKAGE_NAME } from "./project.ts";
 import { FDEV_CLI_VERSION } from "./version.ts";
 
 describe("initProject", () => {
@@ -38,6 +38,7 @@ describe("initProject", () => {
     expect(pkg.scripts.plan).toBe("fdev plan");
     expect(pkg.scripts.apply).toBe("fdev apply");
     expect(pkg.devDependencies[SDK_PACKAGE_NAME]).toBe(FDEV_CLI_VERSION);
+    expect(pkg.devDependencies[FREESTYLE_PROVIDER_PACKAGE_NAME]).toBe(FDEV_CLI_VERSION);
   });
 
   test("updates existing project files without replacing package metadata", () => {

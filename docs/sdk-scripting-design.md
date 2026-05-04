@@ -16,7 +16,7 @@ base image
 The authoring API is intentionally small:
 
 ```ts
-defineDevMachine({ name, apiKey, image, steps })
+defineDevMachine({ name, provider, image, steps })
 defineStep(name, fn)
 defineStep(name, { dependsOn: [otherStep] }, fn)
 ```
@@ -28,6 +28,7 @@ There is no separate package spec layer and no `step.assert` helper. A step runs
 
 ```ts
 import { defineDevMachine, defineStep, env } from "@freestyle-sh/fdev-sdk";
+import { defineFreestyleProvider } from "@freestyle-sh/fdev-provider-freestyle";
 
 const gcloudStep = defineStep("install gcloud cli", async ({ step }) => {
   await step.exec("sudo apt-get update && sudo apt-get install -y google-cloud-cli", {
@@ -77,7 +78,9 @@ const verifyNode = defineStep(
 
 export default defineDevMachine({
   name: "platform",
-  apiKey: () => env("FREESTYLE_API_KEY"),
+  provider: defineFreestyleProvider({
+    apiKey: () => env("FREESTYLE_API_KEY"),
+  }),
   image: "ubuntu-24.04",
   steps: [gcloudStep, verifyNode],
 });
@@ -131,9 +134,9 @@ The engine snapshots after each successful top-level step. A machine chain key i
 
 When applying a machine, the engine finds the latest cached prefix and only runs the missing suffix. Changing, removing, or reordering a step invalidates that step and every later step.
 
-## API Key Boundary
+## Provider Boundary
 
-`apiKey` authenticates the SDK and engine with Freestyle. It is not automatically copied into the remote VM. If a credential should exist inside the machine, a step must explicitly place it there.
+`provider` authenticates and configures the backing VM provider. The Freestyle provider package implements the base fdev contract: create, snapshot, exec, SSH, file read/write, and delete. Provider credentials are not automatically copied into the remote VM. If a credential should exist inside the machine, a step must explicitly place it there.
 
 ## CLI
 

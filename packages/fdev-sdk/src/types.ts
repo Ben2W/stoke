@@ -10,6 +10,16 @@ export type MaybePromise<T> = T | Promise<T>;
 
 export type EnvResolver = (name: string, fallback?: string) => string;
 
+export type Resolvable<T> = T | (() => MaybePromise<T>);
+
+export type ResolvableObject<T> = {
+  [Key in keyof T]: T[Key] extends object
+    ? T[Key] extends (...args: any[]) => unknown
+      ? Resolvable<T[Key]>
+      : ResolvableObject<T[Key]> | Resolvable<T[Key]>
+    : Resolvable<T[Key]>;
+};
+
 export type ExecOptions = {
   cwd?: string;
   env?: Record<string, string | undefined>;
@@ -146,10 +156,29 @@ export type MachineResources = {
   idleTimeoutSeconds?: number | null;
 };
 
+export type DevProviderDefinition<
+  ProviderId extends string = string,
+  Config extends object = Record<string, unknown>,
+> = {
+  readonly kind: "fdev.provider";
+  providerId: ProviderId;
+  config: ResolvableObject<Config>;
+  plugin?: unknown;
+};
+
+export type LoadedProviderDefinition<
+  ProviderId extends string = string,
+  Config extends object = Record<string, unknown>,
+> = {
+  providerId: ProviderId;
+  config: Config;
+  plugin?: unknown;
+};
+
 export type DevMachineDefinition<Options = undefined> = MachineResources & {
   readonly kind: "fdev.machine";
   name: string;
-  apiKey: string | (() => MaybePromise<string>);
+  provider: DevProviderDefinition;
   image: string;
   options?: Options;
   steps:
@@ -165,7 +194,7 @@ export type DevMachineDefinition<Options = undefined> = MachineResources & {
 
 export type LoadedMachine = MachineResources & {
   name: string;
-  apiKey: string;
+  provider: LoadedProviderDefinition;
   image: string;
   options?: unknown;
   steps: StepInstance<any, any>[];
@@ -189,11 +218,15 @@ export type MachinePlan = {
 };
 
 export type WorkspaceRecord = {
+  id: string;
   name: string;
+  providerId: string;
   vmId: string;
   machine: string;
   snapshotId: string;
   createdAt: string;
+  updatedAt: string;
+  metadata: Record<string, JsonValue>;
 };
 
 export type DevMachineEvent =

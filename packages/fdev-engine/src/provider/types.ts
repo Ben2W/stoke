@@ -1,4 +1,5 @@
-import type { ExecOptions, ExecResult } from "@freestyle-sh/fdev-sdk";
+import type { ExecOptions, ExecResult, LoadedProviderDefinition } from "@freestyle-sh/fdev-sdk";
+import type { FdevDatabase, FdevDatabaseSchema } from "../db/index.ts";
 
 export type CreateVmInput = {
   image: string;
@@ -17,18 +18,42 @@ export type SnapshotHandle = {
   sourceVmId: string;
 };
 
-export type TerminalHandle = {
+export type SshOptions = {
+  user?: string;
+};
+
+export type SshConnection = {
+  kind: "ssh";
+  host: string;
+  port?: number;
+  username: string;
+  auth: { type: "token"; token: string } | { type: "privateKey"; privateKey: string };
   command: string;
 };
 
-export interface DevMachineProvider {
+export interface BaseDevMachineProvider {
+  readonly providerId: string;
   createVm(input: CreateVmInput): Promise<VmHandle>;
   createVmFromSnapshot(input: { snapshotId: string; idleTimeoutSeconds?: number | null }): Promise<VmHandle>;
   exec(vm: VmHandle, command: string, options?: ExecOptions): Promise<ExecResult>;
   readFile(vm: VmHandle, path: string): Promise<string>;
   writeFile(vm: VmHandle, path: string, content: string): Promise<void>;
   snapshot(vm: VmHandle): Promise<SnapshotHandle>;
-  forkVm(vm: VmHandle): Promise<VmHandle>;
-  openTerminal(vm: VmHandle, options?: { user?: string }): Promise<TerminalHandle>;
+  ssh(vm: VmHandle, options?: SshOptions): Promise<SshConnection>;
   deleteVm(vm: VmHandle): Promise<void>;
 }
+
+export type ProviderFactoryInput = {
+  provider: LoadedProviderDefinition;
+  db: FdevDatabase<FdevDatabaseSchema>;
+};
+
+export type ProviderFactory = (input: ProviderFactoryInput) => BaseDevMachineProvider;
+
+export type BaseProviderPlugin = {
+  providerId: string;
+  schema?: FdevDatabaseSchema;
+  createProvider(input: ProviderFactoryInput): BaseDevMachineProvider;
+};
+
+export type DevMachineProvider = BaseDevMachineProvider;

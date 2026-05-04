@@ -11,6 +11,7 @@
     "test": "echo no smoke example tests yet"
   },
   "dependencies": {
+    "@freestyle-sh/fdev-provider-freestyle": "workspace:*",
     "@freestyle-sh/fdev-sdk": "workspace:*"
   },
   "devDependencies": {

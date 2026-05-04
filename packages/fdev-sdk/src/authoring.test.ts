@@ -1,24 +1,29 @@
 import { describe, expect, test } from "bun:test";
 import {
   defineDevMachine,
+  defineProvider,
   defineStep,
   isDevMachine,
+  isProviderDefinition,
   isStep,
 } from "./authoring.ts";
 
 describe("fdev SDK authoring", () => {
   test("creates structural step and machine definitions", () => {
     const step = defineStep("test:step", async () => {});
+    const provider = defineProvider("test", { token: "test-key" });
     const machine = defineDevMachine({
       name: "test",
-      apiKey: "test-key",
+      provider,
       image: "ubuntu-24.04",
       steps: [step],
     });
 
     expect(step.kind).toBe("fdev.step");
+    expect(provider.kind).toBe("fdev.provider");
     expect(machine.kind).toBe("fdev.machine");
     expect(isStep({ kind: "fdev.step" })).toBe(true);
+    expect(isProviderDefinition({ kind: "fdev.provider" })).toBe(true);
     expect(isDevMachine({ kind: "fdev.machine" })).toBe(true);
   });
 
@@ -40,7 +45,7 @@ describe("fdev SDK authoring", () => {
     expect(() =>
       defineDevMachine({
         name: "test",
-        apiKey: "test-key",
+        provider: defineProvider("test", { token: "test-key" }),
         image: "ubuntu-24.04",
         steps: [node],
       }),
@@ -49,7 +54,7 @@ describe("fdev SDK authoring", () => {
     expect(() =>
       defineDevMachine({
         name: "test",
-        apiKey: "test-key",
+        provider: defineProvider("test", { token: "test-key" }),
         image: "ubuntu-24.04",
         steps: [gcloud, node],
       }),

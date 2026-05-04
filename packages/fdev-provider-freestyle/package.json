@@ -1,11 +1,11 @@
 {
-  "name": "@freestyle-sh/fdev-engine",
+  "name": "@freestyle-sh/fdev-provider-freestyle",
   "version": "0.1.6",
   "type": "module",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/freestyle-sh/fdev.git",
-    "directory": "packages/fdev-engine"
+    "directory": "packages/fdev-provider-freestyle"
   },
   "exports": {
     ".": "./src/index.ts",
@@ -18,12 +18,13 @@
   "scripts": {
     "build": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
-    "test": "bun test"
+    "test": "echo no provider tests yet"
   },
   "dependencies": {
+    "@freestyle-sh/fdev-engine": "workspace:*",
     "@freestyle-sh/fdev-sdk": "workspace:*",
-    "drizzle-kit": "^0.31.10",
-    "drizzle-orm": "^0.45.2"
+    "drizzle-orm": "^0.45.2",
+    "freestyle": "latest"
   },
   "devDependencies": {
     "@types/bun": "latest",

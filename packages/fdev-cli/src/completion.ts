@@ -1,5 +1,6 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import { Database } from "bun:sqlite";
 
 export type CompletionShell = "bash" | "fish" | "zsh";
 
@@ -12,11 +13,6 @@ type CompleteFdevInput = {
   words: string[];
   currentIndex?: number;
   cwd?: string;
-};
-
-type CompletionState = {
-  version?: number;
-  workspaces?: Record<string, { name: string; vmId: string }>;
 };
 
 const COMMANDS: CompletionItem[] = [
@@ -285,14 +281,18 @@ function workspaceTargets(projectDir: string, current: string, includeVmIds: boo
 }
 
 function readWorkspaces(projectDir: string): Array<{ name: string; vmId: string }> {
-  const statePath = join(projectDir, ".fdev", "state.json");
+  const statePath = join(projectDir, ".fdev", "state.sqlite");
   if (!existsSync(statePath)) return [];
 
+  const db = new Database(statePath, { readonly: true, create: false });
   try {
-    const state = JSON.parse(readFileSync(statePath, "utf8")) as CompletionState;
-    return Object.values(state.workspaces ?? {}).sort((a, b) => a.name.localeCompare(b.name));
+    return db.query<{ name: string; vmId: string }, []>(
+      "SELECT name, vm_id AS vmId FROM workspaces ORDER BY name",
+    ).all();
   } catch {
     return [];
+  } finally {
+    db.close();
   }
 }
 

@@ -5,6 +5,7 @@ import { FDEV_CLI_VERSION } from "./version.ts";
 
 export const DEFAULT_CONFIG_FILE = "fdev.config.ts";
 export const SDK_PACKAGE_NAME = "@freestyle-sh/fdev-sdk";
+export const FREESTYLE_PROVIDER_PACKAGE_NAME = "@freestyle-sh/fdev-provider-freestyle";
 
 export type ConfigPathOptions = {
   project?: string;

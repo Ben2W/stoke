@@ -27,6 +27,7 @@ The npm publish workflow verifies the same tag, runs checks, packs each package 
 ```text
 @freestyle-sh/fdev-sdk
 @freestyle-sh/fdev-engine
+@freestyle-sh/fdev-provider-freestyle
 @freestyle-sh/fdev-cli
 ```
 
@@ -36,6 +37,7 @@ The release tag, package versions, and hardcoded runtime versions must match exa
 tag:                  v0.1.0
 @freestyle-sh/fdev-sdk:  0.1.0
 @freestyle-sh/fdev-engine: 0.1.0
+@freestyle-sh/fdev-provider-freestyle: 0.1.0
 @freestyle-sh/fdev-cli:  0.1.0
 ```
 
@@ -72,6 +74,7 @@ Each package must have a trusted publisher configured on npm:
 ```bash
 npx npm@latest trust github @freestyle-sh/fdev-sdk --repo freestyle-sh/fdev --file publish-npm.yml -y
 npx npm@latest trust github @freestyle-sh/fdev-engine --repo freestyle-sh/fdev --file publish-npm.yml -y
+npx npm@latest trust github @freestyle-sh/fdev-provider-freestyle --repo freestyle-sh/fdev --file publish-npm.yml -y
 npx npm@latest trust github @freestyle-sh/fdev-cli --repo freestyle-sh/fdev --file publish-npm.yml -y
 ```
 
@@ -90,6 +93,7 @@ For the first publish only:
 ```bash
 npx npm@latest trust github @freestyle-sh/fdev-sdk --repo freestyle-sh/fdev --file publish-npm.yml -y
 npx npm@latest trust github @freestyle-sh/fdev-engine --repo freestyle-sh/fdev --file publish-npm.yml -y
+npx npm@latest trust github @freestyle-sh/fdev-provider-freestyle --repo freestyle-sh/fdev --file publish-npm.yml -y
 npx npm@latest trust github @freestyle-sh/fdev-cli --repo freestyle-sh/fdev --file publish-npm.yml -y
 ```
 

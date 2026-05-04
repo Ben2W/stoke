@@ -1,4 +1,5 @@
 import { defineDevMachine, defineStep, env } from "@freestyle-sh/fdev-sdk";
+import { defineFreestyleProvider } from "@freestyle-sh/fdev-provider-freestyle";
 
 const smokeStep = defineStep("fdev:smoke", async ({ vm, step }) => {
   const ready = await vm.exec("test -f /tmp/fdev-ready").catch(() => null);
@@ -10,7 +11,9 @@ const smokeStep = defineStep("fdev:smoke", async ({ vm, step }) => {
 
 export default defineDevMachine({
   name: "smoke",
-  apiKey: env("FREESTYLE_API_KEY"),
+  provider: defineFreestyleProvider({
+    apiKey: env("FREESTYLE_API_KEY"),
+  }),
   image: "ubuntu-24.04",
   steps: [smokeStep],
 });

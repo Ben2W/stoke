@@ -1,11 +1,10 @@
 import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { isDevMachine, isStep, validateStepDependencies } from "@freestyle-sh/fdev-sdk";
+import { isDevMachine, isProviderDefinition, isStep, validateStepDependencies } from "@freestyle-sh/fdev-sdk";
 import { loadDotEnv } from "./env-file.ts";
-import { hash, stableJson } from "./hash.ts";
-import { createFreestyleProvider } from "./provider/freestyle.ts";
-import type { DevMachineProvider, VmHandle } from "./provider/types.ts";
+import { hash } from "./hash.ts";
+import type { BaseDevMachineProvider, BaseProviderPlugin, ProviderFactory, VmHandle } from "./provider/types.ts";
 import { StateStore, type SnapshotRecord } from "./state.ts";
 import type {
   DevMachineDefinition,
@@ -13,6 +12,7 @@ import type {
   EventHandler,
   ExecOptions,
   JsonValue,
+  LoadedProviderDefinition,
   LoadedMachine,
   MachinePlan,
   StepCommandOptions,
@@ -24,7 +24,8 @@ import type {
 export type CreateDevMachineEngineOptions = {
   projectDir?: string;
   configPath?: string;
-  providerFactory?: (apiKey: string) => DevMachineProvider;
+  providers?: BaseProviderPlugin[];
+  providerFactory?: ProviderFactory;
 };
 
 export type EngineLoadResult = {
@@ -56,8 +57,10 @@ export type MachineSummary = {
 export class DevMachineEngine {
   private readonly projectDir: string;
   private readonly configPath: string;
-  private readonly state: StateStore;
-  private readonly providerFactory: (apiKey: string) => DevMachineProvider;
+  private readonly statePath: string;
+  private state: StateStore | undefined;
+  private providers: BaseProviderPlugin[];
+  private readonly providerFactory: ProviderFactory;
   private readonly handlers = new Set<EventHandler>();
   private machines = new Map<string, LoadedMachine>();
 
@@ -66,8 +69,9 @@ export class DevMachineEngine {
       ? resolve(options.configPath)
       : join(resolve(options.projectDir ?? process.cwd()), "fdev.config.ts");
     this.projectDir = resolve(options.configPath ? dirname(this.configPath) : options.projectDir ?? process.cwd());
-    this.state = new StateStore(this.projectDir);
-    this.providerFactory = options.providerFactory ?? ((apiKey) => createFreestyleProvider({ apiKey }));
+    this.statePath = join(this.projectDir, ".fdev", "state.sqlite");
+    this.providers = options.providers ?? [];
+    this.providerFactory = options.providerFactory ?? ((input) => this.createProviderFromPlugin(input));
   }
 
   onEvent(handler: EventHandler): () => void {
@@ -90,6 +94,14 @@ export class DevMachineEngine {
     const definition = normalizeDefinition(mod.default ?? mod.machine);
     const machine = await this.resolveMachine(definition);
     const loaded = [machine];
+    this.providers = mergeProviderPlugins([
+      ...this.providers,
+      ...loaded.map((machine) => machine.provider.plugin).filter(isBaseProviderPlugin),
+    ]);
+    this.state = new StateStore(this.projectDir, {
+      providerSchemas: this.providers.map((provider) => provider.schema).filter(isDefined),
+    });
+    await this.state.syncSchema();
 
     this.machines = new Map(loaded.map((machine) => [machine.name, machine]));
 
@@ -102,7 +114,7 @@ export class DevMachineEngine {
       machines: loaded,
       projectDir: this.projectDir,
       configPath: this.configPath,
-      statePath: this.state.path,
+      statePath: this.getState().path,
     };
   }
 
@@ -114,17 +126,17 @@ export class DevMachineEngine {
     return {
       projectDir: this.projectDir,
       configPath: this.configPath,
-      statePath: this.state.path,
+      statePath: this.state?.path ?? this.statePath,
       machine: this.machines.size === 1 ? summarizeMachine([...this.machines.values()][0]!) : undefined,
     };
   }
 
   listWorkspaces(): WorkspaceRecord[] {
-    return Object.values(this.state.read().workspaces).sort((a, b) => a.name.localeCompare(b.name));
+    return this.getState().listWorkspaces();
   }
 
   listSnapshots(): SnapshotRecord[] {
-    return [...this.state.read().snapshots].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    return this.getState().listSnapshots();
   }
 
   async plan(input: { machine?: string } = {}): Promise<MachinePlan> {
@@ -159,7 +171,7 @@ export class DevMachineEngine {
 
   async apply(input: { machine?: string } = {}): Promise<{ snapshotId?: string; vmId?: string; plan: MachinePlan }> {
     const machine = this.getMachine(input.machine);
-    const provider = this.providerFactory(machine.apiKey);
+    const provider = this.createProvider(machine);
     const chain = this.buildChain(machine);
     const cached = this.findCachedPrefix(machine, chain.keys);
     let context: Record<string, JsonValue> = { ...(cached.snapshot?.context ?? {}) };
@@ -201,6 +213,7 @@ export class DevMachineEngine {
       const snapshot = await provider.snapshot(vm);
       const record: SnapshotRecord = {
         id: crypto.randomUUID(),
+        providerId: provider.providerId,
         machine: machine.name,
         machineKey: chain.machineKey,
         prefixKeys: chain.keys.slice(0, index + 1),
@@ -213,18 +226,7 @@ export class DevMachineEngine {
         metadata: { ...metadata },
       };
 
-      this.state.update((state) => {
-        state.snapshots = state.snapshots.filter(
-          (existing) =>
-            !(
-              existing.machine === record.machine &&
-              existing.machineKey === record.machineKey &&
-              existing.prefixLength === record.prefixLength &&
-              stableJson(existing.prefixKeys) === stableJson(record.prefixKeys)
-            ),
-        );
-        state.snapshots.push(record);
-      });
+      this.getState().replaceStepSnapshot(record);
 
       this.emit({ type: "snapshot.created", step: step.name, snapshotId: snapshot.snapshotId });
     }
@@ -246,23 +248,25 @@ export class DevMachineEngine {
     }
 
     const machine = this.getMachine(input.machine);
-    const provider = this.providerFactory(machine.apiKey);
+    const provider = this.createProvider(machine);
     const vm = await provider.createVmFromSnapshot({
       snapshotId: applied.snapshotId,
       idleTimeoutSeconds: machine.idleTimeoutSeconds,
     });
 
     const workspace: WorkspaceRecord = {
+      id: crypto.randomUUID(),
       name: input.name,
+      providerId: provider.providerId,
       vmId: vm.vmId,
       machine: machine.name,
       snapshotId: applied.snapshotId,
       createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      metadata: {},
     };
 
-    this.state.update((state) => {
-      state.workspaces[input.name] = workspace;
-    });
+    this.getState().saveWorkspace(workspace);
 
     this.emit({
       type: "workspace.ready",
@@ -280,12 +284,11 @@ export class DevMachineEngine {
     printOnly?: boolean;
     user?: string;
   }): Promise<{ command: string }> {
-    const state = this.state.read();
-    const workspace = state.workspaces[input.workspaceOrVmId];
+    const workspace = this.getState().findWorkspace(input.workspaceOrVmId);
     const vmId = workspace?.vmId ?? input.workspaceOrVmId;
     const machine = this.getMachine(input.machine ?? workspace?.machine);
-    const provider = this.providerFactory(machine.apiKey);
-    const terminal = await provider.openTerminal({ vmId }, { user: input.user });
+    const provider = this.createProvider(machine);
+    const terminal = await provider.ssh({ vmId }, { user: input.user });
 
     if (!input.printOnly) {
       const proc = Bun.spawn(["sh", "-lc", terminal.command], {
@@ -300,33 +303,31 @@ export class DevMachineEngine {
   }
 
   async deleteWorkspace(input: { workspace: string; machine?: string }): Promise<WorkspaceRecord> {
-    const workspace = this.state.read().workspaces[input.workspace];
+    const workspace = this.getState().getWorkspace(input.workspace);
     if (!workspace) throw new Error(`Unknown workspace ${input.workspace}`);
 
     const machine = this.getMachine(input.machine ?? workspace.machine);
-    const provider = this.providerFactory(machine.apiKey);
+    const provider = this.createProvider(machine);
     await provider.deleteVm({ vmId: workspace.vmId });
 
-    this.state.update((state) => {
-      delete state.workspaces[input.workspace];
-    });
+    this.getState().deleteWorkspace(input.workspace);
 
     return workspace;
   }
 
   async snapshotWorkspace(input: { workspace: string; label?: string; machine?: string }): Promise<SnapshotRecord> {
-    const state = this.state.read();
-    const workspace = state.workspaces[input.workspace];
+    const workspace = this.getState().getWorkspace(input.workspace);
     if (!workspace) throw new Error(`Unknown workspace ${input.workspace}`);
 
     const machine = this.getMachine(input.machine ?? workspace.machine);
-    const provider = this.providerFactory(machine.apiKey);
+    const provider = this.createProvider(machine);
     const snapshot = await provider.snapshot({ vmId: workspace.vmId });
     const chain = this.buildChain(machine);
     const cached = this.findCachedPrefix(machine, chain.keys);
 
     const record: SnapshotRecord = {
       id: crypto.randomUUID(),
+      providerId: provider.providerId,
       machine: machine.name,
       machineKey: chain.machineKey,
       prefixKeys: chain.keys,
@@ -339,15 +340,13 @@ export class DevMachineEngine {
       metadata: { workspace: workspace.name, label: input.label ?? null },
     };
 
-    this.state.update((next) => {
-      next.snapshots.push(record);
-    });
+    this.getState().addSnapshot(record);
 
     return record;
   }
 
   private async createVmForApply(
-    provider: DevMachineProvider,
+    provider: BaseDevMachineProvider,
     machine: LoadedMachine,
     snapshot: SnapshotRecord | undefined,
   ): Promise<VmHandle> {
@@ -371,7 +370,7 @@ export class DevMachineEngine {
   private createRuntimeContext(input: {
     machine: LoadedMachine;
     step: StepInstance<any, any>;
-    provider: DevMachineProvider;
+    provider: BaseDevMachineProvider;
     vm: VmHandle;
     context: Record<string, JsonValue>;
     metadata: Record<string, JsonValue>;
@@ -429,7 +428,7 @@ export class DevMachineEngine {
             instructions: options?.instructions,
           });
 
-          const terminal = await provider.openTerminal(vm);
+          const terminal = await provider.ssh(vm);
           const command = options?.command
             ? `${terminal.command} -t ${shellQuote(options.command)}`
             : terminal.command;
@@ -482,8 +481,37 @@ export class DevMachineEngine {
     throw new Error(`Multiple dev machines are defined; pass a machine name`);
   }
 
+  private getState(): StateStore {
+    if (!this.state) {
+      throw new Error(`No state database loaded. Call engine.load() first.`);
+    }
+    return this.state;
+  }
+
+  private createProvider(machine: LoadedMachine): BaseDevMachineProvider {
+    return this.providerFactory({
+      provider: machine.provider,
+      db: this.getState().db,
+    });
+  }
+
+  private createProviderFromPlugin(input: Parameters<ProviderFactory>[0]): BaseDevMachineProvider {
+    const plugin = this.providers.find((provider) => provider.providerId === input.provider.providerId);
+    if (!plugin) {
+      throw new Error(
+        `Provider ${input.provider.providerId} does not implement the base fdev provider contract. ` +
+          `Register a provider plugin to use it with defineStep, fdev ssh, or the generic terminal interface.`,
+      );
+    }
+    return plugin.createProvider(input);
+  }
+
   private async resolveMachine(definition: DevMachineDefinition<any>): Promise<LoadedMachine> {
-    const apiKey = typeof definition.apiKey === "function" ? await definition.apiKey() : definition.apiKey;
+    if (!isProviderDefinition(definition.provider)) {
+      throw new Error(`Machine ${definition.name} must define a provider`);
+    }
+
+    const provider = await resolveProviderDefinition(definition.provider);
     const steps =
       typeof definition.steps === "function"
         ? definition.steps({ options: definition.options })
@@ -498,7 +526,7 @@ export class DevMachineEngine {
 
     return {
       name: definition.name,
-      apiKey,
+      provider,
       image: definition.image,
       cpu: definition.cpu,
       memory: definition.memory,
@@ -513,6 +541,7 @@ export class DevMachineEngine {
   private buildChain(machine: LoadedMachine): { machineKey: string; keys: string[] } {
     const machineKey = hash({
       name: machine.name,
+      providerId: machine.provider.providerId,
       image: machine.image,
       cpu: machine.cpu,
       memory: machine.memory,
@@ -533,12 +562,18 @@ export class DevMachineEngine {
   ): { prefixLength: number; snapshot?: SnapshotRecord } {
     const machineKey = this.buildChain(machine).machineKey;
     const snapshots = this.state
-      .read()
-      .snapshots.filter((snapshot) => snapshot.machine === machine.name && snapshot.machineKey === machineKey)
+      ?.listSnapshots()
+      ?? [];
+    const matching = snapshots
+      .filter((snapshot) =>
+        snapshot.providerId === machine.provider.providerId &&
+        snapshot.machine === machine.name &&
+        snapshot.machineKey === machineKey
+      )
       .filter((snapshot) => isPrefix(snapshot.prefixKeys, keys))
       .sort((a, b) => b.prefixLength - a.prefixLength || b.createdAt.localeCompare(a.createdAt));
 
-    const snapshot = snapshots[0];
+    const snapshot = matching[0];
     return {
       prefixLength: snapshot?.prefixLength ?? 0,
       snapshot,
@@ -554,6 +589,43 @@ export async function createDevMachineEngine(
   options: CreateDevMachineEngineOptions = {},
 ): Promise<DevMachineEngine> {
   return new DevMachineEngine(options);
+}
+
+async function resolveProviderDefinition(
+  definition: DevMachineDefinition<any>["provider"],
+): Promise<LoadedProviderDefinition> {
+  return {
+    providerId: definition.providerId,
+    config: await resolveConfigObject(definition.config),
+    plugin: definition.plugin,
+  };
+}
+
+async function resolveConfigObject(value: unknown): Promise<Record<string, unknown>> {
+  const resolved = await resolveConfigValue(value);
+  if (!resolved || typeof resolved !== "object" || Array.isArray(resolved)) {
+    throw new Error(`Provider config must resolve to an object`);
+  }
+  return resolved as Record<string, unknown>;
+}
+
+async function resolveConfigValue(value: unknown): Promise<unknown> {
+  if (typeof value === "function") {
+    return await (value as () => unknown)();
+  }
+
+  if (Array.isArray(value)) {
+    return await Promise.all(value.map((item) => resolveConfigValue(item)));
+  }
+
+  if (value && typeof value === "object") {
+    const entries = await Promise.all(
+      Object.entries(value).map(async ([key, entry]) => [key, await resolveConfigValue(entry)] as const),
+    );
+    return Object.fromEntries(entries);
+  }
+
+  return value;
 }
 
 function normalizeDefinition(value: unknown): DevMachineDefinition<any> {
@@ -591,6 +663,23 @@ function shellPath(path: string): string {
 
 function shellQuote(value: string): string {
   return `'${value.replaceAll("'", `'\\''`)}'`;
+}
+
+function isDefined<T>(value: T | undefined): value is T {
+  return value !== undefined;
+}
+
+function isBaseProviderPlugin(value: unknown): value is BaseProviderPlugin {
+  return Boolean(
+    value &&
+      typeof value === "object" &&
+      typeof (value as BaseProviderPlugin).providerId === "string" &&
+      typeof (value as BaseProviderPlugin).createProvider === "function",
+  );
+}
+
+function mergeProviderPlugins(plugins: BaseProviderPlugin[]): BaseProviderPlugin[] {
+  return [...new Map(plugins.map((plugin) => [plugin.providerId, plugin])).values()];
 }
 
 function commandFailureMessage(name: string, result: { exitCode: number; stdout: string; stderr: string }): string {

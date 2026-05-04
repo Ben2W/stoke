@@ -721,7 +721,9 @@ async function loadEngine(command: Command): Promise<DevMachineEngine> {
 function resolveEngineOptions(command: Command): { projectDir: string; configPath?: string } {
   const paths = resolveCommandConfigPaths(command);
   const options = command.optsWithGlobals() as GlobalOptions;
-  if (options.config) return { projectDir: paths.projectDir, configPath: paths.configPath };
+  if (options.config) {
+    return { projectDir: paths.projectDir, configPath: paths.configPath };
+  }
   return { projectDir: paths.projectDir };
 }
 

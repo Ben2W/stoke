@@ -1,14 +1,17 @@
 import { Freestyle, VmBaseImage } from "freestyle";
 import type { ExecOptions, ExecResult } from "@freestyle-sh/fdev-sdk";
-import type { CreateVmInput, DevMachineProvider, SnapshotHandle, TerminalHandle, VmHandle } from "./types.ts";
+import type { BaseDevMachineProvider, CreateVmInput, SnapshotHandle, SshConnection, SshOptions, VmHandle } from "@freestyle-sh/fdev-engine";
 
 type FreestyleVm = Awaited<ReturnType<Freestyle["vms"]["create"]>>["vm"];
 
-export function createFreestyleProvider(input: { apiKey: string }): DevMachineProvider {
+export const FREESTYLE_PROVIDER_ID = "freestyle";
+
+export function createFreestyleProvider(input: { apiKey: string }): BaseDevMachineProvider {
   return new FreestyleProvider(input.apiKey);
 }
 
-class FreestyleProvider implements DevMachineProvider {
+class FreestyleProvider implements BaseDevMachineProvider {
+  readonly providerId = FREESTYLE_PROVIDER_ID;
   private readonly client: Freestyle;
 
   constructor(apiKey: string) {
@@ -81,14 +84,7 @@ class FreestyleProvider implements DevMachineProvider {
     };
   }
 
-  async forkVm(vm: VmHandle): Promise<VmHandle> {
-    const result = await this.ref(vm).fork();
-    const first = result.forks[0];
-    if (!first) throw new Error(`Freestyle fork did not return a VM`);
-    return { vmId: first.vmId };
-  }
-
-  async openTerminal(vm: VmHandle, options?: { user?: string }): Promise<TerminalHandle> {
+  async ssh(vm: VmHandle, options?: SshOptions): Promise<SshConnection> {
     const { identity } = await this.client.identities.create();
     await identity.permissions.vms.grant({
       vmId: vm.vmId,
@@ -96,8 +92,13 @@ class FreestyleProvider implements DevMachineProvider {
     });
     const { token } = await identity.tokens.create();
     const userPart = options?.user ? `+${options.user}` : "";
+    const username = `${vm.vmId}${userPart}`;
     return {
-      command: `ssh ${vm.vmId}${userPart}:${token}@vm-ssh.freestyle.sh`,
+      kind: "ssh",
+      host: "vm-ssh.freestyle.sh",
+      username,
+      auth: { type: "token", token },
+      command: `ssh ${username}:${token}@vm-ssh.freestyle.sh`,
     };
   }
 
