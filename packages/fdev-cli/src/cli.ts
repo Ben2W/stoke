@@ -122,6 +122,9 @@ program
     }
     const vmSuffix = result.vmId ? ` (${result.vmId})` : "";
     console.log(`resolved ${result.plan.machine} -> ${result.snapshotId ?? "no snapshot"}${vmSuffix}`);
+    if (result.snapshotId) {
+      console.log(`create a workspace: fdev fork --name ${suggestWorkspaceName(result.plan.machine)}`);
+    }
   });
 
 program
@@ -764,6 +767,10 @@ function normalizeListTarget(target: string | undefined): "workspaces" | "snapsh
   if (target === "snapshots" || target === "snapshot") return "snapshots";
   if (target === "config" || target === "machine" || target === "machines") return "config";
   throw new Error(`Unknown ls target ${target}. Expected workspaces, snapshots, or config.`);
+}
+
+function suggestWorkspaceName(machine: string): string {
+  return normalizeMachineName(`${machine}-work`);
 }
 
 function printTable(headers: string[], rows: string[][]): void {
