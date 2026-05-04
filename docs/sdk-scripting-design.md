@@ -30,11 +30,11 @@ There is no separate package spec layer and no `step.assert` helper. A step runs
 import { defineDevMachine, defineStep, env } from "@freestyle-sh/fdev-sdk";
 
 const gcloudStep = defineStep("install gcloud cli", async ({ step }) => {
-  await step.run("sudo apt-get update && sudo apt-get install -y google-cloud-cli", {
+  await step.exec("sudo apt-get update && sudo apt-get install -y google-cloud-cli", {
     name: "install gcloud cli",
   });
 
-  const version = await step.run("gcloud --version", {
+  const version = await step.probe("gcloud --version", {
     name: "verify gcloud cli",
   });
 
@@ -51,12 +51,12 @@ const verifyNode = defineStep(
   async ({ step, ctx }) => {
     const cloudVersion = ctx.get("gcloudVersion");
 
-    await step.run(
+    await step.exec(
       "curl -fsSL https://deb.nodesource.com/setup_24.x | sudo bash - && sudo apt-get install -y nodejs",
       { name: "install node 24" },
     );
 
-    const version = await step.run("node --version", {
+    const version = await step.probe("node --version", {
       name: "verify node version",
     });
 
@@ -109,8 +109,8 @@ type StepRuntimeContext<Input = void, Context = {}> = {
 };
 ```
 
-`step.run(command, { name, cwd, env, timeoutMs })` returns `{ stdout, stderr, exitCode, ok }`.
-It does not throw automatically; the step handler decides what output is acceptable.
+`step.exec(command, { name, cwd, env, timeoutMs })` returns `{ stdout, stderr, exitCode, ok }` when the command succeeds and throws when `ok` is false.
+`step.probe(command, { name, cwd, env, timeoutMs })` always returns `{ stdout, stderr, exitCode, ok }`, so the step handler can branch on the current machine state.
 
 Steps can pass context forward in either of these forms:
 

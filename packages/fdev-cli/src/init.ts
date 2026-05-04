@@ -97,7 +97,7 @@ export function starterConfig(name: string): string {
   return `import { defineDevMachine, defineStep, env } from "@freestyle-sh/fdev-sdk";
 
 const verifyNode = defineStep("verify node 22", async ({ step }) => {
-  const result = await step.run("node --version", { name: "node is v22" });
+  const result = await step.probe("node --version", { name: "node is v22" });
   if (!result.ok || !result.stdout.trim().startsWith("v22.")) {
     throw new Error(\`Expected Node.js v22, got: \${result.stdout}\${result.stderr}\`);
   }

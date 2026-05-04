@@ -15,14 +15,16 @@ describe("DevMachineEngine", () => {
         import { defineDevMachine, defineStep } from "${import.meta.dir}/../../fdev-sdk/src/index.ts";
 
         const first = defineStep("first", async (c) => {
-          await c.step.run("touch /tmp/first", { name: "touch first" });
+          const missing = await c.step.probe("test -e /tmp/missing", { name: "probe missing" });
+          if (missing.ok) throw new Error("probe should not report missing file as ok");
+          await c.step.exec("touch /tmp/first", { name: "touch first" });
           if (!(await c.vm.exists("/tmp/first"))) throw new Error("first was not created");
           return { ctx: { first: true } };
         });
 
         const second = defineStep("second", { dependsOn: [first] }, async (c) => {
           c.ctx.require("first");
-          await c.step.run("touch /tmp/second", { name: "touch second" });
+          await c.step.exec("touch /tmp/second", { name: "touch second" });
         });
 
         export default defineDevMachine({
@@ -64,6 +66,39 @@ describe("DevMachineEngine", () => {
 
     await engine.deleteWorkspace({ workspace: "work" });
     expect(engine.listWorkspaces()).toHaveLength(0);
+  });
+
+  test("exec throws on failed commands while probe returns the result", async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), "fdev-"));
+    writeFileSync(
+      join(projectDir, "fdev.config.ts"),
+      `
+        import { defineDevMachine, defineStep } from "${import.meta.dir}/../../fdev-sdk/src/index.ts";
+
+        const fails = defineStep("fails", async ({ step }) => {
+          const missing = await step.probe("test -e /tmp/missing", { name: "probe missing" });
+          if (missing.ok) throw new Error("probe should not throw or pass");
+          await step.exec("test -e /tmp/missing", { name: "require missing" });
+        });
+
+        export default defineDevMachine({
+          name: "test",
+          apiKey: "test-key",
+          image: "ubuntu-24.04",
+          steps: [fails],
+        });
+      `,
+    );
+
+    const provider = new FakeProvider();
+    const engine = await createDevMachineEngine({
+      projectDir,
+      providerFactory: () => provider,
+    });
+
+    await engine.load();
+    await expect(engine.apply()).rejects.toThrow('Command "require missing" failed with exit code 1');
+    expect(provider.snapshots).toHaveLength(0);
   });
 });
 

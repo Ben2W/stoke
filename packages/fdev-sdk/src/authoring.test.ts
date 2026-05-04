@@ -23,9 +23,9 @@ describe("fdev SDK authoring", () => {
   });
 
   test("checks step dependencies when defining a machine", () => {
-    const gcloud = defineStep("install gcloud", async () => ({
-      ctx: { gcloudVersion: "1.0.0" },
-    }));
+    const gcloud = defineStep("install gcloud", async () => {
+      return { ctx: { gcloudVersion: "1.0.0" } };
+    });
     const node = defineStep(
       "install node",
       { dependsOn: [gcloud] },

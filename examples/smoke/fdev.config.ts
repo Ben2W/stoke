@@ -4,7 +4,7 @@ const smokeStep = defineStep("fdev:smoke", async ({ vm, step }) => {
   const ready = await vm.exec("test -f /tmp/fdev-ready").catch(() => null);
   if (ready?.ok) return;
 
-  await step.run("echo ready > /tmp/fdev-ready", { name: "write fdev marker" });
+  await step.exec("echo ready > /tmp/fdev-ready", { name: "write fdev marker" });
   if (!(await vm.exists("/tmp/fdev-ready"))) throw new Error("fdev marker was not created");
 });
 

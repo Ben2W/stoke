@@ -23,7 +23,7 @@ export type ExecResult = {
   ok: boolean;
 };
 
-export type StepRunOptions = ExecOptions & {
+export type StepCommandOptions = ExecOptions & {
   name?: string;
 };
 
@@ -36,7 +36,8 @@ export type VmInspector = {
 };
 
 export type StepRunner = {
-  run(command: string, options?: StepRunOptions): Promise<ExecResult>;
+  exec(command: string, options?: StepCommandOptions): Promise<ExecResult>;
+  probe(command: string, options?: StepCommandOptions): Promise<ExecResult>;
 };
 
 export type InteractionRunner = {

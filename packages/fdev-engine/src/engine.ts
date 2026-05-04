@@ -15,9 +15,9 @@ import type {
   JsonValue,
   LoadedMachine,
   MachinePlan,
+  StepCommandOptions,
   StepInstance,
   StepRuntimeContext,
-  StepRunOptions,
   WorkspaceRecord,
 } from "@freestyle-sh/fdev-sdk";
 
@@ -388,22 +388,34 @@ export class DevMachineEngine {
       writeFile: (path: string, content: string) => provider.writeFile(vm, path, content),
     };
 
+    const runCommand = async (command: string, options?: StepCommandOptions) => {
+      const commandName = options?.name ?? command;
+      const { name: _name, ...execOptions } = options ?? {};
+      this.emit({ type: "command.started", step: step.name, commandName, command });
+      const result = await provider.exec(vm, command, execOptions);
+      if (result.stdout) {
+        this.emit({ type: "command.output", step: step.name, commandName, stream: "stdout", data: result.stdout });
+      }
+      if (result.stderr) {
+        this.emit({ type: "command.output", step: step.name, commandName, stream: "stderr", data: result.stderr });
+      }
+      this.emit({ type: "command.completed", step: step.name, commandName, exitCode: result.exitCode });
+      return { commandName, result };
+    };
+
     const runtime = {
       input: step.input,
       vm: vmInspector,
       step: {
-        run: async (command: string, options?: StepRunOptions) => {
-          const commandName = options?.name ?? command;
-          const { name: _name, ...execOptions } = options ?? {};
-          this.emit({ type: "command.started", step: step.name, commandName, command });
-          const result = await provider.exec(vm, command, execOptions);
-          if (result.stdout) {
-            this.emit({ type: "command.output", step: step.name, commandName, stream: "stdout", data: result.stdout });
+        exec: async (command: string, options?: StepCommandOptions) => {
+          const { commandName, result } = await runCommand(command, options);
+          if (!result.ok) {
+            throw new Error(commandFailureMessage(commandName, result));
           }
-          if (result.stderr) {
-            this.emit({ type: "command.output", step: step.name, commandName, stream: "stderr", data: result.stderr });
-          }
-          this.emit({ type: "command.completed", step: step.name, commandName, exitCode: result.exitCode });
+          return result;
+        },
+        probe: async (command: string, options?: StepCommandOptions) => {
+          const { result } = await runCommand(command, options);
           return result;
         },
       },
@@ -433,7 +445,7 @@ export class DevMachineEngine {
       },
       snapshot: {
         before: async (name: string, command: string, options?: ExecOptions) => {
-          await runtime.step.run(command, { ...options, name });
+          await runtime.step.exec(command, { ...options, name });
         },
         metadata: (value: Record<string, JsonValue>) => {
           Object.assign(metadata, value);
@@ -579,6 +591,14 @@ function shellPath(path: string): string {
 
 function shellQuote(value: string): string {
   return `'${value.replaceAll("'", `'\\''`)}'`;
+}
+
+function commandFailureMessage(name: string, result: { exitCode: number; stdout: string; stderr: string }): string {
+  const output = [
+    result.stdout ? `stdout:\n${result.stdout.trimEnd()}` : "",
+    result.stderr ? `stderr:\n${result.stderr.trimEnd()}` : "",
+  ].filter(Boolean).join("\n");
+  return `Command "${name}" failed with exit code ${result.exitCode}${output ? `\n${output}` : ""}`;
 }
 
 async function readLine(): Promise<void> {
