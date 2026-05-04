@@ -104,6 +104,8 @@ describe("install worker", () => {
     expect(body).toContain('base_url="${FDEV_BASE_URL:-https://fdev.freestyle.sh}"');
     expect(body).toContain('/download/latest/${target}');
     expect(body).toContain('/checksums/latest');
+    expect(body).toContain('fdev completion fish | source');
+    expect(body).toContain('eval \\"\\$(fdev completion zsh)\\"');
   });
 
   test("rejects unknown targets", async () => {

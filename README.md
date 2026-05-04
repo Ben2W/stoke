@@ -49,6 +49,17 @@ pnpm --filter @freestyle-sh/fdev-cli fdev help
 pnpm --filter @freestyle-sh/fdev-cli fdev help fork
 ```
 
+Enable shell completion:
+
+```bash
+eval "$(fdev completion zsh)"
+# or: eval "$(fdev completion bash)"
+# or: fdev completion fish | source
+```
+
+The installer adds the completion hook for new installs.
+Completion includes dynamic workspace targets, so `fdev ssh <tab>` suggests locally known workspaces from `.fdev/state.json`.
+
 Initialize a new fdev project:
 
 ```bash

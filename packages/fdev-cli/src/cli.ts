@@ -15,6 +15,13 @@ import {
 import { assertVersionAlignment, DEFAULT_CONFIG_FILE, resolveConfigPaths, SDK_PACKAGE_NAME } from "./project.ts";
 import { FDEV_CLI_VERSION } from "./version.ts";
 import { initProject, normalizeMachineName, type InitProjectResult } from "./init.ts";
+import {
+  completeFdev,
+  formatCompletionItems,
+  renderCompletionScript,
+  resolveCompletionShell,
+  type CompletionShell,
+} from "./completion.ts";
 
 type GlobalOptions = {
   project?: string;
@@ -48,6 +55,11 @@ type SnapshotOptions = GlobalOptions & {
 
 type RemoveOptions = GlobalOptions & {
   yes?: boolean;
+};
+
+type CompletionOptions = {
+  shell?: CompletionShell;
+  index?: string;
 };
 
 type PackageManager = "npm" | "bun" | "pnpm" | "skip";
@@ -238,6 +250,31 @@ program
       return;
     }
     console.log(`removed ${removed.name} ${removed.vmId}`);
+  });
+
+program
+  .command("completion [shell]")
+  .description("Generate shell completion script")
+  .action((shell?: string) => {
+    console.log(renderCompletionScript(resolveCompletionShell(shell)));
+  });
+
+program
+  .command("__complete", { hidden: true })
+  .allowUnknownOption()
+  .argument("[words...]", "completion words")
+  .option("--shell <shell>", "completion shell")
+  .option("--index <index>", "current word index")
+  .action((words: string[], options: CompletionOptions) => {
+    const shell = resolveCompletionShell(options.shell);
+    const currentIndex = options.index === undefined ? undefined : Number(options.index);
+    const items = completeFdev({
+      words,
+      currentIndex: Number.isFinite(currentIndex) ? currentIndex : undefined,
+      cwd: process.cwd(),
+    });
+    const output = formatCompletionItems(items, shell);
+    if (output) console.log(output);
   });
 
 if (process.argv.length <= 2) {
