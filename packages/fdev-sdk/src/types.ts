@@ -53,7 +53,7 @@ export type StepContextValues = Record<string, JsonValue>;
 
 export type StepContextStore<Values extends StepContextValues = StepContextValues> = {
   get: {
-    <Key extends keyof Values & string>(key: Key): Values[Key] | undefined;
+    <Key extends keyof Values & string>(key: Key): Values[Key];
     <T = unknown>(key: string): T | undefined;
   };
   require: {

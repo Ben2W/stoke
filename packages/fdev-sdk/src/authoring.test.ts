@@ -31,7 +31,9 @@ describe("fdev SDK authoring", () => {
       { dependsOn: [gcloud] },
       async ({ ctx }) => {
         const version = ctx.get("gcloudVersion");
+        const typedVersion: string = version;
         expect(version).toBeTypeOf("string");
+        expect(typedVersion).toBe("1.0.0");
       },
     );
 
