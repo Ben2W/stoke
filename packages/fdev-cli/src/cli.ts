@@ -83,7 +83,7 @@ program
 
 program
   .command("plan")
-  .description("Show cached and pending migrations")
+  .description("Show cached and pending steps")
   .option("--json", "Print machine-readable JSON")
   .action(async function (this: Command) {
     const engine = await loadEngine(this);
@@ -97,8 +97,8 @@ program
 
 program
   .command("apply")
-  .description("Resolve the dev machine, running pending migrations")
-  .option("--dry-run", "Show the plan without running migrations")
+  .description("Resolve the dev machine, running pending steps")
+  .option("--dry-run", "Show the plan without running steps")
   .option("--json", "Print machine-readable JSON")
   .action(async function (this: Command) {
     const options = this.optsWithGlobals() as ApplyOptions;
@@ -699,15 +699,15 @@ function printJson(value: unknown): void {
 }
 
 function printPlan(plan: MachinePlan): void {
-  console.log(`${plan.machine}: ${plan.cachedPrefixLength}/${plan.migrations.length} migrations cached`);
+  console.log(`${plan.machine}: ${plan.cachedPrefixLength}/${plan.steps.length} steps cached`);
   if (plan.cachedSnapshotId) console.log(`snapshot: ${plan.cachedSnapshotId}`);
 
-  const rows = plan.migrations.map((migration) => [
-    String(migration.index + 1),
-    migration.status,
-    migration.name,
+  const rows = plan.steps.map((step) => [
+    String(step.index + 1),
+    step.status,
+    step.name,
   ]);
-  printTable(["#", "status", "migration"], rows);
+  printTable(["#", "status", "step"], rows);
 }
 
 function printWorkspaces(workspaces: WorkspaceRecord[]): void {
@@ -735,12 +735,12 @@ function printSnapshots(snapshots: SnapshotRecord[]): void {
   }
 
   printTable(
-    ["snapshot", "machine", "prefix", "migration", "created"],
+    ["snapshot", "machine", "prefix", "step", "created"],
     snapshots.map((snapshot) => [
       snapshot.snapshotId,
       snapshot.machine,
       String(snapshot.prefixLength),
-      snapshot.migrationName,
+      snapshot.stepName,
       snapshot.createdAt,
     ]),
   );
@@ -784,22 +784,25 @@ function renderEvent(event: DevMachineEvent): void {
       console.error(`loaded ${event.machine}`);
       return;
     case "plan.created":
-      console.error(`plan ${event.machine}: ${event.cachedPrefixLength}/${event.migrationCount} cached`);
+      console.error(`plan ${event.machine}: ${event.cachedPrefixLength}/${event.stepCount} cached`);
       return;
     case "vm.created":
       console.error(event.fromSnapshotId ? `vm ${event.vmId} from ${event.fromSnapshotId}` : `vm ${event.vmId} created`);
       return;
-    case "migration.started":
-      console.error(`migration ${event.migration}`);
+    case "step.skipped":
+      console.error(`step ${event.step} cached at ${event.snapshotId}`);
       return;
     case "step.started":
       console.error(`step ${event.step}`);
       return;
-    case "step.output":
+    case "command.started":
+      console.error(`command ${event.commandName}`);
+      return;
+    case "command.output":
       process.stderr.write(event.data);
       return;
-    case "step.completed":
-      console.error(`step ${event.step} exited ${event.exitCode}`);
+    case "command.completed":
+      console.error(`command ${event.commandName} exited ${event.exitCode}`);
       return;
     case "interaction.awaiting_user":
       console.error(`interaction ${event.label}`);

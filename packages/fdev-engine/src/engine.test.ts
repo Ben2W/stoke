@@ -7,29 +7,29 @@ import type { DevMachineProvider, SnapshotHandle, TerminalHandle, VmHandle } fro
 import type { ExecOptions, ExecResult } from "@freestyle-sh/fdev-sdk";
 
 describe("DevMachineEngine", () => {
-  test("plans, applies migrations, reuses cached prefixes, and forks workspaces", async () => {
+  test("plans, applies steps, reuses cached prefixes, and forks workspaces", async () => {
     const projectDir = mkdtempSync(join(tmpdir(), "fdev-"));
     writeFileSync(
       join(projectDir, "fdev.config.ts"),
       `
-        import { defineDevMachine, defineMigration } from "${import.meta.dir}/../../fdev-sdk/src/index.ts";
+        import { defineDevMachine, defineStep } from "${import.meta.dir}/../../fdev-sdk/src/index.ts";
 
-        const first = defineMigration("first", async (c) => {
-          c.set("first", true);
-          await c.step.run("touch first", "touch /tmp/first");
-          await c.step.assert("first exists", async ({ vm }) => vm.exists("/tmp/first"));
+        const first = defineStep("first", async (c) => {
+          await c.step.run("touch /tmp/first", { name: "touch first" });
+          if (!(await c.vm.exists("/tmp/first"))) throw new Error("first was not created");
+          return { ctx: { first: true } };
         });
 
-        const second = defineMigration("second", async (c) => {
-          c.require("first");
-          await c.step.run("touch second", "touch /tmp/second");
+        const second = defineStep("second", { dependsOn: [first] }, async (c) => {
+          c.ctx.require("first");
+          await c.step.run("touch /tmp/second", { name: "touch second" });
         });
 
         export default defineDevMachine({
           name: "test",
           apiKey: "test-key",
           image: "ubuntu-24.04",
-          migrations: [first, second],
+          steps: [first, second],
         });
       `,
     );
@@ -59,7 +59,7 @@ describe("DevMachineEngine", () => {
 
     const workspaceSnapshot = await engine.snapshotWorkspace({ workspace: "work", label: "verified-work" });
     expect(workspaceSnapshot.snapshotId).toBe("snap-3");
-    expect(workspaceSnapshot.migrationName).toBe("verified-work");
+    expect(workspaceSnapshot.stepName).toBe("verified-work");
     expect(engine.listSnapshots()).toHaveLength(3);
 
     await engine.deleteWorkspace({ workspace: "work" });

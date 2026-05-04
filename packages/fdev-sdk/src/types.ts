@@ -23,6 +23,10 @@ export type ExecResult = {
   ok: boolean;
 };
 
+export type StepRunOptions = ExecOptions & {
+  name?: string;
+};
+
 export type VmInspector = {
   readonly vmId: string;
   exec(command: string, options?: ExecOptions): Promise<ExecResult>;
@@ -32,8 +36,7 @@ export type VmInspector = {
 };
 
 export type StepRunner = {
-  run(name: string, command: string, options?: ExecOptions): Promise<ExecResult>;
-  assert(name: string, predicate: (context: MigrationRuntimeContext<any>) => MaybePromise<boolean>): Promise<void>;
+  run(command: string, options?: StepRunOptions): Promise<ExecResult>;
 };
 
 export type InteractionRunner = {
@@ -45,30 +48,95 @@ export type SnapshotController = {
   metadata(metadata: Record<string, JsonValue>): void;
 };
 
-export type MigrationRuntimeContext<Input = void> = {
+export type StepContextValues = Record<string, JsonValue>;
+
+export type StepContextStore<Values extends StepContextValues = StepContextValues> = {
+  get: {
+    <Key extends keyof Values & string>(key: Key): Values[Key] | undefined;
+    <T = unknown>(key: string): T | undefined;
+  };
+  require: {
+    <Key extends keyof Values & string>(key: Key): Values[Key];
+    <T = unknown>(key: string): T;
+  };
+  set(key: string, value: JsonValue): void;
+};
+
+export type StepRuntimeContext<
+  Input = void,
+  Context extends StepContextValues = StepContextValues,
+> = {
   input: Input;
   vm: VmInspector;
   step: StepRunner;
   interact: InteractionRunner;
   snapshot: SnapshotController;
-  get<T = unknown>(key: string): T | undefined;
-  require<T = unknown>(key: string): T;
-  set(key: string, value: JsonValue): void;
+  ctx: StepContextStore<Context>;
 };
 
-export type MigrationHandler<Input = void> = (
-  context: MigrationRuntimeContext<Input>,
-) => MaybePromise<void>;
+export type StepHandlerResult<Context extends StepContextValues = StepContextValues> =
+  | void
+  | { ctx?: Context };
 
-export type MigrationInstance<Input = void> = {
-  readonly kind: "fdev.migration";
+export type StepHandler<
+  Input = void,
+  Context extends StepContextValues = StepContextValues,
+  Result = StepHandlerResult,
+> = (
+  context: StepRuntimeContext<Input, Context>,
+) => MaybePromise<Result>;
+
+export type StepInstance<
+  Input = void,
+  Context extends StepContextValues = StepContextValues,
+> = {
+  readonly kind: "fdev.step";
   readonly name: string;
   readonly input: Input;
-  readonly handler: MigrationHandler<Input>;
+  readonly dependsOn: readonly StepInstance<any, any>[];
+  readonly handler: StepHandler<Input, any, any>;
+  readonly __ctx?: Context;
 };
 
-export type MigrationDefinition<Input = void> = MigrationInstance<Input> &
-  ((input: Input) => MigrationInstance<Input>);
+export type StepDefinition<
+  Input = void,
+  Context extends StepContextValues = StepContextValues,
+> = StepInstance<Input, Context> &
+  ([Input] extends [void]
+    ? (input?: Input) => StepInstance<Input, Context>
+    : (input: Input) => StepInstance<Input, Context>);
+
+export type StepDefinitionOptions<
+  Dependencies extends readonly StepInstance<any, any>[] = readonly StepInstance<any, any>[],
+> = {
+  dependsOn?: Dependencies;
+};
+
+export type StepContextOf<Step> = Step extends StepInstance<any, infer Context extends StepContextValues>
+  ? Context
+  : never;
+
+export type UnionToIntersection<Union> = (
+  Union extends unknown ? (value: Union) => void : never
+) extends (value: infer Intersection) => void
+  ? Intersection
+  : never;
+
+export type Simplify<Value> = { [Key in keyof Value]: Value[Key] } & {};
+
+export type DependencyContext<
+  Dependencies extends readonly StepInstance<any, any>[],
+> = Simplify<UnionToIntersection<StepContextOf<Dependencies[number]>>> extends infer Context
+  ? Context extends StepContextValues
+    ? Context
+    : {}
+  : {};
+
+export type StepReturnContext<Return> = Awaited<Return> extends { ctx?: infer Context }
+  ? Context extends StepContextValues
+    ? Context
+    : {}
+  : {};
 
 export type MachineResources = {
   cpu?: number;
@@ -83,9 +151,9 @@ export type DevMachineDefinition<Options = undefined> = MachineResources & {
   apiKey: string | (() => MaybePromise<string>);
   image: string;
   options?: Options;
-  migrations:
-    | MigrationInstance<any>[]
-    | ((context: { options: Options }) => MigrationInstance<any>[]);
+  steps:
+    | StepInstance<any, any>[]
+    | ((context: { options: Options }) => StepInstance<any, any>[]);
   workspace?: {
     cwd?: string;
     terminals?: string[];
@@ -99,11 +167,11 @@ export type LoadedMachine = MachineResources & {
   apiKey: string;
   image: string;
   options?: unknown;
-  migrations: MigrationInstance<any>[];
+  steps: StepInstance<any, any>[];
   workspace?: DevMachineDefinition<any>["workspace"];
 };
 
-export type PlanMigration = {
+export type PlanStep = {
   index: number;
   name: string;
   input: unknown;
@@ -116,7 +184,7 @@ export type MachinePlan = {
   machineKey: string;
   cachedPrefixLength: number;
   cachedSnapshotId?: string;
-  migrations: PlanMigration[];
+  steps: PlanStep[];
 };
 
 export type WorkspaceRecord = {
@@ -129,17 +197,16 @@ export type WorkspaceRecord = {
 
 export type DevMachineEvent =
   | { type: "definition.loaded"; machine: string }
-  | { type: "plan.created"; machine: string; cachedPrefixLength: number; migrationCount: number }
+  | { type: "plan.created"; machine: string; cachedPrefixLength: number; stepCount: number }
   | { type: "vm.created"; vmId: string; fromSnapshotId?: string }
-  | { type: "migration.skipped"; migration: string; snapshotId: string }
-  | { type: "migration.started"; migration: string }
-  | { type: "step.started"; migration?: string; step: string; command?: string }
-  | { type: "step.output"; migration?: string; step: string; stream: "stdout" | "stderr"; data: string }
-  | { type: "step.completed"; migration?: string; step: string; exitCode: number }
-  | { type: "interaction.awaiting_user"; migration: string; label: string; command?: string; instructions?: string }
-  | { type: "interaction.completed"; migration: string; label: string }
-  | { type: "snapshot.created"; migration: string; snapshotId: string }
+  | { type: "step.skipped"; step: string; snapshotId: string }
+  | { type: "step.started"; step: string }
+  | { type: "command.started"; step?: string; commandName: string; command: string }
+  | { type: "command.output"; step?: string; commandName: string; stream: "stdout" | "stderr"; data: string }
+  | { type: "command.completed"; step?: string; commandName: string; exitCode: number }
+  | { type: "interaction.awaiting_user"; step: string; label: string; command?: string; instructions?: string }
+  | { type: "interaction.completed"; step: string; label: string }
+  | { type: "snapshot.created"; step: string; snapshotId: string }
   | { type: "workspace.ready"; workspaceId: string; vmId: string; snapshotId: string };
 
 export type EventHandler = (event: DevMachineEvent) => void;
-

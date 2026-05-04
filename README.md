@@ -1,12 +1,12 @@
 # Freestyle Dev Machines
 
-`fdev` is a CLI and engine for building forkable Freestyle dev machines from ordered migrations.
+`fdev` is a CLI and engine for building forkable Freestyle dev machines from ordered steps.
 
 This repo is a pnpm/turbo workspace:
 
 ```text
 packages/fdev-sdk/      SDK authoring API and public config types
-packages/fdev-engine/   config loader, migration engine, state, Freestyle provider
+packages/fdev-engine/   config loader, step engine, state, Freestyle provider
 packages/fdev-cli/      global `fdev` command
 apps/app/               placeholder for the future app
 apps/install-worker/    Cloudflare Worker for install and release metadata
@@ -69,8 +69,8 @@ By default other `fdev` commands load `fdev.config.ts` from the current director
 
 Implemented:
 
-- `defineDevMachine({ name, apiKey, image, migrations })`
-- `defineMigration(name, fn)` with typed inputs
+- `defineDevMachine({ name, apiKey, image, steps })`
+- `defineStep(name, fn)` with typed dependency context
 - `DevMachineEngine` with `load`, `plan`, `apply`, `fork`, `attachTerminal`, `listWorkspaces`, and `deleteWorkspace`
 - Freestyle provider for VM create, snapshot, create-from-snapshot, exec, and SSH command generation
 - local `.fdev/state.json` snapshot/workspace cache

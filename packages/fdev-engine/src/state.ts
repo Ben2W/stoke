@@ -11,7 +11,7 @@ export type SnapshotRecord = {
   snapshotId: string;
   sourceVmId: string;
   createdAt: string;
-  migrationName: string;
+  stepName: string;
   context: Record<string, JsonValue>;
   metadata: Record<string, JsonValue>;
 };

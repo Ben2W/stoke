@@ -94,20 +94,20 @@ export function normalizeMachineName(value: string): string {
 export function starterConfig(name: string): string {
   const machineName = JSON.stringify(normalizeMachineName(name));
 
-  return `import { defineDevMachine, defineMigration, env } from "@freestyle-sh/fdev-sdk";
+  return `import { defineDevMachine, defineStep, env } from "@freestyle-sh/fdev-sdk";
 
-const verifyNode = defineMigration("verify node 22", async ({ step }) => {
-  await step.assert("node is v22", async ({ vm }) => {
-    const result = await vm.exec("node --version");
-    return result.ok && result.stdout.trim().startsWith("v22.");
-  });
+const verifyNode = defineStep("verify node 22", async ({ step }) => {
+  const result = await step.run("node --version", { name: "node is v22" });
+  if (!result.ok || !result.stdout.trim().startsWith("v22.")) {
+    throw new Error(\`Expected Node.js v22, got: \${result.stdout}\${result.stderr}\`);
+  }
 });
 
 export default defineDevMachine({
   name: ${machineName},
   apiKey: () => env("FREESTYLE_API_KEY"),
   image: "node-22",
-  migrations: [verifyNode],
+  steps: [verifyNode],
 });
 `;
 }

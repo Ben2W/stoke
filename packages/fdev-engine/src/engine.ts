@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { isDevMachine, isMigration } from "@freestyle-sh/fdev-sdk";
+import { isDevMachine, isStep, validateStepDependencies } from "@freestyle-sh/fdev-sdk";
 import { loadDotEnv } from "./env-file.ts";
 import { hash, stableJson } from "./hash.ts";
 import { createFreestyleProvider } from "./provider/freestyle.ts";
@@ -15,8 +15,9 @@ import type {
   JsonValue,
   LoadedMachine,
   MachinePlan,
-  MigrationInstance,
-  MigrationRuntimeContext,
+  StepInstance,
+  StepRuntimeContext,
+  StepRunOptions,
   WorkspaceRecord,
 } from "@freestyle-sh/fdev-sdk";
 
@@ -48,7 +49,7 @@ export type MachineSummary = {
   memory?: string | number;
   disk?: string | number;
   idleTimeoutSeconds?: number | null;
-  migrations: string[];
+  steps: string[];
   workspace?: LoadedMachine["workspace"];
 };
 
@@ -130,10 +131,10 @@ export class DevMachineEngine {
     const machine = this.getMachine(input.machine);
     const chain = this.buildChain(machine);
     const cached = this.findCachedPrefix(machine, chain.keys);
-    const migrations = machine.migrations.map((migration, index) => ({
+    const steps = machine.steps.map((step, index) => ({
       index,
-      name: migration.name,
-      input: migration.input,
+      name: step.name,
+      input: step.input,
       key: chain.keys[index]!,
       status: index < cached.prefixLength ? "cached" as const : "pending" as const,
     }));
@@ -143,14 +144,14 @@ export class DevMachineEngine {
       machineKey: chain.machineKey,
       cachedPrefixLength: cached.prefixLength,
       cachedSnapshotId: cached.snapshot?.snapshotId,
-      migrations,
+      steps,
     };
 
     this.emit({
       type: "plan.created",
       machine: machine.name,
       cachedPrefixLength: cached.prefixLength,
-      migrationCount: migrations.length,
+      stepCount: steps.length,
     });
 
     return plan;
@@ -165,10 +166,10 @@ export class DevMachineEngine {
     let metadata: Record<string, JsonValue> = {};
     let vm: VmHandle | undefined;
 
-    if (cached.prefixLength >= machine.migrations.length) {
+    if (cached.prefixLength >= machine.steps.length) {
       const plan = await this.plan({ machine: machine.name });
       if (cached.snapshot) {
-        this.emit({ type: "migration.skipped", migration: "all", snapshotId: cached.snapshot.snapshotId });
+        this.emit({ type: "step.skipped", step: "all", snapshotId: cached.snapshot.snapshotId });
       }
       return {
         snapshotId: cached.snapshot?.snapshotId,
@@ -178,21 +179,24 @@ export class DevMachineEngine {
 
     vm = await this.createVmForApply(provider, machine, cached.snapshot);
 
-    for (let index = cached.prefixLength; index < machine.migrations.length; index += 1) {
-      const migration = machine.migrations[index]!;
-      this.emit({ type: "migration.started", migration: migration.name });
+    for (let index = cached.prefixLength; index < machine.steps.length; index += 1) {
+      const step = machine.steps[index]!;
+      this.emit({ type: "step.started", step: step.name });
 
       metadata = {};
       const runtime = this.createRuntimeContext({
         machine,
-        migration,
+        step,
         provider,
         vm,
         context,
         metadata,
       });
 
-      await migration.handler(runtime as never);
+      const result = await step.handler(runtime as never);
+      if (result && typeof result === "object" && result.ctx) {
+        Object.assign(context, result.ctx);
+      }
 
       const snapshot = await provider.snapshot(vm);
       const record: SnapshotRecord = {
@@ -204,7 +208,7 @@ export class DevMachineEngine {
         snapshotId: snapshot.snapshotId,
         sourceVmId: snapshot.sourceVmId,
         createdAt: new Date().toISOString(),
-        migrationName: migration.name,
+        stepName: step.name,
         context: { ...context },
         metadata: { ...metadata },
       };
@@ -222,7 +226,7 @@ export class DevMachineEngine {
         state.snapshots.push(record);
       });
 
-      this.emit({ type: "snapshot.created", migration: migration.name, snapshotId: snapshot.snapshotId });
+      this.emit({ type: "snapshot.created", step: step.name, snapshotId: snapshot.snapshotId });
     }
 
     const plan = await this.plan({ machine: machine.name });
@@ -330,7 +334,7 @@ export class DevMachineEngine {
       snapshotId: snapshot.snapshotId,
       sourceVmId: snapshot.sourceVmId,
       createdAt: new Date().toISOString(),
-      migrationName: input.label ?? `workspace:${workspace.name}`,
+      stepName: input.label ?? `workspace:${workspace.name}`,
       context: { ...(cached.snapshot?.context ?? {}) },
       metadata: { workspace: workspace.name, label: input.label ?? null },
     };
@@ -366,13 +370,13 @@ export class DevMachineEngine {
 
   private createRuntimeContext(input: {
     machine: LoadedMachine;
-    migration: MigrationInstance<any>;
+    step: StepInstance<any, any>;
     provider: DevMachineProvider;
     vm: VmHandle;
     context: Record<string, JsonValue>;
     metadata: Record<string, JsonValue>;
-  }): MigrationRuntimeContext<any> {
-    const { migration, provider, vm, context, metadata } = input;
+  }): StepRuntimeContext<any, any> {
+    const { step, provider, vm, context, metadata } = input;
     const vmInspector = {
       vmId: vm.vmId,
       exec: (command: string, options?: ExecOptions) => provider.exec(vm, command, options),
@@ -385,36 +389,29 @@ export class DevMachineEngine {
     };
 
     const runtime = {
-      input: migration.input,
+      input: step.input,
       vm: vmInspector,
       step: {
-        run: async (name: string, command: string, options?: ExecOptions) => {
-          this.emit({ type: "step.started", migration: migration.name, step: name, command });
-          const result = await provider.exec(vm, command, options);
+        run: async (command: string, options?: StepRunOptions) => {
+          const commandName = options?.name ?? command;
+          const { name: _name, ...execOptions } = options ?? {};
+          this.emit({ type: "command.started", step: step.name, commandName, command });
+          const result = await provider.exec(vm, command, execOptions);
           if (result.stdout) {
-            this.emit({ type: "step.output", migration: migration.name, step: name, stream: "stdout", data: result.stdout });
+            this.emit({ type: "command.output", step: step.name, commandName, stream: "stdout", data: result.stdout });
           }
           if (result.stderr) {
-            this.emit({ type: "step.output", migration: migration.name, step: name, stream: "stderr", data: result.stderr });
+            this.emit({ type: "command.output", step: step.name, commandName, stream: "stderr", data: result.stderr });
           }
-          this.emit({ type: "step.completed", migration: migration.name, step: name, exitCode: result.exitCode });
-          if (!result.ok) {
-            throw new Error(`Step "${name}" failed with exit code ${result.exitCode}`);
-          }
+          this.emit({ type: "command.completed", step: step.name, commandName, exitCode: result.exitCode });
           return result;
-        },
-        assert: async (name: string, predicate: (context: MigrationRuntimeContext<any>) => unknown) => {
-          this.emit({ type: "step.started", migration: migration.name, step: name });
-          const passed = await predicate(runtime as MigrationRuntimeContext<any>);
-          this.emit({ type: "step.completed", migration: migration.name, step: name, exitCode: passed ? 0 : 1 });
-          if (!passed) throw new Error(`Assertion "${name}" failed`);
         },
       },
       interact: {
         terminal: async (name: string, options?: { command?: string; instructions?: string }) => {
           this.emit({
             type: "interaction.awaiting_user",
-            migration: migration.name,
+            step: step.name,
             label: name,
             command: options?.command,
             instructions: options?.instructions,
@@ -431,26 +428,28 @@ export class DevMachineEngine {
           console.error("Press Enter after completing the interactive work.");
           await readLine();
 
-          this.emit({ type: "interaction.completed", migration: migration.name, label: name });
+          this.emit({ type: "interaction.completed", step: step.name, label: name });
         },
       },
       snapshot: {
         before: async (name: string, command: string, options?: ExecOptions) => {
-          await runtime.step.run(name, command, options);
+          await runtime.step.run(command, { ...options, name });
         },
         metadata: (value: Record<string, JsonValue>) => {
           Object.assign(metadata, value);
         },
       },
-      get: <T = unknown>(key: string) => context[key] as T | undefined,
-      require: <T = unknown>(key: string) => {
-        if (!(key in context)) throw new Error(`Missing required context value ${key}`);
-        return context[key] as T;
+      ctx: {
+        get: <T = unknown>(key: string) => context[key] as T | undefined,
+        require: <T = unknown>(key: string) => {
+          if (!(key in context)) throw new Error(`Missing required context value ${key}`);
+          return context[key] as T;
+        },
+        set: (key: string, value: JsonValue) => {
+          context[key] = value;
+        },
       },
-      set: (key: string, value: JsonValue) => {
-        context[key] = value;
-      },
-    } satisfies MigrationRuntimeContext<any>;
+    } satisfies StepRuntimeContext<any, any>;
 
     return runtime;
   }
@@ -473,16 +472,17 @@ export class DevMachineEngine {
 
   private async resolveMachine(definition: DevMachineDefinition<any>): Promise<LoadedMachine> {
     const apiKey = typeof definition.apiKey === "function" ? await definition.apiKey() : definition.apiKey;
-    const migrations =
-      typeof definition.migrations === "function"
-        ? definition.migrations({ options: definition.options })
-        : definition.migrations;
+    const steps =
+      typeof definition.steps === "function"
+        ? definition.steps({ options: definition.options })
+        : definition.steps;
 
-    for (const migration of migrations) {
-      if (!isMigration(migration)) {
-        throw new Error(`Machine ${definition.name} includes an invalid migration`);
+    for (const step of steps) {
+      if (!isStep(step)) {
+        throw new Error(`Machine ${definition.name} includes an invalid step`);
       }
     }
+    validateStepDependencies(definition.name, steps);
 
     return {
       name: definition.name,
@@ -493,7 +493,7 @@ export class DevMachineEngine {
       disk: definition.disk,
       idleTimeoutSeconds: definition.idleTimeoutSeconds,
       options: definition.options,
-      migrations,
+      steps,
       workspace: definition.workspace,
     };
   }
@@ -506,10 +506,10 @@ export class DevMachineEngine {
       memory: machine.memory,
       disk: machine.disk,
     });
-    const keys = machine.migrations.map((migration) =>
+    const keys = machine.steps.map((step) =>
       hash({
-        name: migration.name,
-        input: migration.input ?? null,
+        name: step.name,
+        input: step.input ?? null,
       }),
     );
     return { machineKey, keys };
@@ -562,7 +562,7 @@ function summarizeMachine(machine: LoadedMachine): MachineSummary {
     memory: machine.memory,
     disk: machine.disk,
     idleTimeoutSeconds: machine.idleTimeoutSeconds,
-    migrations: machine.migrations.map((migration) => migration.name),
+    steps: machine.steps.map((step) => step.name),
     workspace: machine.workspace,
   };
 }

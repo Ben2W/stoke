@@ -1,20 +1,16 @@
-import { defineDevMachine, defineMigration, env } from "@freestyle-sh/fdev-sdk";
+import { defineDevMachine, defineStep, env } from "@freestyle-sh/fdev-sdk";
 
-const smokeMigration = defineMigration("fdev:smoke", async ({ vm, step }) => {
+const smokeStep = defineStep("fdev:smoke", async ({ vm, step }) => {
   const ready = await vm.exec("test -f /tmp/fdev-ready").catch(() => null);
   if (ready?.ok) return;
 
-  await step.run("write fdev marker", "echo ready > /tmp/fdev-ready");
-
-  await step.assert("verify fdev marker", async ({ vm }) => {
-    const result = await vm.exec("test -f /tmp/fdev-ready").catch(() => null);
-    return Boolean(result?.ok);
-  });
+  await step.run("echo ready > /tmp/fdev-ready", { name: "write fdev marker" });
+  if (!(await vm.exists("/tmp/fdev-ready"))) throw new Error("fdev marker was not created");
 });
 
 export default defineDevMachine({
   name: "smoke",
   apiKey: env("FREESTYLE_API_KEY"),
   image: "ubuntu-24.04",
-  migrations: [smokeMigration],
+  steps: [smokeStep],
 });
