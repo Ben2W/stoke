@@ -1,9 +1,9 @@
 # SDK Scripting Design
 
-The SDK models a remote dev machine as an ordered chain of stateful steps over a base VM image.
+The SDK models a remote dev machine as an ordered chain of stateful steps over a provider-defined base VM.
 
 ```text
-base image
+provider VM
   -> step 1
   -> snapshot
   -> step 2
@@ -16,7 +16,7 @@ base image
 The authoring API is intentionally small:
 
 ```ts
-defineDevMachine({ name, provider, image, steps })
+defineDevMachine({ name, provider, steps })
 defineStep(name, fn)
 defineStep(name, { dependsOn: [otherStep] }, fn)
 ```
@@ -80,8 +80,8 @@ export default defineDevMachine({
   name: "platform",
   provider: defineFreestyleProvider({
     apiKey: () => env("FREESTYLE_API_KEY"),
+    image: "ubuntu-24.04",
   }),
-  image: "ubuntu-24.04",
   steps: [gcloudStep, verifyNode],
 });
 ```
@@ -127,7 +127,7 @@ Returning context is preferred because it gives dependent steps better static ty
 
 The engine snapshots after each successful top-level step. A machine chain key includes:
 
-- machine name and base image/resources
+- machine name and resolved provider config
 - ordered step names
 - serialized step inputs
 

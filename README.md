@@ -81,7 +81,7 @@ By default other `fdev` commands load `fdev.config.ts` from the current director
 
 Implemented:
 
-- `defineDevMachine({ name, provider, image, steps })`
+- `defineDevMachine({ name, provider, steps })`
 - `defineStep(name, fn)` with typed dependency context
 - `DevMachineEngine` with `load`, `plan`, `apply`, `fork`, `attachTerminal`, `listWorkspaces`, and `deleteWorkspace`
 - Freestyle provider package for VM create, snapshot, create-from-snapshot, exec, and SSH command generation

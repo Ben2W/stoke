@@ -24,7 +24,8 @@
     "@freestyle-sh/fdev-engine": "workspace:*",
     "@freestyle-sh/fdev-sdk": "workspace:*",
     "drizzle-orm": "^0.45.2",
-    "freestyle": "latest"
+    "freestyle": "latest",
+    "zod": "^4"
   },
   "devDependencies": {
     "@types/bun": "latest",

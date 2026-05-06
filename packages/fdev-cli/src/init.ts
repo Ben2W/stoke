@@ -108,8 +108,8 @@ export default defineDevMachine({
   name: ${machineName},
   provider: defineFreestyleProvider({
     apiKey: () => env("FREESTYLE_API_KEY"),
+    image: "node-22",
   }),
-  image: "node-22",
   steps: [verifyNode],
 });
 `;

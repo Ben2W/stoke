@@ -15,7 +15,6 @@ describe("fdev SDK authoring", () => {
     const machine = defineDevMachine({
       name: "test",
       provider,
-      image: "ubuntu-24.04",
       steps: [step],
     });
 
@@ -46,7 +45,6 @@ describe("fdev SDK authoring", () => {
       defineDevMachine({
         name: "test",
         provider: defineProvider("test", { token: "test-key" }),
-        image: "ubuntu-24.04",
         steps: [node],
       }),
     ).toThrow("depends on install gcloud");
@@ -55,7 +53,6 @@ describe("fdev SDK authoring", () => {
       defineDevMachine({
         name: "test",
         provider: defineProvider("test", { token: "test-key" }),
-        image: "ubuntu-24.04",
         steps: [gcloud, node],
       }),
     ).not.toThrow();

@@ -1,18 +1,27 @@
 import { Freestyle, VmBaseImage } from "freestyle";
 import type { ExecOptions, ExecResult } from "@freestyle-sh/fdev-sdk";
-import type { BaseDevMachineProvider, CreateVmInput, SnapshotHandle, SshConnection, SshOptions, VmHandle } from "@freestyle-sh/fdev-engine";
+import type { BaseDevMachineProvider, SnapshotHandle, SshConnection, SshOptions, VmHandle } from "@freestyle-sh/fdev-engine";
 import type { FreestyleIdentityId, FreestyleToken } from "./auth.ts";
 
 type FreestyleVm = Awaited<ReturnType<Freestyle["vms"]["create"]>>["vm"];
 
 export const FREESTYLE_PROVIDER_ID = "freestyle";
 
+export type FreestyleVmConfig = {
+  image: string;
+  cpu?: number;
+  memory?: string | number;
+  disk?: string | number;
+  idleTimeoutSeconds?: number | null;
+};
+
 export function createFreestyleProvider(input: {
   apiKey: string;
   identityId: FreestyleIdentityId;
   token: FreestyleToken;
+  vm: FreestyleVmConfig;
 }): BaseDevMachineProvider {
-  return new FreestyleProvider(input.apiKey, input.identityId, input.token);
+  return new FreestyleProvider(input.apiKey, input.identityId, input.token, input.vm);
 }
 
 class FreestyleProvider implements BaseDevMachineProvider {
@@ -20,20 +29,22 @@ class FreestyleProvider implements BaseDevMachineProvider {
   private readonly client: Freestyle;
   private readonly identityId: FreestyleIdentityId;
   private readonly token: FreestyleToken;
+  private readonly vmConfig: FreestyleVmConfig;
 
-  constructor(apiKey: string, identityId: FreestyleIdentityId, token: FreestyleToken) {
+  constructor(apiKey: string, identityId: FreestyleIdentityId, token: FreestyleToken, vmConfig: FreestyleVmConfig) {
     this.client = new Freestyle({ apiKey });
     this.identityId = identityId;
     this.token = token;
+    this.vmConfig = vmConfig;
   }
 
-  async createVm(input: CreateVmInput): Promise<VmHandle> {
+  async createVm(): Promise<VmHandle> {
     const { vmId } = await this.client.vms.create({
-      baseImage: new VmBaseImage(toDockerFrom(input.image)),
-      vcpuCount: input.cpu,
-      memSizeGb: parseSizeGb(input.memory),
-      rootfsSizeGb: parseSizeGb(input.disk),
-      idleTimeoutSeconds: input.idleTimeoutSeconds ?? 3600,
+      baseImage: new VmBaseImage(toDockerFrom(this.vmConfig.image)),
+      vcpuCount: this.vmConfig.cpu,
+      memSizeGb: parseSizeGb(this.vmConfig.memory),
+      rootfsSizeGb: parseSizeGb(this.vmConfig.disk),
+      idleTimeoutSeconds: this.vmConfig.idleTimeoutSeconds ?? 3600,
     });
 
     const vm = { vmId };
@@ -41,10 +52,10 @@ class FreestyleProvider implements BaseDevMachineProvider {
     return vm;
   }
 
-  async createVmFromSnapshot(input: { snapshotId: string; idleTimeoutSeconds?: number | null }): Promise<VmHandle> {
+  async createVmFromSnapshot(input: { snapshotId: string }): Promise<VmHandle> {
     const { vmId } = await this.client.vms.create({
       snapshotId: input.snapshotId,
-      idleTimeoutSeconds: input.idleTimeoutSeconds ?? 3600,
+      idleTimeoutSeconds: this.vmConfig.idleTimeoutSeconds ?? 3600,
     });
 
     const vm = { vmId };

@@ -10,7 +10,7 @@ importers:
     devDependencies:
       turbo:
         specifier: latest
-        version: 2.9.8
+        version: 2.9.9
       typescript:
         specifier: latest
         version: 6.0.3
@@ -32,7 +32,7 @@ importers:
     devDependencies:
       '@cloudflare/workers-types':
         specifier: latest
-        version: 4.20260504.1
+        version: 4.20260506.1
       '@types/bun':
         specifier: latest
         version: 1.3.13
@@ -41,7 +41,7 @@ importers:
         version: 6.0.3
       wrangler:
         specifier: latest
-        version: 4.87.0(@cloudflare/workers-types@4.20260504.1)
+        version: 4.88.0(@cloudflare/workers-types@4.20260506.1)
 
   examples/smoke:
     dependencies:
@@ -91,7 +91,7 @@ importers:
         version: 0.31.10
       drizzle-orm:
         specifier: ^0.45.2
-        version: 0.45.2(@cloudflare/workers-types@4.20260504.1)(bun-types@1.3.13)
+        version: 0.45.2(@cloudflare/workers-types@4.20260506.1)(bun-types@1.3.13)
     devDependencies:
       '@types/bun':
         specifier: latest
@@ -110,10 +110,13 @@ importers:
         version: link:../fdev-sdk
       drizzle-orm:
         specifier: ^0.45.2
-        version: 0.45.2(@cloudflare/workers-types@4.20260504.1)(bun-types@1.3.13)
+        version: 0.45.2(@cloudflare/workers-types@4.20260506.1)(bun-types@1.3.13)
       freestyle:
         specifier: latest
         version: 0.1.49
+      zod:
+        specifier: ^4
+        version: 4.4.3
     devDependencies:
       '@types/bun':
         specifier: latest
@@ -146,38 +149,38 @@ packages:
       workerd:
         optional: true
 
-  '@cloudflare/workerd-darwin-64@1.20260430.1':
-    resolution: {integrity: sha512-ADohZUHf7NBvPp2PdZig2Opxx+hDkk3ve7jrTne3JRx9kDSB73zc4LzcEeEN8LKkbAcqZmvfRJfpChSlusu0lA==}
+  '@cloudflare/workerd-darwin-64@1.20260504.1':
+    resolution: {integrity: sha512-IOMjYoftNRXabFt+QzY2Bo2mR2TNl8xsGvE0HnQ+K0S2c61VOUGUkr9gpJjnwrJ65yA9Qed4xfg0RRqXHO+nfA==}
     engines: {node: '>=16'}
     cpu: [x64]
     os: [darwin]
 
-  '@cloudflare/workerd-darwin-arm64@1.20260430.1':
-    resolution: {integrity: sha512-/DoYC/1wHs+YRZzzqSQg1/EHB4hiv1yV5U8FnmapRRIzVaPtnt+ApeOXeMrIdKidgKOI8TqQzgBU8xbIM7Cl4Q==}
+  '@cloudflare/workerd-darwin-arm64@1.20260504.1':
+    resolution: {integrity: sha512-7iMXxIU0N5KklZpQm2kuwTm0XtrpHXNqhejJyGquky8gSTnm31zBdutjMekH8VRr6ckbvZIl6lvqXzXdfOEojg==}
     engines: {node: '>=16'}
     cpu: [arm64]
     os: [darwin]
 
-  '@cloudflare/workerd-linux-64@1.20260430.1':
-    resolution: {integrity: sha512-koJhBWvEVZPKCVFtMLp2iMHlYr+lFCF47wGbnlKdHVlemV0zTxJEyHI8aLlrhPLhBmOmYLp46rXw09/qJkRIhQ==}
+  '@cloudflare/workerd-linux-64@1.20260504.1':
+    resolution: {integrity: sha512-YLB0EH5FQV++oWlalFgPF3p2Bp3dn/D6RWNMw0ukEC8gKnNX6o61A+dlFUl8hRD35ja1zKRxGFUojs4U2+MoJA==}
     engines: {node: '>=16'}
     cpu: [x64]
     os: [linux]
 
-  '@cloudflare/workerd-linux-arm64@1.20260430.1':
-    resolution: {integrity: sha512-hMdapNAzNQZDXGGkg4Slydc3fRJP5FUZLJVVcZCW/+imhhJro9Z1rv5n/wfR+txKoSWhTYR8eOp8Pyi2bzLzlw==}
+  '@cloudflare/workerd-linux-arm64@1.20260504.1':
+    resolution: {integrity: sha512-FAh/82jDXDArfn9xDih6f/IJfF2SHXBb4nFeQAyHyvXrn18zM6Q3yl2Vj0U7LybbNbmu7TNGghwaM2NoSQS+0A==}
     engines: {node: '>=16'}
     cpu: [arm64]
     os: [linux]
 
-  '@cloudflare/workerd-windows-64@1.20260430.1':
-    resolution: {integrity: sha512-jS3ffixjb5USOwz4frw4WzCz0HrjVxkgyU3WiYb06N7hBAfN6eOrveAJ4QRef0+suK4V1vQFoB1oKdRBsXe9Dw==}
+  '@cloudflare/workerd-windows-64@1.20260504.1':
+    resolution: {integrity: sha512-QUg/B3dfrK/KHHHhiJzdkLkTg5mG7lA3t8iplbBoUa3XKCLOHOOXhbU4WSYlLqg8YnsQ6XLZ1HVA99fmZhJh7A==}
     engines: {node: '>=16'}
     cpu: [x64]
     os: [win32]
 
-  '@cloudflare/workers-types@4.20260504.1':
-    resolution: {integrity: sha512-x/7BzBXSGBQS0wHdaY0/1bcaRszkkhCjTc5maQvNSHu/pTVdBF2f/L41W8pRSJJSbLL80ynW7O923O7v3PaLtg==}
+  '@cloudflare/workers-types@4.20260506.1':
+    resolution: {integrity: sha512-IKv/C08utEbAqEu2zr0/3CMf1MbYrl7x0Z1UsrnMs4xxfIN81vtGTRduCZb7xJQpaICQPe0Sa6fhHlZmUXrMjw==}
 
   '@cspotcode/source-map-support@0.8.1':
     resolution: {integrity: sha512-IchNf6dN4tHoMFIn/7OE8LWZ19Y6q/67Bmf6vnGREv8RSbBVb9LPJxEcnwrcwX6ixSvaiGoomAUvu4YSxXrVgw==}
@@ -804,33 +807,33 @@ packages:
   '@speed-highlight/core@1.2.15':
     resolution: {integrity: sha512-BMq1K3DsElxDWawkX6eLg9+CKJrTVGCBAWVuHXVUV2u0s2711qiChLSId6ikYPfxhdYocLNt3wWwSvDiTvFabw==}
 
-  '@turbo/darwin-64@2.9.8':
-    resolution: {integrity: sha512-zU1P95ygDpsQ+2QHh7CVTqvYwi9UBlhKWzoIyUnP3vUoge7H9SQEzrd8dj+XcTrslAp9Db3vIBcXtMVoTEYDnA==}
+  '@turbo/darwin-64@2.9.9':
+    resolution: {integrity: sha512-hTEiNu2ABZZOO1qbjnKASI8eF3BdOOzU6iKv5w5uGOK65DDMc10cS40N1kqM99YT0uSAGUwNu6GdFctRPeEeVA==}
     cpu: [x64]
     os: [darwin]
 
-  '@turbo/darwin-arm64@2.9.8':
-    resolution: {integrity: sha512-nKRFI5ZhCGUi4eXNlrojzWcT/CehMj0raot1WE4lw5qf66ZxZHbRbBqcwNEy+ZLY7RkJJRY+TaU89fuj3BcgGg==}
+  '@turbo/darwin-arm64@2.9.9':
+    resolution: {integrity: sha512-MinO40EEcP5mJiTVpfjtEulsEBhVeryfq21QhYtJZ8hQJLHGgy459rcmDVAY8/JERe4dkVU4KW+zoLF22o01EA==}
     cpu: [arm64]
     os: [darwin]
 
-  '@turbo/linux-64@2.9.8':
-    resolution: {integrity: sha512-Wf/kQpVDCaWM3P5d6lKvJnqjYn/ofUBGbT4h4vRFrdC4N6B/nsun03S2kQNJJMXpXg39woeS4CI367RMU3/OAg==}
+  '@turbo/linux-64@2.9.9':
+    resolution: {integrity: sha512-7JNLw88Isk+gMlbsC8pulLDkrqe2B827ZsKFEHilb17AC6Xn/62pzH7afjY7fEU6Ayp4XP/vGhlRWOzqBvBvIQ==}
     cpu: [x64]
     os: [linux]
 
-  '@turbo/linux-arm64@2.9.8':
-    resolution: {integrity: sha512-v6S3HuKVoa9CEx16IxKj1i/+crxXx22A9O80zW1350zyUlcX0T/zLOxVf1k+ruK/7ssXnDJVg8uSYOxlYRedlA==}
+  '@turbo/linux-arm64@2.9.9':
+    resolution: {integrity: sha512-0pnXDwPw1rHii98JZPRg7SvsjIzy7jrhkwGU9Jy5fVYoMdYd3P2vbtLfII+OJ0Mm4Ar5yykdHDTz3RWiRI1o9g==}
     cpu: [arm64]
     os: [linux]
 
-  '@turbo/windows-64@2.9.8':
-    resolution: {integrity: sha512-JaefWOJNBazDylAn3f+lLB34XMNu8nEBbgPRP/Ewysg81cBubGfcyyyzpQOGVuMwfaqdNAE/kitG7w3AbJn9/g==}
+  '@turbo/windows-64@2.9.9':
+    resolution: {integrity: sha512-vjDQycz4gQVvIq4n2rPtiiIESwJlAc406qtkiZlqyL+fHZEd9SxYNlBIFYtc5cuMuwrk+sIKrhN7XvwjmvS9YQ==}
     cpu: [x64]
     os: [win32]
 
-  '@turbo/windows-arm64@2.9.8':
-    resolution: {integrity: sha512-Or6ljjB4TiiwCdVKDYWew0SokQ9kep5zruL8P3nbum9WdkH5XA41rQID4Ulc215Z+R3DrB+qXSHPsJjU3/n2ng==}
+  '@turbo/windows-arm64@2.9.9':
+    resolution: {integrity: sha512-V6NiH43oCctepbOdQFp7UjqLyK8p6Tt824QA+G4TE+B1BBHu80A0W8OCL+H7uBJ3XZjAj/hvPDw3k3l65DoDGw==}
     cpu: [arm64]
     os: [win32]
 
@@ -1042,8 +1045,8 @@ packages:
     resolution: {integrity: sha512-NxVFwLAnrd9i7KUBxC4DrUhmgjzOs+1Qm50D3oF1/oL+r1NpZ4gA7xvG0/zJ8evR7zIKn4vLf7qTNduWFtCrRw==}
     engines: {node: 20 || >=22}
 
-  miniflare@4.20260430.0:
-    resolution: {integrity: sha512-MWvMm3Siho9Yj7lbJZidLs8hbrRvIcOrif2mnsHQZdvoKfedpea+GaN8XJxbpRcq0B2WzNI1BB1ihdnqes3/ZA==}
+  miniflare@4.20260504.0:
+    resolution: {integrity: sha512-HeI/HLx+rbeo/UB4qb6NsNcFdUVD7xDzyCexZJTVtFMlfpfexUKEDmdeTRRpzeHrJseZFGua+v9JO1kfPublUw==}
     engines: {node: '>=22.0.0'}
     hasBin: true
 
@@ -1104,8 +1107,8 @@ packages:
     engines: {node: '>=18.0.0'}
     hasBin: true
 
-  turbo@2.9.8:
-    resolution: {integrity: sha512-REEB2rVTVDTf4hav1gJ5dIsGylWZrNonvjXFtk1dCi8gND3PhZtnYkyry1bra/Fo+iP6ctTEZbg6vWfdfHq/1A==}
+  turbo@2.9.9:
+    resolution: {integrity: sha512-3xfzXE/yTjhh0S5dIWlE+3E+J9A09REpLI1ZqVh2+HrNZoVzZn0pkvjiRgVK/Ev3PF9XnaTwCntTx+CADWXcyA==}
     hasBin: true
 
   typescript@6.0.3:
@@ -1123,17 +1126,17 @@ packages:
   unenv@2.0.0-rc.24:
     resolution: {integrity: sha512-i7qRCmY42zmCwnYlh9H2SvLEypEFGye5iRmEMKjcGi7zk9UquigRjFtTLz0TYqr0ZGLZhaMHl/foy1bZR+Cwlw==}
 
-  workerd@1.20260430.1:
-    resolution: {integrity: sha512-KEgIWyiw3Jmn+DCd/L3ePo5fmiiYb/UcwKvDWPf/nLLOiwShDFzDSsegU5NY/JcwgvO/QsLHVi2FYrbkcXNY5Q==}
+  workerd@1.20260504.1:
+    resolution: {integrity: sha512-AQTXSHbYNP9tLPgJNn0TmizyE4aDh2VuZZXlTAL0uu4fbCY436NAnQSJIzZbaFHM3DnAtVs9G8tkiJztSdYqDg==}
     engines: {node: '>=16'}
     hasBin: true
 
-  wrangler@4.87.0:
-    resolution: {integrity: sha512-lfhfKwLfQlowwgV0xhlYgE9fU3n0I30d4ccGY/rTCEm/n42Mjvlr0Ng3ZPNqlsrsKBcDR531V7dsPkgELvrk/Q==}
+  wrangler@4.88.0:
+    resolution: {integrity: sha512-f470QwbeT/JM1S0duq+sLtkss7UBxIFDtYHgujv9tdQUyA/dLGDq51am0rqrsuFtCi97lTM1P5sqtt8xra1AlA==}
     engines: {node: '>=22.0.0'}
     hasBin: true
     peerDependencies:
-      '@cloudflare/workers-types': ^4.20260430.1
+      '@cloudflare/workers-types': ^4.20260504.1
     peerDependenciesMeta:
       '@cloudflare/workers-types':
         optional: true
@@ -1172,32 +1175,35 @@ packages:
   youch@4.1.0-beta.10:
     resolution: {integrity: sha512-rLfVLB4FgQneDr0dv1oddCVZmKjcJ6yX6mS4pU82Mq/Dt9a3cLZQ62pDBL4AUO+uVrCvtWz3ZFUL2HFAFJ/BXQ==}
 
+  zod@4.4.3:
+    resolution: {integrity: sha512-ytENFjIJFl2UwYglde2jchW2Hwm4GJFLDiSXWdTrJQBIN9Fcyp7n4DhxJEiWNAJMV1/BqWfW/kkg71UDcHJyTQ==}
+
 snapshots:
 
   '@cloudflare/kv-asset-handler@0.5.0': {}
 
-  '@cloudflare/unenv-preset@2.16.1(unenv@2.0.0-rc.24)(workerd@1.20260430.1)':
+  '@cloudflare/unenv-preset@2.16.1(unenv@2.0.0-rc.24)(workerd@1.20260504.1)':
     dependencies:
       unenv: 2.0.0-rc.24
     optionalDependencies:
-      workerd: 1.20260430.1
+      workerd: 1.20260504.1
 
-  '@cloudflare/workerd-darwin-64@1.20260430.1':
+  '@cloudflare/workerd-darwin-64@1.20260504.1':
     optional: true
 
-  '@cloudflare/workerd-darwin-arm64@1.20260430.1':
+  '@cloudflare/workerd-darwin-arm64@1.20260504.1':
     optional: true
 
-  '@cloudflare/workerd-linux-64@1.20260430.1':
+  '@cloudflare/workerd-linux-64@1.20260504.1':
     optional: true
 
-  '@cloudflare/workerd-linux-arm64@1.20260430.1':
+  '@cloudflare/workerd-linux-arm64@1.20260504.1':
     optional: true
 
-  '@cloudflare/workerd-windows-64@1.20260430.1':
+  '@cloudflare/workerd-windows-64@1.20260504.1':
     optional: true
 
-  '@cloudflare/workers-types@4.20260504.1': {}
+  '@cloudflare/workers-types@4.20260506.1': {}
 
   '@cspotcode/source-map-support@0.8.1':
     dependencies:
@@ -1563,22 +1569,22 @@ snapshots:
 
   '@speed-highlight/core@1.2.15': {}
 
-  '@turbo/darwin-64@2.9.8':
+  '@turbo/darwin-64@2.9.9':
     optional: true
 
-  '@turbo/darwin-arm64@2.9.8':
+  '@turbo/darwin-arm64@2.9.9':
     optional: true
 
-  '@turbo/linux-64@2.9.8':
+  '@turbo/linux-64@2.9.9':
     optional: true
 
-  '@turbo/linux-arm64@2.9.8':
+  '@turbo/linux-arm64@2.9.9':
     optional: true
 
-  '@turbo/windows-64@2.9.8':
+  '@turbo/windows-64@2.9.9':
     optional: true
 
-  '@turbo/windows-arm64@2.9.8':
+  '@turbo/windows-arm64@2.9.9':
     optional: true
 
   '@types/bun@1.3.13':
@@ -1636,9 +1642,9 @@ snapshots:
       esbuild: 0.25.12
       tsx: 4.21.0
 
-  drizzle-orm@0.45.2(@cloudflare/workers-types@4.20260504.1)(bun-types@1.3.13):
+  drizzle-orm@0.45.2(@cloudflare/workers-types@4.20260506.1)(bun-types@1.3.13):
     optionalDependencies:
-      '@cloudflare/workers-types': 4.20260504.1
+      '@cloudflare/workers-types': 4.20260506.1
       bun-types: 1.3.13
 
   emoji-regex@10.6.0:
@@ -1763,12 +1769,12 @@ snapshots:
   lru-cache@11.3.5:
     optional: true
 
-  miniflare@4.20260430.0:
+  miniflare@4.20260504.0:
     dependencies:
       '@cspotcode/source-map-support': 0.8.1
       sharp: 0.34.5
       undici: 7.24.8
-      workerd: 1.20260430.1
+      workerd: 1.20260504.1
       ws: 8.18.0
       youch: 4.1.0-beta.10
     transitivePeerDependencies:
@@ -1859,14 +1865,14 @@ snapshots:
     optionalDependencies:
       fsevents: 2.3.3
 
-  turbo@2.9.8:
+  turbo@2.9.9:
     optionalDependencies:
-      '@turbo/darwin-64': 2.9.8
-      '@turbo/darwin-arm64': 2.9.8
-      '@turbo/linux-64': 2.9.8
-      '@turbo/linux-arm64': 2.9.8
-      '@turbo/windows-64': 2.9.8
-      '@turbo/windows-arm64': 2.9.8
+      '@turbo/darwin-64': 2.9.9
+      '@turbo/darwin-arm64': 2.9.9
+      '@turbo/linux-64': 2.9.9
+      '@turbo/linux-arm64': 2.9.9
+      '@turbo/windows-64': 2.9.9
+      '@turbo/windows-arm64': 2.9.9
 
   typescript@6.0.3: {}
 
@@ -1878,26 +1884,26 @@ snapshots:
     dependencies:
       pathe: 2.0.3
 
-  workerd@1.20260430.1:
+  workerd@1.20260504.1:
     optionalDependencies:
-      '@cloudflare/workerd-darwin-64': 1.20260430.1
-      '@cloudflare/workerd-darwin-arm64': 1.20260430.1
-      '@cloudflare/workerd-linux-64': 1.20260430.1
-      '@cloudflare/workerd-linux-arm64': 1.20260430.1
-      '@cloudflare/workerd-windows-64': 1.20260430.1
+      '@cloudflare/workerd-darwin-64': 1.20260504.1
+      '@cloudflare/workerd-darwin-arm64': 1.20260504.1
+      '@cloudflare/workerd-linux-64': 1.20260504.1
+      '@cloudflare/workerd-linux-arm64': 1.20260504.1
+      '@cloudflare/workerd-windows-64': 1.20260504.1
 
-  wrangler@4.87.0(@cloudflare/workers-types@4.20260504.1):
+  wrangler@4.88.0(@cloudflare/workers-types@4.20260506.1):
     dependencies:
       '@cloudflare/kv-asset-handler': 0.5.0
-      '@cloudflare/unenv-preset': 2.16.1(unenv@2.0.0-rc.24)(workerd@1.20260430.1)
+      '@cloudflare/unenv-preset': 2.16.1(unenv@2.0.0-rc.24)(workerd@1.20260504.1)
       blake3-wasm: 2.1.5
       esbuild: 0.27.3
-      miniflare: 4.20260430.0
+      miniflare: 4.20260504.0
       path-to-regexp: 6.3.0
       unenv: 2.0.0-rc.24
-      workerd: 1.20260430.1
+      workerd: 1.20260504.1
     optionalDependencies:
-      '@cloudflare/workers-types': 4.20260504.1
+      '@cloudflare/workers-types': 4.20260506.1
       fsevents: 2.3.3
     transitivePeerDependencies:
       - bufferutil
@@ -1940,3 +1946,5 @@ snapshots:
       '@speed-highlight/core': 1.2.15
       cookie: 1.1.1
       youch-core: 0.3.3
+
+  zod@4.4.3: {}

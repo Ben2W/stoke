@@ -144,13 +144,6 @@ export type StepReturnContext<Return> = Awaited<Return> extends { ctx?: infer Co
     : {}
   : {};
 
-export type MachineResources = {
-  cpu?: number;
-  memory?: string | number;
-  disk?: string | number;
-  idleTimeoutSeconds?: number | null;
-};
-
 export type DevProviderDefinition<
   ProviderId extends string = string,
   Config extends object = Record<string, unknown>,
@@ -170,11 +163,10 @@ export type LoadedProviderDefinition<
   plugin?: unknown;
 };
 
-export type DevMachineDefinition<Options = undefined> = MachineResources & {
+export type DevMachineDefinition<Options = undefined> = {
   readonly kind: "fdev.machine";
   name: string;
   provider: DevProviderDefinition;
-  image: string;
   options?: Options;
   steps:
     | StepInstance<any, any>[]
@@ -187,10 +179,9 @@ export type DevMachineDefinition<Options = undefined> = MachineResources & {
   };
 };
 
-export type LoadedMachine = MachineResources & {
+export type LoadedMachine = {
   name: string;
   provider: LoadedProviderDefinition;
-  image: string;
   options?: unknown;
   steps: StepInstance<any, any>[];
   workspace?: DevMachineDefinition<any>["workspace"];

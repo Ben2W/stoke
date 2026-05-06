@@ -1,14 +1,6 @@
 import type { ExecOptions, ExecResult, LoadedProviderDefinition } from "@freestyle-sh/fdev-sdk";
 import type { FdevDatabase, FdevDatabaseSchema } from "../db/index.ts";
 
-export type CreateVmInput = {
-  image: string;
-  cpu?: number;
-  memory?: string | number;
-  disk?: string | number;
-  idleTimeoutSeconds?: number | null;
-};
-
 export type VmHandle = {
   vmId: string;
 };
@@ -33,8 +25,8 @@ export type SshConnection = {
 
 export interface BaseDevMachineProvider {
   readonly providerId: string;
-  createVm(input: CreateVmInput): Promise<VmHandle>;
-  createVmFromSnapshot(input: { snapshotId: string; idleTimeoutSeconds?: number | null }): Promise<VmHandle>;
+  createVm(): Promise<VmHandle>;
+  createVmFromSnapshot(input: { snapshotId: string }): Promise<VmHandle>;
   exec(vm: VmHandle, command: string, options?: ExecOptions): Promise<ExecResult>;
   readFile(vm: VmHandle, path: string): Promise<string>;
   writeFile(vm: VmHandle, path: string, content: string): Promise<void>;

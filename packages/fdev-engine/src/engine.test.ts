@@ -30,7 +30,6 @@ describe("DevMachineEngine", () => {
         export default defineDevMachine({
           name: "test",
           provider: defineProvider("test", { token: "test-key" }),
-          image: "ubuntu-24.04",
           steps: [first, second],
         });
       `,
@@ -84,7 +83,6 @@ describe("DevMachineEngine", () => {
         export default defineDevMachine({
           name: "test",
           provider: defineProvider("test", { token: "test-key" }),
-          image: "ubuntu-24.04",
           steps: [fails],
         });
       `,
@@ -99,6 +97,53 @@ describe("DevMachineEngine", () => {
     await engine.load();
     await expect(engine.apply()).rejects.toThrow('Command "require missing" failed with exit code 1');
     expect(provider.snapshots).toHaveLength(0);
+  });
+
+  test("provider config contributes to the machine cache key", async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), "fdev-"));
+    const previousToken = process.env.FDEV_TEST_PROVIDER_TOKEN;
+    writeFileSync(
+      join(projectDir, "fdev.config.ts"),
+      `
+        import { defineDevMachine, defineProvider, defineStep } from "${import.meta.dir}/../../fdev-sdk/src/index.ts";
+
+        const setup = defineStep("setup", async ({ vm }) => {
+          await vm.exec("touch /tmp/setup", { name: "touch setup" });
+        });
+
+        export default defineDevMachine({
+          name: "test",
+          provider: defineProvider("test", { token: () => process.env.FDEV_TEST_PROVIDER_TOKEN }),
+          steps: [setup],
+        });
+      `,
+    );
+
+    try {
+      const provider = new FakeProvider();
+      process.env.FDEV_TEST_PROVIDER_TOKEN = "one";
+      const first = await createDevMachineEngine({
+        projectDir,
+        providerFactory: () => provider,
+      });
+      await first.load();
+      await first.apply();
+      expect((await first.plan()).cachedPrefixLength).toBe(1);
+
+      process.env.FDEV_TEST_PROVIDER_TOKEN = "two";
+      const second = await createDevMachineEngine({
+        projectDir,
+        providerFactory: () => provider,
+      });
+      await second.load();
+      expect((await second.plan()).cachedPrefixLength).toBe(0);
+    } finally {
+      if (previousToken === undefined) {
+        delete process.env.FDEV_TEST_PROVIDER_TOKEN;
+      } else {
+        process.env.FDEV_TEST_PROVIDER_TOKEN = previousToken;
+      }
+    }
   });
 });
 

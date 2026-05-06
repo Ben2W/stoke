@@ -18,7 +18,7 @@ export default defineDevMachine({
   name: "smoke",
   provider: defineFreestyleProvider({
     apiKey: env("FREESTYLE_API_KEY"),
+    image: "ubuntu-24.04",
   }),
-  image: "ubuntu-24.04",
   steps: [smokeStep],
 });

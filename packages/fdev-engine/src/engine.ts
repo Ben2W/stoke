@@ -45,11 +45,7 @@ export type EngineProjectInfo = {
 
 export type MachineSummary = {
   name: string;
-  image: string;
-  cpu?: number;
-  memory?: string | number;
-  disk?: string | number;
-  idleTimeoutSeconds?: number | null;
+  providerId: string;
   steps: string[];
   workspace?: LoadedMachine["workspace"];
 };
@@ -189,7 +185,7 @@ export class DevMachineEngine {
       };
     }
 
-    vm = await this.createVmForApply(provider, machine, cached.snapshot);
+    vm = await this.createVmForApply(provider, cached.snapshot);
 
     for (let index = cached.prefixLength; index < machine.steps.length; index += 1) {
       const step = machine.steps[index]!;
@@ -251,7 +247,6 @@ export class DevMachineEngine {
     const provider = await this.createProvider(machine);
     const vm = await provider.createVmFromSnapshot({
       snapshotId: applied.snapshotId,
-      idleTimeoutSeconds: machine.idleTimeoutSeconds,
     });
 
     const workspace: WorkspaceRecord = {
@@ -347,21 +342,13 @@ export class DevMachineEngine {
 
   private async createVmForApply(
     provider: BaseDevMachineProvider,
-    machine: LoadedMachine,
     snapshot: SnapshotRecord | undefined,
   ): Promise<VmHandle> {
     const vm = snapshot
       ? await provider.createVmFromSnapshot({
           snapshotId: snapshot.snapshotId,
-          idleTimeoutSeconds: machine.idleTimeoutSeconds,
         })
-      : await provider.createVm({
-          image: machine.image,
-          cpu: machine.cpu,
-          memory: machine.memory,
-          disk: machine.disk,
-          idleTimeoutSeconds: machine.idleTimeoutSeconds,
-        });
+      : await provider.createVm();
 
     this.emit({ type: "vm.created", vmId: vm.vmId, fromSnapshotId: snapshot?.snapshotId });
     return vm;
@@ -524,11 +511,6 @@ export class DevMachineEngine {
     return {
       name: definition.name,
       provider,
-      image: definition.image,
-      cpu: definition.cpu,
-      memory: definition.memory,
-      disk: definition.disk,
-      idleTimeoutSeconds: definition.idleTimeoutSeconds,
       options: definition.options,
       steps,
       workspace: definition.workspace,
@@ -539,10 +521,7 @@ export class DevMachineEngine {
     const machineKey = hash({
       name: machine.name,
       providerId: machine.provider.providerId,
-      image: machine.image,
-      cpu: machine.cpu,
-      memory: machine.memory,
-      disk: machine.disk,
+      providerConfig: machine.provider.config,
     });
     const keys = machine.steps.map((step) =>
       hash({
@@ -638,11 +617,7 @@ function normalizeDefinition(value: unknown): DevMachineDefinition<any> {
 function summarizeMachine(machine: LoadedMachine): MachineSummary {
   return {
     name: machine.name,
-    image: machine.image,
-    cpu: machine.cpu,
-    memory: machine.memory,
-    disk: machine.disk,
-    idleTimeoutSeconds: machine.idleTimeoutSeconds,
+    providerId: machine.provider.providerId,
     steps: machine.steps.map((step) => step.name),
     workspace: machine.workspace,
   };

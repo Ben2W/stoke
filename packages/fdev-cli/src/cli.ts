@@ -794,7 +794,7 @@ function printConfig(info: ReturnType<DevMachineEngine["getProjectInfo"]>): void
     ["project", info.projectDir],
     ["state", info.statePath],
     ["machine", info.machine?.name ?? "(not loaded)"],
-    ["image", info.machine?.image ?? ""],
+    ["provider", info.machine?.providerId ?? ""],
   ];
   printTable(["key", "value"], rows);
 }
