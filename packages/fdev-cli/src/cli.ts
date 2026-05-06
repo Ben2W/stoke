@@ -15,6 +15,7 @@ import {
 import { assertVersionAlignment, DEFAULT_CONFIG_FILE, resolveConfigPaths, SDK_PACKAGE_NAME } from "./project.ts";
 import { FDEV_CLI_VERSION } from "./version.ts";
 import { initProject, normalizeMachineName, type InitProjectResult } from "./init.ts";
+import { createLocalTerminalInteraction } from "./interaction.ts";
 import {
   completeFdev,
   formatCompletionItems,
@@ -712,7 +713,12 @@ function packageManagerInstallCommand(packageManager: Exclude<PackageManager, "s
 async function loadEngine(command: Command): Promise<DevMachineEngine> {
   const engineOptions = resolveEngineOptions(command);
   assertVersionAlignment(engineOptions.projectDir);
-  const engine = await createDevMachineEngine(engineOptions);
+  const engine = await createDevMachineEngine({
+    ...engineOptions,
+    interaction: {
+      terminal: createLocalTerminalInteraction(),
+    },
+  });
   if (!wantsJson(command)) engine.onEvent(renderEvent);
   await engine.load();
   return engine;
@@ -852,6 +858,9 @@ function renderEvent(event: DevMachineEvent): void {
       return;
     case "interaction.awaiting_user":
       console.error(`interaction ${event.label}`);
+      return;
+    case "interaction.completed":
+      console.error(`interaction ${event.label} completed`);
       return;
     case "snapshot.created":
       console.error(`snapshot ${event.snapshotId}`);

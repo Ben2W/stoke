@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createDevMachineEngine } from "./engine.ts";
+import { createDevMachineEngine, type TerminalInteractionRequest } from "./engine.ts";
 import type { DevMachineProvider, SnapshotHandle, SshConnection, VmHandle } from "./provider/types.ts";
 import type { ExecOptions, ExecResult } from "@freestyle-sh/fdev-sdk";
 
@@ -97,6 +97,55 @@ describe("DevMachineEngine", () => {
     await engine.load();
     await expect(engine.apply()).rejects.toThrow('Command "require missing" failed with exit code 1');
     expect(provider.snapshots).toHaveLength(0);
+  });
+
+  test("routes terminal interactions through the configured handler", async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), "fdev-"));
+    writeFileSync(
+      join(projectDir, "fdev.config.ts"),
+      `
+        import { defineDevMachine, defineProvider, defineStep } from "${import.meta.dir}/../../fdev-sdk/src/index.ts";
+
+        const login = defineStep("login", async ({ interact }) => {
+          await interact.terminal("GitHub auth", {
+            command: "gh auth login",
+            instructions: "Authenticate GitHub inside the VM.",
+          });
+        });
+
+        export default defineDevMachine({
+          name: "test",
+          provider: defineProvider("test", { token: "test-key" }),
+          steps: [login],
+        });
+      `,
+    );
+
+    const interactions: TerminalInteractionRequest[] = [];
+    const provider = new FakeProvider();
+    const engine = await createDevMachineEngine({
+      projectDir,
+      providerFactory: () => provider,
+      interaction: {
+        terminal: async (request) => {
+          interactions.push(request);
+        },
+      },
+    });
+
+    await engine.load();
+    await engine.apply();
+
+    expect(interactions).toEqual([
+      {
+        step: "login",
+        label: "GitHub auth",
+        command: "ssh -tt -q 'fake:fake@fake'",
+        remoteCommand: "gh auth login",
+        instructions: "Authenticate GitHub inside the VM.",
+      },
+    ]);
+    expect(provider.snapshots).toHaveLength(1);
   });
 
   test("provider config contributes to the machine cache key", async () => {

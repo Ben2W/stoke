@@ -4,7 +4,7 @@ import { pathToFileURL } from "node:url";
 import { isDevMachine, isProviderDefinition, isStep, validateStepDependencies } from "@freestyle-sh/fdev-sdk";
 import { loadDotEnv } from "./env-file.ts";
 import { hash } from "./hash.ts";
-import type { BaseDevMachineProvider, BaseProviderPlugin, ProviderFactory, VmHandle } from "./provider/types.ts";
+import type { BaseDevMachineProvider, BaseProviderPlugin, ProviderFactory, SshConnection, VmHandle } from "./provider/types.ts";
 import { StateStore, type SnapshotRecord } from "./state.ts";
 import type {
   DevMachineDefinition,
@@ -18,6 +18,7 @@ import type {
   StepCommandOptions,
   StepInstance,
   StepRuntimeContext,
+  TerminalInteractionOptions,
   WorkspaceRecord,
 } from "@freestyle-sh/fdev-sdk";
 
@@ -26,7 +27,20 @@ export type CreateDevMachineEngineOptions = {
   configPath?: string;
   providers?: BaseProviderPlugin[];
   providerFactory?: ProviderFactory;
+  interaction?: {
+    terminal?: TerminalInteractionHandler;
+  };
 };
+
+export type TerminalInteractionRequest = {
+  step: string;
+  label: string;
+  command: string;
+  remoteCommand?: string;
+  instructions?: string;
+};
+
+export type TerminalInteractionHandler = (request: TerminalInteractionRequest) => Promise<void>;
 
 export type EngineLoadResult = {
   machine: LoadedMachine;
@@ -57,6 +71,7 @@ export class DevMachineEngine {
   private state: StateStore | undefined;
   private providers: BaseProviderPlugin[];
   private readonly providerFactory: ProviderFactory;
+  private readonly terminalInteraction: TerminalInteractionHandler;
   private readonly handlers = new Set<EventHandler>();
   private machines = new Map<string, LoadedMachine>();
 
@@ -68,6 +83,7 @@ export class DevMachineEngine {
     this.statePath = join(this.projectDir, ".fdev", "state.sqlite");
     this.providers = options.providers ?? [];
     this.providerFactory = options.providerFactory ?? ((input) => this.createProviderFromPlugin(input));
+    this.terminalInteraction = options.interaction?.terminal ?? defaultTerminalInteraction;
   }
 
   onEvent(handler: EventHandler): () => void {
@@ -403,25 +419,25 @@ export class DevMachineEngine {
       input: step.input,
       vm: vmInspector,
       interact: {
-        terminal: async (name: string, options?: { command?: string; instructions?: string }) => {
+        terminal: async (name: string, options?: TerminalInteractionOptions) => {
+          const terminal = await provider.ssh(vm);
+          const command = buildInteractiveSshCommand(terminal, options?.command);
+
           this.emit({
             type: "interaction.awaiting_user",
             step: step.name,
             label: name,
-            command: options?.command,
+            command,
             instructions: options?.instructions,
           });
 
-          const terminal = await provider.ssh(vm);
-          const command = options?.command
-            ? `${terminal.command} -t ${shellQuote(options.command)}`
-            : terminal.command;
-
-          console.error(`\nInteractive step: ${name}`);
-          if (options?.instructions) console.error(options.instructions);
-          console.error(command);
-          console.error("Press Enter after completing the interactive work.");
-          await readLine();
+          await this.terminalInteraction({
+            step: step.name,
+            label: name,
+            command,
+            remoteCommand: options?.command,
+            instructions: options?.instructions,
+          });
 
           this.emit({ type: "interaction.completed", step: step.name, label: name });
         },
@@ -637,6 +653,19 @@ function shellQuote(value: string): string {
   return `'${value.replaceAll("'", `'\\''`)}'`;
 }
 
+function buildInteractiveSshCommand(connection: SshConnection, remoteCommand: string | undefined): string {
+  if (connection.auth.type === "privateKey") {
+    return connection.command;
+  }
+
+  const destination = `${connection.username}:${connection.auth.token}@${connection.host}`;
+  const args = ["ssh"];
+  if (remoteCommand) args.push("-tt", "-q");
+  if (connection.port !== undefined) args.push("-p", String(connection.port));
+  args.push(destination);
+  return args.map((arg) => arg === "ssh" || arg.startsWith("-") ? arg : shellQuote(arg)).join(" ");
+}
+
 function isDefined<T>(value: T | undefined): value is T {
   return value !== undefined;
 }
@@ -670,4 +699,17 @@ async function readLine(): Promise<void> {
       resolve();
     });
   });
+}
+
+async function defaultTerminalInteraction(request: TerminalInteractionRequest): Promise<void> {
+  console.error(`\nInteractive step: ${request.label}`);
+  if (request.instructions) console.error(request.instructions);
+  console.error(request.command);
+
+  if (!process.stdin.isTTY) {
+    throw new Error(`Interactive step "${request.label}" requires a terminal`);
+  }
+
+  console.error("Press Enter after completing the interactive work.");
+  await readLine();
 }

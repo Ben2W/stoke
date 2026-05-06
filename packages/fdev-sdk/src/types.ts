@@ -46,8 +46,13 @@ export type VmInspector = {
   writeFile(path: string, content: string): Promise<void>;
 };
 
+export type TerminalInteractionOptions = {
+  command?: string;
+  instructions?: string;
+};
+
 export type InteractionRunner = {
-  terminal(name: string, options?: { command?: string; instructions?: string }): Promise<void>;
+  terminal(name: string, options?: TerminalInteractionOptions): Promise<void>;
 };
 
 export type SnapshotController = {

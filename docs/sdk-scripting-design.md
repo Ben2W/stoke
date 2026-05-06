@@ -114,6 +114,9 @@ type StepRuntimeContext<Input = void, Context = {}> = {
 `vm.exec(command, { name, cwd, env, timeoutMs })` returns `{ stdout, stderr, exitCode, ok }` when the command succeeds and throws when `ok` is false.
 `vm.probe(command, { name, cwd, env, timeoutMs })` always returns `{ stdout, stderr, exitCode, ok }`, so the step handler can branch on the current machine state.
 
+Interactive setup that needs a human terminal, such as an auth login, should use `interact.terminal(name, { command, instructions })`.
+The CLI serves a local web terminal backed by wterm/libghostty, connects it to SSH, writes `command` into the VM shell, and waits for the user to click Finished.
+
 Steps can pass context forward in either of these forms:
 
 ```ts

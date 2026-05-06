@@ -1,4 +1,5 @@
 export { createDevMachineEngine, DevMachineEngine } from "./engine.ts";
+export type { TerminalInteractionHandler, TerminalInteractionRequest } from "./engine.ts";
 export { composeFdevSchema, createFdevDatabase, syncFdevDatabaseSchema } from "./db/index.ts";
 export { coreSchema } from "./db/schema/index.ts";
 export { FDEV_ENGINE_VERSION } from "./version.ts";
