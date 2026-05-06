@@ -12,9 +12,13 @@
     "build:cli-binaries": "bun scripts/build-cli-binaries.ts",
     "fdev": "pnpm --filter @freestyle-sh/fdev-cli fdev",
     "smoke:plan": "pnpm --filter @freestyle-sh/fdev-cli fdev -C ../../examples/smoke plan",
-    "smoke:apply": "pnpm --filter @freestyle-sh/fdev-cli fdev -C ../../examples/smoke apply"
+    "smoke:apply": "pnpm --filter @freestyle-sh/fdev-cli fdev -C ../../examples/smoke apply",
+    "website:plan": "pnpm -C examples/freestyle-website-next fdev:plan",
+    "website:apply": "pnpm -C examples/freestyle-website-next fdev:apply",
+    "website:fork": "pnpm -C examples/freestyle-website-next fdev:fork"
   },
   "devDependencies": {
+    "playwright": "^1.59.1",
     "turbo": "latest",
     "typescript": "latest"
   }

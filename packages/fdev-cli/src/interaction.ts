@@ -9,7 +9,8 @@ export type LocalInteractionSession = {
 
 type ClientMessage =
   | { type: "input"; data: string }
-  | { type: "finish" };
+  | { type: "finish" }
+  | { type: "resize"; cols: number; rows: number };
 
 type ServerMessage =
   | { type: "output"; data: string }
@@ -44,6 +45,9 @@ export function createLocalInteractionSession(request: TerminalInteractionReques
   let processExitCode: number | undefined;
   let settled = false;
   let remoteCommandStarted = false;
+  let terminalCols = 100;
+  let terminalRows = 28;
+  let terminalQueryBuffer = "";
   let proc: Subprocess<"pipe", "pipe", "pipe"> | undefined;
   let stdin: { write(data: Uint8Array): unknown; flush?(): unknown } | undefined;
   let complete!: () => void;
@@ -98,6 +102,11 @@ export function createLocalInteractionSession(request: TerminalInteractionReques
         if (!message) return;
         if (message.type === "input") {
           writeInput(message.data);
+          return;
+        }
+        if (message.type === "resize") {
+          terminalCols = message.cols;
+          terminalRows = message.rows;
           return;
         }
         requestFinish();
@@ -175,6 +184,7 @@ export function createLocalInteractionSession(request: TerminalInteractionReques
 
   function handleProcessOutput(data: string): void {
     appendOutput(data);
+    respondToTerminalQueries(data);
   }
 
   function appendOutput(data: string): void {
@@ -184,6 +194,8 @@ export function createLocalInteractionSession(request: TerminalInteractionReques
   }
 
   function writeInput(data: string): void {
+    if (isCursorPositionReport(data)) return;
+
     if (startupInput && data === startupInput) {
       if (remoteCommandStarted) return;
       remoteCommandStarted = true;
@@ -194,11 +206,32 @@ export function createLocalInteractionSession(request: TerminalInteractionReques
       });
     }
 
+    writeProcessInput(data);
+  }
+
+  function writeProcessInput(data: string): void {
     try {
       stdin?.write(new TextEncoder().encode(data));
       stdin?.flush?.();
     } catch {
       // The process may have exited between the browser input event and this write.
+    }
+  }
+
+  function respondToTerminalQueries(data: string): void {
+    terminalQueryBuffer += data;
+
+    while (true) {
+      const match = /\x1b\[(\??)6n/.exec(terminalQueryBuffer);
+      if (!match) break;
+
+      const prefix = match[1] ?? "";
+      writeProcessInput(`\x1b[${prefix}${terminalRows};${terminalCols}R`);
+      terminalQueryBuffer = terminalQueryBuffer.slice(match.index + match[0].length);
+    }
+
+    if (terminalQueryBuffer.length > 16) {
+      terminalQueryBuffer = terminalQueryBuffer.slice(-16);
     }
   }
 
@@ -263,10 +296,23 @@ function parseClientMessage(raw: string | Buffer): ClientMessage | undefined {
     const value = JSON.parse(raw) as ClientMessage;
     if (value.type === "finish") return value;
     if (value.type === "input" && typeof value.data === "string") return value;
+    if (
+      value.type === "resize" &&
+      Number.isInteger(value.cols) &&
+      Number.isInteger(value.rows) &&
+      value.cols > 0 &&
+      value.rows > 0
+    ) {
+      return value;
+    }
   } catch {
     return undefined;
   }
   return undefined;
+}
+
+function isCursorPositionReport(data: string): boolean {
+  return /^\x1b\[\??\d+;\d+R$/.test(data);
 }
 
 function send(ws: ServerWebSocket<SocketData>, message: ServerMessage): void {
@@ -414,12 +460,14 @@ function renderInteractionPage(
       position: relative;
       overflow: hidden;
       background: #0b0f14;
+      user-select: text;
     }
     #terminal {
       position: absolute;
       inset: 0;
       border-radius: 0;
       box-shadow: none;
+      user-select: text;
       --term-bg: #0b0f14;
       --term-fg: #e5e7eb;
       --term-cursor: #f8fafc;
@@ -458,6 +506,7 @@ function renderInteractionPage(
       overflow-wrap: anywhere;
       background: #0b0f14;
       color: #e5e7eb;
+      user-select: text;
       font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
       font-size: 13px;
       line-height: 1.35;
@@ -475,21 +524,25 @@ function renderInteractionPage(
       padding: 12px;
       outline: none;
       overflow: auto;
+      user-select: text;
     }
     .term-grid {
       display: block;
       white-space: pre;
       contain: layout paint style;
+      user-select: text;
     }
     .term-row {
       display: block;
       height: var(--term-row-height);
       line-height: var(--term-row-height);
+      user-select: text;
     }
     .term-row > span {
       display: inline-block;
       height: var(--term-row-height);
       vertical-align: top;
+      user-select: text;
     }
     .term-block {
       width: 1ch;
@@ -595,6 +648,11 @@ function renderInteractionPage(
     let startupIdleTimer;
     let startupMaxTimer;
 
+    function sendTerminalInput(data) {
+      if (!data || socket?.readyState !== WebSocket.OPEN) return;
+      socket.send(JSON.stringify({ type: "input", data }));
+    }
+
     function setStatus(text, canFinish = false) {
       statusEl.textContent = text;
       finishEl.disabled = !canFinish;
@@ -610,7 +668,7 @@ function renderInteractionPage(
       startupSent = true;
       clearTimeout(startupIdleTimer);
       clearTimeout(startupMaxTimer);
-      socket.send(JSON.stringify({ type: "input", data: startupInput }));
+      sendTerminalInput(startupInput);
     }
 
     function scheduleStartupInput(delay = 350) {
@@ -653,6 +711,15 @@ function renderInteractionPage(
       setStatus("Finishing");
       finishEl.disabled = true;
     });
+    document.addEventListener("keydown", (event) => {
+      if (event.defaultPrevented || isTextEditingTarget(event.target)) return;
+      const data = keyEventToTerminalInput(event);
+      if (!data) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      term?.focus();
+      sendTerminalInput(data);
+    }, { capture: true });
 
     try {
       const [{ WTerm }, { GhosttyCore }] = await Promise.all([
@@ -669,9 +736,7 @@ function renderInteractionPage(
         autoResize: true,
         cursorBlink: true,
         onData(data) {
-          if (socket.readyState === WebSocket.OPEN) {
-            socket.send(JSON.stringify({ type: "input", data }));
-          }
+          sendTerminalInput(data);
         },
         onResize(cols, rows) {
           if (socket.readyState === WebSocket.OPEN) {
@@ -689,6 +754,77 @@ function renderInteractionPage(
       console.error(error);
       appendFallback("\\nUnable to load the libghostty renderer. Output will continue here.\\n");
       setStatus("Renderer unavailable. Command output is shown in fallback mode.", !startupInput || startupSent);
+    }
+
+    function isTextEditingTarget(target) {
+      if (!(target instanceof Element)) return false;
+      if (terminalEl.contains(target)) return false;
+      if (target === finishEl) return true;
+      return Boolean(target.closest("textarea, input, select, button, [contenteditable=''], [contenteditable='true']"));
+    }
+
+    function keyEventToTerminalInput(event) {
+      if ((event.metaKey || event.ctrlKey) && event.key === "c") {
+        const selection = window.getSelection();
+        if (selection && selection.toString().length > 0) return null;
+      }
+      if ((event.metaKey || event.ctrlKey) && event.key === "v") return null;
+      if (event.metaKey && !event.ctrlKey) return null;
+
+      if (event.ctrlKey && !event.altKey && !event.metaKey) {
+        if (event.key.length === 1) {
+          const code = event.key.toLowerCase().charCodeAt(0);
+          if (code >= 97 && code <= 122) return String.fromCharCode(code - 96);
+        }
+        if (event.key === "[") return "\\x1b";
+        if (event.key === "\\\\") return "\\x1c";
+        if (event.key === "]") return "\\x1d";
+        if (event.key === "^") return "\\x1e";
+        if (event.key === "_") return "\\x1f";
+      }
+
+      if (event.key === "Enter" && event.shiftKey) return "\\x1b[13;2u";
+      if (event.key === "Tab" && event.shiftKey) return "\\x1b[Z";
+
+      const fixed = {
+        Enter: "\\r",
+        Backspace: "\\x7f",
+        Tab: "\\t",
+        Escape: "\\x1b",
+        Insert: "\\x1b[2~",
+        Delete: "\\x1b[3~",
+        PageUp: "\\x1b[5~",
+        PageDown: "\\x1b[6~",
+        F1: "\\x1bOP",
+        F2: "\\x1bOQ",
+        F3: "\\x1bOR",
+        F4: "\\x1bOS",
+        F5: "\\x1b[15~",
+        F6: "\\x1b[17~",
+        F7: "\\x1b[18~",
+        F8: "\\x1b[19~",
+        F9: "\\x1b[20~",
+        F10: "\\x1b[21~",
+        F11: "\\x1b[23~",
+        F12: "\\x1b[24~",
+      };
+      if (fixed[event.key]) return event.altKey ? "\\x1b" + fixed[event.key] : fixed[event.key];
+
+      const navigation = {
+        ArrowUp: "\\x1b[A",
+        ArrowDown: "\\x1b[B",
+        ArrowRight: "\\x1b[C",
+        ArrowLeft: "\\x1b[D",
+        Home: "\\x1b[H",
+        End: "\\x1b[F",
+      };
+      if (navigation[event.key]) return event.altKey ? "\\x1b" + navigation[event.key] : navigation[event.key];
+
+      if (event.key.length === 1 && !event.ctrlKey && !event.metaKey) {
+        return event.altKey ? "\\x1b" + event.key : event.key;
+      }
+
+      return null;
     }
   </script>
 </body>

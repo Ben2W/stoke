@@ -24,6 +24,12 @@ describe("local terminal interaction", () => {
       expect(html).toContain("terminal-window");
       expect(html).toContain("light red");
       expect(html).toContain("Finished");
+      expect(html).toContain("document.addEventListener(\"keydown\"");
+      expect(html).toContain("{ capture: true }");
+      expect(html).toContain("terminalEl.contains(target)");
+      expect(html).toContain("user-select: text");
+      expect(html).toContain("keyEventToTerminalInput");
+      expect(html).toContain("sendTerminalInput(data)");
       const startupInput = readStartupInput(html);
       expect(startupInput).toBe("printf interactive-ready\n");
 
@@ -95,9 +101,48 @@ describe("local terminal interaction", () => {
       session.stop();
     }
   });
+
+  test("answers cursor position reports for terminal UI prompts", async () => {
+    const session = createLocalInteractionSession({
+      step: "prompt",
+      label: "Prompt UI",
+      command: cursorPositionProbe,
+    });
+
+    try {
+      const messages: unknown[] = [];
+      const socketUrl = new URL(session.url.replace("/?", "/terminal?"));
+      socketUrl.protocol = "ws:";
+      const socket = new WebSocket(socketUrl);
+      socket.addEventListener("message", (event) => {
+        messages.push(JSON.parse(String(event.data)));
+      });
+
+      await waitForSocketOpen(socket);
+
+      await waitFor(() =>
+        messages.some((message) =>
+          isMessage(message, "output") && message.data.includes("CPR:1b5b32383b31303052")
+        ),
+      );
+
+      socket.send(JSON.stringify({ type: "finish" }));
+      await session.completed;
+      socket.close();
+    } finally {
+      session.stop();
+    }
+  });
 });
 
 const localInteractiveShell = "bash --noprofile --norc -i";
+const cursorPositionProbe = "node -e " + JSON.stringify([
+  "process.stdout.write('\\x1b[6n');",
+  "process.stdin.once('data', (chunk) => {",
+  "  process.stdout.write('CPR:' + Buffer.from(chunk).toString('hex') + '\\n');",
+  "  process.exit(0);",
+  "});",
+].join(""));
 
 function readStartupInput(html: string): string {
   const match = /const startupInput = (.*);/.exec(html);
@@ -108,14 +153,14 @@ function readStartupInput(html: string): string {
 }
 
 async function sendOnOpen(socket: WebSocket, data: string): Promise<void> {
-  if (socket.readyState === WebSocket.OPEN) {
-    socket.send(JSON.stringify({ type: "input", data }));
-    return;
-  }
+  await waitForSocketOpen(socket);
+  socket.send(JSON.stringify({ type: "input", data }));
+}
 
+async function waitForSocketOpen(socket: WebSocket): Promise<void> {
+  if (socket.readyState === WebSocket.OPEN) return;
   await new Promise<void>((resolve) => {
     socket.addEventListener("open", () => {
-      socket.send(JSON.stringify({ type: "input", data }));
       resolve();
     }, { once: true });
   });

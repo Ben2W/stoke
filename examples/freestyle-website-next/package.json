@@ -1,0 +1,24 @@
+{
+  "name": "@freestyle-sh/fdev-example-freestyle-website-next",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "fdev:plan": "fdev plan",
+    "fdev:apply": "fdev apply",
+    "fdev:fork": "fdev fork --name website-workspace",
+    "fdev:ssh": "fdev ssh website-workspace",
+    "fdev:rm": "fdev rm website-workspace -y",
+    "typecheck": "tsc --noEmit",
+    "test": "echo no freestyle website example tests yet"
+  },
+  "dependencies": {
+    "@freestyle-sh/fdev-provider-freestyle": "workspace:*",
+    "@freestyle-sh/fdev-sdk": "workspace:*"
+  },
+  "devDependencies": {
+    "@freestyle-sh/fdev-cli": "workspace:*",
+    "@types/bun": "latest",
+    "typescript": "latest"
+  }
+}
