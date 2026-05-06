@@ -4,9 +4,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "plan": "fdev plan",
-    "apply": "fdev apply",
-    "fork": "fdev fork --name smoke-workspace",
+    "fdev:plan": "fdev plan",
+    "fdev:apply": "fdev apply",
+    "fdev:fork": "fdev fork --name smoke-workspace",
+    "fdev:ssh": "fdev ssh smoke-workspace",
+    "fdev:rm": "fdev rm smoke-workspace -y",
     "typecheck": "tsc --noEmit",
     "test": "echo no smoke example tests yet"
   },
