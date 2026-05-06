@@ -39,15 +39,11 @@ export type StepCommandOptions = ExecOptions & {
 
 export type VmInspector = {
   readonly vmId: string;
-  exec(command: string, options?: ExecOptions): Promise<ExecResult>;
+  exec(command: string, options?: StepCommandOptions): Promise<ExecResult>;
+  probe(command: string, options?: StepCommandOptions): Promise<ExecResult>;
   exists(path: string): Promise<boolean>;
   readFile(path: string): Promise<string>;
   writeFile(path: string, content: string): Promise<void>;
-};
-
-export type StepRunner = {
-  exec(command: string, options?: StepCommandOptions): Promise<ExecResult>;
-  probe(command: string, options?: StepCommandOptions): Promise<ExecResult>;
 };
 
 export type InteractionRunner = {
@@ -79,7 +75,6 @@ export type StepRuntimeContext<
 > = {
   input: Input;
   vm: VmInspector;
-  step: StepRunner;
   interact: InteractionRunner;
   snapshot: SnapshotController;
   ctx: StepContextStore<Context>;

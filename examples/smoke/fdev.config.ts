@@ -1,12 +1,17 @@
 import { defineDevMachine, defineStep, env } from "@freestyle-sh/fdev-sdk";
 import { defineFreestyleProvider } from "@freestyle-sh/fdev-provider-freestyle";
 
-const smokeStep = defineStep("fdev:smoke", async ({ vm, step }) => {
-  const ready = await vm.exec("test -f /tmp/fdev-ready").catch(() => null);
-  if (ready?.ok) return;
+const smokeStep = defineStep("fdev:smoke", async ({ vm }) => {
+  const ready = await vm.probe("test -f /tmp/fdev-ready", {
+    name: "check fdev marker",
+  });
+  if (ready.ok) return;
 
-  await step.exec("echo ready > /tmp/fdev-ready", { name: "write fdev marker" });
-  if (!(await vm.exists("/tmp/fdev-ready"))) throw new Error("fdev marker was not created");
+  await vm.exec("echo ready > /tmp/fdev-ready", {
+    name: "write fdev marker",
+  });
+  if (!(await vm.exists("/tmp/fdev-ready")))
+    throw new Error("fdev marker was not created");
 });
 
 export default defineDevMachine({

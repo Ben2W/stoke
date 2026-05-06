@@ -376,17 +376,6 @@ export class DevMachineEngine {
     metadata: Record<string, JsonValue>;
   }): StepRuntimeContext<any, any> {
     const { step, provider, vm, context, metadata } = input;
-    const vmInspector = {
-      vmId: vm.vmId,
-      exec: (command: string, options?: ExecOptions) => provider.exec(vm, command, options),
-      exists: async (path: string) => {
-        const result = await provider.exec(vm, `test -e ${shellPath(path)}`);
-        return result.ok;
-      },
-      readFile: (path: string) => provider.readFile(vm, path),
-      writeFile: (path: string, content: string) => provider.writeFile(vm, path, content),
-    };
-
     const runCommand = async (command: string, options?: StepCommandOptions) => {
       const commandName = options?.name ?? command;
       const { name: _name, ...execOptions } = options ?? {};
@@ -402,22 +391,30 @@ export class DevMachineEngine {
       return { commandName, result };
     };
 
+    const vmInspector = {
+      vmId: vm.vmId,
+      exec: async (command: string, options?: StepCommandOptions) => {
+        const { commandName, result } = await runCommand(command, options);
+        if (!result.ok) {
+          throw new Error(commandFailureMessage(commandName, result));
+        }
+        return result;
+      },
+      probe: async (command: string, options?: StepCommandOptions) => {
+        const { result } = await runCommand(command, options);
+        return result;
+      },
+      exists: async (path: string) => {
+        const result = await provider.exec(vm, `test -e ${shellPath(path)}`);
+        return result.ok;
+      },
+      readFile: (path: string) => provider.readFile(vm, path),
+      writeFile: (path: string, content: string) => provider.writeFile(vm, path, content),
+    };
+
     const runtime = {
       input: step.input,
       vm: vmInspector,
-      step: {
-        exec: async (command: string, options?: StepCommandOptions) => {
-          const { commandName, result } = await runCommand(command, options);
-          if (!result.ok) {
-            throw new Error(commandFailureMessage(commandName, result));
-          }
-          return result;
-        },
-        probe: async (command: string, options?: StepCommandOptions) => {
-          const { result } = await runCommand(command, options);
-          return result;
-        },
-      },
       interact: {
         terminal: async (name: string, options?: { command?: string; instructions?: string }) => {
           this.emit({
@@ -444,7 +441,7 @@ export class DevMachineEngine {
       },
       snapshot: {
         before: async (name: string, command: string, options?: ExecOptions) => {
-          await runtime.step.exec(command, { ...options, name });
+          await runtime.vm.exec(command, { ...options, name });
         },
         metadata: (value: Record<string, JsonValue>) => {
           Object.assign(metadata, value);

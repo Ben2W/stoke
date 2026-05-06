@@ -30,12 +30,12 @@ There is no separate package spec layer and no `step.assert` helper. A step runs
 import { defineDevMachine, defineStep, env } from "@freestyle-sh/fdev-sdk";
 import { defineFreestyleProvider } from "@freestyle-sh/fdev-provider-freestyle";
 
-const gcloudStep = defineStep("install gcloud cli", async ({ step }) => {
-  await step.exec("sudo apt-get update && sudo apt-get install -y google-cloud-cli", {
+const gcloudStep = defineStep("install gcloud cli", async ({ vm }) => {
+  await vm.exec("sudo apt-get update && sudo apt-get install -y google-cloud-cli", {
     name: "install gcloud cli",
   });
 
-  const version = await step.probe("gcloud --version", {
+  const version = await vm.probe("gcloud --version", {
     name: "verify gcloud cli",
   });
 
@@ -49,15 +49,15 @@ const gcloudStep = defineStep("install gcloud cli", async ({ step }) => {
 const verifyNode = defineStep(
   "install and verify node 24",
   { dependsOn: [gcloudStep] },
-  async ({ step, ctx }) => {
+  async ({ vm, ctx }) => {
     const cloudVersion = ctx.get("gcloudVersion");
 
-    await step.exec(
+    await vm.exec(
       "curl -fsSL https://deb.nodesource.com/setup_24.x | sudo bash - && sudo apt-get install -y nodejs",
       { name: "install node 24" },
     );
 
-    const version = await step.probe("node --version", {
+    const version = await vm.probe("node --version", {
       name: "verify node version",
     });
 
@@ -105,15 +105,14 @@ Each step receives low-level primitives:
 type StepRuntimeContext<Input = void, Context = {}> = {
   input: Input;
   vm: VmInspector;
-  step: StepRunner;
   interact: InteractionRunner;
   snapshot: SnapshotController;
   ctx: StepContextStore<Context>;
 };
 ```
 
-`step.exec(command, { name, cwd, env, timeoutMs })` returns `{ stdout, stderr, exitCode, ok }` when the command succeeds and throws when `ok` is false.
-`step.probe(command, { name, cwd, env, timeoutMs })` always returns `{ stdout, stderr, exitCode, ok }`, so the step handler can branch on the current machine state.
+`vm.exec(command, { name, cwd, env, timeoutMs })` returns `{ stdout, stderr, exitCode, ok }` when the command succeeds and throws when `ok` is false.
+`vm.probe(command, { name, cwd, env, timeoutMs })` always returns `{ stdout, stderr, exitCode, ok }`, so the step handler can branch on the current machine state.
 
 Steps can pass context forward in either of these forms:
 

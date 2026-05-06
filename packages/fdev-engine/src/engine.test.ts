@@ -15,16 +15,16 @@ describe("DevMachineEngine", () => {
         import { defineDevMachine, defineProvider, defineStep } from "${import.meta.dir}/../../fdev-sdk/src/index.ts";
 
         const first = defineStep("first", async (c) => {
-          const missing = await c.step.probe("test -e /tmp/missing", { name: "probe missing" });
+          const missing = await c.vm.probe("test -e /tmp/missing", { name: "probe missing" });
           if (missing.ok) throw new Error("probe should not report missing file as ok");
-          await c.step.exec("touch /tmp/first", { name: "touch first" });
+          await c.vm.exec("touch /tmp/first", { name: "touch first" });
           if (!(await c.vm.exists("/tmp/first"))) throw new Error("first was not created");
           return { ctx: { first: true } };
         });
 
         const second = defineStep("second", { dependsOn: [first] }, async (c) => {
           c.ctx.require("first");
-          await c.step.exec("touch /tmp/second", { name: "touch second" });
+          await c.vm.exec("touch /tmp/second", { name: "touch second" });
         });
 
         export default defineDevMachine({
@@ -75,10 +75,10 @@ describe("DevMachineEngine", () => {
       `
         import { defineDevMachine, defineProvider, defineStep } from "${import.meta.dir}/../../fdev-sdk/src/index.ts";
 
-        const fails = defineStep("fails", async ({ step }) => {
-          const missing = await step.probe("test -e /tmp/missing", { name: "probe missing" });
+        const fails = defineStep("fails", async ({ vm }) => {
+          const missing = await vm.probe("test -e /tmp/missing", { name: "probe missing" });
           if (missing.ok) throw new Error("probe should not throw or pass");
-          await step.exec("test -e /tmp/missing", { name: "require missing" });
+          await vm.exec("test -e /tmp/missing", { name: "require missing" });
         });
 
         export default defineDevMachine({
