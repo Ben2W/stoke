@@ -114,7 +114,10 @@ const githubAuthStep = defineStep(
       name: "verify github auth",
     });
     if (!verified.ok) {
-      throw new Error("GitHub CLI is not authenticated");
+      const status = await vm.probe("gh auth status -h github.com 2>&1", {
+        name: "explain github auth",
+      });
+      throw new Error(`GitHub CLI is not authenticated:\n${status.stdout || status.stderr}`.trim());
     }
   },
 );

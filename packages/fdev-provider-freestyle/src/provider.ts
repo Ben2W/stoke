@@ -177,8 +177,11 @@ function parseSizeGb(value: string | number | undefined): number | undefined {
   return Number(trimmed);
 }
 
-function wrapCommand(command: string, options?: ExecOptions): string {
-  const parts: string[] = ["set -o pipefail"];
+export function wrapCommand(command: string, options?: ExecOptions): string {
+  const parts: string[] = [
+    "set -o pipefail",
+    "export HOME=${HOME:-/root}",
+  ];
 
   if (options?.cwd) {
     parts.push(`cd ${shellQuote(options.cwd)}`);
