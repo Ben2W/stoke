@@ -7,6 +7,7 @@ import { Freestyle } from "freestyle";
 import * as z from "zod/v4-mini";
 import { freestyleIdentityId, freestyleToken, freestyleTokenId } from "./auth.ts";
 import { FREESTYLE_PROVIDER_ID, createFreestyleProvider } from "./provider.ts";
+import type { FreestyleWorkspaceContext } from "./provider.ts";
 import { freestyleSchema } from "./schema.ts";
 import { createFreestyleStore } from "./store.ts";
 
@@ -23,7 +24,8 @@ export type FreestyleProviderConfig = z.output<typeof freestyleProviderConfigSch
 
 export type FreestyleProviderDefinition = DevProviderDefinition<
   typeof FREESTYLE_PROVIDER_ID,
-  FreestyleProviderConfig
+  FreestyleProviderConfig,
+  FreestyleWorkspaceContext
 >;
 
 export function defineFreestyleProvider(
@@ -80,7 +82,7 @@ export { FREESTYLE_PROVIDER_ID, createFreestyleProvider } from "./provider.ts";
 export { freestyleGitRelationships, freestyleIdentities, freestyleSchema } from "./schema.ts";
 export { createFreestyleStore } from "./store.ts";
 export { FDEV_PROVIDER_FREESTYLE_VERSION } from "./version.ts";
-export type { FreestyleVmConfig } from "./provider.ts";
+export type { FreestyleVmConfig, FreestyleWorkspaceContext } from "./provider.ts";
 export type { FreestyleGitRelationship, FreestyleIdentity } from "./store.ts";
 
 function parseFreestyleProviderConfig(value: unknown): FreestyleProviderConfig {

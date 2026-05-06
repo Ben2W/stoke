@@ -14,12 +14,16 @@ import type {
   JsonValue,
   LoadedProviderDefinition,
   LoadedMachine,
+  LocalWorkspaceRuntime,
   MachinePlan,
+  ProviderWorkspaceContext,
   StepCommandOptions,
   StepInstance,
   StepRuntimeContext,
+  VmInspector,
   TerminalInteractionOptions,
   WorkspaceRecord,
+  WorkspaceRuntimeRecord,
 } from "@freestyle-sh/fdev-sdk";
 
 export type CreateDevMachineEngineOptions = {
@@ -30,6 +34,7 @@ export type CreateDevMachineEngineOptions = {
   interaction?: {
     terminal?: TerminalInteractionHandler;
   };
+  local?: Partial<LocalWorkspaceRuntime>;
 };
 
 export type TerminalInteractionRequest = {
@@ -72,6 +77,7 @@ export class DevMachineEngine {
   private providers: BaseProviderPlugin[];
   private readonly providerFactory: ProviderFactory;
   private readonly terminalInteraction: TerminalInteractionHandler;
+  private readonly local: LocalWorkspaceRuntime;
   private readonly handlers = new Set<EventHandler>();
   private machines = new Map<string, LoadedMachine>();
 
@@ -84,6 +90,9 @@ export class DevMachineEngine {
     this.providers = options.providers ?? [];
     this.providerFactory = options.providerFactory ?? ((input) => this.createProviderFromPlugin(input));
     this.terminalInteraction = options.interaction?.terminal ?? defaultTerminalInteraction;
+    this.local = {
+      open: options.local?.open ?? openLocalTarget,
+    };
   }
 
   onEvent(handler: EventHandler): () => void {
@@ -218,9 +227,7 @@ export class DevMachineEngine {
       });
 
       const result = await step.handler(runtime as never);
-      if (result && typeof result === "object" && result.ctx) {
-        Object.assign(context, result.ctx);
-      }
+      Object.assign(context, normalizeStepContextResult(step.name, result));
 
       const snapshot = await provider.snapshot(vm);
       const record: SnapshotRecord = {
@@ -261,6 +268,8 @@ export class DevMachineEngine {
 
     const machine = this.getMachine(input.machine);
     const provider = await this.createProvider(machine);
+    const chain = this.buildChain(machine);
+    const snapshot = this.findCachedPrefix(machine, chain.keys).snapshot;
     const vm = await provider.createVmFromSnapshot({
       snapshotId: applied.snapshotId,
     });
@@ -278,6 +287,13 @@ export class DevMachineEngine {
     };
 
     this.getState().saveWorkspace(workspace);
+    await this.runWorkspaceCreatedHook({
+      machine,
+      provider,
+      vm,
+      workspace,
+      context: snapshot?.context ?? {},
+    });
 
     this.emit({
       type: "workspace.ready",
@@ -370,31 +386,52 @@ export class DevMachineEngine {
     return vm;
   }
 
-  private createRuntimeContext(input: {
+  private async runWorkspaceCreatedHook(input: {
     machine: LoadedMachine;
-    step: StepInstance<any, any>;
     provider: BaseDevMachineProvider;
     vm: VmHandle;
+    workspace: WorkspaceRecord;
     context: Record<string, JsonValue>;
-    metadata: Record<string, JsonValue>;
-  }): StepRuntimeContext<any, any> {
-    const { step, provider, vm, context, metadata } = input;
+  }): Promise<void> {
+    const hook = input.machine.workspace?.onCreated;
+    if (!hook) return;
+
+    const providerContext = await input.provider.workspaceContext?.(input.vm, {
+      workspace: input.workspace,
+    }) ?? {};
+    const workspace: WorkspaceRuntimeRecord = {
+      ...input.workspace,
+      cwd: input.machine.workspace?.cwd,
+    };
+
+    await hook({
+      vm: this.createVmInspector(input.provider, input.vm),
+      workspace,
+      ctx: {
+        steps: Object.freeze({ ...input.context }),
+        provider: normalizeProviderWorkspaceContext(providerContext),
+      },
+      local: this.local,
+    } as never);
+  }
+
+  private createVmInspector(provider: BaseDevMachineProvider, vm: VmHandle, step?: string): VmInspector {
     const runCommand = async (command: string, options?: StepCommandOptions) => {
       const commandName = options?.name ?? command;
       const { name: _name, ...execOptions } = options ?? {};
-      this.emit({ type: "command.started", step: step.name, commandName, command });
+      this.emit({ type: "command.started", step, commandName, command });
       const result = await provider.exec(vm, command, execOptions);
       if (result.stdout) {
-        this.emit({ type: "command.output", step: step.name, commandName, stream: "stdout", data: result.stdout });
+        this.emit({ type: "command.output", step, commandName, stream: "stdout", data: result.stdout });
       }
       if (result.stderr) {
-        this.emit({ type: "command.output", step: step.name, commandName, stream: "stderr", data: result.stderr });
+        this.emit({ type: "command.output", step, commandName, stream: "stderr", data: result.stderr });
       }
-      this.emit({ type: "command.completed", step: step.name, commandName, exitCode: result.exitCode });
+      this.emit({ type: "command.completed", step, commandName, exitCode: result.exitCode });
       return { commandName, result };
     };
 
-    const vmInspector = {
+    return {
       vmId: vm.vmId,
       exec: async (command: string, options?: StepCommandOptions) => {
         const { commandName, result } = await runCommand(command, options);
@@ -414,6 +451,18 @@ export class DevMachineEngine {
       readFile: (path: string) => provider.readFile(vm, path),
       writeFile: (path: string, content: string) => provider.writeFile(vm, path, content),
     };
+  }
+
+  private createRuntimeContext(input: {
+    machine: LoadedMachine;
+    step: StepInstance<any, any>;
+    provider: BaseDevMachineProvider;
+    vm: VmHandle;
+    context: Record<string, JsonValue>;
+    metadata: Record<string, JsonValue>;
+  }): StepRuntimeContext<any, any> {
+    const { step, provider, vm, context, metadata } = input;
+    const vmInspector = this.createVmInspector(provider, vm, step.name);
 
     const runtime = {
       input: step.input,
@@ -451,14 +500,7 @@ export class DevMachineEngine {
         },
       },
       ctx: {
-        get: <T = unknown>(key: string) => context[key] as T | undefined,
-        require: <T = unknown>(key: string) => {
-          if (!(key in context)) throw new Error(`Missing required context value ${key}`);
-          return context[key] as T;
-        },
-        set: (key: string, value: JsonValue) => {
-          context[key] = value;
-        },
+        steps: Object.freeze({ ...context }),
       },
     } satisfies StepRuntimeContext<any, any>;
 
@@ -528,7 +570,7 @@ export class DevMachineEngine {
       name: definition.name,
       provider,
       options: definition.options,
-      steps,
+      steps: [...steps],
       workspace: definition.workspace,
     };
   }
@@ -664,6 +706,77 @@ function buildInteractiveSshCommand(connection: SshConnection, remoteCommand: st
   if (connection.port !== undefined) args.push("-p", String(connection.port));
   args.push(destination);
   return args.map((arg) => arg === "ssh" || arg.startsWith("-") ? arg : shellQuote(arg)).join(" ");
+}
+
+function normalizeStepContextResult(step: string, result: unknown): Record<string, JsonValue> {
+  if (result === undefined) return {};
+  if (!isPlainObject(result)) {
+    throw new Error(`Step ${step} must return an object with JSON-serializable context values`);
+  }
+  if ("ctx" in result) {
+    throw new Error(`Step ${step} returned { ctx: ... }; return context values directly instead`);
+  }
+
+  for (const [key, value] of Object.entries(result)) {
+    assertJsonValue(value, `Step ${step} return value ${key}`);
+  }
+  return result as Record<string, JsonValue>;
+}
+
+function normalizeProviderWorkspaceContext(value: unknown): ProviderWorkspaceContext {
+  if (value === undefined) return {};
+  if (!isPlainObject(value)) {
+    throw new Error(`Provider workspace context must be an object`);
+  }
+  return value as ProviderWorkspaceContext;
+}
+
+function assertJsonValue(value: unknown, label: string): asserts value is JsonValue {
+  if (
+    value === null ||
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  ) {
+    return;
+  }
+
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => assertJsonValue(item, `${label}[${index}]`));
+    return;
+  }
+
+  if (isPlainObject(value)) {
+    for (const [key, item] of Object.entries(value)) {
+      assertJsonValue(item, `${label}.${key}`);
+    }
+    return;
+  }
+
+  throw new Error(`${label} must be JSON-serializable`);
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+async function openLocalTarget(target: string): Promise<void> {
+  const command =
+    process.platform === "darwin"
+      ? ["open", target]
+      : process.platform === "win32"
+        ? ["cmd", "/c", "start", "", target]
+        : ["xdg-open", target];
+
+  const proc = Bun.spawn(command, {
+    stdin: "ignore",
+    stdout: "ignore",
+    stderr: "ignore",
+  });
+  const code = await proc.exited;
+  if (code !== 0) {
+    throw new Error(`Failed to open ${target}`);
+  }
 }
 
 function isDefined<T>(value: T | undefined): value is T {

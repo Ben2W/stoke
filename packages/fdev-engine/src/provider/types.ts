@@ -1,4 +1,11 @@
-import type { ExecOptions, ExecResult, LoadedProviderDefinition } from "@freestyle-sh/fdev-sdk";
+import type {
+  ExecOptions,
+  ExecResult,
+  LoadedProviderDefinition,
+  MaybePromise,
+  ProviderWorkspaceContext,
+  WorkspaceRecord,
+} from "@freestyle-sh/fdev-sdk";
 import type { FdevDatabase, FdevDatabaseSchema } from "../db/index.ts";
 
 export type VmHandle = {
@@ -23,7 +30,9 @@ export type SshConnection = {
   command: string;
 };
 
-export interface BaseDevMachineProvider {
+export interface BaseDevMachineProvider<
+  WorkspaceContext extends ProviderWorkspaceContext = ProviderWorkspaceContext,
+> {
   readonly providerId: string;
   createVm(): Promise<VmHandle>;
   createVmFromSnapshot(input: { snapshotId: string }): Promise<VmHandle>;
@@ -32,6 +41,7 @@ export interface BaseDevMachineProvider {
   writeFile(vm: VmHandle, path: string, content: string): Promise<void>;
   snapshot(vm: VmHandle): Promise<SnapshotHandle>;
   ssh(vm: VmHandle, options?: SshOptions): Promise<SshConnection>;
+  workspaceContext?(vm: VmHandle, input: { workspace: WorkspaceRecord }): MaybePromise<WorkspaceContext>;
   deleteVm(vm: VmHandle): Promise<void>;
 }
 

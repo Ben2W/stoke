@@ -62,16 +62,8 @@ export type SnapshotController = {
 
 export type StepContextValues = Record<string, JsonValue>;
 
-export type StepContextStore<Values extends StepContextValues = StepContextValues> = {
-  get: {
-    <Key extends keyof Values & string>(key: Key): Values[Key];
-    <T = unknown>(key: string): T | undefined;
-  };
-  require: {
-    <Key extends keyof Values & string>(key: Key): Values[Key];
-    <T = unknown>(key: string): T;
-  };
-  set(key: string, value: JsonValue): void;
+export type StepContextView<Values extends StepContextValues = StepContextValues> = {
+  steps: Readonly<Values>;
 };
 
 export type StepRuntimeContext<
@@ -82,17 +74,17 @@ export type StepRuntimeContext<
   vm: VmInspector;
   interact: InteractionRunner;
   snapshot: SnapshotController;
-  ctx: StepContextStore<Context>;
+  ctx: StepContextView<Context>;
 };
 
 export type StepHandlerResult<Context extends StepContextValues = StepContextValues> =
   | void
-  | { ctx?: Context };
+  | Context;
 
 export type StepHandler<
   Input = void,
   Context extends StepContextValues = StepContextValues,
-  Result = StepHandlerResult,
+  Result extends StepHandlerResult = StepHandlerResult,
 > = (
   context: StepRuntimeContext<Input, Context>,
 ) => MaybePromise<Result>;
@@ -143,20 +135,58 @@ export type DependencyContext<
     : {}
   : {};
 
-export type StepReturnContext<Return> = Awaited<Return> extends { ctx?: infer Context }
-  ? Context extends StepContextValues
+export type StepReturnContext<Return> = Exclude<Awaited<Return>, void | undefined> extends infer Context
+  ? [Context] extends [never]
+    ? {}
+    : Context extends StepContextValues
     ? Context
     : {}
   : {};
 
+export type ProviderWorkspaceContext = object;
+
+export type LocalWorkspaceRuntime = {
+  open(target: string): MaybePromise<void>;
+};
+
+export type WorkspaceRuntimeRecord = WorkspaceRecord & {
+  cwd?: string;
+};
+
+export type WorkspaceCreatedContext<
+  StepsContext extends StepContextValues = StepContextValues,
+  ProviderContext extends ProviderWorkspaceContext = ProviderWorkspaceContext,
+> = {
+  vm: VmInspector;
+  workspace: WorkspaceRuntimeRecord;
+  ctx: {
+    steps: Readonly<StepsContext>;
+    provider: ProviderContext;
+  };
+  local: LocalWorkspaceRuntime;
+};
+
+export type WorkspaceDefinition<
+  StepsContext extends StepContextValues = StepContextValues,
+  ProviderContext extends ProviderWorkspaceContext = ProviderWorkspaceContext,
+> = {
+  cwd?: string;
+  terminals?: string[];
+  agents?: Record<string, string>;
+  ports?: number[];
+  onCreated?: (context: WorkspaceCreatedContext<StepsContext, ProviderContext>) => MaybePromise<void>;
+};
+
 export type DevProviderDefinition<
   ProviderId extends string = string,
   Config extends object = Record<string, unknown>,
+  WorkspaceContext extends ProviderWorkspaceContext = ProviderWorkspaceContext,
 > = {
   readonly kind: "fdev.provider";
   providerId: ProviderId;
   config: ResolvableObject<Config>;
   plugin?: unknown;
+  readonly __workspaceContext?: WorkspaceContext;
 };
 
 export type LoadedProviderDefinition<
@@ -168,20 +198,28 @@ export type LoadedProviderDefinition<
   plugin?: unknown;
 };
 
-export type DevMachineDefinition<Options = undefined> = {
+export type ProviderWorkspaceContextOf<Provider> =
+  Provider extends DevProviderDefinition<any, any, infer WorkspaceContext extends ProviderWorkspaceContext>
+    ? WorkspaceContext
+    : ProviderWorkspaceContext;
+
+export type MachineStepsContext<
+  Steps extends readonly StepInstance<any, any>[],
+> = DependencyContext<Steps>;
+
+export type DevMachineDefinition<
+  Options = undefined,
+  Provider extends DevProviderDefinition = DevProviderDefinition,
+  Steps extends readonly StepInstance<any, any>[] = readonly StepInstance<any, any>[],
+> = {
   readonly kind: "fdev.machine";
   name: string;
-  provider: DevProviderDefinition;
+  provider: Provider;
   options?: Options;
   steps:
-    | StepInstance<any, any>[]
+    | Steps
     | ((context: { options: Options }) => StepInstance<any, any>[]);
-  workspace?: {
-    cwd?: string;
-    terminals?: string[];
-    agents?: Record<string, string>;
-    ports?: number[];
-  };
+  workspace?: WorkspaceDefinition<MachineStepsContext<Steps>, ProviderWorkspaceContextOf<Provider>>;
 };
 
 export type LoadedMachine = {
@@ -189,7 +227,7 @@ export type LoadedMachine = {
   provider: LoadedProviderDefinition;
   options?: unknown;
   steps: StepInstance<any, any>[];
-  workspace?: DevMachineDefinition<any>["workspace"];
+  workspace?: WorkspaceDefinition;
 };
 
 export type PlanStep = {

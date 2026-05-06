@@ -3,9 +3,11 @@ import type {
   DevMachineDefinition,
   DevProviderDefinition,
   EnvResolver,
+  ProviderWorkspaceContext,
   StepDefinition,
   StepDefinitionOptions,
   StepHandler,
+  StepHandlerResult,
   StepReturnContext,
   StepInstance,
 } from "./types.ts";
@@ -19,27 +21,27 @@ export const env: EnvResolver = (name, fallback) => {
 
 export function defineStep<
   const Dependencies extends readonly StepInstance<any, any>[],
-  Result,
+  Result extends StepHandlerResult,
 >(
   name: string,
   options: StepDefinitionOptions<Dependencies>,
   handler: StepHandler<void, DependencyContext<Dependencies>, Result>,
 ): StepDefinition<void, StepReturnContext<Result>>;
-export function defineStep<Result>(
+export function defineStep<Result extends StepHandlerResult>(
   name: string,
   handler: StepHandler<void, {}, Result>,
 ): StepDefinition<void, StepReturnContext<Result>>;
-export function defineStep<Input, Result>(
+export function defineStep<Input, Result extends StepHandlerResult>(
   name: string,
   handler: StepHandler<Input, {}, Result>,
 ): StepDefinition<Input, StepReturnContext<Result>>;
 export function defineStep<Input = void>(
   name: string,
-  optionsOrHandler: StepDefinitionOptions | StepHandler<Input, any, any>,
-  maybeHandler?: StepHandler<Input, any, any>,
+  optionsOrHandler: StepDefinitionOptions | StepHandler<Input, any, StepHandlerResult>,
+  maybeHandler?: StepHandler<Input, any, StepHandlerResult>,
 ): StepDefinition<Input, any> {
   const options = typeof optionsOrHandler === "function" ? {} : optionsOrHandler;
-  const handler = (typeof optionsOrHandler === "function" ? optionsOrHandler : maybeHandler) as StepHandler<Input, any, any>;
+  const handler = (typeof optionsOrHandler === "function" ? optionsOrHandler : maybeHandler) as StepHandler<Input, any, StepHandlerResult>;
   if (!handler) throw new Error(`Step ${name} is missing a handler`);
 
   const dependsOn = options.dependsOn ?? [];
@@ -62,9 +64,13 @@ export function defineStep<Input = void>(
   return create;
 }
 
-export function defineDevMachine<Options = undefined>(
-  definition: Omit<DevMachineDefinition<Options>, "kind">,
-): DevMachineDefinition<Options> {
+export function defineDevMachine<
+  Options = undefined,
+  Provider extends DevProviderDefinition = DevProviderDefinition,
+  const Steps extends readonly StepInstance<any, any>[] = readonly StepInstance<any, any>[],
+>(
+  definition: Omit<DevMachineDefinition<Options, Provider, Steps>, "kind">,
+): DevMachineDefinition<Options, Provider, Steps> {
   if (Array.isArray(definition.steps)) {
     validateStepDependencies(definition.name, definition.steps);
   }
@@ -80,11 +86,12 @@ export function defineDevMachine<Options = undefined>(
 export function defineProvider<
   const ProviderId extends string,
   const Config extends object,
+  WorkspaceContext extends ProviderWorkspaceContext = ProviderWorkspaceContext,
 >(
   providerId: ProviderId,
-  config: DevProviderDefinition<ProviderId, Config>["config"],
+  config: DevProviderDefinition<ProviderId, Config, WorkspaceContext>["config"],
   plugin?: unknown,
-): DevProviderDefinition<ProviderId, Config> {
+): DevProviderDefinition<ProviderId, Config, WorkspaceContext> {
   return {
     kind: "fdev.provider",
     providerId,

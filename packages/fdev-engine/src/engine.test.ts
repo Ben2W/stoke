@@ -19,11 +19,11 @@ describe("DevMachineEngine", () => {
           if (missing.ok) throw new Error("probe should not report missing file as ok");
           await c.vm.exec("touch /tmp/first", { name: "touch first" });
           if (!(await c.vm.exists("/tmp/first"))) throw new Error("first was not created");
-          return { ctx: { first: true } };
+          return { first: true };
         });
 
         const second = defineStep("second", { dependsOn: [first] }, async (c) => {
-          c.ctx.require("first");
+          if (!c.ctx.steps.first) throw new Error("missing first context");
           await c.vm.exec("touch /tmp/second", { name: "touch second" });
         });
 
@@ -97,6 +97,59 @@ describe("DevMachineEngine", () => {
     await engine.load();
     await expect(engine.apply()).rejects.toThrow('Command "require missing" failed with exit code 1');
     expect(provider.snapshots).toHaveLength(0);
+  });
+
+  test("runs workspace onCreated with step context, provider context, and local helpers", async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), "fdev-"));
+    writeFileSync(
+      join(projectDir, "fdev.config.ts"),
+      `
+        import { defineDevMachine, defineProvider, defineStep } from "${import.meta.dir}/../../fdev-sdk/src/index.ts";
+
+        const setup = defineStep("setup", async ({ vm }) => {
+          await vm.exec("touch /tmp/setup", { name: "touch setup" });
+          return { repoPath: "/workspace/repo" };
+        });
+
+        export default defineDevMachine({
+          name: "test",
+          provider: defineProvider("test", { token: "test-key" }),
+          steps: [setup],
+          workspace: {
+            cwd: "/workspace/repo",
+            onCreated: async ({ vm, workspace, ctx, local }) => {
+              if (ctx.steps.repoPath !== "/workspace/repo") throw new Error("missing step context");
+              if ((ctx.provider as { vscodeAuthority?: string }).vscodeAuthority !== "fake-authority") {
+                throw new Error("missing provider context");
+              }
+              if (workspace.cwd !== "/workspace/repo") throw new Error("missing workspace cwd");
+              await vm.exec("touch /tmp/workspace-" + workspace.name, { name: "mark workspace" });
+              await local.open("vscode://" + workspace.name);
+            },
+          },
+        });
+      `,
+    );
+
+    const opened: string[] = [];
+    const provider = new FakeProvider();
+    const engine = await createDevMachineEngine({
+      projectDir,
+      providerFactory: () => provider,
+      local: {
+        open: async (target) => {
+          opened.push(target);
+        },
+      },
+    });
+
+    await engine.load();
+    const workspace = await engine.fork({ name: "work" });
+
+    expect(workspace.name).toBe("work");
+    expect(opened).toEqual(["vscode://work"]);
+    expect(provider.workspaceContextVmIds).toEqual([workspace.vmId]);
+    expect(await provider.exec({ vmId: workspace.vmId }, "test -e /tmp/workspace-work")).toMatchObject({ ok: true });
   });
 
   test("routes terminal interactions through the configured handler", async () => {
@@ -199,6 +252,7 @@ describe("DevMachineEngine", () => {
 class FakeProvider implements DevMachineProvider {
   readonly providerId = "test";
   snapshots: SnapshotHandle[] = [];
+  workspaceContextVmIds: string[] = [];
   private nextVm = 1;
   private files = new Map<string, Set<string>>();
 
@@ -247,6 +301,11 @@ class FakeProvider implements DevMachineProvider {
       auth: { type: "token", token: "fake" },
       command: "ssh fake",
     };
+  }
+
+  workspaceContext(vm: VmHandle): { vscodeAuthority: string } {
+    this.workspaceContextVmIds.push(vm.vmId);
+    return { vscodeAuthority: "fake-authority" };
   }
 
   async deleteVm(): Promise<void> {}

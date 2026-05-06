@@ -43,14 +43,14 @@ const gcloudStep = defineStep("install gcloud cli", async ({ vm }) => {
     throw new Error(`gcloud is not installed: ${version.stderr}`);
   }
 
-  return { ctx: { gcloudVersion: version.stdout.trim() } };
+  return { gcloudVersion: version.stdout.trim() };
 });
 
 const verifyNode = defineStep(
   "install and verify node 24",
   { dependsOn: [gcloudStep] },
   async ({ vm, ctx }) => {
-    const cloudVersion = ctx.get("gcloudVersion");
+    const cloudVersion = ctx.steps.gcloudVersion;
 
     await vm.exec(
       "curl -fsSL https://deb.nodesource.com/setup_24.x | sudo bash - && sudo apt-get install -y nodejs",
@@ -68,10 +68,8 @@ const verifyNode = defineStep(
     }
 
     return {
-      ctx: {
-        nodeVersion: version.stdout.trim(),
-        installedAfterGcloud: cloudVersion ?? "unknown",
-      },
+      nodeVersion: version.stdout.trim(),
+      installedAfterGcloud: cloudVersion ?? "unknown",
     };
   },
 );
@@ -83,6 +81,15 @@ export default defineDevMachine({
     image: "ubuntu-24.04",
   }),
   steps: [gcloudStep, verifyNode],
+  workspace: {
+    onCreated: async ({ vm, workspace, ctx, local }) => {
+      const cwd = "/workspace/platform";
+      await vm.exec(`cd ${cwd} && git switch -c fdev/${workspace.name}`);
+      local.open(
+        `vscode://vscode-remote/ssh-remote+${encodeURIComponent(ctx.provider.vscodeAuthority)}${cwd}?windowId=_blank`,
+      );
+    },
+  },
 });
 ```
 
@@ -90,7 +97,7 @@ export default defineDevMachine({
 
 `dependsOn` exists for two purposes:
 
-- TypeScript uses dependency output context to type `ctx.get(...)` and `ctx.require(...)`.
+- TypeScript uses dependency output context to type `ctx.steps`.
 - `defineDevMachine` validates that dependencies are included before the dependent step.
 
 For static `steps` arrays, dependency errors are raised during `defineDevMachine`. For dynamic `steps: ({ options }) => [...]`, the engine validates the resolved array when loading the machine.
@@ -107,7 +114,7 @@ type StepRuntimeContext<Input = void, Context = {}> = {
   vm: VmInspector;
   interact: InteractionRunner;
   snapshot: SnapshotController;
-  ctx: StepContextStore<Context>;
+  ctx: { steps: Readonly<Context> };
 };
 ```
 
@@ -117,14 +124,30 @@ type StepRuntimeContext<Input = void, Context = {}> = {
 Interactive setup that needs a human terminal, such as an auth login, should use `interact.terminal(name, { command, instructions })`.
 The CLI serves a local web terminal backed by wterm/libghostty, connects it to SSH, writes `command` into the VM shell, and waits for the user to click Finished.
 
-Steps can pass context forward in either of these forms:
+Steps pass JSON-serializable context forward by returning it directly:
 
 ```ts
-return { ctx: { nodeVersion: "v24.0.0" } };
-ctx.set("nodeVersion", "v24.0.0");
+return { nodeVersion: "v24.0.0" };
 ```
 
-Returning context is preferred because it gives dependent steps better static types.
+Dependent steps read prior values through `ctx.steps`.
+
+## Workspace Hooks
+
+Machines can define a workspace hook that runs after `fdev fork` creates a workspace VM from the resolved snapshot:
+
+```ts
+workspace: {
+  onCreated: async ({ vm, workspace, ctx, local }) => {
+    await vm.exec(`cd ${ctx.steps.repoPath} && git switch -c fdev/${workspace.name}`);
+    local.open(
+      `vscode://vscode-remote/ssh-remote+${encodeURIComponent(ctx.provider.vscodeAuthority)}${ctx.steps.repoPath}?windowId=_blank`,
+    );
+  },
+}
+```
+
+`ctx.steps` is the persisted context returned by completed steps. `ctx.provider` is provider-specific, computed fresh for the workspace VM, and should not be persisted by the engine because it may contain connection details or tokens.
 
 ## Caching
 

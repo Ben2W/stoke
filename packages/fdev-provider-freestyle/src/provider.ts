@@ -15,16 +15,23 @@ export type FreestyleVmConfig = {
   idleTimeoutSeconds?: number | null;
 };
 
+export type FreestyleWorkspaceContext = {
+  ssh: SshConnection;
+  host: string;
+  username: string;
+  vscodeAuthority: string;
+};
+
 export function createFreestyleProvider(input: {
   apiKey: string;
   identityId: FreestyleIdentityId;
   token: FreestyleToken;
   vm: FreestyleVmConfig;
-}): BaseDevMachineProvider {
+}): BaseDevMachineProvider<FreestyleWorkspaceContext> {
   return new FreestyleProvider(input.apiKey, input.identityId, input.token, input.vm);
 }
 
-class FreestyleProvider implements BaseDevMachineProvider {
+class FreestyleProvider implements BaseDevMachineProvider<FreestyleWorkspaceContext> {
   readonly providerId = FREESTYLE_PROVIDER_ID;
   private readonly client: Freestyle;
   private readonly identityId: FreestyleIdentityId;
@@ -117,6 +124,16 @@ class FreestyleProvider implements BaseDevMachineProvider {
       username,
       auth: { type: "token", token: this.token },
       command: `ssh ${username}:${this.token}@vm-ssh.freestyle.sh`,
+    };
+  }
+
+  async workspaceContext(vm: VmHandle): Promise<FreestyleWorkspaceContext> {
+    const ssh = await this.ssh(vm);
+    return {
+      ssh,
+      host: ssh.host,
+      username: ssh.username,
+      vscodeAuthority: `${ssh.username}:${this.token}@${ssh.host}`,
     };
   }
 
