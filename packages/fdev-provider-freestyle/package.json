@@ -18,7 +18,7 @@
   "scripts": {
     "build": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
-    "test": "echo no provider tests yet"
+    "test": "bun test"
   },
   "dependencies": {
     "@freestyle-sh/fdev-engine": "workspace:*",

@@ -171,7 +171,7 @@ export class DevMachineEngine {
 
   async apply(input: { machine?: string } = {}): Promise<{ snapshotId?: string; vmId?: string; plan: MachinePlan }> {
     const machine = this.getMachine(input.machine);
-    const provider = this.createProvider(machine);
+    const provider = await this.createProvider(machine);
     const chain = this.buildChain(machine);
     const cached = this.findCachedPrefix(machine, chain.keys);
     let context: Record<string, JsonValue> = { ...(cached.snapshot?.context ?? {}) };
@@ -248,7 +248,7 @@ export class DevMachineEngine {
     }
 
     const machine = this.getMachine(input.machine);
-    const provider = this.createProvider(machine);
+    const provider = await this.createProvider(machine);
     const vm = await provider.createVmFromSnapshot({
       snapshotId: applied.snapshotId,
       idleTimeoutSeconds: machine.idleTimeoutSeconds,
@@ -287,7 +287,7 @@ export class DevMachineEngine {
     const workspace = this.getState().findWorkspace(input.workspaceOrVmId);
     const vmId = workspace?.vmId ?? input.workspaceOrVmId;
     const machine = this.getMachine(input.machine ?? workspace?.machine);
-    const provider = this.createProvider(machine);
+    const provider = await this.createProvider(machine);
     const terminal = await provider.ssh({ vmId }, { user: input.user });
 
     if (!input.printOnly) {
@@ -307,7 +307,7 @@ export class DevMachineEngine {
     if (!workspace) throw new Error(`Unknown workspace ${input.workspace}`);
 
     const machine = this.getMachine(input.machine ?? workspace.machine);
-    const provider = this.createProvider(machine);
+    const provider = await this.createProvider(machine);
     await provider.deleteVm({ vmId: workspace.vmId });
 
     this.getState().deleteWorkspace(input.workspace);
@@ -320,7 +320,7 @@ export class DevMachineEngine {
     if (!workspace) throw new Error(`Unknown workspace ${input.workspace}`);
 
     const machine = this.getMachine(input.machine ?? workspace.machine);
-    const provider = this.createProvider(machine);
+    const provider = await this.createProvider(machine);
     const snapshot = await provider.snapshot({ vmId: workspace.vmId });
     const chain = this.buildChain(machine);
     const cached = this.findCachedPrefix(machine, chain.keys);
@@ -488,14 +488,14 @@ export class DevMachineEngine {
     return this.state;
   }
 
-  private createProvider(machine: LoadedMachine): BaseDevMachineProvider {
-    return this.providerFactory({
+  private async createProvider(machine: LoadedMachine): Promise<BaseDevMachineProvider> {
+    return await this.providerFactory({
       provider: machine.provider,
       db: this.getState().db,
     });
   }
 
-  private createProviderFromPlugin(input: Parameters<ProviderFactory>[0]): BaseDevMachineProvider {
+  private async createProviderFromPlugin(input: Parameters<ProviderFactory>[0]): Promise<BaseDevMachineProvider> {
     const plugin = this.providers.find((provider) => provider.providerId === input.provider.providerId);
     if (!plugin) {
       throw new Error(
@@ -503,7 +503,7 @@ export class DevMachineEngine {
           `Register a provider plugin to use it with defineStep, fdev ssh, or the generic terminal interface.`,
       );
     }
-    return plugin.createProvider(input);
+    return await plugin.createProvider(input);
   }
 
   private async resolveMachine(definition: DevMachineDefinition<any>): Promise<LoadedMachine> {

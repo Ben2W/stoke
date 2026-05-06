@@ -48,12 +48,12 @@ export type ProviderFactoryInput = {
   db: FdevDatabase<FdevDatabaseSchema>;
 };
 
-export type ProviderFactory = (input: ProviderFactoryInput) => BaseDevMachineProvider;
+export type ProviderFactory = (input: ProviderFactoryInput) => BaseDevMachineProvider | Promise<BaseDevMachineProvider>;
 
 export type BaseProviderPlugin = {
   providerId: string;
   schema?: FdevDatabaseSchema;
-  createProvider(input: ProviderFactoryInput): BaseDevMachineProvider;
+  createProvider(input: ProviderFactoryInput): BaseDevMachineProvider | Promise<BaseDevMachineProvider>;
 };
 
 export type DevMachineProvider = BaseDevMachineProvider;

@@ -20,8 +20,26 @@ export const freestyleGitRelationships = sqliteTable(
   ],
 );
 
+export const freestyleIdentities = sqliteTable(
+  "freestyle_identities",
+  {
+    id: text("id").primaryKey(),
+    key: text("key").notNull(),
+    identityId: text("identity_id").notNull(),
+    tokenId: text("token_id").notNull(),
+    token: text("token").notNull(),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("freestyle_identities_key_idx").on(table.key),
+    uniqueIndex("freestyle_identities_identity_idx").on(table.identityId),
+  ],
+);
+
 export const freestyleSchema = {
   freestyleGitRelationships,
+  freestyleIdentities,
 };
 
 export type FreestyleSchema = typeof freestyleSchema;

@@ -39,7 +39,7 @@ describe("DevMachineEngine", () => {
     const provider = new FakeProvider();
     const engine = await createDevMachineEngine({
       projectDir,
-      providerFactory: () => provider,
+      providerFactory: async () => provider,
     });
 
     await engine.load();

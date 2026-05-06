@@ -1,7 +1,17 @@
 import { eq } from "drizzle-orm";
-import type { FdevDatabase } from "@freestyle-sh/fdev-engine";
+import type { FdevDatabase, FdevDatabaseSchema } from "@freestyle-sh/fdev-engine";
 import type { JsonValue } from "@freestyle-sh/fdev-sdk";
-import { freestyleGitRelationships } from "./schema.ts";
+import {
+  freestyleIdentityId,
+  freestyleToken,
+  freestyleTokenId,
+  type FreestyleIdentityId,
+  type FreestyleToken,
+  type FreestyleTokenId,
+} from "./auth.ts";
+import { freestyleGitRelationships, freestyleIdentities } from "./schema.ts";
+
+const DEFAULT_IDENTITY_KEY = "default";
 
 export type FreestyleGitRelationship = {
   id: string;
@@ -15,8 +25,62 @@ export type FreestyleGitRelationship = {
   updatedAt: string;
 };
 
-export function createFreestyleStore(db: FdevDatabase) {
+export type FreestyleIdentity = {
+  id: string;
+  key: string;
+  identityId: FreestyleIdentityId;
+  tokenId: FreestyleTokenId;
+  token: FreestyleToken;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export function createFreestyleStore<TSchema extends FdevDatabaseSchema>(db: FdevDatabase<TSchema>) {
   return {
+    getIdentity(key = DEFAULT_IDENTITY_KEY): FreestyleIdentity | undefined {
+      const row = db
+        .select()
+        .from(freestyleIdentities)
+        .where(eq(freestyleIdentities.key, key))
+        .get();
+      return row ? toIdentity(row) : undefined;
+    },
+
+    saveIdentity(input: {
+      key?: string;
+      identityId: FreestyleIdentityId;
+      tokenId: FreestyleTokenId;
+      token: FreestyleToken;
+    }): FreestyleIdentity {
+      const now = new Date().toISOString();
+      const key = input.key ?? DEFAULT_IDENTITY_KEY;
+      const existing = this.getIdentity(key);
+      const identity: FreestyleIdentity = {
+        id: existing?.id ?? crypto.randomUUID(),
+        key,
+        identityId: input.identityId,
+        tokenId: input.tokenId,
+        token: input.token,
+        createdAt: existing?.createdAt ?? now,
+        updatedAt: now,
+      };
+
+      db.insert(freestyleIdentities)
+        .values(identity)
+        .onConflictDoUpdate({
+          target: freestyleIdentities.key,
+          set: {
+            identityId: identity.identityId,
+            tokenId: identity.tokenId,
+            token: identity.token,
+            updatedAt: identity.updatedAt,
+          },
+        })
+        .run();
+
+      return identity;
+    },
+
     getGitRelationship(workspaceId: string): FreestyleGitRelationship | undefined {
       const row = db
         .select()
@@ -53,6 +117,18 @@ export function createFreestyleStore(db: FdevDatabase) {
 
       return relationship;
     },
+  };
+}
+
+function toIdentity(row: typeof freestyleIdentities.$inferSelect): FreestyleIdentity {
+  return {
+    id: row.id,
+    key: row.key,
+    identityId: freestyleIdentityId(row.identityId),
+    tokenId: freestyleTokenId(row.tokenId),
+    token: freestyleToken(row.token),
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
   };
 }
 

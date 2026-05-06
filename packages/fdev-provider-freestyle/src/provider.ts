@@ -1,21 +1,30 @@
 import { Freestyle, VmBaseImage } from "freestyle";
 import type { ExecOptions, ExecResult } from "@freestyle-sh/fdev-sdk";
 import type { BaseDevMachineProvider, CreateVmInput, SnapshotHandle, SshConnection, SshOptions, VmHandle } from "@freestyle-sh/fdev-engine";
+import type { FreestyleIdentityId, FreestyleToken } from "./auth.ts";
 
 type FreestyleVm = Awaited<ReturnType<Freestyle["vms"]["create"]>>["vm"];
 
 export const FREESTYLE_PROVIDER_ID = "freestyle";
 
-export function createFreestyleProvider(input: { apiKey: string }): BaseDevMachineProvider {
-  return new FreestyleProvider(input.apiKey);
+export function createFreestyleProvider(input: {
+  apiKey: string;
+  identityId: FreestyleIdentityId;
+  token: FreestyleToken;
+}): BaseDevMachineProvider {
+  return new FreestyleProvider(input.apiKey, input.identityId, input.token);
 }
 
 class FreestyleProvider implements BaseDevMachineProvider {
   readonly providerId = FREESTYLE_PROVIDER_ID;
   private readonly client: Freestyle;
+  private readonly identityId: FreestyleIdentityId;
+  private readonly token: FreestyleToken;
 
-  constructor(apiKey: string) {
+  constructor(apiKey: string, identityId: FreestyleIdentityId, token: FreestyleToken) {
     this.client = new Freestyle({ apiKey });
+    this.identityId = identityId;
+    this.token = token;
   }
 
   async createVm(input: CreateVmInput): Promise<VmHandle> {
@@ -27,7 +36,9 @@ class FreestyleProvider implements BaseDevMachineProvider {
       idleTimeoutSeconds: input.idleTimeoutSeconds ?? 3600,
     });
 
-    return { vmId };
+    const vm = { vmId };
+    await this.updateVmPermissions(vm);
+    return vm;
   }
 
   async createVmFromSnapshot(input: { snapshotId: string; idleTimeoutSeconds?: number | null }): Promise<VmHandle> {
@@ -36,7 +47,9 @@ class FreestyleProvider implements BaseDevMachineProvider {
       idleTimeoutSeconds: input.idleTimeoutSeconds ?? 3600,
     });
 
-    return { vmId };
+    const vm = { vmId };
+    await this.updateVmPermissions(vm);
+    return vm;
   }
 
   async exec(vm: VmHandle, command: string, options?: ExecOptions): Promise<ExecResult> {
@@ -85,20 +98,14 @@ class FreestyleProvider implements BaseDevMachineProvider {
   }
 
   async ssh(vm: VmHandle, options?: SshOptions): Promise<SshConnection> {
-    const { identity } = await this.client.identities.create();
-    await identity.permissions.vms.grant({
-      vmId: vm.vmId,
-      allowedUsers: options?.user ? [options.user] : undefined,
-    });
-    const { token } = await identity.tokens.create();
     const userPart = options?.user ? `+${options.user}` : "";
     const username = `${vm.vmId}${userPart}`;
     return {
       kind: "ssh",
       host: "vm-ssh.freestyle.sh",
       username,
-      auth: { type: "token", token },
-      command: `ssh ${username}:${token}@vm-ssh.freestyle.sh`,
+      auth: { type: "token", token: this.token },
+      command: `ssh ${username}:${this.token}@vm-ssh.freestyle.sh`,
     };
   }
 
@@ -108,6 +115,18 @@ class FreestyleProvider implements BaseDevMachineProvider {
 
   private ref(vm: VmHandle): FreestyleVm {
     return this.client.vms.ref({ vmId: vm.vmId });
+  }
+
+  private async updateVmPermissions(vm: VmHandle): Promise<void> {
+    const identity = this.client.identities.ref({ identityId: this.identityId });
+    try {
+      await identity.permissions.vms.grant({ vmId: vm.vmId });
+    } catch (error) {
+      if (!isPermissionAlreadyExistsError(error)) {
+        throw error;
+      }
+      await identity.permissions.vms.update({ vmId: vm.vmId });
+    }
   }
 }
 
@@ -151,4 +170,8 @@ function wrapCommand(command: string, options?: ExecOptions): string {
 
 function shellQuote(value: string): string {
   return `'${value.replaceAll("'", `'\\''`)}'`;
+}
+
+function isPermissionAlreadyExistsError(error: unknown): boolean {
+  return error instanceof Error && error.name === "PermissionAlreadyExistsError";
 }
