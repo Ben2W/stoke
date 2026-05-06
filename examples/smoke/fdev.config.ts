@@ -31,7 +31,7 @@ const installGcloudCliStep = defineStep(
 );
 
 const gcloudLoginStep = defineStep(
-  "fdev:gcloud-login",
+  "fdev:gcloud-logina",
   { dependsOn: [installGcloudCliStep] },
   async ({ interact, vm }) => {
     const loggedIn = await vm.probe(
