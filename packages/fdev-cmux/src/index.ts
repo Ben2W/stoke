@@ -11,6 +11,7 @@ export type CmuxCommandRunner = (
 export type CmuxClientOptions = {
   bin?: string;
   autoLaunch?: boolean;
+  allowExternalAutomation?: boolean;
   launchCommand?: readonly string[];
   printCommands?: boolean;
   logger?: (message: string) => void;
@@ -60,6 +61,7 @@ export class CmuxCommandError extends Error {
 export class CmuxClient {
   private readonly bin: string;
   private readonly autoLaunch: boolean;
+  private readonly allowExternalAutomation: boolean;
   private readonly launchCommand: readonly string[];
   private readonly printCommands: boolean;
   private readonly logger: (message: string) => void;
@@ -71,6 +73,7 @@ export class CmuxClient {
   constructor(options: CmuxClientOptions = {}) {
     this.bin = options.bin ?? "cmux";
     this.autoLaunch = options.autoLaunch ?? true;
+    this.allowExternalAutomation = options.allowExternalAutomation ?? false;
     this.launchCommand = options.launchCommand ?? ["open", "-a", "cmux"];
     this.printCommands = options.printCommands ?? true;
     this.logger = options.logger ?? ((message) => console.error(message));
@@ -82,6 +85,9 @@ export class CmuxClient {
 
   async ensureRunning(): Promise<void> {
     if (this.tryRunRaw([this.bin, "ping"]).ok) return;
+    if (!this.canControlCmuxFromHere()) {
+      throw new Error(cmuxTerminalRequiredMessage([this.bin, "ping"]));
+    }
     if (!this.autoLaunch || process.platform !== "darwin") {
       throw new Error("cmux is not running");
     }
@@ -149,6 +155,10 @@ export class CmuxClient {
     const first = this.tryRunRaw(args);
     if (first.ok) return first.result.stdout;
 
+    if (isCmuxSocketControlFailure(first.result) && !this.canControlCmuxFromHere()) {
+      throw new Error(cmuxTerminalRequiredMessage(args, first.result));
+    }
+
     if (!this.autoLaunch || process.platform !== "darwin") {
       throw new CmuxCommandError(args, first.result);
     }
@@ -169,6 +179,10 @@ export class CmuxClient {
     if (!this.printCommands) return;
     this.logger(`$ ${formatShellCommand(args)}`);
   }
+
+  private canControlCmuxFromHere(): boolean {
+    return this.allowExternalAutomation || isInsideCmuxTerminal();
+  }
 }
 
 export function createCmuxClient(options?: CmuxClientOptions): CmuxClient {
@@ -183,6 +197,16 @@ export function parseCmuxHandle(output: string, kind: string): string {
   if (uuid) return uuid;
 
   throw new Error(`cmux output did not include a ${kind} handle: ${output.trim()}`);
+}
+
+export function isInsideCmuxTerminal(
+  environment: Record<string, string | undefined> = process.env,
+): boolean {
+  return Boolean(
+    nonEmpty(environment.CMUX_SOCKET_PATH) ||
+      nonEmpty(environment.CMUX_WORKSPACE_ID) ||
+      nonEmpty(environment.CMUX_SURFACE_ID),
+  );
 }
 
 export function formatShellCommand(args: readonly string[]): string {
@@ -206,4 +230,44 @@ function runSpawnSync(args: readonly string[]): CmuxCommandResult {
 function shellQuote(value: string): string {
   if (/^[A-Za-z0-9_./:=@%+-]+$/.test(value)) return value;
   return `'${value.replaceAll("'", `'\\''`)}'`;
+}
+
+function nonEmpty(value: string | undefined): boolean {
+  return value !== undefined && value.trim() !== "";
+}
+
+function isCmuxSocketControlFailure(result: CmuxCommandResult): boolean {
+  const output = `${result.stderr}\n${result.stdout}`.toLowerCase();
+  return [
+    "socket not found",
+    "failed to write to socket",
+    "failed to connect to socket",
+    "socket closed",
+    "broken pipe",
+    "access denied",
+    "only processes started inside cmux",
+  ].some((needle) => output.includes(needle));
+}
+
+function cmuxTerminalRequiredMessage(
+  args: readonly string[],
+  result?: CmuxCommandResult,
+): string {
+  const output = result
+    ? [
+      result.stderr.trim() ? `stderr:\n${result.stderr.trimEnd()}` : "",
+      result.stdout.trim() ? `stdout:\n${result.stdout.trimEnd()}` : "",
+    ].filter(Boolean).join("\n")
+    : "";
+
+  return [
+    "cmux socket commands need a cmux-controlled terminal by default.",
+    "",
+    `command: ${formatShellCommand(args)}`,
+    "",
+    "`cmux new-workspace` and `cmux ssh` are socket commands. With cmux's default socket control mode (`cmuxOnly`), they work from terminals started inside cmux because cmux sets CMUX_SOCKET_PATH/CMUX_WORKSPACE_ID and accepts descendant processes.",
+    "",
+    "Run this fdev workflow from a cmux terminal, or enable cmux Automation/Password socket control and create the client with `allowExternalAutomation: true`.",
+    output,
+  ].filter(Boolean).join("\n");
 }

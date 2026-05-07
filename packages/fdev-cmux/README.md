@@ -20,4 +20,12 @@ Commands are printed to stderr before execution:
 $ cmux new-workspace --name playground --command 'echo hello world' --focus true
 ```
 
-If the workspace command fails because cmux is not running yet, the SDK runs `open -a cmux` and retries the same workspace command until cmux is ready.
+`cmux new-workspace` and `cmux ssh` are socket commands. With cmux's default socket control mode (`cmuxOnly`), run fdev from a terminal inside cmux so cmux sets `CMUX_SOCKET_PATH` and accepts the process.
+
+If you intentionally enable external socket control in cmux, opt in explicitly:
+
+```ts
+const cmux = createCmuxClient({ allowExternalAutomation: true });
+```
+
+With `allowExternalAutomation`, the SDK can run `open -a cmux` and retry a workspace command while cmux starts.

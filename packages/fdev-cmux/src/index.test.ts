@@ -3,6 +3,7 @@ import {
   CmuxCommandError,
   createCmuxClient,
   formatShellCommand,
+  isInsideCmuxTerminal,
   parseCmuxHandle,
   type CmuxCommandRunner,
 } from "./index.ts";
@@ -66,6 +67,7 @@ describe("cmux sdk", () => {
   test("launches cmux and retries the workspace command when needed", async () => {
     const calls: string[][] = [];
     const cmux = createCmuxClient({
+      allowExternalAutomation: true,
       printCommands: false,
       sleep: async () => {},
       runner: (args) => {
@@ -93,6 +95,49 @@ describe("cmux sdk", () => {
     ]);
   });
 
+  test("fails fast outside cmux when socket control rejects the command", async () => {
+    const calls: string[][] = [];
+    const originalSocketPath = process.env.CMUX_SOCKET_PATH;
+    const originalWorkspaceId = process.env.CMUX_WORKSPACE_ID;
+    const originalSurfaceId = process.env.CMUX_SURFACE_ID;
+
+    delete process.env.CMUX_SOCKET_PATH;
+    delete process.env.CMUX_WORKSPACE_ID;
+    delete process.env.CMUX_SURFACE_ID;
+
+    try {
+      const cmux = createCmuxClient({
+        printCommands: false,
+        sleep: async () => {},
+        runner: (args) => {
+          calls.push([...args]);
+          return {
+            exitCode: 1,
+            stdout: "",
+            stderr: "Error: Socket not found at /Users/test/Library/Application Support/cmux/cmux.sock\n",
+          };
+        },
+      });
+
+      await expect(cmux.newWorkspace({ name: "outside" })).rejects.toThrow(
+        "Run this fdev workflow from a cmux terminal",
+      );
+    } finally {
+      restoreEnv("CMUX_SOCKET_PATH", originalSocketPath);
+      restoreEnv("CMUX_WORKSPACE_ID", originalWorkspaceId);
+      restoreEnv("CMUX_SURFACE_ID", originalSurfaceId);
+    }
+
+    expect(calls).toEqual([["cmux", "new-workspace", "--name", "outside"]]);
+  });
+
+  test("detects cmux terminal environment", () => {
+    expect(isInsideCmuxTerminal({})).toBe(false);
+    expect(isInsideCmuxTerminal({ CMUX_SOCKET_PATH: "/tmp/cmux.sock" })).toBe(true);
+    expect(isInsideCmuxTerminal({ CMUX_WORKSPACE_ID: "workspace-id" })).toBe(true);
+    expect(isInsideCmuxTerminal({ CMUX_SURFACE_ID: "surface-id" })).toBe(true);
+  });
+
   test("formats shell commands", () => {
     expect(formatShellCommand(["cmux", "new-workspace", "--name", "hello world"])).toBe(
       "cmux new-workspace --name 'hello world'",
@@ -111,3 +156,11 @@ describe("cmux sdk", () => {
     await expect(cmux.newWorkspace()).rejects.toThrow(CmuxCommandError);
   });
 });
+
+function restoreEnv(key: string, value: string | undefined): void {
+  if (value === undefined) {
+    delete process.env[key];
+    return;
+  }
+  process.env[key] = value;
+}
