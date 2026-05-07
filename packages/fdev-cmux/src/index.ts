@@ -1,3 +1,7 @@
+import { randomUUID } from "node:crypto";
+import { createConnection } from "node:net";
+import { homedir } from "node:os";
+
 export type CmuxCommandResult = {
   exitCode: number;
   stdout: string;
@@ -8,8 +12,33 @@ export type CmuxCommandRunner = (
   args: readonly string[],
 ) => CmuxCommandResult;
 
+export type CmuxRpcParams = Record<string, CmuxRpcValue>;
+export type CmuxRpcResult = Record<string, unknown>;
+export type CmuxRpcValue =
+  | string
+  | number
+  | boolean
+  | null
+  | readonly CmuxRpcValue[]
+  | { readonly [key: string]: CmuxRpcValue };
+
+export type CmuxRpcRunner = (
+  method: string,
+  params: CmuxRpcParams,
+) => Promise<CmuxRpcResult> | CmuxRpcResult;
+
+type SendSocketRpcOptions = {
+  socketPath: string;
+  socketPassword?: string;
+  method: string;
+  params: CmuxRpcParams;
+  responseTimeoutMs?: number;
+};
+
 export type CmuxClientOptions = {
   bin?: string;
+  socketPath?: string;
+  socketPassword?: string;
   autoLaunch?: boolean;
   allowExternalAutomation?: boolean;
   launchCommand?: readonly string[];
@@ -18,6 +47,7 @@ export type CmuxClientOptions = {
   readyAttempts?: number;
   readyDelayMs?: number;
   runner?: CmuxCommandRunner;
+  rpcRunner?: CmuxRpcRunner;
   sleep?: (ms: number) => Promise<void>;
 };
 
@@ -31,7 +61,56 @@ export type CmuxNewWorkspaceOptions = {
 
 export type CmuxWorkspace = {
   handle: string;
-  stdout: string;
+  id?: string;
+  ref?: string;
+  result?: CmuxRpcResult;
+  stdout?: string;
+};
+
+export type CmuxSshOptions = {
+  destination: string;
+  name?: string;
+  port?: number;
+  identity?: string;
+  sshOptions?: readonly string[];
+  noFocus?: boolean;
+  remoteCommandArgs?: readonly string[];
+  initialCommand?: string;
+  terminalStartupCommand?: string;
+  autoConnect?: boolean;
+  skipDaemonBootstrap?: boolean;
+};
+
+export type CmuxNewPaneOptions = {
+  workspace?: string;
+  type?: "terminal" | "browser";
+  direction?: "left" | "right" | "up" | "down";
+  url?: string;
+  focus?: boolean;
+};
+
+export type CmuxPane = {
+  workspace?: string;
+  workspaceRef?: string;
+  pane?: string;
+  paneRef?: string;
+  surface?: string;
+  surfaceRef?: string;
+  result?: CmuxRpcResult;
+  stdout?: string;
+};
+
+export type CmuxBrowserOpenOptions = {
+  workspace?: string;
+  window?: string;
+  url?: string;
+  focus?: boolean;
+};
+
+export type CmuxSendOptions = {
+  workspace?: string;
+  surface?: string;
+  text: string;
 };
 
 export class CmuxCommandError extends Error {
@@ -60,6 +139,8 @@ export class CmuxCommandError extends Error {
 
 export class CmuxClient {
   private readonly bin: string;
+  private readonly socketPath?: string;
+  private readonly socketPassword?: string;
   private readonly autoLaunch: boolean;
   private readonly allowExternalAutomation: boolean;
   private readonly launchCommand: readonly string[];
@@ -68,10 +149,13 @@ export class CmuxClient {
   private readonly commandAttempts: number;
   private readonly commandRetryDelayMs: number;
   private readonly runner: CmuxCommandRunner;
+  private readonly rpcRunner?: CmuxRpcRunner;
   private readonly sleep: (ms: number) => Promise<void>;
 
   constructor(options: CmuxClientOptions = {}) {
     this.bin = options.bin ?? "cmux";
+    this.socketPath = options.socketPath;
+    this.socketPassword = options.socketPassword;
     this.autoLaunch = options.autoLaunch ?? true;
     this.allowExternalAutomation = options.allowExternalAutomation ?? false;
     this.launchCommand = options.launchCommand ?? ["open", "-a", "cmux"];
@@ -80,6 +164,7 @@ export class CmuxClient {
     this.commandAttempts = options.readyAttempts ?? 40;
     this.commandRetryDelayMs = options.readyDelayMs ?? 250;
     this.runner = options.runner ?? runSpawnSync;
+    this.rpcRunner = options.rpcRunner;
     this.sleep = options.sleep ?? ((ms) => Bun.sleep(ms));
   }
 
@@ -104,18 +189,114 @@ export class CmuxClient {
   async newWorkspace(
     options: CmuxNewWorkspaceOptions = {},
   ): Promise<CmuxWorkspace> {
-    const args = [this.bin, "new-workspace"];
-    if (options.name) args.push("--name", options.name);
-    if (options.description) args.push("--description", options.description);
-    if (options.cwd) args.push("--cwd", options.cwd);
-    if (options.command) args.push("--command", options.command);
-    if (options.focus !== undefined) args.push("--focus", String(options.focus));
+    const params: CmuxRpcParams = {};
+    if (options.name) params.title = options.name;
+    if (options.description) params.description = options.description;
+    if (options.cwd) params.cwd = options.cwd;
+    if (options.focus !== undefined) params.focus = options.focus;
 
-    const stdout = await this.runCmuxCommandWithLaunchRetry(args);
-    return {
-      handle: parseCmuxHandle(stdout, "workspace"),
-      stdout,
+    const result = await this.rpc("workspace.create", params);
+    const workspace = workspaceFromResult(result);
+    if (options.command) {
+      await this.rpc("surface.send_text", {
+        workspace_id: workspace.id ?? workspace.handle,
+        text: `${options.command}\n`,
+      });
+    }
+    return workspace;
+  }
+
+  async ssh(options: CmuxSshOptions): Promise<CmuxWorkspace> {
+    const startupCommand = options.terminalStartupCommand ??
+      options.initialCommand ??
+      buildSshStartupCommand(options);
+    const createResult = await this.rpc("workspace.create", {
+      initial_command: startupCommand,
+    });
+    const workspace = workspaceFromResult(createResult);
+    const workspaceId = workspace.id ?? workspace.handle;
+
+    if (options.name) {
+      await this.rpc("workspace.rename", {
+        workspace_id: workspaceId,
+        title: options.name,
+      });
+    }
+
+    const configureParams: CmuxRpcParams = {
+      workspace_id: workspaceId,
+      destination: options.destination,
+      auto_connect: options.autoConnect ?? true,
+      terminal_startup_command: startupCommand,
     };
+    if (options.port !== undefined) configureParams.port = options.port;
+    if (options.identity) configureParams.identity_file = options.identity;
+    if (options.sshOptions?.length) {
+      configureParams.ssh_options = [...options.sshOptions];
+    }
+    if (options.skipDaemonBootstrap !== undefined) {
+      configureParams.skip_daemon_bootstrap = options.skipDaemonBootstrap;
+    }
+
+    workspace.result = await this.rpc("workspace.remote.configure", configureParams);
+    if (!options.noFocus) {
+      await this.selectWorkspace(workspaceId);
+    }
+
+    return workspace;
+  }
+
+  async newPane(options: CmuxNewPaneOptions = {}): Promise<CmuxPane> {
+    const params: CmuxRpcParams = {};
+    if (options.type) params.type = options.type;
+    if (options.direction) params.direction = options.direction;
+    if (options.workspace) params.workspace_id = options.workspace;
+    if (options.url) params.url = options.url;
+    if (options.focus !== undefined) params.focus = options.focus;
+
+    return paneFromResult(await this.rpc("pane.create", params));
+  }
+
+  async browserOpen(options: CmuxBrowserOpenOptions = {}): Promise<CmuxPane> {
+    const params: CmuxRpcParams = {};
+    if (options.url) params.url = options.url;
+    if (options.workspace) params.workspace_id = options.workspace;
+    if (options.window) params.window_id = options.window;
+    if (options.focus !== undefined) params.focus = options.focus;
+
+    return paneFromResult(await this.rpc("browser.open_split", params));
+  }
+
+  async send(options: CmuxSendOptions): Promise<string> {
+    const params: CmuxRpcParams = {
+      text: options.text,
+    };
+    if (options.workspace) params.workspace_id = options.workspace;
+    if (options.surface) params.surface_id = options.surface;
+    await this.rpc("surface.send_text", params);
+    return "OK";
+  }
+
+  async selectWorkspace(workspace: string): Promise<string> {
+    await this.rpc("workspace.select", { workspace_id: workspace });
+    return "OK";
+  }
+
+  async rpc(method: string, params: CmuxRpcParams = {}): Promise<CmuxRpcResult> {
+    this.printRpc(method, params);
+    if (this.rpcRunner) {
+      return await this.rpcRunner(method, params);
+    }
+    if (!this.canControlCmuxFromHere()) {
+      throw new Error(cmuxSocketRequiredMessage(method, params));
+    }
+
+    return await sendSocketRpc({
+      socketPath: this.resolvedSocketPath(),
+      socketPassword: this.socketPassword ?? process.env.CMUX_SOCKET_PASSWORD,
+      method,
+      params,
+    });
   }
 
   run(args: readonly string[]): string {
@@ -151,37 +332,33 @@ export class CmuxClient {
       : { ok: false, result };
   }
 
-  private async runCmuxCommandWithLaunchRetry(args: readonly string[]): Promise<string> {
-    const first = this.tryRunRaw(args);
-    if (first.ok) return first.result.stdout;
-
-    if (isCmuxSocketControlFailure(first.result) && !this.canControlCmuxFromHere()) {
-      throw new Error(cmuxTerminalRequiredMessage(args, first.result));
-    }
-
-    if (!this.autoLaunch || process.platform !== "darwin") {
-      throw new CmuxCommandError(args, first.result);
-    }
-
-    this.runRaw(this.launchCommand);
-    let last = first.result;
-    for (let attempt = 0; attempt < this.commandAttempts; attempt += 1) {
-      await this.sleep(this.commandRetryDelayMs);
-      const next = this.tryRunRaw(args);
-      if (next.ok) return next.result.stdout;
-      last = next.result;
-    }
-
-    throw new CmuxCommandError(args, last);
-  }
-
   private printCommand(args: readonly string[]): void {
     if (!this.printCommands) return;
     this.logger(`$ ${formatShellCommand(args)}`);
   }
 
+  private printRpc(method: string, params: CmuxRpcParams): void {
+    if (!this.printCommands) return;
+    this.logger(`$ ${formatShellCommand([
+      this.bin,
+      "rpc",
+      method,
+      JSON.stringify(params),
+    ])}`);
+  }
+
   private canControlCmuxFromHere(): boolean {
     return this.allowExternalAutomation || isInsideCmuxTerminal();
+  }
+
+  private resolvedSocketPath(): string {
+    if (this.socketPath) return this.socketPath;
+    const envSocketPath = process.env.CMUX_SOCKET_PATH?.trim();
+    const legacyEnvSocketPath = process.env.CMUX_SOCKET?.trim();
+    if (envSocketPath && legacyEnvSocketPath && envSocketPath !== legacyEnvSocketPath) {
+      throw new Error("Refusing to choose cmux socket: CMUX_SOCKET_PATH and CMUX_SOCKET differ.");
+    }
+    return envSocketPath || legacyEnvSocketPath || `${homedir()}/Library/Application Support/cmux/cmux.sock`;
   }
 }
 
@@ -190,13 +367,20 @@ export function createCmuxClient(options?: CmuxClientOptions): CmuxClient {
 }
 
 export function parseCmuxHandle(output: string, kind: string): string {
-  const ref = new RegExp(`\\b${kind}:[^\\s]+`).exec(output)?.[0];
-  if (ref) return ref;
+  const handle = parseOptionalCmuxHandle(output, kind);
+  if (handle) return handle;
 
   const uuid = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/i.exec(output)?.[0];
   if (uuid) return uuid;
 
   throw new Error(`cmux output did not include a ${kind} handle: ${output.trim()}`);
+}
+
+export function parseOptionalCmuxHandle(output: string, kind: string): string | undefined {
+  const ref = new RegExp(`\\b${kind}:[^\\s]+`).exec(output)?.[0];
+  if (ref) return ref;
+
+  return undefined;
 }
 
 export function isInsideCmuxTerminal(
@@ -236,17 +420,184 @@ function nonEmpty(value: string | undefined): boolean {
   return value !== undefined && value.trim() !== "";
 }
 
-function isCmuxSocketControlFailure(result: CmuxCommandResult): boolean {
-  const output = `${result.stderr}\n${result.stdout}`.toLowerCase();
-  return [
-    "socket not found",
-    "failed to write to socket",
-    "failed to connect to socket",
-    "socket closed",
-    "broken pipe",
-    "access denied",
-    "only processes started inside cmux",
-  ].some((needle) => output.includes(needle));
+function workspaceFromResult(result: CmuxRpcResult): CmuxWorkspace {
+  const id = stringValue(result.workspace_id);
+  const ref = stringValue(result.workspace_ref);
+  const handle = id ?? ref;
+  if (!handle) {
+    throw new Error(`cmux workspace response did not include workspace_id: ${JSON.stringify(result)}`);
+  }
+  return { handle, id, ref, result };
+}
+
+function paneFromResult(result: CmuxRpcResult): CmuxPane {
+  return {
+    workspace: stringValue(result.workspace_id),
+    workspaceRef: stringValue(result.workspace_ref),
+    pane: stringValue(result.pane_id),
+    paneRef: stringValue(result.pane_ref),
+    surface: stringValue(result.surface_id),
+    surfaceRef: stringValue(result.surface_ref),
+    result,
+  };
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() !== "" ? value : undefined;
+}
+
+function buildSshStartupCommand(options: CmuxSshOptions): string {
+  const args = ["ssh"];
+  if (options.port !== undefined) {
+    args.push("-p", String(options.port));
+  }
+  if (options.identity) {
+    args.push("-i", options.identity);
+  }
+  for (const option of options.sshOptions ?? []) {
+    args.push("-o", option);
+  }
+  args.push(options.destination);
+  args.push(...(options.remoteCommandArgs ?? []));
+  return formatShellCommand(args);
+}
+
+function cmuxSocketRequiredMessage(method: string, params: CmuxRpcParams): string {
+  return cmuxTerminalRequiredMessage([
+    "cmux",
+    "rpc",
+    method,
+    JSON.stringify(params),
+  ]);
+}
+
+async function sendSocketRpc(options: SendSocketRpcOptions): Promise<CmuxRpcResult> {
+  const timeoutMs = options.responseTimeoutMs ?? 15_000;
+  const socket = createConnection({ path: options.socketPath });
+  const cleanupFns: Array<() => void> = [];
+  let buffer = "";
+
+  const cleanup = () => {
+    for (const cleanupFn of cleanupFns.splice(0)) {
+      cleanupFn();
+    }
+    socket.destroy();
+  };
+
+  const nextLine = () =>
+    new Promise<string>((resolve, reject) => {
+      const fail = (error: Error) => {
+        cleanup();
+        reject(error);
+      };
+      const timer = setTimeout(() => {
+        fail(new Error(`Timed out waiting for cmux socket response from ${options.socketPath}`));
+      }, timeoutMs);
+
+      const finish = (line: string) => {
+        clearTimeout(timer);
+        socket.off("data", onData);
+        socket.off("error", onError);
+        socket.off("close", onClose);
+        resolve(line);
+      };
+      const tryResolveBufferedLine = () => {
+        const newlineIndex = buffer.indexOf("\n");
+        if (newlineIndex < 0) return false;
+        const line = buffer.slice(0, newlineIndex).trim();
+        buffer = buffer.slice(newlineIndex + 1);
+        finish(line);
+        return true;
+      };
+      const onData = (chunk: Buffer) => {
+        buffer += chunk.toString("utf8");
+        tryResolveBufferedLine();
+      };
+      const onError = (error: Error) => fail(error);
+      const onClose = () => fail(new Error("cmux socket closed before reply"));
+
+      socket.on("data", onData);
+      socket.once("error", onError);
+      socket.once("close", onClose);
+      cleanupFns.push(() => {
+        clearTimeout(timer);
+        socket.off("data", onData);
+        socket.off("error", onError);
+        socket.off("close", onClose);
+      });
+
+      tryResolveBufferedLine();
+    });
+
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        cleanup();
+        reject(new Error(`Timed out connecting to cmux socket at ${options.socketPath}`));
+      }, timeoutMs);
+      const onConnect = () => {
+        clearTimeout(timer);
+        socket.off("error", onError);
+        resolve();
+      };
+      const onError = (error: Error) => {
+        clearTimeout(timer);
+        reject(error);
+      };
+      socket.once("connect", onConnect);
+      socket.once("error", onError);
+      cleanupFns.push(() => {
+        clearTimeout(timer);
+        socket.off("connect", onConnect);
+        socket.off("error", onError);
+      });
+    });
+
+    if (options.socketPassword) {
+      socket.write(`auth ${options.socketPassword}\n`);
+      const authLine = await nextLine();
+      if (authLine.startsWith("ERROR:") && !authLine.includes("Unknown command 'auth'")) {
+        throw new Error(authLine);
+      }
+    }
+
+    const request = {
+      id: randomUUID(),
+      method: options.method,
+      params: options.params,
+    };
+    socket.write(`${JSON.stringify(request)}\n`);
+    const raw = await nextLine();
+    if (raw.startsWith("ERROR:")) {
+      throw new Error(raw);
+    }
+    const response = JSON.parse(raw) as unknown;
+    if (!isRecord(response)) {
+      throw new Error(`Invalid cmux socket response: ${raw}`);
+    }
+    if (response.ok === true) {
+      return isRecord(response.result) ? response.result : {};
+    }
+    if (isRecord(response.error)) {
+      const code = typeof response.error.code === "string" ? response.error.code : "error";
+      const message = typeof response.error.message === "string"
+        ? response.error.message
+        : "Unknown cmux socket error";
+      throw new Error(`${code}: ${message}`);
+    }
+    throw new Error(`cmux socket request failed: ${raw}`);
+  } catch (error) {
+    if (error instanceof SyntaxError) {
+      throw new Error(`Invalid cmux socket JSON response: ${error.message}`);
+    }
+    throw error;
+  } finally {
+    cleanup();
+  }
+}
+
+function isRecord(value: unknown): value is CmuxRpcResult {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function cmuxTerminalRequiredMessage(

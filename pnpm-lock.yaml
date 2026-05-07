@@ -70,6 +70,9 @@ importers:
 
   examples/freestyle-website-next:
     dependencies:
+      '@freestyle-sh/fdev-cmux':
+        specifier: workspace:*
+        version: link:../../packages/fdev-cmux
       '@freestyle-sh/fdev-provider-freestyle':
         specifier: workspace:*
         version: link:../../packages/fdev-provider-freestyle

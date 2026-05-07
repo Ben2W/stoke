@@ -1,6 +1,8 @@
+import { createCmuxClient } from "@freestyle-sh/fdev-cmux";
 import { env, workflow } from "@freestyle-sh/fdev-sdk";
 import { freestyle } from "@freestyle-sh/fdev-provider-freestyle";
 import type {
+  FreestyleVmRuntime,
   FreestyleVmSnapshotRef,
   FreestyleWorkspaceContext,
 } from "@freestyle-sh/fdev-provider-freestyle";
@@ -8,9 +10,10 @@ import type {
 const repo = "freestyle-sh/freestyle-website-next";
 const repoUrl = `https://github.com/${repo}.git`;
 const repoPath = "/workspace/freestyle-website-next";
-const devPort = 4321;
-const devCommand = `bun dev --host 0.0.0.0 --port ${devPort}`;
-const vscodeServerCommit = localVsCodeCommit() ?? null;
+const devPort = 3000;
+const devCommand = `pnpm dev -- --hostname 0.0.0.0 --port ${devPort}`;
+const pnpmVersion = "9.15.9";
+const cmux = createCmuxClient();
 
 type VmContext = {
   vm: FreestyleVmSnapshotRef;
@@ -98,21 +101,29 @@ const baseVm = app
 
     return { vm: await vm.snapshotRef() };
   })
-  .task("install-vscode-server", async ({ ctx, freestyle }) => {
+  .task("install-node-pnpm", async ({ ctx, freestyle }) => {
     const vm = await freestyle.vms.fromSnapshot(ctx.vm);
-    if (!vscodeServerCommit) {
-      console.warn(
-        "Skipping VS Code server preinstall because the local code CLI commit could not be detected.",
-      );
-      return { vm: await vm.snapshotRef(), vscodeServerCommit: null };
-    }
+    await vm.exec(
+      [
+        "set -e",
+        "export DEBIAN_FRONTEND=noninteractive",
+        'node_major="$(node -p \'process.versions.node.split(\".\")[0]\' 2>/dev/null || printf 0)"',
+        'if [ "$node_major" -lt 20 ]; then',
+        "  curl -fsSL https://deb.nodesource.com/setup_22.x | bash -",
+        "  apt-get install -y -qq nodejs",
+        "fi",
+        "corepack enable",
+        `corepack prepare pnpm@${pnpmVersion} --activate || npm install -g pnpm@${pnpmVersion}`,
+        "node --version",
+        "pnpm --version",
+      ].join("\n"),
+      {
+        name: "install node and pnpm",
+        timeoutMs: 10 * 60 * 1000,
+      },
+    );
 
-    await vm.exec(installVsCodeServerCommand(vscodeServerCommit), {
-      name: "preinstall vscode server",
-      timeoutMs: 15 * 60 * 1000,
-    });
-
-    return { vm: await vm.snapshotRef(), vscodeServerCommit, db: "hello" };
+    return { vm: await vm.snapshotRef() };
   });
 
 const repoSetup = app
@@ -194,38 +205,10 @@ const repoSetup = app
   })
   .task("install", async ({ ctx, freestyle }) => {
     const vm = await freestyle.vms.fromSnapshot(ctx.vm);
-    await vm.exec(`cd ${shellQuote(ctx.repoPath)} && bun install`, {
+    await vm.exec(`cd ${shellQuote(ctx.repoPath)} && pnpm install`, {
       name: "install website dependencies",
       timeoutMs: 10 * 60 * 1000,
     });
-
-    await vm.writeFile(
-      `${ctx.repoPath}/.vscode/tasks.json`,
-      JSON.stringify(
-        {
-          version: "2.0.0",
-          tasks: [
-            {
-              label: "dev server",
-              type: "shell",
-              command: devCommand,
-              options: { cwd: ctx.repoPath },
-              isBackground: true,
-              problemMatcher: [],
-              presentation: {
-                reveal: "always",
-                panel: "dedicated",
-              },
-              runOptions: {
-                runOn: "folderOpen",
-              },
-            },
-          ],
-        },
-        null,
-        2,
-      ) + "\n",
-    );
 
     return {
       devCommand,
@@ -244,13 +227,7 @@ export default app
     source: (ctx) => ctx.repo.vm,
     cwd: (ctx) => ctx.repo.repoPath,
     ports: [devPort],
-    onCreated: async ({
-      ctx,
-      local,
-      providerContext,
-      providers,
-      workspace,
-    }) => {
+    onCreated: async ({ ctx, providerContext, providers, workspace }) => {
       const freestyleContext = providerContext as FreestyleWorkspaceContext;
       const vm = providers.freestyle.vms.fromWorkspace(workspace);
       const branch = `fdev/${workspace.name.replaceAll(/[^A-Za-z0-9._/-]/g, "-")}`;
@@ -265,54 +242,77 @@ export default app
         },
       );
 
-      await local.open(
-        `vscode://vscode-remote/ssh-remote+${encodeURIComponent(freestyleContext.vscodeAuthority)}${ctx.repo.repoPath}?windowId=_blank`,
-      );
+      const cmuxWorkspace = await cmux.ssh({
+        destination: cmuxSshDestination(freestyleContext),
+        initialCommand: freestyleContext.ssh.command,
+        name: workspace.name,
+        port: freestyleContext.ssh.port,
+        terminalStartupCommand: freestyleContext.ssh.command,
+      });
+      const cmuxWorkspaceId = cmuxWorkspace.id ?? cmuxWorkspace.handle;
+
+      const devPane = await cmux.newPane({
+        workspace: cmuxWorkspaceId,
+        type: "terminal",
+        direction: "down",
+        focus: true,
+      });
+      await cmux.send({
+        workspace: cmuxWorkspaceId,
+        surface: devPane.surface,
+        text: `cd ${shellQuote(ctx.repo.repoPath)} && ${devCommand}\\n`,
+      });
+
+      await waitForLocalhost(vm, devPort);
+
+      await cmux.browserOpen({
+        workspace: cmuxWorkspaceId,
+        url: `http://localhost:${devPort}`,
+        focus: true,
+      });
+      await cmux.selectWorkspace(cmuxWorkspaceId);
     },
   });
-
-function installVsCodeServerCommand(commit: string): string {
-  const quotedCommit = shellQuote(commit);
-  return [
-    "set -e",
-    'export HOME="${HOME:-/root}"',
-    'mkdir -p "$HOME"',
-    `target="$HOME/.vscode-server/bin/${commit}"`,
-    `archive="/tmp/fdev-vscode-server-${commit}.tar.gz"`,
-    `if [ ! -x "$target/bin/code-server" ] && [ ! -x "$target/server.sh" ]; then`,
-    `  rm -rf "$target"`,
-    `  mkdir -p "$target"`,
-    `  curl -fL "https://update.code.visualstudio.com/commit:${commit}/server-linux-x64/stable" -o "$archive"`,
-    `  tar -xzf "$archive" --strip-components=1 -C "$target"`,
-    `  rm -f "$archive"`,
-    `  if [ ! -x "$target/bin/code-server" ] && [ ! -x "$target/server.sh" ]; then`,
-    `    echo "VS Code server archive did not contain a known server entrypoint" >&2`,
-    `    exit 1`,
-    `  fi`,
-    `  printf '%s\n' ${quotedCommit} > "$target/fdev-preinstalled-commit"`,
-    "fi",
-  ].join("\n");
-}
-
-function localVsCodeCommit(): string | undefined {
-  try {
-    const result = Bun.spawnSync(["code", "--version"], {
-      stdout: "pipe",
-      stderr: "ignore",
-    });
-    if (result.exitCode !== 0) return undefined;
-
-    const lines = new TextDecoder().decode(result.stdout).trim().split(/\r?\n/);
-    const commit = lines[1]?.trim();
-    return commit && /^[0-9a-f]{40}$/i.test(commit) ? commit : undefined;
-  } catch {
-    return undefined;
-  }
-}
 
 function dirname(path: string): string {
   const index = path.lastIndexOf("/");
   return index <= 0 ? "/" : path.slice(0, index);
+}
+
+function cmuxSshDestination(context: FreestyleWorkspaceContext): string {
+  const { ssh } = context;
+  if (ssh.auth.type === "token") {
+    return `${ssh.username}:${ssh.auth.token}@${ssh.host}`;
+  }
+  return `${ssh.username}@${ssh.host}`;
+}
+
+async function waitForLocalhost(
+  vm: Pick<FreestyleVmRuntime, "probe">,
+  port: number,
+): Promise<void> {
+  const result = await vm.probe(
+    [
+      "set -e",
+      "for attempt in $(seq 1 120); do",
+      `  if curl -sS -o /dev/null ${shellQuote(`http://127.0.0.1:${port}/`)} >/dev/null 2>&1; then`,
+      "    exit 0",
+      "  fi",
+      "  sleep 1",
+      "done",
+      `curl -v ${shellQuote(`http://127.0.0.1:${port}/`)} || true`,
+      "exit 1",
+    ].join("\n"),
+    {
+      name: `wait for localhost:${port}`,
+      timeoutMs: 125 * 1000,
+    },
+  );
+  if (!result.ok) {
+    throw new Error(
+      `Dev server did not start on localhost:${port}\n${result.stdout}${result.stderr}`.trim(),
+    );
+  }
 }
 
 function shellQuote(value: string): string {
