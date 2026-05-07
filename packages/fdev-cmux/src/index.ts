@@ -127,6 +127,27 @@ export type CmuxSendOptions = {
   text: string;
 };
 
+export type CmuxSendKeyOptions = {
+  workspace?: string;
+  surface?: string;
+  key: string;
+};
+
+export type CmuxListSurfacesOptions = {
+  workspace?: string;
+};
+
+export type CmuxSurface = {
+  surface: string;
+  surfaceRef?: string;
+  pane?: string;
+  paneRef?: string;
+  type?: string;
+  title?: string;
+  focused?: boolean;
+  result?: CmuxRpcResult;
+};
+
 export type CmuxPortsKickOptions = {
   workspace: string;
   surface?: string;
@@ -341,6 +362,29 @@ export class CmuxClient {
     return "OK";
   }
 
+  async sendKey(options: CmuxSendKeyOptions): Promise<string> {
+    const params: CmuxRpcParams = {
+      key: options.key,
+    };
+    if (options.workspace) params.workspace_id = options.workspace;
+    if (options.surface) params.surface_id = options.surface;
+    await this.rpc("surface.send_key", params);
+    return "OK";
+  }
+
+  async listSurfaces(
+    options: CmuxListSurfacesOptions | string = {},
+  ): Promise<CmuxSurface[]> {
+    const params: CmuxRpcParams = {};
+    const workspace = typeof options === "string" ? options : options.workspace;
+    if (workspace) params.workspace_id = workspace;
+    const result = await this.rpc("surface.list", params);
+    const surfaces = Array.isArray(result.surfaces)
+      ? result.surfaces.filter(isRecord)
+      : [];
+    return surfaces.map(surfaceFromResult);
+  }
+
   async portsKick(options: CmuxPortsKickOptions): Promise<string> {
     const params: CmuxRpcParams = {
       workspace_id: options.workspace,
@@ -523,6 +567,23 @@ function paneFromResult(result: CmuxRpcResult): CmuxPane {
     paneRef: stringValue(result.pane_ref),
     surface: stringValue(result.surface_id),
     surfaceRef: stringValue(result.surface_ref),
+    result,
+  };
+}
+
+function surfaceFromResult(result: CmuxRpcResult): CmuxSurface {
+  const surface = stringValue(result.id) ?? stringValue(result.surface_id);
+  if (!surface) {
+    throw new Error(`cmux surface response did not include id: ${JSON.stringify(result)}`);
+  }
+  return {
+    surface,
+    surfaceRef: stringValue(result.ref) ?? stringValue(result.surface_ref),
+    pane: stringValue(result.pane_id),
+    paneRef: stringValue(result.pane_ref),
+    type: stringValue(result.type),
+    title: stringValue(result.title),
+    focused: typeof result.focused === "boolean" ? result.focused : undefined,
     result,
   };
 }

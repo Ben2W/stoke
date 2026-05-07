@@ -155,6 +155,23 @@ describe("cmux sdk", () => {
             pane_ref: "pane:11",
           };
         }
+        if (method === "surface.list") {
+          return {
+            workspace_id: "00000000-0000-0000-0000-000000000009",
+            workspace_ref: "workspace:9",
+            surfaces: [
+              {
+                id: "00000000-0000-0000-0000-000000000007",
+                ref: "surface:7",
+                pane_id: "00000000-0000-0000-0000-000000000008",
+                pane_ref: "pane:8",
+                type: "terminal",
+                title: "ssh",
+                focused: true,
+              },
+            ],
+          };
+        }
         return {};
       },
     });
@@ -170,6 +187,14 @@ describe("cmux sdk", () => {
       surface: pane.surface,
       text: "pnpm dev\\n",
     });
+    await cmux.sendKey({
+      workspace: "00000000-0000-0000-0000-000000000009",
+      surface: pane.surface,
+      key: "enter",
+    });
+    const surfaces = await cmux.listSurfaces(
+      "00000000-0000-0000-0000-000000000009",
+    );
     await cmux.portsKick({
       workspace: "00000000-0000-0000-0000-000000000009",
       surface: pane.surface,
@@ -182,6 +207,26 @@ describe("cmux sdk", () => {
     });
 
     expect(pane.surface).toBe("00000000-0000-0000-0000-000000000007");
+    expect(surfaces).toEqual([
+      {
+        surface: "00000000-0000-0000-0000-000000000007",
+        surfaceRef: "surface:7",
+        pane: "00000000-0000-0000-0000-000000000008",
+        paneRef: "pane:8",
+        type: "terminal",
+        title: "ssh",
+        focused: true,
+        result: {
+          id: "00000000-0000-0000-0000-000000000007",
+          ref: "surface:7",
+          pane_id: "00000000-0000-0000-0000-000000000008",
+          pane_ref: "pane:8",
+          type: "terminal",
+          title: "ssh",
+          focused: true,
+        },
+      },
+    ]);
     expect(calls).toEqual([
       {
         method: "pane.create",
@@ -198,6 +243,20 @@ describe("cmux sdk", () => {
           workspace_id: "00000000-0000-0000-0000-000000000009",
           surface_id: "00000000-0000-0000-0000-000000000007",
           text: "pnpm dev\\n",
+        },
+      },
+      {
+        method: "surface.send_key",
+        params: {
+          workspace_id: "00000000-0000-0000-0000-000000000009",
+          surface_id: "00000000-0000-0000-0000-000000000007",
+          key: "enter",
+        },
+      },
+      {
+        method: "surface.list",
+        params: {
+          workspace_id: "00000000-0000-0000-0000-000000000009",
         },
       },
       {
