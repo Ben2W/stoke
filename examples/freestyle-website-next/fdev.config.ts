@@ -218,7 +218,7 @@ const repoSetup = app
   });
 
 export default app
-  .sequence("websiteaa")
+  .sequence("website")
   .add(baseVm)
   .parallel({
     repo: repoSetup,
@@ -290,7 +290,7 @@ function dirname(path: string): string {
   return index <= 0 ? "/" : path.slice(0, index);
 }
 
-function cmuxSshDestination(context: FreestyleWorkspaceContext): string {
+export function cmuxSshDestination(context: FreestyleWorkspaceContext): string {
   const { ssh } = context;
   if (ssh.auth.type === "token") {
     return `${ssh.username},${ssh.auth.token}@${ssh.host}`;
@@ -298,7 +298,7 @@ function cmuxSshDestination(context: FreestyleWorkspaceContext): string {
   return `${ssh.username}@${ssh.host}`;
 }
 
-function cmuxSshOptions(context: FreestyleWorkspaceContext): string[] {
+export function cmuxSshOptions(context: FreestyleWorkspaceContext): string[] {
   if (context.ssh.auth.type !== "token") return [];
   return [
     "StrictHostKeyChecking=no",
@@ -306,7 +306,6 @@ function cmuxSshOptions(context: FreestyleWorkspaceContext): string[] {
     "LogLevel=ERROR",
     "IdentitiesOnly=yes",
     "IdentityFile=/dev/null",
-    "ControlMaster=no",
   ];
 }
 

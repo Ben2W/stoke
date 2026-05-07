@@ -10,7 +10,7 @@
     "fdev:ssh": "fdev ssh website-workspace",
     "fdev:rm": "fdev rm website-workspace -y",
     "typecheck": "tsc --noEmit",
-    "test": "echo no freestyle website example tests yet"
+    "test": "bun test"
   },
   "dependencies": {
     "@freestyle-sh/fdev-cmux": "workspace:*",
