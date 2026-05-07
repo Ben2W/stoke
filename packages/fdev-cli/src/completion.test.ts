@@ -18,7 +18,7 @@ describe("CLI completion", () => {
     expect(items[0]?.description).toBe("vm-api");
   });
 
-  test("completes ssh VM ids when the current token starts like a VM id", () => {
+  test("completes ssh resource ids when the current token starts like a resource id", () => {
     const projectDir = projectWithWorkspaces();
     const items = completeFdev({
       cwd: projectDir,
@@ -67,9 +67,11 @@ function writeState(projectDir: string): void {
       id TEXT PRIMARY KEY NOT NULL,
       name TEXT NOT NULL,
       provider_id TEXT NOT NULL,
-      vm_id TEXT NOT NULL,
-      machine TEXT NOT NULL,
-      snapshot_id TEXT NOT NULL,
+      workflow TEXT NOT NULL,
+      resource_id TEXT NOT NULL,
+      snapshot_id TEXT,
+      source_ref_json TEXT NOT NULL,
+      context_json TEXT NOT NULL,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       metadata_json TEXT NOT NULL
@@ -80,15 +82,41 @@ function writeState(projectDir: string): void {
       id,
       name,
       provider_id,
-      vm_id,
-      machine,
+      workflow,
+      resource_id,
       snapshot_id,
+      source_ref_json,
+      context_json,
       created_at,
       updated_at,
       metadata_json
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
-  insert.run("workspace-web", "web", "freestyle", "vm-web", "test", "snap-web", "2026-01-01T00:00:00.000Z", "2026-01-01T00:00:00.000Z", "{}");
-  insert.run("workspace-api", "api", "freestyle", "vm-api", "test", "snap-api", "2026-01-01T00:00:00.000Z", "2026-01-01T00:00:00.000Z", "{}");
+  insert.run(
+    "workspace-web",
+    "web",
+    "freestyle",
+    "test",
+    "vm-web",
+    "snap-web",
+    JSON.stringify({ provider: "freestyle", kind: "vmSnapshot", snapshotId: "snap-web" }),
+    "{}",
+    "2026-01-01T00:00:00.000Z",
+    "2026-01-01T00:00:00.000Z",
+    "{}",
+  );
+  insert.run(
+    "workspace-api",
+    "api",
+    "freestyle",
+    "test",
+    "vm-api",
+    "snap-api",
+    JSON.stringify({ provider: "freestyle", kind: "vmSnapshot", snapshotId: "snap-api" }),
+    "{}",
+    "2026-01-01T00:00:00.000Z",
+    "2026-01-01T00:00:00.000Z",
+    "{}",
+  );
   db.close();
 }

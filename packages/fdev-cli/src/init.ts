@@ -92,26 +92,33 @@ export function normalizeMachineName(value: string): string {
 }
 
 export function starterConfig(name: string): string {
-  const machineName = JSON.stringify(normalizeMachineName(name));
+  const workflowName = JSON.stringify(normalizeMachineName(name));
 
-  return `import { defineDevMachine, defineStep, env } from "@freestyle-sh/fdev-sdk";
-import { defineFreestyleProvider } from "@freestyle-sh/fdev-provider-freestyle";
+  return `import { env, workflow } from "@freestyle-sh/fdev-sdk";
+import { freestyle } from "@freestyle-sh/fdev-provider-freestyle";
 
-const verifyNode = defineStep("verify node 22", async ({ vm }) => {
-  const result = await vm.probe("node --version", { name: "node is v22" });
-  if (!result.ok || !result.stdout.trim().startsWith("v22.")) {
-    throw new Error(\`Expected Node.js v22, got: \${result.stdout}\${result.stderr}\`);
-  }
+const app = workflow(${workflowName}, {
+  providers: {
+    freestyle: freestyle.provider({
+      apiKey: () => env("FREESTYLE_API_KEY"),
+      image: "node-22",
+    }),
+  },
 });
 
-export default defineDevMachine({
-  name: ${machineName},
-  provider: defineFreestyleProvider({
-    apiKey: () => env("FREESTYLE_API_KEY"),
-    image: "node-22",
-  }),
-  steps: [verifyNode],
-});
+export default app
+  .sequence("dev")
+  .task("verify-node-22", async ({ freestyle }) => {
+    const vm = await freestyle.vms.create();
+    const result = await vm.probe("node --version", { name: "node is v22" });
+    if (!result.ok || !result.stdout.trim().startsWith("v22.")) {
+      throw new Error(\`Expected Node.js v22, got: \${result.stdout}\${result.stderr}\`);
+    }
+    return { vm: await vm.snapshotRef() };
+  })
+  .workspace({
+    source: (ctx) => ctx.vm,
+  });
 `;
 }
 

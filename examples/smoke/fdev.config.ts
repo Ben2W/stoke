@@ -1,13 +1,28 @@
-import { defineDevMachine, defineStep, env } from "@freestyle-sh/fdev-sdk";
-import { defineFreestyleProvider } from "@freestyle-sh/fdev-provider-freestyle";
+import { env, workflow } from "@freestyle-sh/fdev-sdk";
+import { freestyle } from "@freestyle-sh/fdev-provider-freestyle";
 
-const installGcloudCliStep = defineStep(
-  "fdev:install-gcloud-cliaa",
-  async ({ vm }) => {
+const app = workflow("smoke", {
+  providers: {
+    freestyle: freestyle.provider({
+      apiKey: env("FREESTYLE_API_KEY"),
+      image: "ubuntu-24.04",
+    }),
+    terminal: freestyle.terminal(),
+  },
+});
+
+export default app
+  .sequence("smoke")
+  .task("create-vm", async ({ freestyle }) => {
+    const vm = await freestyle.vms.create();
+    return { vm: await vm.snapshotRef() };
+  })
+  .task("install-gcloud-cli", async ({ ctx, freestyle }) => {
+    const vm = await freestyle.vms.fromSnapshot(ctx.vm);
     const installed = await vm.probe("command -v gcloud", {
       name: "check gcloud cli",
     });
-    if (installed.ok) return;
+    if (installed.ok) return { vm: await vm.snapshotRef() };
 
     await vm.exec(
       [
@@ -27,22 +42,21 @@ const installGcloudCliStep = defineStep(
     if (!(await vm.probe("command -v gcloud")).ok) {
       throw new Error("gcloud cli was not installed");
     }
-  },
-);
 
-const gcloudLoginStep = defineStep(
-  "fdev:gcloud-logina",
-  { dependsOn: [installGcloudCliStep] },
-  async ({ interact, vm }) => {
+    return { vm: await vm.snapshotRef() };
+  })
+  .task("gcloud-login", async ({ ctx, freestyle, terminal }) => {
+    const vm = await freestyle.vms.fromSnapshot(ctx.vm);
     const loggedIn = await vm.probe(
       "gcloud auth list --filter=status:ACTIVE --format='value(account)' | grep -q .",
       {
         name: "check active gcloud account",
       },
     );
-    if (loggedIn.ok) return;
+    if (loggedIn.ok) return { vm: await vm.snapshotRef() };
 
-    await interact.terminal("Log in to gcloud", {
+    await terminal.open("Log in to gcloud", {
+      target: vm,
       command: "gcloud auth login",
       instructions:
         "Complete Google authentication in the browser, then return to the terminal once login finishes.",
@@ -58,14 +72,9 @@ const gcloudLoginStep = defineStep(
     if (!activeAccount.ok) {
       throw new Error("no active gcloud account found after interactive login");
     }
-  },
-);
 
-export default defineDevMachine({
-  name: "smoke",
-  provider: defineFreestyleProvider({
-    apiKey: env("FREESTYLE_API_KEY"),
-    image: "ubuntu-24.04",
-  }),
-  steps: [installGcloudCliStep, gcloudLoginStep],
-});
+    return { vm: await vm.snapshotRef() };
+  })
+  .workspace({
+    source: (ctx) => ctx.vm,
+  });

@@ -18,8 +18,8 @@ type CompleteFdevInput = {
 const COMMANDS: CompletionItem[] = [
   { value: "init", description: "initialize an fdev project" },
   { value: "plan", description: "show cached and pending steps" },
-  { value: "apply", description: "resolve the dev machine" },
-  { value: "fork", description: "create a workspace VM" },
+  { value: "apply", description: "resolve the workflow" },
+  { value: "fork", description: "create a workspace" },
   { value: "ls", description: "list workspaces, snapshots, or config" },
   { value: "ssh", description: "open SSH to a workspace or VM" },
   { value: "snapshot", description: "capture a workspace snapshot" },
@@ -43,7 +43,7 @@ const GLOBAL_OPTIONS: CompletionItem[] = [
 
 const COMMAND_OPTIONS: Record<string, CompletionItem[]> = {
   init: [
-    { value: "--name", description: "project and dev machine name" },
+    { value: "--name", description: "project and workflow name" },
     { value: "--api-key", description: "Freestyle API key" },
     { value: "--package-manager", description: "npm, bun, pnpm, or skip" },
     { value: "--force", description: "overwrite existing config" },
@@ -118,8 +118,8 @@ export function completeFdev(input: CompleteFdevInput): CompletionItem[] {
 
   if (command === "ls" && positionalCount === 0) {
     return filterItems([
-      { value: "workspaces", description: "workspace VMs" },
-      { value: "snapshots", description: "cached snapshots" },
+      { value: "workspaces", description: "workspaces" },
+      { value: "snapshots", description: "cached node runs" },
       { value: "config", description: "loaded project config" },
     ], current);
   }
@@ -265,13 +265,13 @@ function workspaceTargets(projectDir: string, current: string, includeVmIds: boo
   const workspaces = readWorkspaces(projectDir);
   const items = workspaces.map((workspace) => ({
     value: workspace.name,
-    description: workspace.vmId,
+    description: workspace.resourceId,
   }));
 
   if (includeVmIds && current.length > 0) {
     for (const workspace of workspaces) {
       items.push({
-        value: workspace.vmId,
+        value: workspace.resourceId,
         description: workspace.name,
       });
     }
@@ -280,15 +280,21 @@ function workspaceTargets(projectDir: string, current: string, includeVmIds: boo
   return dedupeItems(items);
 }
 
-function readWorkspaces(projectDir: string): Array<{ name: string; vmId: string }> {
+function readWorkspaces(projectDir: string): Array<{ name: string; resourceId: string }> {
   const statePath = join(projectDir, ".fdev", "state.sqlite");
   if (!existsSync(statePath)) return [];
 
   const db = new Database(statePath, { readonly: true, create: false });
   try {
-    return db.query<{ name: string; vmId: string }, []>(
-      "SELECT name, vm_id AS vmId FROM workspaces ORDER BY name",
-    ).all();
+    try {
+      return db.query<{ name: string; resourceId: string }, []>(
+        "SELECT name, resource_id AS resourceId FROM workspaces ORDER BY name",
+      ).all();
+    } catch {
+      return db.query<{ name: string; resourceId: string }, []>(
+        "SELECT name, vm_id AS resourceId FROM workspaces ORDER BY name",
+      ).all();
+    }
   } catch {
     return [];
   } finally {

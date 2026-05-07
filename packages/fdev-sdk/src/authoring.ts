@@ -1,16 +1,21 @@
 import type {
-  DependencyContext,
-  DevMachineDefinition,
-  DevProviderDefinition,
   EnvResolver,
-  ProviderWorkspaceContext,
-  StepDefinition,
-  StepDefinitionOptions,
-  StepHandler,
-  StepHandlerResult,
-  StepReturnContext,
-  StepInstance,
+  JsonObject,
+  OutputSchema,
+  OutputSchemaValue,
+  WorkflowDefinition,
+  WorkflowNodeDefinition,
+  WorkflowProviderDefinition,
+  WorkflowProviderMap,
+  WorkflowSequenceBuilder,
+  WorkflowTaskHandler,
+  WorkflowTaskNode,
+  WorkflowTaskOptions,
+  WorkflowTaskResult,
+  WorkflowWorkspaceDefinition,
 } from "./types.ts";
+
+const reservedTaskContextKeys = new Set(["ctx", "runtime"]);
 
 export const env: EnvResolver = (name, fallback) => {
   const value = process.env[name];
@@ -19,79 +24,35 @@ export const env: EnvResolver = (name, fallback) => {
   throw new Error(`Missing required environment variable ${name}`);
 };
 
-export function defineStep<
-  const Dependencies extends readonly StepInstance<any, any>[],
-  Result extends StepHandlerResult,
->(
-  name: string,
-  options: StepDefinitionOptions<Dependencies>,
-  handler: StepHandler<void, DependencyContext<Dependencies>, Result>,
-): StepDefinition<void, StepReturnContext<Result>>;
-export function defineStep<Result extends StepHandlerResult>(
-  name: string,
-  handler: StepHandler<void, {}, Result>,
-): StepDefinition<void, StepReturnContext<Result>>;
-export function defineStep<Input, Result extends StepHandlerResult>(
-  name: string,
-  handler: StepHandler<Input, {}, Result>,
-): StepDefinition<Input, StepReturnContext<Result>>;
-export function defineStep<Input = void>(
-  name: string,
-  optionsOrHandler: StepDefinitionOptions | StepHandler<Input, any, StepHandlerResult>,
-  maybeHandler?: StepHandler<Input, any, StepHandlerResult>,
-): StepDefinition<Input, any> {
-  const options = typeof optionsOrHandler === "function" ? {} : optionsOrHandler;
-  const handler = (typeof optionsOrHandler === "function" ? optionsOrHandler : maybeHandler) as StepHandler<Input, any, StepHandlerResult>;
-  if (!handler) throw new Error(`Step ${name} is missing a handler`);
+export function workflow<const Name extends string, const Providers extends WorkflowProviderMap>(
+  name: Name,
+  options: { providers: Providers },
+): WorkflowDefinition<Name, Providers> {
+  validateProviders(options.providers);
 
-  const dependsOn = options.dependsOn ?? [];
-  const create = ((input?: Input) =>
-    createStepInstance({
-      name,
-      input: input as Input,
-      dependsOn,
-      handler,
-    })) as StepDefinition<Input, any>;
-
-  Object.defineProperties(create, {
-    kind: { value: "fdev.step", enumerable: true },
-    name: { value: name, enumerable: true },
-    input: { value: undefined as Input, enumerable: true },
-    dependsOn: { value: dependsOn, enumerable: true },
-    handler: { value: handler, enumerable: true },
-  });
-
-  return create;
-}
-
-export function defineDevMachine<
-  Options = undefined,
-  Provider extends DevProviderDefinition = DevProviderDefinition,
-  const Steps extends readonly StepInstance<any, any>[] = readonly StepInstance<any, any>[],
->(
-  definition: Omit<DevMachineDefinition<Options, Provider, Steps>, "kind">,
-): DevMachineDefinition<Options, Provider, Steps> {
-  if (Array.isArray(definition.steps)) {
-    validateStepDependencies(definition.name, definition.steps);
-  }
-
-  const machine = {
-    kind: "fdev.machine" as const,
-    ...definition,
+  const app = {
+    kind: "fdev.workflow" as const,
+    name,
+    providers: options.providers,
+    sequence: <InputContext extends JsonObject = {}>(sequenceName: string) =>
+      createSequence(app as unknown as WorkflowDefinition<string, Providers>, sequenceName, []),
+    task: (taskName: string, optionsOrHandler: WorkflowTaskOptions | WorkflowTaskHandler<Providers, {}, any>, maybeHandler?: WorkflowTaskHandler<Providers, {}, any>) =>
+      createTask(app as unknown as WorkflowDefinition<string, Providers>, taskName, optionsOrHandler as any, maybeHandler as any),
   };
 
-  return machine;
+  return app as unknown as WorkflowDefinition<Name, Providers>;
 }
 
 export function defineProvider<
   const ProviderId extends string,
   const Config extends object,
-  WorkspaceContext extends ProviderWorkspaceContext = ProviderWorkspaceContext,
+  Runtime = unknown,
+  WorkspaceContext extends object = object,
 >(
   providerId: ProviderId,
-  config: DevProviderDefinition<ProviderId, Config, WorkspaceContext>["config"],
+  config: WorkflowProviderDefinition<ProviderId, Config, Runtime, WorkspaceContext>["config"],
   plugin?: unknown,
-): DevProviderDefinition<ProviderId, Config, WorkspaceContext> {
+): WorkflowProviderDefinition<ProviderId, Config, Runtime, WorkspaceContext> {
   return {
     kind: "fdev.provider",
     providerId,
@@ -100,64 +61,110 @@ export function defineProvider<
   };
 }
 
-export function isStep(value: unknown): value is StepInstance<any, any> {
-  return Boolean(value && (typeof value === "object" || typeof value === "function") && getKind(value) === "fdev.step");
+export function isWorkflow(value: unknown): value is WorkflowDefinition {
+  return Boolean(value && typeof value === "object" && getKind(value) === "fdev.workflow");
 }
 
-export function isDevMachine(value: unknown): value is DevMachineDefinition<any> {
-  return Boolean(value && typeof value === "object" && getKind(value) === "fdev.machine");
+export function isWorkflowNode(value: unknown): value is WorkflowNodeDefinition<any, any, any> {
+  return Boolean(value && typeof value === "object" && getKind(value) === "fdev.workflow-node");
 }
 
-export function isProviderDefinition(value: unknown): value is DevProviderDefinition {
+export function isProviderDefinition(value: unknown): value is WorkflowProviderDefinition {
   return Boolean(value && typeof value === "object" && getKind(value) === "fdev.provider");
 }
 
-export function validateStepDependencies(machineName: string, steps: readonly StepInstance<any, any>[]): void {
-  const seen = new Map<string, StepInstance<any, any>>();
-
-  for (const step of steps) {
-    if (!isStep(step)) {
-      throw new Error(`Machine ${machineName} includes an invalid step`);
-    }
-
-    const key = stepKey(step);
-    if (seen.has(key)) {
-      throw new Error(`Machine ${machineName} includes duplicate step ${step.name}`);
-    }
-
-    for (const dependency of step.dependsOn) {
-      if (!isStep(dependency)) {
-        throw new Error(`Step ${step.name} includes an invalid dependency`);
+function createSequence<Providers extends WorkflowProviderMap, InputContext extends JsonObject, OutputContext extends JsonObject>(
+  app: WorkflowDefinition<string, Providers>,
+  name: string,
+  children: readonly WorkflowNodeDefinition<Providers, any, any>[],
+  workspace?: WorkflowWorkspaceDefinition<Providers, OutputContext>,
+): WorkflowSequenceBuilder<Providers, InputContext, OutputContext> {
+  const node = {
+    kind: "fdev.workflow-node" as const,
+    nodeKind: "sequence" as const,
+    name,
+    workflow: app,
+    children,
+    workspaceDefinition: workspace,
+    task: (
+      taskName: string,
+      optionsOrHandler: WorkflowTaskOptions | WorkflowTaskHandler<Providers, OutputContext, any>,
+      maybeHandler?: WorkflowTaskHandler<Providers, OutputContext, any>,
+    ) => {
+      const task = createTask(app, taskName, optionsOrHandler as any, maybeHandler as any);
+      return createSequence(app, name, [...children, task]);
+    },
+    add: (child: WorkflowNodeDefinition<Providers, any, any>) => {
+      assertSameWorkflow(app, child);
+      return createSequence(app, name, [...children, child]);
+    },
+    parallel: (branches: Record<string, WorkflowNodeDefinition<Providers, any, any>>) => {
+      for (const [branchName, branch] of Object.entries(branches)) {
+        assertSameWorkflow(app, branch);
+        if (!branchName) throw new Error(`Parallel branch names must be non-empty`);
       }
 
-      if (!seen.has(stepKey(dependency))) {
-        throw new Error(`Step ${step.name} depends on ${dependency.name}, but it is not listed before it`);
-      }
-    }
+      const parallelNode: WorkflowNodeDefinition<Providers, OutputContext, any> & {
+        nodeKind: "parallel";
+        branches: Record<string, WorkflowNodeDefinition<Providers, any, any>>;
+      } = {
+        kind: "fdev.workflow-node",
+        nodeKind: "parallel",
+        name: "parallel",
+        workflow: app,
+        branches,
+      };
+      return createSequence(app, name, [...children, parallelNode]);
+    },
+    workspace: (definition: WorkflowWorkspaceDefinition<Providers, OutputContext>) =>
+      createSequence(app, name, children, definition),
+  };
 
-    seen.set(key, step);
-  }
+  return node as unknown as WorkflowSequenceBuilder<Providers, InputContext, OutputContext>;
 }
 
-function createStepInstance<Input>(input: {
-  name: string;
-  input: Input;
-  dependsOn: readonly StepInstance<any, any>[];
-  handler: StepHandler<Input, any, any>;
-}): StepInstance<Input, any> {
+function createTask<Providers extends WorkflowProviderMap, InputContext extends JsonObject>(
+  app: WorkflowDefinition<string, Providers>,
+  name: string,
+  optionsOrHandler: WorkflowTaskOptions | WorkflowTaskHandler<Providers, InputContext, any>,
+  maybeHandler?: WorkflowTaskHandler<Providers, InputContext, any>,
+): WorkflowTaskNode<Providers, InputContext, any> {
+  const options = typeof optionsOrHandler === "function" ? undefined : optionsOrHandler;
+  const handler = (typeof optionsOrHandler === "function" ? optionsOrHandler : maybeHandler) as
+    | WorkflowTaskHandler<Providers, InputContext, any>
+    | undefined;
+  if (!handler) throw new Error(`Task ${name} is missing a handler`);
+
   return {
-    kind: "fdev.step",
-    name: input.name,
-    input: input.input,
-    dependsOn: input.dependsOn,
-    handler: input.handler,
+    kind: "fdev.workflow-node",
+    nodeKind: "task",
+    name,
+    workflow: app,
+    options,
+    handler,
   };
 }
 
-function stepKey(step: StepInstance<any, any>): string {
-  return `${step.name}\0${JSON.stringify(step.input ?? null)}`;
+function validateProviders(providers: WorkflowProviderMap): void {
+  for (const [name, provider] of Object.entries(providers)) {
+    if (reservedTaskContextKeys.has(name)) {
+      throw new Error(`Provider name ${name} is reserved by the task context`);
+    }
+    if (!isProviderDefinition(provider)) {
+      throw new Error(`Provider ${name} is not a valid fdev provider`);
+    }
+  }
 }
 
-function getKind(value: object | Function): unknown {
+function assertSameWorkflow(
+  app: WorkflowDefinition<string, any>,
+  node: WorkflowNodeDefinition<any, any, any>,
+): void {
+  if (node.workflow !== app) {
+    throw new Error(`Node ${node.name} belongs to a different workflow`);
+  }
+}
+
+function getKind(value: object): unknown {
   return (value as { kind?: unknown }).kind;
 }

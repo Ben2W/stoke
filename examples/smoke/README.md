@@ -1,6 +1,6 @@
 # Smoke Example
 
-This example defines a single `smoke` dev machine that writes `/tmp/fdev-ready`, then runs an interactive terminal step that writes `/tmp/fdev-interactive-ready`.
+This example defines a single `smoke` workflow that creates a Freestyle VM, installs the Google Cloud CLI, and runs an interactive browser-terminal login task.
 
 Run from this directory:
 

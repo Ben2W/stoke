@@ -8,14 +8,14 @@ import {
   createDevMachineEngine,
   type DevMachineEngine,
   type DevMachineEvent,
-  type MachinePlan,
+  type WorkflowPlan,
   type SnapshotRecord,
   type WorkspaceRecord,
 } from "@freestyle-sh/fdev-engine";
 import { assertVersionAlignment, DEFAULT_CONFIG_FILE, resolveConfigPaths, SDK_PACKAGE_NAME } from "./project.ts";
 import { FDEV_CLI_VERSION } from "./version.ts";
 import { initProject, normalizeMachineName, type InitProjectResult } from "./init.ts";
-import { createLocalTerminalInteraction } from "./interaction.ts";
+import { createLocalInteractionPresenter } from "./interaction.ts";
 import {
   completeFdev,
   formatCompletionItems,
@@ -75,7 +75,7 @@ const program = new Command();
 
 program
   .name("fdev")
-  .description("Freestyle dev machine CLI")
+  .description("Freestyle workflow CLI")
   .version(FDEV_CLI_VERSION)
   .showHelpAfterError()
   .option("-C, --project <dir>", `Project directory containing ${DEFAULT_CONFIG_FILE}`)
@@ -85,7 +85,7 @@ program
 program
   .command("init")
   .description("Initialize an fdev project")
-  .option("--name <name>", "Project and dev machine name")
+  .option("--name <name>", "Project and workflow name")
   .option("--api-key <key>", "Freestyle API key")
   .option("--package-manager <manager>", "Install with npm, bun, pnpm, or skip", parsePackageManager)
   .option("--force", "Overwrite an existing config file")
@@ -110,7 +110,7 @@ program
 
 program
   .command("apply")
-  .description("Resolve the dev machine, running pending steps")
+  .description("Resolve the workflow, running pending nodes")
   .option("--dry-run", "Show the plan without running steps")
   .option("--json", "Print machine-readable JSON")
   .action(async function (this: Command) {
@@ -133,16 +133,15 @@ program
       printJson(result);
       return;
     }
-    const vmSuffix = result.vmId ? ` (${result.vmId})` : "";
-    console.log(`resolved ${result.plan.machine} -> ${result.snapshotId ?? "no snapshot"}${vmSuffix}`);
+    console.log(`resolved ${result.plan.workflow} -> ${result.snapshotId ?? "no workspace source"}`);
     if (result.snapshotId) {
-      console.log(`create a workspace: fdev fork --name ${suggestWorkspaceName(result.plan.machine)}`);
+      console.log(`create a workspace: fdev fork --name ${suggestWorkspaceName(result.plan.workflow)}`);
     }
   });
 
 program
   .command("fork")
-  .description("Create a workspace VM from the resolved dev machine snapshot")
+  .description("Create a workspace from the resolved workflow artifact")
   .requiredOption("--name <workspace>", "Workspace name")
   .option("--json", "Print machine-readable JSON")
   .action(async function (this: Command) {
@@ -153,7 +152,7 @@ program
       printJson(workspace);
       return;
     }
-    console.log(`${workspace.name} ${workspace.vmId}`);
+    console.log(`${workspace.name} ${workspace.resourceId}`);
   });
 
 program
@@ -230,7 +229,7 @@ program
       printJson(snapshot);
       return;
     }
-    console.log(snapshot.snapshotId);
+    console.log(typeof snapshot.metadata.snapshotId === "string" ? snapshot.metadata.snapshotId : snapshot.id);
   });
 
 program
@@ -250,7 +249,7 @@ program
       printJson({ removed });
       return;
     }
-    console.log(`removed ${removed.name} ${removed.vmId}`);
+    console.log(`removed ${removed.name} ${removed.resourceId}`);
   });
 
 program
@@ -716,7 +715,7 @@ async function loadEngine(command: Command): Promise<DevMachineEngine> {
   const engine = await createDevMachineEngine({
     ...engineOptions,
     interaction: {
-      terminal: createLocalTerminalInteraction(),
+      present: createLocalInteractionPresenter(),
     },
   });
   if (!wantsJson(command)) engine.onEvent(renderEvent);
@@ -746,16 +745,16 @@ function printJson(value: unknown): void {
   console.log(JSON.stringify(value, null, 2));
 }
 
-function printPlan(plan: MachinePlan): void {
-  console.log(`${plan.machine}: ${plan.cachedPrefixLength}/${plan.steps.length} steps cached`);
-  if (plan.cachedSnapshotId) console.log(`snapshot: ${plan.cachedSnapshotId}`);
+function printPlan(plan: WorkflowPlan): void {
+  console.log(`${plan.workflow}: ${plan.cachedNodeCount}/${plan.nodeCount} nodes cached`);
 
-  const rows = plan.steps.map((step) => [
-    String(step.index + 1),
-    step.status,
-    step.name,
+  const rows = plan.nodes.map((node) => [
+    String(node.index + 1),
+    node.status,
+    node.path,
+    node.reason ?? "",
   ]);
-  printTable(["#", "status", "step"], rows);
+  printTable(["#", "status", "node", "reason"], rows);
 }
 
 function printWorkspaces(workspaces: WorkspaceRecord[]): void {
@@ -765,12 +764,12 @@ function printWorkspaces(workspaces: WorkspaceRecord[]): void {
   }
 
   printTable(
-    ["name", "vm", "snapshot", "machine", "created"],
+    ["name", "resource", "snapshot", "workflow", "created"],
     workspaces.map((workspace) => [
       workspace.name,
-      workspace.vmId,
-      workspace.snapshotId,
-      workspace.machine,
+      workspace.resourceId,
+      workspace.snapshotId ?? "",
+      workspace.workflow,
       workspace.createdAt,
     ]),
   );
@@ -783,12 +782,12 @@ function printSnapshots(snapshots: SnapshotRecord[]): void {
   }
 
   printTable(
-    ["snapshot", "machine", "prefix", "step", "created"],
+    ["run", "workflow", "node", "snapshot", "created"],
     snapshots.map((snapshot) => [
-      snapshot.snapshotId,
-      snapshot.machine,
-      String(snapshot.prefixLength),
-      snapshot.stepName,
+      snapshot.id,
+      snapshot.workflow,
+      snapshot.nodePath,
+      typeof snapshot.metadata.snapshotId === "string" ? snapshot.metadata.snapshotId : "",
       snapshot.createdAt,
     ]),
   );
@@ -799,8 +798,8 @@ function printConfig(info: ReturnType<DevMachineEngine["getProjectInfo"]>): void
     ["config", info.configPath],
     ["project", info.projectDir],
     ["state", info.statePath],
-    ["machine", info.machine?.name ?? "(not loaded)"],
-    ["provider", info.machine?.providerId ?? ""],
+    ["workflow", info.workflow?.name ?? "(not loaded)"],
+    ["providers", info.workflow?.providers.join(", ") ?? ""],
   ];
   printTable(["key", "value"], rows);
 }
@@ -833,19 +832,19 @@ function printTable(headers: string[], rows: string[][]): void {
 function renderEvent(event: DevMachineEvent): void {
   switch (event.type) {
     case "definition.loaded":
-      console.error(`loaded ${event.machine}`);
+      console.error(`loaded ${event.workflow}`);
       return;
     case "plan.created":
-      console.error(`plan ${event.machine}: ${event.cachedPrefixLength}/${event.stepCount} cached`);
+      console.error(`plan ${event.workflow}: ${event.cachedNodeCount}/${event.nodeCount} cached`);
+      return;
+    case "node.cached":
+      console.error(`node ${event.nodePath} cached`);
       return;
     case "vm.created":
       console.error(event.fromSnapshotId ? `vm ${event.vmId} from ${event.fromSnapshotId}` : `vm ${event.vmId} created`);
       return;
-    case "step.skipped":
-      console.error(`step ${event.step} cached at ${event.snapshotId}`);
-      return;
-    case "step.started":
-      console.error(`step ${event.step}`);
+    case "node.started":
+      console.error(`node ${event.nodePath}`);
       return;
     case "command.started":
       console.error(`command ${event.commandName}`);
@@ -858,15 +857,16 @@ function renderEvent(event: DevMachineEvent): void {
       return;
     case "interaction.awaiting_user":
       console.error(`interaction ${event.label}`);
+      console.error(`open ${event.url}`);
       return;
     case "interaction.completed":
       console.error(`interaction ${event.label} completed`);
       return;
-    case "snapshot.created":
-      console.error(`snapshot ${event.snapshotId}`);
+    case "artifact.created":
+      console.error(`artifact ${event.providerId}:${event.kind}`);
       return;
     case "workspace.ready":
-      console.error(`workspace ${event.workspaceId} -> ${event.vmId}`);
+      console.error(`workspace ${event.workspaceId} -> ${event.resourceId}`);
       return;
     default:
       return;

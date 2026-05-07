@@ -28,7 +28,7 @@ describe("initProject", () => {
       packageJson: true,
     });
 
-    expect(readFileSync(join(projectDir, "fdev.config.ts"), "utf8")).toContain('name: "platform-api"');
+    expect(readFileSync(join(projectDir, "fdev.config.ts"), "utf8")).toContain('workflow("platform-api"');
     expect(readFileSync(join(projectDir, ".env"), "utf8")).toBe("FREESTYLE_API_KEY=fs_test_123\n");
     expect(readFileSync(join(projectDir, ".env.example"), "utf8")).toBe("FREESTYLE_API_KEY=\n");
     expect(readFileSync(join(projectDir, ".gitignore"), "utf8")).toContain(".env\n.fdev/\n");

@@ -1,17 +1,17 @@
-# Freestyle Dev Machines
+# Freestyle Workflows
 
-`fdev` is a CLI and engine for building forkable Freestyle dev machines from ordered steps.
+`fdev` is a CLI and engine for building forkable development workflows from typed task graphs and provider-owned artifacts.
 
 This repo is a pnpm/turbo workspace:
 
 ```text
 packages/fdev-sdk/      SDK authoring API and public config types
-packages/fdev-engine/   config loader, step engine, provider contracts, state
+packages/fdev-engine/   config loader, workflow engine, provider contracts, state
 packages/fdev-provider-freestyle/ Freestyle provider implementation
 packages/fdev-cli/      global `fdev` command
 apps/app/               placeholder for the future app
 apps/install-worker/    Cloudflare Worker for install and release metadata
-examples/smoke/         runnable smoke dev machine
+examples/smoke/         runnable smoke workflow
 docs/                   design docs
 ```
 
@@ -81,11 +81,12 @@ By default other `fdev` commands load `fdev.config.ts` from the current director
 
 Implemented:
 
-- `defineDevMachine({ name, provider, steps })`
-- `defineStep(name, fn)` with typed dependency context
+- `workflow(name, { providers })` with typed `sequence`, `parallel`, `add`, and `task` builders
+- task handlers with typed `ctx` plus flattened workflow provider runtimes
 - `DevMachineEngine` with `load`, `plan`, `apply`, `fork`, `attachTerminal`, `listWorkspaces`, and `deleteWorkspace`
-- Freestyle provider package for VM create, snapshot, create-from-snapshot, exec, and SSH command generation
-- local `.fdev/state.sqlite` snapshot/workspace cache
+- graph-based node-run caching keyed by upstream run IDs and provider fingerprints
+- Freestyle provider package for VM create, snapshot refs, create-from-snapshot, provider-owned terminal sessions, workspace fork, exec, and SSH command generation
+- local `.fdev/state.sqlite` node-run/workspace cache
 - Commander-based `fdev` CLI for `init`, `plan`, `apply`, `fork`, `ls`, `ssh`, `snapshot`, and `rm`
 - pnpm/turbo workspace with separate SDK, engine, CLI packages, app placeholder, and smoke example
 
