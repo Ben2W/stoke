@@ -8,10 +8,12 @@ This repo is a pnpm/turbo workspace:
 packages/fdev-sdk/      SDK authoring API and public config types
 packages/fdev-engine/   config loader, workflow engine, provider contracts, state
 packages/fdev-provider-freestyle/ Freestyle provider implementation
+packages/fdev-provider-gcloud/    local Google Cloud CLI auth provider
 packages/fdev-cli/      global `fdev` command
 apps/app/               placeholder for the future app
 apps/install-worker/    Cloudflare Worker for install and release metadata
 examples/smoke/         runnable smoke workflow
+examples/gcloud-on-open/ copy local gcloud config files on workspace open
 docs/                   design docs
 ```
 
@@ -83,9 +85,11 @@ Implemented:
 
 - `workflow(name, { providers })` with typed `sequence`, `parallel`, `add`, and `task` builders
 - task handlers with typed `ctx` plus flattened workflow provider runtimes
+- `workspace.onCreated` and uncached `workspace.onOpen` lifecycle hooks
 - `DevMachineEngine` with `load`, `plan`, `apply`, `fork`, `attachTerminal`, `listWorkspaces`, and `deleteWorkspace`
 - graph-based node-run caching keyed by upstream run IDs and provider fingerprints
 - Freestyle provider package for VM create, snapshot refs, create-from-snapshot, provider-owned terminal sessions, workspace fork, exec, and SSH command generation
+- Google Cloud provider package for copying local `gcloud` config/auth files, token brokering, and injection helpers
 - local `.fdev/state.sqlite` node-run/workspace cache
 - Commander-based `fdev` CLI for `init`, `plan`, `apply`, `fork`, `ls`, `ssh`, `snapshot`, and `rm`
 - pnpm/turbo workspace with separate SDK, engine, CLI packages, app placeholder, and smoke example

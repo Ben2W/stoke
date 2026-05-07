@@ -302,6 +302,15 @@ export class DevMachineEngine {
     const workspaceProvider = workspace
       ? this.workspaceProviderById(providers, workspace.providerId)
       : this.singleWorkspaceProvider(providers);
+    if (workspace) {
+      await this.runWorkspaceOpenHook({
+        workflow,
+        providers,
+        workspaceProvider,
+        workspace,
+        context: workspace.context,
+      });
+    }
     const terminal = await workspaceProvider.ssh(workspace?.resourceId ?? input.workspaceOrVmId, { user: input.user });
 
     if (!input.printOnly) {
@@ -684,18 +693,17 @@ export class DevMachineEngine {
                 });
 
                 const result = await session.completed;
+                this.emit({
+                  type: "interaction.completed",
+                  nodePath: input.nodePath,
+                  interactionId,
+                  label: session.title,
+                  title: session.title,
+                });
                 return result;
               } finally {
                 await session.stop();
               }
-
-              this.emit({
-                type: "interaction.completed",
-                nodePath: input.nodePath,
-                interactionId,
-                label: session.title,
-                title: session.title,
-              });
             },
           },
           local: this.local,
@@ -717,7 +725,36 @@ export class DevMachineEngine {
     workspace: WorkspaceRecord;
     context: Record<string, JsonValue>;
   }): Promise<void> {
-    const hook = input.workflow.workspace?.onCreated;
+    await this.runWorkspaceHook("created", input.workflow.workspace?.onCreated, input);
+  }
+
+  private async runWorkspaceOpenHook(input: {
+    workflow: LoadedWorkflow;
+    providers: ProviderControllers;
+    workspaceProvider: WorkflowWorkspaceProvider;
+    workspace: WorkspaceRecord;
+    context: Record<string, JsonValue>;
+  }): Promise<void> {
+    await this.runWorkspaceHook("open", input.workflow.workspace?.onOpen, input);
+  }
+
+  private async runWorkspaceHook(
+    lifecycle: "created" | "open",
+    hook: ((context: {
+      workspace: WorkspaceRuntimeRecord;
+      ctx: Readonly<Record<string, JsonValue>>;
+      providers: ProviderRuntimeMap<WorkflowProviderMap>;
+      providerContext: ProviderWorkspaceContext;
+      local: LocalWorkspaceRuntime;
+    }) => Promise<void> | void) | undefined,
+    input: {
+      workflow: LoadedWorkflow;
+      providers: ProviderControllers;
+      workspaceProvider: WorkflowWorkspaceProvider;
+      workspace: WorkspaceRecord;
+      context: Record<string, JsonValue>;
+    },
+  ): Promise<void> {
     if (!hook) return;
 
     const providerContext = await input.workspaceProvider.workspaceContext?.(input.workspace) ?? {};
@@ -729,7 +766,7 @@ export class DevMachineEngine {
     const providers = await this.createTaskRuntime({
       workflow: input.workflow,
       providers: input.providers,
-      nodePath: `workspace.${input.workspace.name}`,
+      nodePath: `workspace.${input.workspace.name}.${lifecycle}`,
       metadata,
     });
 
@@ -739,7 +776,7 @@ export class DevMachineEngine {
       providers,
       providerContext: normalizeProviderWorkspaceContext(providerContext),
       local: this.local,
-    } as never);
+    });
   }
 
   private getWorkflow(name: string | undefined): LoadedWorkflow {

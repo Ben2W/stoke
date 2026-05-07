@@ -62,6 +62,12 @@ describe("DevMachineEngine workflow runtime", () => {
               await vm.exec("touch /tmp/workspace-" + workspace.name, { name: "mark workspace" });
               await local.open("vscode://" + workspace.name);
             },
+            onOpen: async ({ providers, workspace, ctx, providerContext }) => {
+              if (ctx.summary !== "right-ready") throw new Error("missing final context on open");
+              if (providerContext.authority !== "fake-authority") throw new Error("missing provider context on open");
+              const vm = providers.test.fromWorkspace(workspace);
+              await vm.exec("touch /tmp/open-" + workspace.name, { name: "mark workspace open" });
+            },
           });
       `,
     );
@@ -108,6 +114,11 @@ describe("DevMachineEngine workflow runtime", () => {
     expect(opened).toEqual(["vscode://work"]);
     expect(provider.workspaceContextResourceIds).toEqual(["workspace-work"]);
     expect(provider.hasFile("workspace-work", "/tmp/workspace-work")).toBe(true);
+
+    const terminal = await engine.attachTerminal({ workspaceOrVmId: "work", printOnly: true });
+    expect(terminal.command).toBe("ssh workspace-work");
+    expect(provider.workspaceContextResourceIds).toEqual(["workspace-work", "workspace-work"]);
+    expect(provider.hasFile("workspace-work", "/tmp/open-work")).toBe(true);
 
     const workspaceSnapshot = await engine.snapshotWorkspace({ workspace: "work", label: "verified-work" });
     expect(workspaceSnapshot.metadata.snapshotId).toBe("snap-3");

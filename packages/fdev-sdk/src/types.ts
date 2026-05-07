@@ -261,9 +261,20 @@ export type WorkflowWorkspaceDefinition<
   cwd?: string | ((ctx: Readonly<Context>) => string | undefined);
   ports?: readonly number[];
   onCreated?: (context: WorkflowWorkspaceCreatedContext<Providers, Context>) => MaybePromise<void>;
+  onOpen?: (context: WorkflowWorkspaceOpenContext<Providers, Context>) => MaybePromise<void>;
 };
 
 export type WorkflowWorkspaceCreatedContext<
+  Providers extends WorkflowProviderMap = WorkflowProviderMap,
+  Context extends JsonObject = JsonObject,
+> = WorkflowWorkspaceLifecycleContext<Providers, Context>;
+
+export type WorkflowWorkspaceOpenContext<
+  Providers extends WorkflowProviderMap = WorkflowProviderMap,
+  Context extends JsonObject = JsonObject,
+> = WorkflowWorkspaceLifecycleContext<Providers, Context>;
+
+export type WorkflowWorkspaceLifecycleContext<
   Providers extends WorkflowProviderMap = WorkflowProviderMap,
   Context extends JsonObject = JsonObject,
 > = {

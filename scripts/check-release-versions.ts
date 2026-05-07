@@ -22,6 +22,18 @@ const packages = [
     constant: "FDEV_PROVIDER_FREESTYLE_VERSION",
   },
   {
+    name: "@freestyle-sh/fdev-provider-gcloud",
+    dir: "packages/fdev-provider-gcloud",
+    versionFile: "packages/fdev-provider-gcloud/src/version.ts",
+    constant: "FDEV_PROVIDER_GCLOUD_VERSION",
+  },
+  {
+    name: "@freestyle-sh/fdev-cmux",
+    dir: "packages/fdev-cmux",
+    versionFile: "packages/fdev-cmux/src/version.ts",
+    constant: "FDEV_CMUX_VERSION",
+  },
+  {
     name: "@freestyle-sh/fdev-cli",
     dir: "packages/fdev-cli",
     versionFile: "packages/fdev-cli/src/version.ts",

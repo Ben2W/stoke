@@ -12,4 +12,6 @@ fdev plan
 
 Interactive providers can ask the CLI to open provider-owned URLs. For example, Freestyle terminal sessions are served by the Freestyle provider, while the CLI only opens the presented URL in a browser.
 
+`fdev ssh <workspace>` runs the workflow's uncached `workspace.onOpen` hook before attaching or printing the SSH command.
+
 Projects should install matching `@freestyle-sh/fdev-sdk` versions locally.

@@ -15,7 +15,14 @@
     "smoke:apply": "pnpm --filter @freestyle-sh/fdev-cli fdev -C ../../examples/smoke apply",
     "website:plan": "pnpm -C examples/freestyle-website-next fdev:plan",
     "website:apply": "pnpm -C examples/freestyle-website-next fdev:apply",
-    "website:fork": "pnpm -C examples/freestyle-website-next fdev:fork"
+    "website:fork": "pnpm -C examples/freestyle-website-next fdev:fork",
+    "cmux:plan": "pnpm -C examples/cmux-playground fdev:plan",
+    "cmux:apply": "pnpm -C examples/cmux-playground fdev:apply",
+    "cmux:fork": "pnpm -C examples/cmux-playground fdev:fork",
+    "gcloud:plan": "pnpm -C examples/gcloud-on-open fdev:plan",
+    "gcloud:apply": "pnpm -C examples/gcloud-on-open fdev:apply",
+    "gcloud:fork": "pnpm -C examples/gcloud-on-open fdev:fork",
+    "gcloud:ssh": "pnpm -C examples/gcloud-on-open fdev:ssh"
   },
   "devDependencies": {
     "playwright": "^1.59.1",

@@ -112,7 +112,7 @@ const baseVm = app
       timeoutMs: 15 * 60 * 1000,
     });
 
-    return { vm: await vm.snapshotRef(), vscodeServerCommit };
+    return { vm: await vm.snapshotRef(), vscodeServerCommit, db: "hello" };
   });
 
 const repoSetup = app
@@ -235,7 +235,7 @@ const repoSetup = app
   });
 
 export default app
-  .sequence("website")
+  .sequence("websiteaa")
   .add(baseVm)
   .parallel({
     repo: repoSetup,

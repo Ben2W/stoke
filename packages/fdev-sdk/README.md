@@ -7,3 +7,5 @@ import { env, workflow } from "@freestyle-sh/fdev-sdk";
 ```
 
 This package provides config helpers and public types. Runtime execution lives in `@freestyle-sh/fdev-engine`.
+
+Workspace definitions can provide `onCreated` for one-time fork setup and `onOpen` for uncached checks that should run whenever an existing workspace is entered.

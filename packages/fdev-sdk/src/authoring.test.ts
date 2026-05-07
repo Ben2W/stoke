@@ -111,8 +111,17 @@ describe("fdev SDK workflow authoring", () => {
           expect(secret).toBeTypeOf("string");
           expect(authority).toBeTypeOf("string");
         },
+        onOpen: async ({ ctx, providers, providerContext }) => {
+          const repoPath: string = ctx.repoPath;
+          const secret: string = providers.test.readSecret();
+          const authority: string = (providerContext as { authority: string }).authority;
+          expect(repoPath).toBe("/workspace/repo");
+          expect(secret).toBeTypeOf("string");
+          expect(authority).toBeTypeOf("string");
+        },
       });
 
     expect(root.workspaceDefinition?.onCreated).toBeTypeOf("function");
+    expect(root.workspaceDefinition?.onOpen).toBeTypeOf("function");
   });
 });

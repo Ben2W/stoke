@@ -46,11 +46,55 @@ importers:
         specifier: latest
         version: 4.88.0(@cloudflare/workers-types@4.20260506.1)
 
+  examples/cmux-playground:
+    dependencies:
+      '@freestyle-sh/fdev-cmux':
+        specifier: workspace:*
+        version: link:../../packages/fdev-cmux
+      '@freestyle-sh/fdev-provider-freestyle':
+        specifier: workspace:*
+        version: link:../../packages/fdev-provider-freestyle
+      '@freestyle-sh/fdev-sdk':
+        specifier: workspace:*
+        version: link:../../packages/fdev-sdk
+    devDependencies:
+      '@freestyle-sh/fdev-cli':
+        specifier: workspace:*
+        version: link:../../packages/fdev-cli
+      '@types/bun':
+        specifier: latest
+        version: 1.3.13
+      typescript:
+        specifier: latest
+        version: 6.0.3
+
   examples/freestyle-website-next:
     dependencies:
       '@freestyle-sh/fdev-provider-freestyle':
         specifier: workspace:*
         version: link:../../packages/fdev-provider-freestyle
+      '@freestyle-sh/fdev-sdk':
+        specifier: workspace:*
+        version: link:../../packages/fdev-sdk
+    devDependencies:
+      '@freestyle-sh/fdev-cli':
+        specifier: workspace:*
+        version: link:../../packages/fdev-cli
+      '@types/bun':
+        specifier: latest
+        version: 1.3.13
+      typescript:
+        specifier: latest
+        version: 6.0.3
+
+  examples/gcloud-on-open:
+    dependencies:
+      '@freestyle-sh/fdev-provider-freestyle':
+        specifier: workspace:*
+        version: link:../../packages/fdev-provider-freestyle
+      '@freestyle-sh/fdev-provider-gcloud':
+        specifier: workspace:*
+        version: link:../../packages/fdev-provider-gcloud
       '@freestyle-sh/fdev-sdk':
         specifier: workspace:*
         version: link:../../packages/fdev-sdk
@@ -103,6 +147,15 @@ importers:
         specifier: latest
         version: 6.0.3
 
+  packages/fdev-cmux:
+    devDependencies:
+      '@types/bun':
+        specifier: latest
+        version: 1.3.13
+      typescript:
+        specifier: latest
+        version: 6.0.3
+
   packages/fdev-engine:
     dependencies:
       '@freestyle-sh/fdev-sdk':
@@ -136,6 +189,28 @@ importers:
       freestyle:
         specifier: latest
         version: 0.1.49
+      zod:
+        specifier: ^4
+        version: 4.4.3
+    devDependencies:
+      '@types/bun':
+        specifier: latest
+        version: 1.3.13
+      typescript:
+        specifier: latest
+        version: 6.0.3
+
+  packages/fdev-provider-gcloud:
+    dependencies:
+      '@freestyle-sh/fdev-engine':
+        specifier: workspace:*
+        version: link:../fdev-engine
+      '@freestyle-sh/fdev-sdk':
+        specifier: workspace:*
+        version: link:../fdev-sdk
+      drizzle-orm:
+        specifier: ^0.45.2
+        version: 0.45.2(@cloudflare/workers-types@4.20260506.1)(bun-types@1.3.13)
       zod:
         specifier: ^4
         version: 4.4.3
