@@ -10,8 +10,8 @@ import type {
 const repo = "freestyle-sh/freestyle-website-next";
 const repoUrl = `https://github.com/${repo}.git`;
 const repoPath = "/workspace/freestyle-website-next";
-const devPort = 4321;
-const devCommand = `pnpm dev -- --host 0.0.0.0 --port ${devPort}`;
+const devPort = 3000;
+const devCommand = `pnpm dev -- --hostname 0.0.0.0 --port ${devPort}`;
 const pnpmVersion = "9.15.9";
 const cmux = createCmuxClient();
 
@@ -244,9 +244,10 @@ export default app
 
       const cmuxWorkspace = await cmux.ssh({
         destination: cmuxSshDestination(freestyleContext),
+        initialCommand: freestyleContext.ssh.command,
         name: workspace.name,
         port: freestyleContext.ssh.port,
-        sshOptions: cmuxSshOptions(freestyleContext),
+        terminalStartupCommand: freestyleContext.ssh.command,
       });
       const cmuxWorkspaceId = cmuxWorkspace.id ?? cmuxWorkspace.handle;
 
@@ -262,19 +263,7 @@ export default app
         text: `cd ${shellQuote(ctx.repo.repoPath)} && ${devCommand}\\n`,
       });
 
-      await Promise.all([
-        waitForLocalhost(vm, devPort),
-        cmux.waitForRemoteReady(cmuxWorkspaceId, {
-          timeoutMs: 90 * 1000,
-          requireProxy: true,
-        }),
-      ]);
-
-      await cmux.portsKick({
-        workspace: cmuxWorkspaceId,
-        surface: devPane.surface,
-        reason: "refresh",
-      });
+      await waitForLocalhost(vm, devPort);
 
       await cmux.browserOpen({
         workspace: cmuxWorkspaceId,
@@ -293,21 +282,9 @@ function dirname(path: string): string {
 function cmuxSshDestination(context: FreestyleWorkspaceContext): string {
   const { ssh } = context;
   if (ssh.auth.type === "token") {
-    return `${ssh.username},${ssh.auth.token}@${ssh.host}`;
+    return `${ssh.username}:${ssh.auth.token}@${ssh.host}`;
   }
   return `${ssh.username}@${ssh.host}`;
-}
-
-function cmuxSshOptions(context: FreestyleWorkspaceContext): string[] {
-  if (context.ssh.auth.type !== "token") return [];
-  return [
-    "StrictHostKeyChecking=no",
-    "UserKnownHostsFile=/dev/null",
-    "LogLevel=ERROR",
-    "IdentitiesOnly=yes",
-    "IdentityFile=/dev/null",
-    "ControlMaster=no",
-  ];
 }
 
 async function waitForLocalhost(

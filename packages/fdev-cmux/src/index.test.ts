@@ -170,11 +170,6 @@ describe("cmux sdk", () => {
       surface: pane.surface,
       text: "pnpm dev\\n",
     });
-    await cmux.portsKick({
-      workspace: "00000000-0000-0000-0000-000000000009",
-      surface: pane.surface,
-      reason: "refresh",
-    });
     await cmux.browserOpen({
       workspace: "00000000-0000-0000-0000-000000000009",
       url: "http://localhost:3000",
@@ -201,14 +196,6 @@ describe("cmux sdk", () => {
         },
       },
       {
-        method: "surface.ports_kick",
-        params: {
-          workspace_id: "00000000-0000-0000-0000-000000000009",
-          surface_id: "00000000-0000-0000-0000-000000000007",
-          reason: "refresh",
-        },
-      },
-      {
         method: "browser.open_split",
         params: {
           url: "http://localhost:3000",
@@ -216,57 +203,6 @@ describe("cmux sdk", () => {
           focus: true,
         },
       },
-    ]);
-  });
-
-  test("waits for remote workspace proxy readiness", async () => {
-    let listCalls = 0;
-    const calls: Array<{ method: string; params: CmuxRpcParams }> = [];
-    const cmux = createCmuxClient({
-      printCommands: false,
-      sleep: async () => {},
-      rpcRunner: (method, params) => {
-        calls.push({ method, params });
-        if (method !== "workspace.list") return {};
-
-        listCalls += 1;
-        return {
-          workspaces: [
-            {
-              id: "00000000-0000-0000-0000-000000000012",
-              ref: "workspace:12",
-              remote: listCalls === 1
-                ? {
-                  connected: false,
-                  state: "connecting",
-                  proxy: { state: "connecting" },
-                  detail: "Connecting",
-                }
-                : {
-                  connected: true,
-                  state: "connected",
-                  proxy: {
-                    state: "ready",
-                    host: "127.0.0.1",
-                    port: 49152,
-                  },
-                  detail: "Connected",
-                },
-            },
-          ],
-        };
-      },
-    });
-
-    const status = await cmux.waitForRemoteReady(
-      "00000000-0000-0000-0000-000000000012",
-      { timeoutMs: 1000, intervalMs: 1 },
-    );
-
-    expect(status.remote?.connected).toBe(true);
-    expect(calls).toEqual([
-      { method: "workspace.list", params: {} },
-      { method: "workspace.list", params: {} },
     ]);
   });
 

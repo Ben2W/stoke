@@ -81,20 +81,6 @@ export type CmuxSshOptions = {
   skipDaemonBootstrap?: boolean;
 };
 
-export type CmuxWorkspaceStatus = {
-  handle: string;
-  id?: string;
-  ref?: string;
-  remote?: CmuxRpcResult;
-  result: CmuxRpcResult;
-};
-
-export type CmuxWaitForRemoteOptions = {
-  timeoutMs?: number;
-  intervalMs?: number;
-  requireProxy?: boolean;
-};
-
 export type CmuxNewPaneOptions = {
   workspace?: string;
   type?: "terminal" | "browser";
@@ -125,12 +111,6 @@ export type CmuxSendOptions = {
   workspace?: string;
   surface?: string;
   text: string;
-};
-
-export type CmuxPortsKickOptions = {
-  workspace: string;
-  surface?: string;
-  reason?: "command" | "refresh";
 };
 
 export class CmuxCommandError extends Error {
@@ -277,50 +257,6 @@ export class CmuxClient {
     return paneFromResult(await this.rpc("pane.create", params));
   }
 
-  async listWorkspaces(): Promise<CmuxWorkspaceStatus[]> {
-    const result = await this.rpc("workspace.list");
-    const workspaces = Array.isArray(result.workspaces)
-      ? result.workspaces.filter(isRecord)
-      : [];
-    return workspaces.map(workspaceStatusFromResult);
-  }
-
-  async workspaceStatus(workspace: string): Promise<CmuxWorkspaceStatus> {
-    const workspaces = await this.listWorkspaces();
-    const status = workspaces.find((candidate) =>
-      candidate.id === workspace ||
-      candidate.ref === workspace ||
-      candidate.handle === workspace
-    );
-    if (!status) {
-      throw new Error(`cmux workspace not found: ${workspace}`);
-    }
-    return status;
-  }
-
-  async waitForRemoteReady(
-    workspace: string,
-    options: CmuxWaitForRemoteOptions = {},
-  ): Promise<CmuxWorkspaceStatus> {
-    const timeoutMs = options.timeoutMs ?? 90_000;
-    const intervalMs = options.intervalMs ?? 500;
-    const requireProxy = options.requireProxy ?? true;
-    const startedAt = Date.now();
-    let lastStatus: CmuxWorkspaceStatus | undefined;
-
-    while (Date.now() - startedAt <= timeoutMs) {
-      lastStatus = await this.workspaceStatus(workspace);
-      if (isRemoteReady(lastStatus, requireProxy)) {
-        return lastStatus;
-      }
-      await this.sleep(intervalMs);
-    }
-
-    throw new Error(
-      `cmux remote workspace did not become ready within ${timeoutMs}ms: ${remoteStatusSummary(lastStatus)}`,
-    );
-  }
-
   async browserOpen(options: CmuxBrowserOpenOptions = {}): Promise<CmuxPane> {
     const params: CmuxRpcParams = {};
     if (options.url) params.url = options.url;
@@ -338,16 +274,6 @@ export class CmuxClient {
     if (options.workspace) params.workspace_id = options.workspace;
     if (options.surface) params.surface_id = options.surface;
     await this.rpc("surface.send_text", params);
-    return "OK";
-  }
-
-  async portsKick(options: CmuxPortsKickOptions): Promise<string> {
-    const params: CmuxRpcParams = {
-      workspace_id: options.workspace,
-      reason: options.reason ?? "command",
-    };
-    if (options.surface) params.surface_id = options.surface;
-    await this.rpc("surface.ports_kick", params);
     return "OK";
   }
 
@@ -504,17 +430,6 @@ function workspaceFromResult(result: CmuxRpcResult): CmuxWorkspace {
   return { handle, id, ref, result };
 }
 
-function workspaceStatusFromResult(result: CmuxRpcResult): CmuxWorkspaceStatus {
-  const id = stringValue(result.id) ?? stringValue(result.workspace_id);
-  const ref = stringValue(result.ref) ?? stringValue(result.workspace_ref);
-  const handle = id ?? ref;
-  if (!handle) {
-    throw new Error(`cmux workspace status did not include id: ${JSON.stringify(result)}`);
-  }
-  const remote = isRecord(result.remote) ? result.remote : undefined;
-  return { handle, id, ref, remote, result };
-}
-
 function paneFromResult(result: CmuxRpcResult): CmuxPane {
   return {
     workspace: stringValue(result.workspace_id),
@@ -554,31 +469,6 @@ function cmuxSocketRequiredMessage(method: string, params: CmuxRpcParams): strin
     method,
     JSON.stringify(params),
   ]);
-}
-
-function isRemoteReady(status: CmuxWorkspaceStatus, requireProxy: boolean): boolean {
-  const remote = status.remote;
-  if (!remote) return false;
-  const connected = remote.connected === true || remote.state === "connected";
-  if (!connected) return false;
-  if (!requireProxy) return true;
-  const proxy = isRecord(remote.proxy) ? remote.proxy : undefined;
-  return proxy?.state === "ready";
-}
-
-function remoteStatusSummary(status: CmuxWorkspaceStatus | undefined): string {
-  if (!status?.remote) return "no remote status";
-  const proxy = isRecord(status.remote.proxy) ? status.remote.proxy : undefined;
-  const daemon = isRecord(status.remote.daemon) ? status.remote.daemon : undefined;
-  const parts = [
-    `state=${String(status.remote.state ?? "unknown")}`,
-    `connected=${String(status.remote.connected ?? false)}`,
-    `proxy=${String(proxy?.state ?? "unknown")}`,
-    `daemon=${String(daemon?.state ?? "unknown")}`,
-    `daemon_detail=${String(daemon?.detail ?? "")}`,
-    `detail=${String(status.remote.detail ?? "")}`,
-  ];
-  return parts.join(" ");
 }
 
 async function sendSocketRpc(options: SendSocketRpcOptions): Promise<CmuxRpcResult> {
