@@ -29,7 +29,6 @@ describe("freestyle website cmux ssh", () => {
         "website-user,token.with.dots@vm-ssh.freestyle.sh",
       );
       expect(cmuxSshOptions(context)).toEqual([
-        "RequestTTY=force",
         "StrictHostKeyChecking=no",
         "UserKnownHostsFile=/dev/null",
         "LogLevel=ERROR",

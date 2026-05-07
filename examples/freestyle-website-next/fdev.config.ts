@@ -12,7 +12,6 @@ const repoUrl = `https://github.com/${repo}.git`;
 const repoPath = "/workspace/freestyle-website-next";
 const devPort = 4321;
 const devCommand = `pnpm dev -- --host 0.0.0.0 --port ${devPort}`;
-const devSessionName = "fdev-website-dev";
 const pnpmVersion = "9.15.9";
 const cmux = createCmuxClient();
 
@@ -52,7 +51,6 @@ const baseVm = app
           "gnupg",
           "pkg-config",
           "python3",
-          "tmux",
           "unzip",
           "xz-utils",
         ].join(" "),
@@ -244,16 +242,25 @@ export default app
         },
       );
 
-      await startDevServerInTmux(vm, ctx.repo.repoPath);
-
       const cmuxWorkspace = await cmux.ssh({
         destination: cmuxSshDestination(freestyleContext),
         name: workspace.name,
         port: freestyleContext.ssh.port,
-        remoteCommandArgs: ["tmux", "attach-session", "-t", devSessionName],
         sshOptions: cmuxSshOptions(freestyleContext),
       });
       const cmuxWorkspaceId = cmuxWorkspace.id ?? cmuxWorkspace.handle;
+
+      const devPane = await cmux.newPane({
+        workspace: cmuxWorkspaceId,
+        type: "terminal",
+        direction: "down",
+        focus: true,
+      });
+      await cmux.send({
+        workspace: cmuxWorkspaceId,
+        surface: devPane.surface,
+        text: `cd ${shellQuote(ctx.repo.repoPath)} && ${devCommand}\\n`,
+      });
 
       await Promise.all([
         waitForLocalhost(vm, devPort),
@@ -265,6 +272,7 @@ export default app
 
       await cmux.portsKick({
         workspace: cmuxWorkspaceId,
+        surface: devPane.surface,
         reason: "refresh",
       });
 
@@ -291,48 +299,14 @@ export function cmuxSshDestination(context: FreestyleWorkspaceContext): string {
 }
 
 export function cmuxSshOptions(context: FreestyleWorkspaceContext): string[] {
-  const options = ["RequestTTY=force"];
-  if (context.ssh.auth.type !== "token") return options;
+  if (context.ssh.auth.type !== "token") return [];
   return [
-    ...options,
     "StrictHostKeyChecking=no",
     "UserKnownHostsFile=/dev/null",
     "LogLevel=ERROR",
     "IdentitiesOnly=yes",
     "IdentityFile=/dev/null",
   ];
-}
-
-async function startDevServerInTmux(
-  vm: Pick<FreestyleVmRuntime, "exec" | "probe">,
-  repoPath: string,
-): Promise<void> {
-  const existing = await vm.probe(
-    `tmux has-session -t ${shellQuote(devSessionName)} >/dev/null 2>&1`,
-    {
-      name: "check dev server tmux session",
-    },
-  );
-  if (existing.ok) return;
-
-  await vm.exec(
-    [
-      "set -e",
-      `cd ${shellQuote(repoPath)}`,
-      [
-        "tmux new-session -d",
-        "-s",
-        shellQuote(devSessionName),
-        "-c",
-        shellQuote(repoPath),
-        shellQuote(devCommand),
-      ].join(" "),
-      `tmux has-session -t ${shellQuote(devSessionName)}`,
-    ].join("\n"),
-    {
-      name: "start dev server in tmux",
-    },
-  );
 }
 
 async function waitForLocalhost(
@@ -349,8 +323,6 @@ async function waitForLocalhost(
       "  sleep 1",
       "done",
       `curl -v ${shellQuote(`http://127.0.0.1:${port}/`)} || true`,
-      "printf '\\n--- tmux dev server tail ---\\n'",
-      `tmux capture-pane -pt ${shellQuote(devSessionName)} -S -200 || true`,
       "exit 1",
     ].join("\n"),
     {
