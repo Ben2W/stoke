@@ -12,6 +12,7 @@ const repoUrl = `https://github.com/${repo}.git`;
 const repoPath = "/workspace/freestyle-website-next";
 const devPort = 4321;
 const devCommand = `pnpm dev -- --host 0.0.0.0 --port ${devPort}`;
+const devSessionName = "fdev-website-dev";
 const pnpmVersion = "9.15.9";
 const cmux = createCmuxClient();
 
@@ -51,6 +52,7 @@ const baseVm = app
           "gnupg",
           "pkg-config",
           "python3",
+          "tmux",
           "unzip",
           "xz-utils",
         ].join(" "),
@@ -242,36 +244,27 @@ export default app
         },
       );
 
+      await startDevServerInTmux(vm, ctx.repo.repoPath);
+
       const cmuxWorkspace = await cmux.ssh({
         destination: cmuxSshDestination(freestyleContext),
         name: workspace.name,
         port: freestyleContext.ssh.port,
+        remoteCommandArgs: ["tmux", "attach-session", "-t", devSessionName],
         sshOptions: cmuxSshOptions(freestyleContext),
       });
       const cmuxWorkspaceId = cmuxWorkspace.id ?? cmuxWorkspace.handle;
 
-      await cmux.waitForRemoteReady(cmuxWorkspaceId, {
-        timeoutMs: 90 * 1000,
-        requireProxy: true,
-      });
-
-      const devSurfaceId = await firstTerminalSurface(cmuxWorkspaceId);
-      await cmux.send({
-        workspace: cmuxWorkspaceId,
-        surface: devSurfaceId,
-        text: `cd ${shellQuote(ctx.repo.repoPath)} && ${devCommand}`,
-      });
-      await cmux.sendKey({
-        workspace: cmuxWorkspaceId,
-        surface: devSurfaceId,
-        key: "enter",
-      });
-
-      await waitForLocalhost(vm, devPort);
+      await Promise.all([
+        waitForLocalhost(vm, devPort),
+        cmux.waitForRemoteReady(cmuxWorkspaceId, {
+          timeoutMs: 90 * 1000,
+          requireProxy: true,
+        }),
+      ]);
 
       await cmux.portsKick({
         workspace: cmuxWorkspaceId,
-        surface: devSurfaceId,
         reason: "refresh",
       });
 
@@ -310,14 +303,36 @@ export function cmuxSshOptions(context: FreestyleWorkspaceContext): string[] {
   ];
 }
 
-async function firstTerminalSurface(workspaceId: string): Promise<string> {
-  const surfaces = await cmux.listSurfaces(workspaceId);
-  const terminal = surfaces.find((surface) => surface.type === "terminal") ??
-    surfaces[0];
-  if (!terminal) {
-    throw new Error(`cmux workspace has no terminal surfaces: ${workspaceId}`);
-  }
-  return terminal.surface;
+async function startDevServerInTmux(
+  vm: Pick<FreestyleVmRuntime, "exec" | "probe">,
+  repoPath: string,
+): Promise<void> {
+  const existing = await vm.probe(
+    `tmux has-session -t ${shellQuote(devSessionName)} >/dev/null 2>&1`,
+    {
+      name: "check dev server tmux session",
+    },
+  );
+  if (existing.ok) return;
+
+  await vm.exec(
+    [
+      "set -e",
+      `cd ${shellQuote(repoPath)}`,
+      [
+        "tmux new-session -d",
+        "-s",
+        shellQuote(devSessionName),
+        "-c",
+        shellQuote(repoPath),
+        shellQuote(devCommand),
+      ].join(" "),
+      `tmux has-session -t ${shellQuote(devSessionName)}`,
+    ].join("\n"),
+    {
+      name: "start dev server in tmux",
+    },
+  );
 }
 
 async function waitForLocalhost(
@@ -334,6 +349,8 @@ async function waitForLocalhost(
       "  sleep 1",
       "done",
       `curl -v ${shellQuote(`http://127.0.0.1:${port}/`)} || true`,
+      "printf '\\n--- tmux dev server tail ---\\n'",
+      `tmux capture-pane -pt ${shellQuote(devSessionName)} -S -200 || true`,
       "exit 1",
     ].join("\n"),
     {
