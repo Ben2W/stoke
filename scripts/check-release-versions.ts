@@ -16,6 +16,18 @@ const packages = [
     constant: "FDEV_ENGINE_VERSION",
   },
   {
+    name: "@freestyle-sh/fdev-runtime",
+    dir: "packages/fdev-runtime",
+    versionFile: "packages/fdev-runtime/src/version.ts",
+    constant: "FDEV_RUNTIME_VERSION",
+  },
+  {
+    name: "@freestyle-sh/fdev-runtime-client",
+    dir: "packages/fdev-runtime-client",
+    versionFile: "packages/fdev-runtime-client/src/version.ts",
+    constant: "FDEV_RUNTIME_CLIENT_VERSION",
+  },
+  {
     name: "@freestyle-sh/fdev-provider-freestyle",
     dir: "packages/fdev-provider-freestyle",
     versionFile: "packages/fdev-provider-freestyle/src/version.ts",

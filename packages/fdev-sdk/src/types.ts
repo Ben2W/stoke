@@ -45,6 +45,25 @@ export type ProviderWorkspaceContext = object;
 
 export type LocalWorkspaceRuntime = {
   open(target: string): MaybePromise<void>;
+  command?(input: LocalCommandRequest): MaybePromise<LocalCommandResult>;
+};
+
+export type LocalCommandRequest = {
+  argv: string[];
+  cwd?: string;
+  env?: Record<string, string | undefined>;
+  stdin?: string | null;
+  reason?: string;
+  presentation?: {
+    visible?: boolean;
+    label?: string;
+  };
+};
+
+export type LocalCommandResult = {
+  exitCode: number;
+  stdout: string;
+  stderr: string;
 };
 
 export type WorkflowProviderDefinition<

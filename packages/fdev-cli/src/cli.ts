@@ -5,17 +5,21 @@ import { createInterface } from "node:readline/promises";
 import chalk from "chalk";
 import { Command } from "commander";
 import {
-  createDevMachineEngine,
-  type DevMachineEngine,
+  getOrStartRuntime,
+  type RuntimeClient,
+  type RuntimeHealth,
+  type RuntimeMetadata,
+} from "@freestyle-sh/fdev-runtime-client";
+import {
   type DevMachineEvent,
   type WorkflowPlan,
   type SnapshotRecord,
   type WorkspaceRecord,
 } from "@freestyle-sh/fdev-engine";
-import { assertVersionAlignment, DEFAULT_CONFIG_FILE, resolveConfigPaths, SDK_PACKAGE_NAME } from "./project.ts";
+import { DEFAULT_CONFIG_FILE, resolveConfigPaths, SDK_PACKAGE_NAME } from "./project.ts";
 import { FDEV_CLI_VERSION } from "./version.ts";
 import { initProject, normalizeMachineName, type InitProjectResult } from "./init.ts";
-import { createLocalInteractionPresenter } from "./interaction.ts";
+import { openExternalTarget } from "./interaction.ts";
 import {
   completeFdev,
   formatCompletionItems,
@@ -71,6 +75,23 @@ type InitInstallResult = {
   skipped: boolean;
 };
 
+type EngineProjectInfo = {
+  projectDir: string;
+  configPath: string;
+  statePath: string;
+  workflow?: {
+    name: string;
+    providers: string[];
+  };
+};
+
+type RuntimeRunStarted = {
+  runId: string;
+  operation: string;
+  status: string;
+  eventsUrl: string;
+};
+
 const program = new Command();
 
 program
@@ -99,8 +120,7 @@ program
   .description("Show cached and pending steps")
   .option("--json", "Print machine-readable JSON")
   .action(async function (this: Command) {
-    const engine = await loadEngine(this);
-    const plan = await engine.plan();
+    const plan = await runRuntimeOperation<WorkflowPlan>(this, "plan", {}, { renderEvents: !wantsJson(this) });
     if (wantsJson(this)) {
       printJson(plan);
       return;
@@ -115,20 +135,29 @@ program
   .option("--json", "Print machine-readable JSON")
   .action(async function (this: Command) {
     const options = this.optsWithGlobals() as ApplyOptions;
-    const engine = await loadEngine(this);
 
     if (options.dryRun) {
-      const plan = await engine.plan();
+      const result = await runRuntimeOperation<{ dryRun: true; plan: WorkflowPlan }>(
+        this,
+        "apply",
+        { dryRun: true },
+        { renderEvents: !wantsJson(this) },
+      );
       if (wantsJson(this)) {
-        printJson({ dryRun: true, plan });
+        printJson(result);
         return;
       }
-      printPlan(plan);
+      printPlan(result.plan);
       console.log("No changes applied.");
       return;
     }
 
-    const result = await engine.apply();
+    const result = await runRuntimeOperation<{
+      context: Record<string, unknown>;
+      snapshotId?: string;
+      workspaceSource?: unknown;
+      plan: WorkflowPlan;
+    }>(this, "apply", {}, { renderEvents: !wantsJson(this) });
     if (wantsJson(this)) {
       printJson(result);
       return;
@@ -146,8 +175,12 @@ program
   .option("--json", "Print machine-readable JSON")
   .action(async function (this: Command) {
     const options = this.optsWithGlobals() as ForkOptions;
-    const engine = await loadEngine(this);
-    const workspace = await engine.fork({ name: options.name ?? "" });
+    const workspace = await runRuntimeOperation<WorkspaceRecord>(
+      this,
+      "fork",
+      { name: options.name ?? "" },
+      { renderEvents: !wantsJson(this) },
+    );
     if (wantsJson(this)) {
       printJson(workspace);
       return;
@@ -161,11 +194,11 @@ program
   .description("List workspaces, snapshots, or config")
   .option("--json", "Print machine-readable JSON")
   .action(async function (this: Command, target?: string) {
-    const engine = await loadEngine(this);
+    const runtime = await loadRuntime(this);
     const kind = normalizeListTarget(target);
 
     if (kind === "workspaces") {
-      const workspaces = engine.listWorkspaces();
+      const { workspaces } = await runtime.get<{ workspaces: WorkspaceRecord[] }>("/workspaces");
       if (wantsJson(this)) {
         printJson(workspaces);
         return;
@@ -175,7 +208,7 @@ program
     }
 
     if (kind === "snapshots") {
-      const snapshots = engine.listSnapshots();
+      const { snapshots } = await runtime.get<{ snapshots: SnapshotRecord[] }>("/snapshots");
       if (wantsJson(this)) {
         printJson(snapshots);
         return;
@@ -184,7 +217,7 @@ program
       return;
     }
 
-    const info = engine.getProjectInfo();
+    const info = await runtime.get<EngineProjectInfo>("/project");
     if (wantsJson(this)) {
       printJson(info);
       return;
@@ -201,12 +234,10 @@ program
   .option("--json", "Print machine-readable JSON")
   .action(async function (this: Command, workspaceOrVmId: string) {
     const options = this.optsWithGlobals() as SshOptions;
-    const engine = await loadEngine(this);
-    const terminal = await engine.attachTerminal({
+    const terminal = await runRuntimeOperation<{ command: string }>(this, "ssh", {
       workspaceOrVmId,
-      printOnly: Boolean(options.print || wantsJson(this)),
       user: options.user,
-    });
+    }, { renderEvents: !wantsJson(this) });
 
     if (wantsJson(this)) {
       printJson(terminal);
@@ -214,6 +245,14 @@ program
     }
 
     if (options.print) console.log(terminal.command);
+    if (!options.print) {
+      const proc = Bun.spawn(["sh", "-lc", terminal.command], {
+        stdin: "inherit",
+        stdout: "inherit",
+        stderr: "inherit",
+      });
+      await proc.exited;
+    }
   });
 
 program
@@ -223,8 +262,10 @@ program
   .option("--json", "Print machine-readable JSON")
   .action(async function (this: Command, workspace: string) {
     const options = this.optsWithGlobals() as SnapshotOptions;
-    const engine = await loadEngine(this);
-    const snapshot = await engine.snapshotWorkspace({ workspace, label: options.label });
+    const snapshot = await runRuntimeOperation<SnapshotRecord>(this, "snapshot", {
+      workspace,
+      label: options.label,
+    }, { renderEvents: !wantsJson(this) });
     if (wantsJson(this)) {
       printJson(snapshot);
       return;
@@ -243,13 +284,22 @@ program
       throw new Error(`Refusing to delete ${workspace} without --yes`);
     }
 
-    const engine = await loadEngine(this);
-    const removed = await engine.deleteWorkspace({ workspace });
+    const removed = await runRuntimeOperation<WorkspaceRecord>(this, "rm", { workspace }, {
+      renderEvents: !wantsJson(this),
+    });
     if (wantsJson(this)) {
       printJson({ removed });
       return;
     }
     console.log(`removed ${removed.name} ${removed.resourceId}`);
+  });
+
+program
+  .command("doctor")
+  .description("Show fdev runtime diagnostics")
+  .option("--json", "Print machine-readable JSON")
+  .action(async function (this: Command) {
+    await runDoctor(this);
   });
 
 program
@@ -265,10 +315,10 @@ program
   .argument("[words...]", "completion words")
   .option("--shell <shell>", "completion shell")
   .option("--index <index>", "current word index")
-  .action((words: string[], options: CompletionOptions) => {
+  .action(async (words: string[], options: CompletionOptions) => {
     const shell = resolveCompletionShell(options.shell);
     const currentIndex = options.index === undefined ? undefined : Number(options.index);
-    const items = completeFdev({
+    const items = await completeFdev({
       words,
       currentIndex: Number.isFinite(currentIndex) ? currentIndex : undefined,
       cwd: process.cwd(),
@@ -709,32 +759,284 @@ function packageManagerInstallCommand(packageManager: Exclude<PackageManager, "s
   }
 }
 
-async function loadEngine(command: Command): Promise<DevMachineEngine> {
-  const engineOptions = resolveEngineOptions(command);
-  assertVersionAlignment(engineOptions.projectDir);
-  const engine = await createDevMachineEngine({
-    ...engineOptions,
-    interaction: {
-      present: createLocalInteractionPresenter(),
+async function runDoctor(command: Command): Promise<void> {
+  const runtime = await loadRuntime(command);
+  const [health, runtimeInfo, project] = await Promise.all([
+    runtime.get<RuntimeHealth>("/health"),
+    runtime.get<RuntimeMetadata>("/runtime"),
+    runtime.get<EngineProjectInfo>("/project"),
+  ]);
+  const diagnostics = {
+    cliVersion: FDEV_CLI_VERSION,
+    project,
+    daemon: {
+      url: runtime.handle.url,
+      pid: runtime.handle.pid,
+      handlePath: runtime.paths.handlePath,
+      tokenPath: runtime.handle.tokenPath,
+      expiresAt: health.expiresAt ?? runtime.handle.expiresAt,
     },
-  });
-  if (!wantsJson(command)) engine.onEvent(renderEvent);
-  await engine.load();
-  return engine;
+    runtime: runtimeInfo,
+  };
+
+  if (wantsJson(command)) {
+    printJson(diagnostics);
+    return;
+  }
+
+  printTable(["key", "value"], [
+    ["cli", FDEV_CLI_VERSION],
+    ["project", project.projectDir],
+    ["config", project.configPath],
+    ["runtime handle", runtime.paths.handlePath],
+    ["daemon", runtime.handle.url],
+    ["daemon pid", String(runtime.handle.pid)],
+    ["engine", runtimeInfo.engineVersion],
+    ["runtime", runtimeInfo.runtimeVersion],
+    ["api version", String(runtimeInfo.apiVersion)],
+    ["protocol", runtimeInfo.protocolHash],
+    ["state", project.statePath],
+    ["expires", health.expiresAt ?? runtime.handle.expiresAt ?? ""],
+  ]);
 }
 
-function resolveEngineOptions(command: Command): { projectDir: string; configPath?: string } {
+async function loadRuntime(command: Command): Promise<RuntimeClient> {
+  const engineOptions = resolveEngineOptions(command);
+  return await getOrStartRuntime(engineOptions);
+}
+
+async function runRuntimeOperation<T>(
+  command: Command,
+  operation: string,
+  input: Record<string, unknown>,
+  options: { renderEvents: boolean },
+): Promise<T> {
+  const runtime = await loadRuntime(command);
+  const started = await runtime.post<RuntimeRunStarted>("/runs", { operation, input });
+  let result: T | undefined;
+  let failure: Error | undefined;
+
+  await runtime.stream(started.eventsUrl, async (event) => {
+    if (isHostRequestEvent(event)) {
+      await answerHostRequest(runtime, event);
+      return;
+    }
+    if (isRecord(event) && event.type === "run.completed") {
+      result = event.result as T;
+      return;
+    }
+    if (isRecord(event) && event.type === "run.failed") {
+      const message = isRecord(event.error) && typeof event.error.message === "string"
+        ? event.error.message
+        : "Runtime operation failed";
+      failure = new Error(message);
+      return;
+    }
+    if (options.renderEvents && isDevMachineEvent(event)) {
+      renderEvent(event);
+    }
+  });
+
+  if (failure) throw failure;
+  if (result === undefined) throw new Error(`Runtime operation ${operation} finished without a result`);
+  return result;
+}
+
+function resolveEngineOptions(command: Command): { projectDir: string; configPath: string } {
   const paths = resolveCommandConfigPaths(command);
-  const options = command.optsWithGlobals() as GlobalOptions;
-  if (options.config) {
-    return { projectDir: paths.projectDir, configPath: paths.configPath };
-  }
-  return { projectDir: paths.projectDir };
+  return { projectDir: paths.projectDir, configPath: paths.configPath };
 }
 
 function resolveCommandConfigPaths(command: Command): { projectDir: string; configPath: string } {
   const options = command.optsWithGlobals() as GlobalOptions;
   return resolveConfigPaths({ project: options.project, config: options.config });
+}
+
+type HostRequestEvent = {
+  type: "host.request";
+  requestId: string;
+  method: string;
+  params: unknown;
+};
+
+async function answerHostRequest(runtime: RuntimeClient, event: HostRequestEvent): Promise<void> {
+  try {
+    const result = await handleHostRequest(event.method, event.params);
+    await runtime.post(`/host-responses/${event.requestId}`, { result });
+  } catch (error) {
+    await runtime.post(`/host-responses/${event.requestId}`, {
+      error: {
+        message: error instanceof Error ? error.message : String(error),
+      },
+    });
+  }
+}
+
+async function handleHostRequest(method: string, params: unknown): Promise<unknown> {
+  switch (method) {
+    case "message.show":
+      return showHostMessage(params);
+    case "prompt.text":
+      return await promptHostText(params);
+    case "prompt.confirm":
+      return await promptHostConfirm(params);
+    case "prompt.select":
+      return await promptHostSelect(params);
+    case "open.external":
+      return openHostExternal(params);
+    case "host.command.run":
+      return await runHostCommand(params);
+    default:
+      throw new Error(`Unsupported host method ${method}`);
+  }
+}
+
+function showHostMessage(params: unknown): null {
+  const message = stringField(params, "message") ?? "";
+  const level = stringField(params, "level") ?? "info";
+  console.error(`${level}: ${message}`);
+  return null;
+}
+
+async function promptHostText(params: unknown): Promise<string> {
+  const message = stringField(params, "message") ?? "Enter value";
+  const defaultValue = stringField(params, "defaultValue");
+  if (!canPrompt()) {
+    if (defaultValue !== undefined) return defaultValue;
+    throw new Error(`Host prompt requires an interactive terminal: ${message}`);
+  }
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    const suffix = defaultValue === undefined ? "" : chalk.dim(` (${defaultValue})`);
+    const answer = await rl.question(`${chalk.cyan("?")} ${message}${suffix} `);
+    return answer || defaultValue || "";
+  } finally {
+    rl.close();
+  }
+}
+
+async function promptHostConfirm(params: unknown): Promise<boolean> {
+  const message = stringField(params, "message") ?? "Continue?";
+  const defaultValue = booleanField(params, "defaultValue") ?? false;
+  if (!canPrompt()) return defaultValue;
+  const answer = (await promptHostText({
+    message: `${message} ${chalk.dim(defaultValue ? "[Y/n]" : "[y/N]")}`,
+    defaultValue: defaultValue ? "y" : "n",
+  })).trim().toLowerCase();
+  if (!answer) return defaultValue;
+  return answer === "y" || answer === "yes";
+}
+
+async function promptHostSelect(params: unknown): Promise<string> {
+  const message = stringField(params, "message") ?? "Choose";
+  const options = isRecord(params) && Array.isArray(params.options)
+    ? params.options
+      .filter(isRecord)
+      .map((item) => ({
+        value: typeof item.value === "string" ? item.value : "",
+        label: typeof item.label === "string" ? item.label : typeof item.value === "string" ? item.value : "",
+        hint: typeof item.description === "string" ? item.description : undefined,
+      }))
+      .filter((item) => item.value)
+    : [];
+  if (options.length === 0) throw new Error(`Host select prompt has no options`);
+  const defaultValue = stringField(params, "defaultValue") ?? options[0]!.value;
+  return await promptSelect(message, options, defaultValue);
+}
+
+function openHostExternal(params: unknown): null {
+  const target = stringField(params, "target");
+  if (!target) throw new Error(`open.external requires target`);
+  console.error(`open ${target}`);
+  openExternalTarget(target);
+  return null;
+}
+
+async function runHostCommand(params: unknown): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+  if (!isRecord(params) || !Array.isArray(params.argv) || params.argv.some((item) => typeof item !== "string")) {
+    throw new Error(`host.command.run requires argv`);
+  }
+  const argv = params.argv as string[];
+  if (argv.length === 0) throw new Error(`host.command.run argv must not be empty`);
+  const cwd = stringField(params, "cwd");
+  const reason = stringField(params, "reason");
+  const env = isRecord(params.env)
+    ? Object.fromEntries(Object.entries(params.env).filter(([, value]) => value === undefined || typeof value === "string")) as Record<string, string | undefined>
+    : undefined;
+  const stdin = params.stdin === null || typeof params.stdin === "string" ? params.stdin : undefined;
+
+  if (process.env.FDEV_TRUST_HOST_COMMANDS !== "1") {
+    const allowed = await confirmHostCommand({ argv, cwd, env, reason });
+    if (!allowed) throw new Error(`Host command denied`);
+  }
+
+  const proc = Bun.spawn(argv, {
+    cwd,
+    env: env ? { ...process.env, ...env } : process.env,
+    stdin: stdin === undefined || stdin === null ? "ignore" : "pipe",
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  if (stdin !== undefined && stdin !== null) {
+    const writer = proc.stdin;
+    if (!writer) throw new Error(`Host command stdin is unavailable`);
+    writer.write(stdin);
+    writer.end();
+  }
+  const [exitCode, stdout, stderr] = await Promise.all([
+    proc.exited,
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+  ]);
+  return { exitCode, stdout, stderr };
+}
+
+async function confirmHostCommand(input: {
+  argv: string[];
+  cwd?: string;
+  env?: Record<string, string | undefined>;
+  reason?: string;
+}): Promise<boolean> {
+  if (!canPrompt()) {
+    throw new Error(`Host command requires confirmation in an interactive terminal`);
+  }
+
+  console.error("");
+  console.error(chalk.yellow("This fdev config is asking to run a command on this machine."));
+  console.error(`${chalk.bold("Command:")} ${input.argv.map(shellDisplay).join(" ")}`);
+  if (input.cwd) console.error(`${chalk.bold("cwd:")} ${input.cwd}`);
+  if (input.env && Object.keys(input.env).length > 0) {
+    console.error(`${chalk.bold("env:")} ${Object.keys(input.env).join(", ")}`);
+  }
+  if (input.reason) console.error(`${chalk.bold("Reason:")} ${input.reason}`);
+  return await promptHostConfirm({ message: "Allow?", defaultValue: false });
+}
+
+function isHostRequestEvent(value: unknown): value is HostRequestEvent {
+  return isRecord(value) &&
+    value.type === "host.request" &&
+    typeof value.requestId === "string" &&
+    typeof value.method === "string";
+}
+
+function isDevMachineEvent(value: unknown): value is DevMachineEvent {
+  return isRecord(value) && typeof value.type === "string" && !value.type.startsWith("run.") && value.type !== "host.request";
+}
+
+function stringField(value: unknown, key: string): string | undefined {
+  return isRecord(value) && typeof value[key] === "string" ? value[key] : undefined;
+}
+
+function booleanField(value: unknown, key: string): boolean | undefined {
+  return isRecord(value) && typeof value[key] === "boolean" ? value[key] : undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function shellDisplay(value: string): string {
+  return /^[A-Za-z0-9_./:=@+-]+$/.test(value) ? value : JSON.stringify(value);
 }
 
 function wantsJson(command: Command): boolean {
@@ -793,7 +1095,7 @@ function printSnapshots(snapshots: SnapshotRecord[]): void {
   );
 }
 
-function printConfig(info: ReturnType<DevMachineEngine["getProjectInfo"]>): void {
+function printConfig(info: EngineProjectInfo): void {
   const rows = [
     ["config", info.configPath],
     ["project", info.projectDir],

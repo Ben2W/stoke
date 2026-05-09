@@ -1,6 +1,5 @@
-import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { Database } from "bun:sqlite";
+import { getOrStartRuntime } from "@freestyle-sh/fdev-runtime-client";
 
 export type CompletionShell = "bash" | "fish" | "zsh";
 
@@ -92,7 +91,7 @@ const OPTIONS_WITH_VALUES = new Set([
   "--label",
 ]);
 
-export function completeFdev(input: CompleteFdevInput): CompletionItem[] {
+export async function completeFdev(input: CompleteFdevInput): Promise<CompletionItem[]> {
   const cwd = input.cwd ?? process.cwd();
   const words = input.words.length > 0 ? input.words : ["fdev"];
   const currentIndex = input.currentIndex ?? Math.max(0, words.length - 1);
@@ -113,7 +112,7 @@ export function completeFdev(input: CompleteFdevInput): CompletionItem[] {
   const positionalCount = countPositionals(before, command);
 
   if ((command === "ssh" || command === "snapshot" || command === "rm") && positionalCount === 0) {
-    return filterItems(workspaceTargets(resolveProjectDir(words, cwd), current, command === "ssh"), current);
+    return filterItems(await workspaceTargets(resolveProjectDir(words, cwd), current, command === "ssh"), current);
   }
 
   if (command === "ls" && positionalCount === 0) {
@@ -239,30 +238,39 @@ function expectsOptionValue(words: string[]): boolean {
   return Boolean(previous && OPTIONS_WITH_VALUES.has(previous));
 }
 
-function resolveProjectDir(words: string[], cwd: string): string {
+function resolveProjectDir(words: string[], cwd: string): { projectDir: string; configPath: string } {
   for (let index = 0; index < words.length; index += 1) {
     const word = words[index]!;
     if (word === "-C" || word === "--project") {
       const value = words[index + 1];
-      if (value) return resolve(cwd, value);
+      if (value) return projectPaths(resolve(cwd, value));
     }
     if (word.startsWith("--project=")) {
-      return resolve(cwd, word.slice("--project=".length));
+      return projectPaths(resolve(cwd, word.slice("--project=".length)));
     }
     if (word === "--config") {
       const value = words[index + 1];
-      if (value) return dirname(resolve(cwd, value));
+      if (value) return { projectDir: dirname(resolve(cwd, value)), configPath: resolve(cwd, value) };
     }
     if (word.startsWith("--config=")) {
-      return dirname(resolve(cwd, word.slice("--config=".length)));
+      const configPath = resolve(cwd, word.slice("--config=".length));
+      return { projectDir: dirname(configPath), configPath };
     }
   }
 
-  return cwd;
+  return projectPaths(cwd);
 }
 
-function workspaceTargets(projectDir: string, current: string, includeVmIds: boolean): CompletionItem[] {
-  const workspaces = readWorkspaces(projectDir);
+function projectPaths(projectDir: string): { projectDir: string; configPath: string } {
+  return { projectDir, configPath: join(projectDir, "fdev.config.ts") };
+}
+
+async function workspaceTargets(
+  paths: { projectDir: string; configPath: string },
+  current: string,
+  includeVmIds: boolean,
+): Promise<CompletionItem[]> {
+  const workspaces = await readWorkspaces(paths);
   const items = workspaces.map((workspace) => ({
     value: workspace.name,
     description: workspace.resourceId,
@@ -280,26 +288,10 @@ function workspaceTargets(projectDir: string, current: string, includeVmIds: boo
   return dedupeItems(items);
 }
 
-function readWorkspaces(projectDir: string): Array<{ name: string; resourceId: string }> {
-  const statePath = join(projectDir, ".fdev", "state.sqlite");
-  if (!existsSync(statePath)) return [];
-
-  const db = new Database(statePath, { readonly: true, create: false });
-  try {
-    try {
-      return db.query<{ name: string; resourceId: string }, []>(
-        "SELECT name, resource_id AS resourceId FROM workspaces ORDER BY name",
-      ).all();
-    } catch {
-      return db.query<{ name: string; resourceId: string }, []>(
-        "SELECT name, vm_id AS resourceId FROM workspaces ORDER BY name",
-      ).all();
-    }
-  } catch {
-    return [];
-  } finally {
-    db.close();
-  }
+async function readWorkspaces(paths: { projectDir: string; configPath: string }): Promise<Array<{ name: string; resourceId: string }>> {
+  const runtime = await getOrStartRuntime(paths);
+  const { workspaces } = await runtime.get<{ workspaces: Array<{ name: string; resourceId: string }> }>("/workspaces");
+  return workspaces;
 }
 
 function filterItems(items: CompletionItem[], current: string): CompletionItem[] {

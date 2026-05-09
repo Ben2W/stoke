@@ -6,11 +6,11 @@ export function createLocalInteractionPresenter(): InteractionPresenter {
     if (request.instructions) console.error(request.instructions);
     console.error(`Open ${request.url}`);
 
-    openUrl(request.url);
+    openExternalTarget(request.url);
   };
 }
 
-function openUrl(url: string): void {
+export function openExternalTarget(url: string): void {
   if (process.env.FDEV_NO_BROWSER === "1") return;
 
   const command =

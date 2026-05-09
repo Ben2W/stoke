@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { FDEV_CLI_VERSION } from "./version.ts";
-import { FREESTYLE_PROVIDER_PACKAGE_NAME, SDK_PACKAGE_NAME } from "./project.ts";
+import { FREESTYLE_PROVIDER_PACKAGE_NAME, RUNTIME_PACKAGE_NAME, SDK_PACKAGE_NAME } from "./project.ts";
 
 export type InitProjectInput = {
   projectDir: string;
@@ -206,9 +206,11 @@ function ensureProjectPackageJson(
   const devDependencies = isRecord(pkg.devDependencies) ? pkg.devDependencies : {};
   const sdkDependencyChanged =
     devDependencies[SDK_PACKAGE_NAME] !== FDEV_CLI_VERSION ||
+    devDependencies[RUNTIME_PACKAGE_NAME] !== FDEV_CLI_VERSION ||
     devDependencies[FREESTYLE_PROVIDER_PACKAGE_NAME] !== FDEV_CLI_VERSION;
   if (sdkDependencyChanged) {
     devDependencies[SDK_PACKAGE_NAME] = FDEV_CLI_VERSION;
+    devDependencies[RUNTIME_PACKAGE_NAME] = FDEV_CLI_VERSION;
     devDependencies[FREESTYLE_PROVIDER_PACKAGE_NAME] = FDEV_CLI_VERSION;
     updated = true;
   }

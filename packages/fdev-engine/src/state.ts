@@ -36,8 +36,8 @@ export class StateStore {
   private readonly schema: FdevDatabaseSchema;
   private schemaSync?: Promise<SchemaSyncResult>;
 
-  constructor(projectDir: string, options: { providerSchemas?: FdevDatabaseSchema[] } = {}) {
-    this.path = join(projectDir, ".fdev", "state.sqlite");
+  constructor(projectDir: string, options: { providerSchemas?: FdevDatabaseSchema[]; statePath?: string } = {}) {
+    this.path = options.statePath ?? join(projectDir, ".fdev", "state.sqlite");
     this.schema = composeFdevSchema(options.providerSchemas ?? []);
     this.db = createFdevDatabase(this.path, { schema: this.schema });
   }

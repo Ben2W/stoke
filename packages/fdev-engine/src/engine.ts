@@ -39,6 +39,7 @@ import type {
 export type CreateDevMachineEngineOptions = {
   projectDir?: string;
   configPath?: string;
+  statePath?: string;
   providers?: BaseProviderPlugin[];
   providerFactory?: ProviderFactory;
   interaction?: {
@@ -117,12 +118,13 @@ export class DevMachineEngine {
       ? resolve(options.configPath)
       : join(resolve(options.projectDir ?? process.cwd()), "fdev.config.ts");
     this.projectDir = resolve(options.configPath ? dirname(this.configPath) : options.projectDir ?? process.cwd());
-    this.statePath = join(this.projectDir, ".fdev", "state.sqlite");
+    this.statePath = options.statePath ? resolve(options.statePath) : join(this.projectDir, ".fdev", "state.sqlite");
     this.providers = options.providers ?? [];
     this.providerFactory = options.providerFactory ?? ((input) => this.createProviderFromPlugin(input));
     this.interactionPresenter = options.interaction?.present ?? defaultInteractionPresenter;
     this.local = {
       open: options.local?.open ?? openLocalTarget,
+      command: options.local?.command ?? runLocalCommand,
     };
   }
 
@@ -154,6 +156,7 @@ export class DevMachineEngine {
     ]);
     this.state = new StateStore(this.projectDir, {
       providerSchemas: this.providers.map((provider) => provider.schema).filter(isDefined),
+      statePath: this.statePath,
     });
     await this.state.syncSchema();
 
@@ -1150,6 +1153,38 @@ async function openLocalTarget(target: string): Promise<void> {
   if (code !== 0) {
     throw new Error(`Failed to open ${target}`);
   }
+}
+
+async function runLocalCommand(input: {
+  argv: string[];
+  cwd?: string;
+  env?: Record<string, string | undefined>;
+  stdin?: string | null;
+}): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+  if (input.argv.length === 0) {
+    throw new Error(`Local command argv must not be empty`);
+  }
+
+  const proc = Bun.spawn(input.argv, {
+    cwd: input.cwd,
+    env: input.env ? { ...process.env, ...input.env } : process.env,
+    stdin: input.stdin === undefined || input.stdin === null ? "ignore" : "pipe",
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  if (input.stdin !== undefined && input.stdin !== null) {
+    const stdin = proc.stdin;
+    if (!stdin) throw new Error(`Local command stdin is unavailable`);
+    stdin.write(input.stdin);
+    stdin.end();
+  }
+  const [exitCode, stdout, stderr] = await Promise.all([
+    proc.exited,
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+  ]);
+
+  return { exitCode, stdout, stderr };
 }
 
 function isDefined<T>(value: T | undefined): value is T {
