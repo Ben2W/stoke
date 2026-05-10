@@ -4,22 +4,21 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "fdev:plan": "fdev plan",
-    "fdev:apply": "fdev apply",
-    "fdev:fork": "fdev fork --name gcloud-workspace",
-    "fdev:ssh": "fdev ssh gcloud-workspace --print",
-    "fdev:rm": "fdev rm gcloud-workspace -y",
+    "fdev:plan": "fdev run plan",
+    "fdev:apply": "fdev run apply",
+    "fdev:fork": "fdev run create --name gcloud-workspace",
+    "fdev:ssh": "fdev run ssh gcloud-workspace --print",
+    "fdev:rm": "fdev run delete gcloud-workspace -y",
     "typecheck": "tsc --noEmit",
     "test": "echo no gcloud on-open example tests yet"
   },
   "dependencies": {
     "@freestyle-sh/fdev-provider-freestyle": "workspace:*",
     "@freestyle-sh/fdev-provider-gcloud": "workspace:*",
-    "@freestyle-sh/fdev-sdk": "workspace:*"
+    "@freestyle-sh/fdev": "workspace:*"
   },
   "devDependencies": {
     "@freestyle-sh/fdev-cli": "workspace:*",
-    "@freestyle-sh/fdev-runtime": "workspace:*",
     "@types/bun": "latest",
     "typescript": "latest"
   }

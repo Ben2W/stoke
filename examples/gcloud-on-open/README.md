@@ -8,7 +8,7 @@ The workflow:
 - creates a Freestyle VM
 - installs the Google Cloud CLI inside the VM
 - forks a workspace from that VM snapshot
-- runs `workspace.onOpen` before `fdev ssh`
+- runs `workspace.onOpen` before `fdev run ssh`
 - copies selected files from the local gcloud config directory into the workspace
 - prints the SSH command
 

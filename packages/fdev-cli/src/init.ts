@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { FDEV_CLI_VERSION } from "./version.ts";
-import { FREESTYLE_PROVIDER_PACKAGE_NAME, RUNTIME_PACKAGE_NAME, SDK_PACKAGE_NAME } from "./project.ts";
+import { FREESTYLE_PROVIDER_PACKAGE_NAME, PROJECT_PACKAGE_NAME } from "./project.ts";
 
 export type InitProjectInput = {
   projectDir: string;
@@ -94,31 +94,42 @@ export function normalizeMachineName(value: string): string {
 export function starterConfig(name: string): string {
   const workflowName = JSON.stringify(normalizeMachineName(name));
 
-  return `import { env, workflow } from "@freestyle-sh/fdev-sdk";
+  return `import { defineConfig, env, sequence } from "@freestyle-sh/fdev";
 import { freestyle } from "@freestyle-sh/fdev-provider-freestyle";
 
-const app = workflow(${workflowName}, {
-  providers: {
-    freestyle: freestyle.provider({
-      apiKey: () => env("FREESTYLE_API_KEY"),
-      image: "node-22",
-    }),
-  },
+const freestyleProvider = freestyle.provider({
+  apiKey: () => env.secret("FREESTYLE_API_KEY"),
+  image: "node-22",
 });
 
-export default app
-  .sequence("dev")
-  .task("verify-node-22", async ({ freestyle }) => {
-    const vm = await freestyle.vms.create();
+const dev = sequence(${workflowName})
+  .step("verify-node-22", async ({ providers }) => {
+    const vm = await providers.freestyle.vms.create();
     const result = await vm.probe("node --version", { name: "node is v22" });
     if (!result.ok || !result.stdout.trim().startsWith("v22.")) {
       throw new Error(\`Expected Node.js v22, got: \${result.stdout}\${result.stderr}\`);
     }
     return { vm: await vm.snapshotRef() };
   })
-  .workspace({
-    source: (ctx) => ctx.vm,
+  .create(async ({ ctx, name, providers }) => {
+    const vm = await providers.freestyle.vms.fromSnapshot(ctx.vm);
+    return {
+      name,
+      providerId: "freestyle",
+      resourceId: vm.vmId,
+      vmId: vm.vmId,
+      sourceRef: ctx.vm,
+    };
   });
+
+export default defineConfig({
+  providers: {
+    freestyle: freestyleProvider,
+  },
+  workflows: {
+    dev,
+  },
+});
 `;
 }
 
@@ -195,7 +206,7 @@ function ensureProjectPackageJson(
   }
 
   const scripts = pkg.scripts as Record<string, string>;
-  for (const [key, value] of Object.entries({ plan: "fdev plan", apply: "fdev apply" })) {
+  for (const [key, value] of Object.entries({ plan: "fdev run plan", apply: "fdev run apply" })) {
     if (scripts[key] !== value) {
       scripts[key] = value;
       updated = true;
@@ -205,12 +216,12 @@ function ensureProjectPackageJson(
 
   const devDependencies = isRecord(pkg.devDependencies) ? pkg.devDependencies : {};
   const sdkDependencyChanged =
-    devDependencies[SDK_PACKAGE_NAME] !== FDEV_CLI_VERSION ||
-    devDependencies[RUNTIME_PACKAGE_NAME] !== FDEV_CLI_VERSION ||
+    devDependencies[PROJECT_PACKAGE_NAME] !== FDEV_CLI_VERSION ||
     devDependencies[FREESTYLE_PROVIDER_PACKAGE_NAME] !== FDEV_CLI_VERSION;
   if (sdkDependencyChanged) {
-    devDependencies[SDK_PACKAGE_NAME] = FDEV_CLI_VERSION;
-    devDependencies[RUNTIME_PACKAGE_NAME] = FDEV_CLI_VERSION;
+    delete devDependencies["@freestyle-sh/fdev-sdk"];
+    delete devDependencies["@freestyle-sh/fdev-runtime"];
+    devDependencies[PROJECT_PACKAGE_NAME] = FDEV_CLI_VERSION;
     devDependencies[FREESTYLE_PROVIDER_PACKAGE_NAME] = FDEV_CLI_VERSION;
     updated = true;
   }

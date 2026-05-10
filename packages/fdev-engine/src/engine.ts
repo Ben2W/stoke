@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { isProviderDefinition, isWorkflowNode } from "@freestyle-sh/fdev-sdk";
+import { isFdevConfig, isProviderDefinition, isWorkflowNode } from "./authoring.ts";
 import { loadDotEnv } from "./env-file.ts";
 import { hash, stableJson } from "./hash.ts";
 import type {
@@ -14,7 +14,13 @@ import type {
   WorkflowProviderController,
   WorkflowWorkspaceProvider,
 } from "./provider/types.ts";
-import { StateStore, type SnapshotRecord, type WorkflowNodeRunRecord } from "./state.ts";
+import {
+  createStateStore,
+  type SnapshotRecord,
+  type StateService,
+  type StateServiceFactory,
+  type WorkflowNodeRunRecord,
+} from "./state.ts";
 import type {
   EventHandler,
   JsonObject,
@@ -25,23 +31,29 @@ import type {
   OutputSchema,
   ProviderRuntimeMap,
   ProviderWorkspaceContext,
+  WorkflowInputFieldDefinition,
   WorkflowDefinition,
   WorkflowEvent,
   WorkflowNodeDefinition,
+  WorkflowOperationDefinition,
+  WorkflowHostCapabilityRequirement,
+  WorkflowHostMethodRequirement,
   WorkflowPlan,
   WorkflowPlanNode,
   WorkflowProviderMap,
   WorkflowTaskNode,
   WorkspaceRecord,
   WorkspaceRuntimeRecord,
-} from "@freestyle-sh/fdev-sdk";
+} from "./types.ts";
 
 export type CreateDevMachineEngineOptions = {
   projectDir?: string;
   configPath?: string;
   statePath?: string;
+  state?: StateService;
   providers?: BaseProviderPlugin[];
   providerFactory?: ProviderFactory;
+  stateFactory?: StateServiceFactory;
   interaction?: {
     present?: InteractionPresenter;
   };
@@ -62,6 +74,7 @@ export type EngineProjectInfo = {
   projectDir: string;
   configPath: string;
   statePath: string;
+  workflows: WorkflowSummary[];
   workflow?: WorkflowSummary;
 };
 
@@ -69,8 +82,68 @@ export type WorkflowSummary = {
   name: string;
   providers: string[];
   nodes: string[];
+  operations: string[];
+  createsWorkspace: boolean;
   workspace?: LoadedWorkflow["workspace"];
 };
+
+export type EngineOperationSource = "core" | "config";
+
+export type EngineOperationKind = "command" | "workspace-action";
+
+export type EngineOperationCliPosition = {
+  name: string;
+  index: number;
+};
+
+export type EngineOperationCliOption = {
+  name: string;
+  flag: string;
+  aliases?: string[];
+  required?: boolean;
+  runtime?: boolean;
+  type?: "string" | "boolean" | "number";
+};
+
+export type EngineOperationCli = {
+  positionals?: EngineOperationCliPosition[];
+  options?: EngineOperationCliOption[];
+};
+
+export type EngineOperationSummary = {
+  workflow: string;
+  id: string;
+  aliases?: readonly string[];
+  source?: EngineOperationSource;
+  kind?: EngineOperationKind;
+  title?: string;
+  description?: string;
+  createsWorkspace?: boolean;
+  requiredHostMethods?: readonly WorkflowHostMethodRequirement[];
+  requiredHostCapabilities?: readonly WorkflowHostCapabilityRequirement[];
+  inputFields: readonly WorkflowInputFieldDefinition[];
+  cli?: EngineOperationCli;
+};
+
+export class EngineOperationValidationError extends Error {
+  readonly operation: string;
+
+  constructor(input: { operation: string; message: string; cause?: unknown }) {
+    super(input.message, { cause: input.cause });
+    this.name = "EngineOperationValidationError";
+    this.operation = input.operation;
+  }
+}
+
+export class EngineOperationNotFoundError extends Error {
+  readonly operation: string;
+
+  constructor(operation: string) {
+    super(`Unknown operation ${operation}`);
+    this.name = "EngineOperationNotFoundError";
+    this.operation = operation;
+  }
+}
 
 type ProviderControllers = Record<string, WorkflowProviderController>;
 
@@ -101,13 +174,19 @@ type EvaluateNodeInput = {
   index: { value: number };
 };
 
+type RuntimeOperationEntry = {
+  readonly summary: EngineOperationSummary;
+  readonly run: (input: { workflow?: string; input?: unknown }) => Promise<unknown>;
+};
+
 export class DevMachineEngine {
   private readonly projectDir: string;
   private readonly configPath: string;
   private readonly statePath: string;
-  private state: StateStore | undefined;
+  private state: StateService | undefined;
   private providers: BaseProviderPlugin[];
   private readonly providerFactory: ProviderFactory;
+  private readonly stateFactory: StateServiceFactory;
   private readonly interactionPresenter: InteractionPresenter;
   private readonly local: LocalWorkspaceRuntime;
   private readonly handlers = new Set<EventHandler>();
@@ -118,13 +197,17 @@ export class DevMachineEngine {
       ? resolve(options.configPath)
       : join(resolve(options.projectDir ?? process.cwd()), "fdev.config.ts");
     this.projectDir = resolve(options.configPath ? dirname(this.configPath) : options.projectDir ?? process.cwd());
-    this.statePath = options.statePath ? resolve(options.statePath) : join(this.projectDir, ".fdev", "state.sqlite");
+    this.statePath = options.state?.path ?? (options.statePath ? resolve(options.statePath) : join(this.projectDir, ".fdev", "state.sqlite"));
+    this.state = options.state;
     this.providers = options.providers ?? [];
     this.providerFactory = options.providerFactory ?? ((input) => this.createProviderFromPlugin(input));
+    this.stateFactory = options.stateFactory ?? createStateStore;
     this.interactionPresenter = options.interaction?.present ?? defaultInteractionPresenter;
     this.local = {
       open: options.local?.open ?? openLocalTarget,
       command: options.local?.command ?? runLocalCommand,
+      requestCapability: options.local?.requestCapability ?? requestUnsupportedHostCapability,
+      requestCapabilitySession: options.local?.requestCapabilitySession ?? requestUnsupportedHostCapabilitySession,
     };
   }
 
@@ -145,22 +228,29 @@ export class DevMachineEngine {
     const moduleUrl = pathToFileURL(this.configPath);
     moduleUrl.searchParams.set("t", String(Date.now()));
     const mod = await import(moduleUrl.href);
-    const root = normalizeDefinition(mod.default ?? mod.workflow);
-    const workflow = await this.resolveWorkflow(root);
-    const loaded = [workflow];
+    const roots = normalizeDefinitions(mod.default ?? mod.workflow);
+    const loaded = await Promise.all(roots.map((root) => this.resolveWorkflow(root)));
+    const workflow = loaded[0];
+    if (!workflow) {
+      throw new Error(`fdev.config.ts must define at least one workflow`);
+    }
     this.providers = mergeProviderPlugins([
       ...this.providers,
-      ...Object.values(root.workflow.providers as WorkflowProviderMap)
+      ...roots.flatMap((root) => Object.values(root.workflow.providers as WorkflowProviderMap))
         .map((provider) => provider.plugin)
         .filter(isBaseProviderPlugin),
     ]);
-    this.state = new StateStore(this.projectDir, {
-      providerSchemas: this.providers.map((provider) => provider.schema).filter(isDefined),
+    this.state ??= this.stateFactory({
+      projectDir: this.projectDir,
+      configPath: this.configPath,
       statePath: this.statePath,
     });
     await this.state.syncSchema();
 
     this.workflows = new Map(loaded.map((item) => [item.name, item]));
+    if (this.workflows.size !== loaded.length) {
+      throw new Error(`Workflow names must be unique`);
+    }
 
     for (const item of loaded) {
       this.emit({ type: "definition.loaded", workflow: item.name });
@@ -171,7 +261,7 @@ export class DevMachineEngine {
       workflows: loaded,
       projectDir: this.projectDir,
       configPath: this.configPath,
-      statePath: this.getState().path,
+      statePath: this.getStateService().path,
     };
   }
 
@@ -184,24 +274,322 @@ export class DevMachineEngine {
   }
 
   getProjectInfo(): EngineProjectInfo {
+    const workflows = this.listWorkflowSummaries();
     return {
       projectDir: this.projectDir,
       configPath: this.configPath,
       statePath: this.state?.path ?? this.statePath,
-      workflow: this.workflows.size === 1 ? summarizeWorkflow([...this.workflows.values()][0]!) : undefined,
+      workflows,
+      workflow: workflows.length === 1 ? workflows[0] : undefined,
     };
   }
 
+  listWorkflowSummaries(): WorkflowSummary[] {
+    return this.listWorkflows().map((workflow) => summarizeWorkflow(workflow));
+  }
+
   listWorkspaces(): WorkspaceRecord[] {
-    return this.getState().listWorkspaces();
+    return this.getStateService().listWorkspaces();
   }
 
   listSnapshots(): SnapshotRecord[] {
-    return this.getState().listSnapshots();
+    return this.getStateService().listSnapshots();
+  }
+
+  listOperations(): EngineOperationSummary[] {
+    return this.listConfigOperationSummaries();
+  }
+
+  listRuntimeOperations(): EngineOperationSummary[] {
+    return this.listRuntimeOperationEntries().map((entry) => entry.summary);
+  }
+
+  private listRuntimeOperationEntries(): RuntimeOperationEntry[] {
+    const configOperations = this.listConfigOperationEntries();
+    const configOperationIds = new Set(configOperations.map((entry) => entry.summary.id));
+    const coreOperations = this.listCoreOperationEntries();
+    return [
+      ...coreOperations.filter((entry) =>
+        !configOperationIds.has(entry.summary.id) &&
+        !entry.summary.aliases?.some((alias) => configOperationIds.has(alias))
+      ),
+      ...configOperations,
+    ];
+  }
+
+  private listConfigOperationEntries(): RuntimeOperationEntry[] {
+    return this.listConfigOperationSummaries().map((summary) => ({
+      summary,
+      run: async (input) =>
+        await this.runOperation({
+          operation: summary.id,
+          workflow: input.workflow,
+          input: input.input,
+        }),
+    }));
+  }
+
+  private listConfigOperationSummaries(): EngineOperationSummary[] {
+    return this.listWorkflows().flatMap((workflow) =>
+      workflow.operations.map((operation) => {
+        assertAllowedConfigOperationId(operation.id);
+        return {
+          workflow: workflow.name,
+          id: operation.id,
+          source: "config" as const,
+          title: operation.title,
+          description: operation.description,
+          createsWorkspace: operation.createsWorkspace,
+          requiredHostMethods: operation.requiredHostMethods,
+          requiredHostCapabilities: operation.requiredHostCapabilities,
+          inputFields: operation.input?.fields ?? [],
+        };
+      }),
+    );
+  }
+
+  private listCoreOperationEntries(): RuntimeOperationEntry[] {
+    const workflows = this.listWorkflows();
+    const hasWorkspaceCreator = workflows.some((workflow) => workflow.create || workflow.workspace);
+    const workflowField = stringField({
+      name: "workflow",
+      required: false,
+    });
+    const coreOperation = (
+      summary: EngineOperationSummary,
+      run: RuntimeOperationEntry["run"],
+    ): RuntimeOperationEntry => ({ summary, run });
+
+    return [
+      coreOperation(
+        {
+          workflow: "",
+          id: "plan",
+          source: "core",
+          kind: "command",
+          title: "Plan",
+          description: "Show cached and pending steps",
+          inputFields: [workflowField],
+          cli: {
+            options: [
+              { name: "workflow", flag: "--workflow" },
+            ],
+          },
+        },
+        async (input) => {
+          const parsed = parseCoreOperationInput("plan", input.input);
+          return await this.plan({ workflow: optionalStringInput("plan", parsed, "workflow") });
+        },
+      ),
+      coreOperation(
+        {
+          workflow: "",
+          id: "apply",
+          source: "core",
+          kind: "command",
+          title: "Apply",
+          description: "Resolve the workflow, running pending nodes",
+          inputFields: [
+            workflowField,
+            booleanField({ name: "dryRun", required: false, defaultValue: false }),
+          ],
+          cli: {
+            options: [
+              { name: "workflow", flag: "--workflow" },
+              { name: "dryRun", flag: "--dry-run", type: "boolean" },
+            ],
+          },
+        },
+        async (input) => {
+          const parsed = parseCoreOperationInput("apply", input.input);
+          const workflow = optionalStringInput("apply", parsed, "workflow");
+          const dryRun = optionalBooleanInput("apply", parsed, "dryRun", false);
+          return dryRun
+            ? { dryRun: true, plan: await this.plan({ workflow }) }
+            : await this.apply({ workflow });
+        },
+      ),
+      ...(hasWorkspaceCreator
+        ? [
+          coreOperation(
+            {
+              workflow: "",
+              id: "create",
+              aliases: ["fork"],
+              source: "core",
+              kind: "command",
+              title: "Create",
+              description: "Create a workspace from the resolved workflow artifact",
+              createsWorkspace: true,
+              inputFields: [
+                workflowField,
+                stringField({ name: "name", required: true }),
+              ],
+              cli: {
+                options: [
+                  { name: "workflow", flag: "--workflow" },
+                  { name: "name", flag: "--name", required: true },
+                ],
+              },
+            },
+            async (input) => {
+              const parsed = parseCoreOperationInput("create", input.input);
+              return await this.fork({
+                workflow: optionalStringInput("create", parsed, "workflow"),
+                name: requiredStringInput("create", parsed, "name"),
+              });
+            },
+          ),
+        ]
+        : []),
+      coreOperation(
+        {
+          workflow: "",
+          id: "ssh",
+          source: "core",
+          kind: "command",
+          title: "SSH",
+          description: "Get an SSH command for a workspace or VM",
+          requiredHostMethods: [{ id: "host.command.run", modes: ["interactive"] }],
+          inputFields: [
+            workflowField,
+            stringField({ name: "workspaceOrVmId", position: 0, required: true }),
+            stringField({ name: "user", required: false }),
+            booleanField({ name: "print", required: false, defaultValue: false }),
+          ],
+          cli: {
+            positionals: [
+              { name: "workspaceOrVmId", index: 0 },
+            ],
+            options: [
+              { name: "workflow", flag: "--workflow" },
+              { name: "user", flag: "--user" },
+              { name: "print", flag: "--print", type: "boolean" },
+            ],
+          },
+        },
+        async (input) => {
+          const parsed = parseCoreOperationInput("ssh", input.input);
+          const workspaceOrVmId = requiredStringInput("ssh", parsed, "workspaceOrVmId");
+          const terminal = await this.attachTerminal({
+            workflow: optionalStringInput("ssh", parsed, "workflow"),
+            workspaceOrVmId,
+            printOnly: true,
+            user: optionalStringInput("ssh", parsed, "user"),
+          });
+          if (optionalBooleanInput("ssh", parsed, "print", false)) return terminal;
+          const commandResult = await (this.local.command ?? runLocalCommand)({
+            argv: ["sh", "-lc", terminal.command],
+            cwd: this.projectDir,
+            mode: "interactive",
+            reason: `Open an SSH session to ${workspaceOrVmId}`,
+            presentation: {
+              visible: true,
+              label: "SSH into workspace",
+            },
+          });
+          return { ...terminal, commandResult };
+        },
+      ),
+      coreOperation(
+        {
+          workflow: "",
+          id: "snapshot",
+          source: "core",
+          kind: "command",
+          title: "Snapshot",
+          description: "Capture a snapshot from a workspace VM",
+          inputFields: [
+            workflowField,
+            stringField({ name: "workspace", position: 0, required: true }),
+            stringField({ name: "label", required: false }),
+          ],
+          cli: {
+            positionals: [
+              { name: "workspace", index: 0 },
+            ],
+            options: [
+              { name: "workflow", flag: "--workflow" },
+              { name: "label", flag: "--label" },
+            ],
+          },
+        },
+        async (input) => {
+          const parsed = parseCoreOperationInput("snapshot", input.input);
+          return await this.snapshotWorkspace({
+            workflow: optionalStringInput("snapshot", parsed, "workflow"),
+            workspace: requiredStringInput("snapshot", parsed, "workspace"),
+            label: optionalStringInput("snapshot", parsed, "label"),
+          });
+        },
+      ),
+      coreOperation(
+        {
+          workflow: "",
+          id: "delete",
+          aliases: ["rm"],
+          source: "core",
+          kind: "command",
+          title: "Delete",
+          description: "Delete a workspace VM and remove it from state",
+          inputFields: [
+            workflowField,
+            stringField({ name: "workspace", position: 0, required: true }),
+          ],
+          cli: {
+            positionals: [{ name: "workspace", index: 0 }],
+            options: [
+              { name: "workflow", flag: "--workflow" },
+              { name: "yes", flag: "--yes", aliases: ["-y"], required: true, type: "boolean", runtime: false },
+            ],
+          },
+        },
+        async (input) => {
+          const parsed = parseCoreOperationInput("delete", input.input);
+          return await this.deleteWorkspace({
+            workflow: optionalStringInput("delete", parsed, "workflow"),
+            workspace: requiredStringInput("delete", parsed, "workspace"),
+          });
+        },
+      ),
+    ];
   }
 
   listNodeRuns(): WorkflowNodeRunRecord[] {
-    return this.getState().listNodeRuns();
+    return this.getStateService().listNodeRuns();
+  }
+
+  hasOperation(operationId: string): boolean {
+    return this.listWorkflows().some((workflow) => workflow.operations.some((operation) => operation.id === operationId));
+  }
+
+  async runRuntimeOperation(input: { operation: string; workflow?: string; input?: unknown }): Promise<unknown> {
+    const operation = this.findRuntimeOperationEntry(input.operation);
+    if (!operation) throw new EngineOperationNotFoundError(input.operation);
+    return await operation.run({ workflow: input.workflow, input: input.input });
+  }
+
+  async runOperation(input: { operation: string; workflow?: string; input?: unknown }): Promise<unknown> {
+    const { workflow, operation } = this.getWorkflowOperation(input.operation, input.workflow);
+    const providers = await this.createProviders(workflow);
+    const metadata: JsonObject = {};
+    const runtime = await this.createTaskRuntime({
+      workflow,
+      providers,
+      nodePath: `operation.${operation.id}`,
+      metadata,
+    });
+    const operationInput = this.resolveOperationInput(workflow, operation, input.input ?? {});
+    const result = await operation.run({
+      ...runtime,
+      input: Object.freeze(operationInput),
+      providers: runtime,
+      local: this.local,
+      workflow: workflow.name,
+    });
+    if (result !== undefined) assertJsonValue(result, `Operation ${operation.id} result`);
+    if (operation.createsWorkspace) return this.saveOperationWorkspace(workflow, operation, input.input, result);
+    return result ?? null;
   }
 
   async plan(input: { workflow?: string; machine?: string } = {}): Promise<WorkflowPlan> {
@@ -252,6 +640,15 @@ export class DevMachineEngine {
     const applied = await this.apply({ workflow: input.workflow ?? input.machine });
     const workflow = this.getWorkflow(input.workflow ?? input.machine);
     const providers = await this.createProviders(workflow);
+    if (workflow.create) {
+      return await this.createWorkspaceFromCallback({
+        workflow,
+        providers,
+        context: applied.context,
+        name: input.name,
+      });
+    }
+
     const sourceRef = this.resolveWorkspaceSource(workflow, applied.context, providers, { required: true })!;
     const workspaceProvider = this.findWorkspaceProvider(providers, sourceRef);
     const created = await workspaceProvider.createWorkspace(sourceRef, { name: input.name });
@@ -272,7 +669,7 @@ export class DevMachineEngine {
       metadata: created.metadata ?? {},
     };
 
-    this.getState().saveWorkspace(workspace);
+    this.getStateService().saveWorkspace(workspace);
     await this.runWorkspaceCreatedHook({
       workflow,
       providers,
@@ -299,7 +696,7 @@ export class DevMachineEngine {
     printOnly?: boolean;
     user?: string;
   }): Promise<{ command: string }> {
-    const workspace = this.getState().findWorkspace(input.workspaceOrVmId);
+    const workspace = this.getStateService().findWorkspace(input.workspaceOrVmId);
     const workflow = this.getWorkflow(input.workflow ?? input.machine ?? workspace?.workflow);
     const providers = await this.createProviders(workflow);
     const workspaceProvider = workspace
@@ -329,7 +726,7 @@ export class DevMachineEngine {
   }
 
   async deleteWorkspace(input: { workspace: string; workflow?: string; machine?: string }): Promise<WorkspaceRecord> {
-    const workspace = this.getState().getWorkspace(input.workspace);
+    const workspace = this.getStateService().getWorkspace(input.workspace);
     if (!workspace) throw new Error(`Unknown workspace ${input.workspace}`);
 
     const workflow = this.getWorkflow(input.workflow ?? input.machine ?? workspace.workflow);
@@ -337,13 +734,13 @@ export class DevMachineEngine {
     const workspaceProvider = this.workspaceProviderById(providers, workspace.providerId);
     await workspaceProvider.deleteWorkspace(workspace);
 
-    this.getState().deleteWorkspace(input.workspace);
+    this.getStateService().deleteWorkspace(input.workspace);
 
     return workspace;
   }
 
   async snapshotWorkspace(input: { workspace: string; label?: string; workflow?: string; machine?: string }): Promise<WorkflowNodeRunRecord> {
-    const workspace = this.getState().getWorkspace(input.workspace);
+    const workspace = this.getStateService().getWorkspace(input.workspace);
     if (!workspace) throw new Error(`Unknown workspace ${input.workspace}`);
 
     const workflow = this.getWorkflow(input.workflow ?? input.machine ?? workspace.workflow);
@@ -377,7 +774,7 @@ export class DevMachineEngine {
       },
     };
 
-    this.getState().saveNodeRun(record);
+    this.getStateService().saveNodeRun(record);
     return record;
   }
 
@@ -583,6 +980,7 @@ export class DevMachineEngine {
     });
     const result = await input.node.handler({
       ...runtime,
+      providers: runtime,
       ctx: Object.freeze({ ...input.state.context }),
       runtime: {
         workflow: input.workflow.name,
@@ -613,7 +1011,7 @@ export class DevMachineEngine {
       metadata,
     };
 
-    this.getState().saveNodeRun(record);
+    this.getStateService().saveNodeRun(record);
     for (const artifact of artifacts) {
       const providerId = providerIdOf(artifact);
       this.emit({
@@ -642,7 +1040,7 @@ export class DevMachineEngine {
     providers: ProviderControllers;
     outputSchema?: OutputSchema;
   }): Promise<WorkflowNodeRunRecord | undefined> {
-    const cached = this.getState().findReusableNodeRun(input);
+    const cached = this.getStateService().findReusableNodeRun(input);
     if (!cached) return undefined;
 
     const parsed = normalizeTaskOutput(input.nodePath, cached.output, input.outputSchema, "cached");
@@ -798,7 +1196,223 @@ export class DevMachineEngine {
     throw new Error(`Multiple workflows are defined; pass a workflow name`);
   }
 
-  private getState(): StateStore {
+  private findRuntimeOperationEntry(operationId: string): RuntimeOperationEntry | undefined {
+    return this.listRuntimeOperationEntries().find((entry) =>
+      entry.summary.id === operationId || entry.summary.aliases?.includes(operationId)
+    );
+  }
+
+  private getWorkflowOperation(operationId: string, workflowName: string | undefined): {
+    workflow: LoadedWorkflow;
+    operation: WorkflowOperationDefinition<any, any>;
+  } {
+    const workflows = workflowName ? [this.getWorkflow(workflowName)] : this.listWorkflows();
+    const matches = workflows.flatMap((workflow) =>
+      workflow.operations
+        .filter((operation) => operation.id === operationId)
+        .map((operation) => ({ workflow, operation })),
+    );
+    if (matches.length === 1) return matches[0]!;
+    if (matches.length > 1) throw new Error(`Multiple workflows define operation ${operationId}; pass a workflow name`);
+    throw new EngineOperationNotFoundError(operationId);
+  }
+
+  private resolveOperationInput(
+    workflow: LoadedWorkflow,
+    operation: WorkflowOperationDefinition<any, any>,
+    value: unknown,
+  ): Record<string, unknown> {
+    const raw = isPlainObject(value) ? value : {};
+    const fields = operation.input?.fields ?? [];
+    if (fields.length === 0) return { ...raw };
+
+    const resolved: Record<string, unknown> = {};
+    for (const field of fields) {
+      const rawValue = raw[field.name] ?? field.defaultValue;
+      if (rawValue === undefined || rawValue === null || rawValue === "") {
+        if (field.required ?? true) {
+          throw new EngineOperationValidationError({
+            operation: operation.id,
+            message: `Operation ${operation.id} requires ${field.name}`,
+          });
+        }
+        continue;
+      }
+
+      if (field.kind === "workspace") {
+        if (typeof rawValue !== "string") {
+          throw new EngineOperationValidationError({
+            operation: operation.id,
+            message: `Operation ${operation.id} input ${field.name} must be a workspace name`,
+          });
+        }
+        const workspace = this.getStateService().findWorkspace(rawValue);
+        if (!workspace) {
+          throw new EngineOperationValidationError({
+            operation: operation.id,
+            message: `Unknown workspace ${rawValue}`,
+          });
+        }
+        if (workspace.workflow !== workflow.name) {
+          throw new EngineOperationValidationError({
+            operation: operation.id,
+            message: `Workspace ${workspace.name} belongs to workflow ${workspace.workflow}, not ${workflow.name}`,
+          });
+        }
+        resolved[field.name] = {
+          ...workspace,
+          cwd: resolveWorkspaceCwd(workflow, workspace.context),
+          data: workspace.metadata,
+        };
+        continue;
+      }
+
+      if (field.kind === "string") {
+        if (typeof rawValue !== "string") {
+          throw new EngineOperationValidationError({
+            operation: operation.id,
+            message: `Operation ${operation.id} input ${field.name} must be a string`,
+          });
+        }
+        resolved[field.name] = rawValue;
+        continue;
+      }
+
+      if (field.kind === "boolean") {
+        if (typeof rawValue !== "boolean") {
+          throw new EngineOperationValidationError({
+            operation: operation.id,
+            message: `Operation ${operation.id} input ${field.name} must be a boolean`,
+          });
+        }
+        resolved[field.name] = rawValue;
+        continue;
+      }
+
+      if (field.kind === "number") {
+        if (typeof rawValue !== "number" || !Number.isFinite(rawValue)) {
+          throw new EngineOperationValidationError({
+            operation: operation.id,
+            message: `Operation ${operation.id} input ${field.name} must be a number`,
+          });
+        }
+        resolved[field.name] = rawValue;
+      }
+    }
+
+    return resolved;
+  }
+
+  private saveOperationWorkspace(
+    workflow: LoadedWorkflow,
+    operation: WorkflowOperationDefinition<any, any>,
+    rawInput: unknown,
+    result: unknown,
+  ): WorkspaceRecord {
+    if (!isPlainObject(result)) {
+      throw new Error(`Operation ${operation.id} must return an object when createsWorkspace is true`);
+    }
+    const data = result as Record<string, JsonValue>;
+    const raw = isPlainObject(rawInput) ? rawInput : {};
+    const name = typeof data.name === "string"
+      ? data.name
+      : typeof raw.name === "string"
+        ? raw.name
+        : undefined;
+    if (!name) throw new Error(`Operation ${operation.id} must return or receive a workspace name`);
+    const resourceId = typeof data.resourceId === "string"
+      ? data.resourceId
+      : typeof data.vmId === "string"
+        ? data.vmId
+        : name;
+    const now = new Date().toISOString();
+    const workspace: WorkspaceRecord = {
+      id: crypto.randomUUID(),
+      name,
+      providerId: typeof data.providerId === "string" ? data.providerId : "config",
+      workflow: workflow.name,
+      resourceId,
+      snapshotId: typeof data.snapshotId === "string" ? data.snapshotId : undefined,
+      sourceRef: isJsonValue(data.sourceRef) ? data.sourceRef : data,
+      context: {},
+      createdAt: now,
+      updatedAt: now,
+      metadata: data,
+    };
+    this.getStateService().saveWorkspace(workspace);
+    this.emit({
+      type: "workspace.ready",
+      workspaceId: workspace.name,
+      providerId: workspace.providerId,
+      resourceId: workspace.resourceId,
+      snapshotId: workspace.snapshotId,
+    });
+    return workspace;
+  }
+
+  private async createWorkspaceFromCallback(input: {
+    workflow: LoadedWorkflow;
+    providers: ProviderControllers;
+    context: Record<string, JsonValue>;
+    name: string;
+  }): Promise<WorkspaceRecord> {
+    if (!input.workflow.create) {
+      throw new Error(`Workflow ${input.workflow.name} does not define a create callback`);
+    }
+    const metadata: JsonObject = {};
+    const runtime = await this.createTaskRuntime({
+      workflow: input.workflow,
+      providers: input.providers,
+      nodePath: `create.${input.name}`,
+      metadata,
+    });
+    const result = await input.workflow.create.handler({
+      ...runtime,
+      ctx: Object.freeze({ ...input.context }),
+      name: input.name,
+      providers: runtime,
+      local: this.local,
+      workflow: input.workflow.name,
+    });
+    assertJsonValue(result, `Workflow ${input.workflow.name} create result`);
+    if (!isPlainObject(result)) {
+      throw new Error(`Workflow ${input.workflow.name} create result must be an object`);
+    }
+
+    const data = result as Record<string, JsonValue>;
+    const name = typeof data.name === "string" ? data.name : input.name;
+    const resourceId = typeof data.resourceId === "string"
+      ? data.resourceId
+      : typeof data.vmId === "string"
+        ? data.vmId
+        : name;
+    const now = new Date().toISOString();
+    const workspace: WorkspaceRecord = {
+      id: crypto.randomUUID(),
+      name,
+      providerId: typeof data.providerId === "string" ? data.providerId : "config",
+      workflow: input.workflow.name,
+      resourceId,
+      snapshotId: typeof data.snapshotId === "string" ? data.snapshotId : undefined,
+      sourceRef: isJsonValue(data.sourceRef) ? data.sourceRef : data,
+      context: { ...input.context },
+      createdAt: now,
+      updatedAt: now,
+      metadata: data,
+    };
+
+    this.getStateService().saveWorkspace(workspace);
+    this.emit({
+      type: "workspace.ready",
+      workspaceId: workspace.name,
+      providerId: workspace.providerId,
+      resourceId: workspace.resourceId,
+      snapshotId: workspace.snapshotId,
+    });
+    return workspace;
+  }
+
+  private getStateService(): StateService {
     if (!this.state) {
       throw new Error(`No state database loaded. Call engine.load() first.`);
     }
@@ -810,7 +1424,7 @@ export class DevMachineEngine {
       Object.entries(workflow.providers).map(async ([name, provider]) => {
         const controller = await this.providerFactory({
           provider,
-          db: this.getState().db,
+          storage: this.getStateService().providerStorage(provider.providerId),
         });
         return [name, controller] as const;
       }),
@@ -843,6 +1457,8 @@ export class DevMachineEngine {
       providers,
       root,
       workspace: root.workspaceDefinition,
+      create: root.createDefinition,
+      operations: root.operations ?? [],
     };
   }
 
@@ -958,14 +1574,59 @@ async function resolveConfigValue(value: unknown): Promise<unknown> {
   return value;
 }
 
-function normalizeDefinition(value: unknown): WorkflowNodeDefinition<any, any, any> {
+function normalizeDefinitions(value: unknown): WorkflowNodeDefinition<any, any, any>[] {
+  if (isFdevConfig(value)) {
+    return Object.entries(value.workflows).map(([name, node]) =>
+      attachWorkflowProviders(name, node, value.providers)
+    );
+  }
+
   if (Array.isArray(value)) {
-    throw new Error(`fdev.config.ts must default export exactly one workflow node`);
+    throw new Error(`fdev.config.ts must default export a workflow node or defineConfig(...)`);
   }
   if (!isWorkflowNode(value)) {
-    throw new Error(`fdev.config.ts must default export a node created with workflow(...).sequence(...)`);
+    throw new Error(`fdev.config.ts must default export a node created with workflow(...).sequence(...) or defineConfig(...)`);
   }
-  return value;
+  return [value];
+}
+
+function attachWorkflowProviders(
+  name: string,
+  node: WorkflowNodeDefinition<any, any, any>,
+  providers: WorkflowProviderMap,
+): WorkflowNodeDefinition<any, any, any> {
+  const workflow: WorkflowDefinition<string, any> = {
+    ...node.workflow,
+    name: node.workflow.name || name,
+    providers,
+  };
+  return attachWorkflow(node, workflow);
+}
+
+function attachWorkflow(
+  node: WorkflowNodeDefinition<any, any, any>,
+  workflow: WorkflowDefinition<string, any>,
+): WorkflowNodeDefinition<any, any, any> {
+  if (node.nodeKind === "parallel") {
+    return {
+      ...node,
+      workflow,
+      branches: Object.fromEntries(
+        Object.entries(parallelBranches(node)).map(([name, branch]) => [name, attachWorkflow(branch, workflow)]),
+      ),
+    } as WorkflowNodeDefinition<any, any, any>;
+  }
+  if (node.nodeKind === "sequence") {
+    return {
+      ...node,
+      workflow,
+      children: sequenceChildren(node).map((child) => attachWorkflow(child, workflow)),
+    } as WorkflowNodeDefinition<any, any, any>;
+  }
+  return {
+    ...node,
+    workflow,
+  };
 }
 
 function summarizeWorkflow(workflow: LoadedWorkflow): WorkflowSummary {
@@ -973,6 +1634,8 @@ function summarizeWorkflow(workflow: LoadedWorkflow): WorkflowSummary {
     name: workflow.name,
     providers: Object.entries(workflow.providers).map(([name, provider]) => `${name}:${provider.providerId}`),
     nodes: collectNodePaths(workflow.root),
+    operations: workflow.operations.map((operation) => operation.id),
+    createsWorkspace: Boolean(workflow.create || workflow.workspace),
     workspace: workflow.workspace,
   };
 }
@@ -1132,6 +1795,151 @@ function assertJsonValue(value: unknown, label: string): asserts value is JsonVa
   throw new Error(`${label} must be JSON-serializable`);
 }
 
+function isJsonValue(value: unknown): value is JsonValue {
+  try {
+    assertJsonValue(value, "value");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const RESERVED_HOST_OPERATION_IDS = new Set([
+  "completion",
+  "doctor",
+  "help",
+  "init",
+  "projects",
+  "run",
+  "version",
+]);
+
+const CORE_OPERATION_INPUT_FIELDS: Record<string, readonly string[]> = {
+  plan: ["workflow"],
+  apply: ["workflow", "dryRun"],
+  create: ["workflow", "name"],
+  ssh: ["workflow", "workspaceOrVmId", "user", "print"],
+  snapshot: ["workflow", "workspace", "label"],
+  delete: ["workflow", "workspace"],
+};
+
+function assertAllowedConfigOperationId(operationId: string): void {
+  if (!RESERVED_HOST_OPERATION_IDS.has(operationId)) return;
+  throw new Error(
+    `Config operation "${operationId}" conflicts with a reserved fdev host command. ` +
+      `Choose a different operation id.`,
+  );
+}
+
+function stringField(options: {
+  name: string;
+  description?: string;
+  position?: number;
+  required?: boolean;
+  defaultValue?: string;
+}): WorkflowInputFieldDefinition<string> {
+  return {
+    kind: "string",
+    name: options.name,
+    description: options.description,
+    position: options.position,
+    required: options.required,
+    defaultValue: options.defaultValue,
+  };
+}
+
+function booleanField(options: {
+  name: string;
+  description?: string;
+  position?: number;
+  required?: boolean;
+  defaultValue?: boolean;
+}): WorkflowInputFieldDefinition<boolean> {
+  return {
+    kind: "boolean",
+    name: options.name,
+    description: options.description,
+    position: options.position,
+    required: options.required,
+    defaultValue: options.defaultValue,
+  };
+}
+
+function parseCoreOperationInput(operation: string, value: unknown): Record<string, unknown> {
+  const raw = value === undefined ? {} : value;
+  if (!isPlainObject(raw)) {
+    throw new EngineOperationValidationError({
+      operation,
+      message: `Operation ${operation} input must be an object`,
+    });
+  }
+
+  const allowed = new Set(CORE_OPERATION_INPUT_FIELDS[operation] ?? []);
+  const excess = Object.keys(raw).find((key) => !allowed.has(key));
+  if (excess) {
+    throw new EngineOperationValidationError({
+      operation,
+      message: `Operation ${operation} does not accept input ${excess}`,
+    });
+  }
+
+  return raw;
+}
+
+function requiredStringInput(operation: string, input: Record<string, unknown>, name: string): string {
+  const value = input[name];
+  if (typeof value !== "string") {
+    throw new EngineOperationValidationError({
+      operation,
+      message: `Operation ${operation} requires ${name}`,
+    });
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    throw new EngineOperationValidationError({
+      operation,
+      message: `Operation ${operation} requires ${name}`,
+    });
+  }
+  return trimmed;
+}
+
+function optionalStringInput(operation: string, input: Record<string, unknown>, name: string): string | undefined {
+  const value = input[name];
+  if (value === undefined) return undefined;
+  if (typeof value !== "string") {
+    throw new EngineOperationValidationError({
+      operation,
+      message: `Operation ${operation} input ${name} must be a string`,
+    });
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    throw new EngineOperationValidationError({
+      operation,
+      message: `Operation ${operation} input ${name} must be non-empty`,
+    });
+  }
+  return trimmed;
+}
+
+function optionalBooleanInput(
+  operation: string,
+  input: Record<string, unknown>,
+  name: string,
+  defaultValue: boolean,
+): boolean {
+  const value = input[name];
+  if (value === undefined) return defaultValue;
+  if (typeof value !== "boolean") {
+    throw new EngineOperationValidationError({
+      operation,
+      message: `Operation ${operation} input ${name} must be a boolean`,
+    });
+  }
+  return value;
+}
+
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value) && Object.getPrototypeOf(value) === Object.prototype);
 }
@@ -1155,14 +1963,48 @@ async function openLocalTarget(target: string): Promise<void> {
   }
 }
 
+async function requestUnsupportedHostCapability<Result = unknown>(capability: string): Promise<Result> {
+  throw new Error(
+    `Host capability ${capability} is unavailable outside a runtime host. ` +
+      `Run this operation through fdev CLI or another host that supports typed host capabilities.`,
+  );
+}
+
+async function requestUnsupportedHostCapabilitySession<Result = unknown>(
+  capability: string,
+): Promise<{ result: Result; closed: Promise<void> }> {
+  return {
+    result: await requestUnsupportedHostCapability<Result>(capability),
+    closed: Promise.resolve(),
+  };
+}
+
 async function runLocalCommand(input: {
   argv: string[];
   cwd?: string;
   env?: Record<string, string | undefined>;
   stdin?: string | null;
-}): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+  mode?: "capture" | "interactive";
+}): Promise<{ exitCode: number; stdout: string | null; stderr: string | null }> {
   if (input.argv.length === 0) {
     throw new Error(`Local command argv must not be empty`);
+  }
+
+  if (input.mode === "interactive") {
+    const proc = Bun.spawn(input.argv, {
+      cwd: input.cwd,
+      env: input.env ? { ...process.env, ...input.env } : process.env,
+      stdin: input.stdin === undefined || input.stdin === null ? "inherit" : "pipe",
+      stdout: "inherit",
+      stderr: "inherit",
+    });
+    if (input.stdin !== undefined && input.stdin !== null) {
+      const stdin = proc.stdin;
+      if (!stdin) throw new Error(`Local command stdin is unavailable`);
+      stdin.write(input.stdin);
+      stdin.end();
+    }
+    return { exitCode: await proc.exited, stdout: null, stderr: null };
   }
 
   const proc = Bun.spawn(input.argv, {
@@ -1185,10 +2027,6 @@ async function runLocalCommand(input: {
   ]);
 
   return { exitCode, stdout, stderr };
-}
-
-function isDefined<T>(value: T | undefined): value is T {
-  return value !== undefined;
 }
 
 function isBaseProviderPlugin(value: unknown): value is BaseProviderPlugin {

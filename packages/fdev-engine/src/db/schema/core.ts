@@ -1,5 +1,5 @@
 import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
-import type { JsonValue } from "@freestyle-sh/fdev-sdk";
+import type { JsonValue } from "../../types.ts";
 
 export const workspaces = sqliteTable(
   "workspaces",
@@ -48,4 +48,28 @@ export const workflowNodeRuns = sqliteTable(
     ),
     index("workflow_node_runs_created_idx").on(table.createdAt),
   ],
+);
+
+export const providerState = sqliteTable(
+  "provider_state",
+  {
+    providerId: text("provider_id").notNull(),
+    key: text("key").notNull(),
+    value: text("value_json", { mode: "json" }).$type<JsonValue>().notNull(),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("provider_state_provider_key_idx").on(table.providerId, table.key),
+    index("provider_state_provider_idx").on(table.providerId),
+  ],
+);
+
+export const runtimeMetadata = sqliteTable(
+  "runtime_metadata",
+  {
+    key: text("key").primaryKey(),
+    value: text("value_json", { mode: "json" }).$type<JsonValue>().notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
 );

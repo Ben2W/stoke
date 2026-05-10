@@ -1,5 +1,5 @@
 import { Freestyle, VmBaseImage } from "freestyle";
-import type { CommandOptions, ExecOptions, ExecResult, JsonValue, WorkspaceRecord } from "@freestyle-sh/fdev-sdk";
+import type { CommandOptions, ExecOptions, ExecResult, JsonValue, WorkspaceRecord } from "@freestyle-sh/fdev";
 import type {
   BaseDevMachineProvider,
   ProviderRuntimeContext,

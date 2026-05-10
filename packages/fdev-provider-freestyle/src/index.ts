@@ -1,7 +1,7 @@
 import {
   defineProvider,
   type WorkflowProviderDefinition,
-} from "@freestyle-sh/fdev-sdk";
+} from "@freestyle-sh/fdev";
 import type { BaseProviderPlugin } from "@freestyle-sh/fdev-engine";
 import type { WorkflowProviderController } from "@freestyle-sh/fdev-engine";
 import { Freestyle } from "freestyle";
@@ -15,7 +15,6 @@ import {
   isFreestyleVmSnapshotRef,
 } from "./provider.ts";
 import type { FreestyleRuntime, FreestyleTerminalRuntime, FreestyleWorkspaceContext } from "./provider.ts";
-import { freestyleSchema } from "./schema.ts";
 import { createFreestyleStore } from "./store.ts";
 
 const freestyleProviderConfigSchema = z.object({
@@ -61,8 +60,7 @@ export const defineFreestyleProvider = provider;
 
 export const freestyleProviderPlugin: BaseProviderPlugin = {
   providerId: FREESTYLE_PROVIDER_ID,
-  schema: freestyleSchema,
-  createProvider({ provider, db }) {
+  createProvider({ provider, storage }) {
     const config = parseFreestyleProviderConfig(provider.config);
     const { apiKey, ...vm } = config;
     let controller: Promise<WorkflowProviderController<FreestyleRuntime, FreestyleWorkspaceContext>> | undefined;
@@ -73,7 +71,7 @@ export const freestyleProviderPlugin: BaseProviderPlugin = {
     };
 
     const create = async () => {
-      const store = createFreestyleStore(db);
+      const store = createFreestyleStore(storage);
       const savedIdentity = store.getIdentity();
       if (savedIdentity) {
         return createFreestyleWorkflowProvider({
@@ -146,7 +144,6 @@ export {
   createFreestyleWorkflowProvider,
   isFreestyleVmSnapshotRef,
 } from "./provider.ts";
-export { freestyleGitRelationships, freestyleIdentities, freestyleSchema } from "./schema.ts";
 export { createFreestyleStore } from "./store.ts";
 export { createFreestyleTerminalSession } from "./terminal-session.ts";
 export { FDEV_PROVIDER_FREESTYLE_VERSION } from "./version.ts";

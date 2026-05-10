@@ -15,26 +15,22 @@ type CompleteFdevInput = {
 };
 
 const COMMANDS: CompletionItem[] = [
+  { value: "help", description: "show CLI help" },
   { value: "init", description: "initialize an fdev project" },
-  { value: "plan", description: "show cached and pending steps" },
-  { value: "apply", description: "resolve the workflow" },
-  { value: "fork", description: "create a workspace" },
-  { value: "ls", description: "list workspaces, snapshots, or config" },
-  { value: "ssh", description: "open SSH to a workspace or VM" },
-  { value: "snapshot", description: "capture a workspace snapshot" },
-  { value: "rm", description: "delete a workspace VM" },
+  { value: "run", description: "run a project operation" },
+  { value: "projects", description: "discover fdev projects" },
+  { value: "doctor", description: "show runtime diagnostics" },
+  { value: "version", description: "show CLI version" },
   { value: "completion", description: "generate shell completion" },
 ];
 
-const COMMAND_ALIASES = new Map([
-  ["list", "ls"],
-  ["terminal", "ssh"],
-]);
+const COMMAND_ALIASES = new Map<string, string>();
 
 const GLOBAL_OPTIONS: CompletionItem[] = [
   { value: "-C", description: "project directory" },
   { value: "--project", description: "project directory" },
   { value: "--config", description: "exact config file" },
+  { value: "--state", description: "local state database path" },
   { value: "--json", description: "print JSON" },
   { value: "--help", description: "show help" },
   { value: "--version", description: "show version" },
@@ -48,29 +44,12 @@ const COMMAND_OPTIONS: Record<string, CompletionItem[]> = {
     { value: "--force", description: "overwrite existing config" },
     { value: "--json", description: "print JSON" },
   ],
-  apply: [
-    { value: "--dry-run", description: "show plan without running steps" },
+  run: [
+    { value: "--all", description: "run against every discovered project" },
+    { value: "--discover", description: "discover projects below the selected directory" },
     { value: "--json", description: "print JSON" },
   ],
-  fork: [
-    { value: "--name", description: "workspace name" },
-    { value: "--json", description: "print JSON" },
-  ],
-  ls: [
-    { value: "--json", description: "print JSON" },
-  ],
-  ssh: [
-    { value: "--print", description: "print SSH command" },
-    { value: "--user", description: "SSH user to allow" },
-    { value: "--json", description: "print JSON" },
-  ],
-  snapshot: [
-    { value: "--label", description: "snapshot label" },
-    { value: "--json", description: "print JSON" },
-  ],
-  rm: [
-    { value: "--yes", description: "confirm deletion" },
-    { value: "-y", description: "confirm deletion" },
+  projects: [
     { value: "--json", description: "print JSON" },
   ],
   completion: [
@@ -84,12 +63,25 @@ const OPTIONS_WITH_VALUES = new Set([
   "-C",
   "--project",
   "--config",
+  "--state",
   "--name",
   "--api-key",
   "--package-manager",
-  "--user",
-  "--label",
 ]);
+
+type RuntimeOperationManifest = {
+  operations: RuntimeOperationDefinition[];
+};
+
+type RuntimeOperationDefinition = {
+  id: string;
+  aliases?: string[];
+  description?: string;
+  cli?: {
+    positionals?: Array<{ name: string; index: number }>;
+    options?: Array<{ name: string; flag: string; aliases?: string[]; runtime?: boolean; type?: string }>;
+  };
+};
 
 export async function completeFdev(input: CompleteFdevInput): Promise<CompletionItem[]> {
   const cwd = input.cwd ?? process.cwd();
@@ -106,21 +98,36 @@ export async function completeFdev(input: CompleteFdevInput): Promise<Completion
   }
 
   if (current.startsWith("-")) {
+    if (command === "run") {
+      const run = parseRunCommand(before);
+      if (run.operation) {
+        const operation = await resolveRuntimeOperation(resolveProjectDir(words, cwd), run.operation);
+        return filterItems([
+          ...(operation?.cli?.options ?? []).flatMap((option) => [
+            { value: option.flag, description: option.name },
+            ...(option.aliases ?? []).map((alias) => ({ value: alias, description: option.name })),
+          ]),
+          ...COMMAND_OPTIONS.run,
+          ...GLOBAL_OPTIONS,
+        ], current);
+      }
+    }
     return filterItems([...(COMMAND_OPTIONS[command] ?? []), ...GLOBAL_OPTIONS], current);
   }
 
   const positionalCount = countPositionals(before, command);
 
-  if ((command === "ssh" || command === "snapshot" || command === "rm") && positionalCount === 0) {
-    return filterItems(await workspaceTargets(resolveProjectDir(words, cwd), current, command === "ssh"), current);
-  }
-
-  if (command === "ls" && positionalCount === 0) {
-    return filterItems([
-      { value: "workspaces", description: "workspaces" },
-      { value: "snapshots", description: "cached node runs" },
-      { value: "config", description: "loaded project config" },
-    ], current);
+  if (command === "run") {
+    const run = parseRunCommand(before);
+    if (!run.operation) {
+      return filterItems(await operationTargets(resolveProjectDir(words, cwd)), current);
+    }
+    const operation = await resolveRuntimeOperation(resolveProjectDir(words, cwd), run.operation);
+    const operationPositionalCount = countRunOperationPositionals(run.args);
+    const positional = operation?.cli?.positionals?.find((item) => item.index === operationPositionalCount);
+    if (positional && /workspace|vm/i.test(positional.name)) {
+      return filterItems(await workspaceTargets(resolveProjectDir(words, cwd), current, /vm/i.test(positional.name)), current);
+    }
   }
 
   if (command === "completion" && positionalCount === 0) {
@@ -233,6 +240,41 @@ function countPositionals(words: string[], command: string): number {
   return count;
 }
 
+function parseRunCommand(words: string[]): { operation?: string; args: string[] } {
+  let foundRun = false;
+  const args: string[] = [];
+  for (let index = 0; index < words.length; index += 1) {
+    const word = words[index]!;
+    if (OPTIONS_WITH_VALUES.has(word)) {
+      index += 1;
+      continue;
+    }
+    if (word.startsWith("--") && word.includes("=")) continue;
+    if (word.startsWith("-")) continue;
+    if (!foundRun) {
+      if (word === "run") foundRun = true;
+      continue;
+    }
+    args.push(word);
+  }
+  return { operation: args[0], args: args.slice(1) };
+}
+
+function countRunOperationPositionals(args: string[]): number {
+  let count = 0;
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index]!;
+    if (OPTIONS_WITH_VALUES.has(arg)) {
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith("--") && arg.includes("=")) continue;
+    if (arg.startsWith("-")) continue;
+    count += 1;
+  }
+  return count;
+}
+
 function expectsOptionValue(words: string[]): boolean {
   const previous = words.at(-1);
   return Boolean(previous && OPTIONS_WITH_VALUES.has(previous));
@@ -278,6 +320,7 @@ async function workspaceTargets(
 
   if (includeVmIds && current.length > 0) {
     for (const workspace of workspaces) {
+      if (!workspace.resourceId) continue;
       items.push({
         value: workspace.resourceId,
         description: workspace.name,
@@ -288,10 +331,36 @@ async function workspaceTargets(
   return dedupeItems(items);
 }
 
-async function readWorkspaces(paths: { projectDir: string; configPath: string }): Promise<Array<{ name: string; resourceId: string }>> {
+async function readWorkspaces(paths: { projectDir: string; configPath: string }): Promise<Array<{ name: string; resourceId?: string }>> {
   const runtime = await getOrStartRuntime(paths);
-  const { workspaces } = await runtime.get<{ workspaces: Array<{ name: string; resourceId: string }> }>("/workspaces");
-  return workspaces;
+  const { workspaces } = await runtime.control.workspaces();
+  return workspaces.map((workspace) => ({
+    name: workspace.name,
+    resourceId: workspace.resourceId,
+  }));
+}
+
+async function operationTargets(paths: { projectDir: string; configPath: string }): Promise<CompletionItem[]> {
+  const manifest = await readOperations(paths);
+  return manifest.operations.flatMap((operation) => [
+    { value: operation.id, description: operation.description },
+    ...(operation.aliases ?? []).map((alias) => ({ value: alias, description: operation.description })),
+  ]);
+}
+
+async function resolveRuntimeOperation(
+  paths: { projectDir: string; configPath: string },
+  operationId: string,
+): Promise<RuntimeOperationDefinition | undefined> {
+  const manifest = await readOperations(paths);
+  return manifest.operations.find((operation) =>
+    operation.id === operationId || operation.aliases?.includes(operationId)
+  );
+}
+
+async function readOperations(paths: { projectDir: string; configPath: string }): Promise<RuntimeOperationManifest> {
+  const runtime = await getOrStartRuntime(paths);
+  return await runtime.control.operations() as unknown as RuntimeOperationManifest;
 }
 
 function filterItems(items: CompletionItem[], current: string): CompletionItem[] {

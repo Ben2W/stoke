@@ -2,13 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  composeFdevSchema,
-  createFdevDatabase,
-  syncFdevDatabaseSchema,
-} from "@freestyle-sh/fdev-engine";
+import { createStateStore } from "@freestyle-sh/fdev-engine";
 import { createGcloudConfigCopyController, assertLocalGcloudReady, type GcloudCommandRunner } from "./provider.ts";
-import { gcloudAuthSchema } from "./schema.ts";
 import { createGcloudAuthStore } from "./store.ts";
 
 describe("local gcloud config copy provider", () => {
@@ -33,10 +28,9 @@ describe("local gcloud config copy provider", () => {
 
   test("mints and stores a fresh local gcloud access token", async () => {
     const projectDir = mkdtempSync(join(tmpdir(), "fdev-gcloud-"));
-    const schema = composeFdevSchema([gcloudAuthSchema]);
-    const db = createFdevDatabase(join(projectDir, "state.sqlite"), { schema });
-    await syncFdevDatabaseSchema(db, schema);
-    const store = createGcloudAuthStore(db);
+    const state = createStateStore({ projectDir });
+    await state.syncSchema();
+    const store = createGcloudAuthStore(state.providerStorage("gcloud.config.copy"));
     const calls: string[][] = [];
     const runner: GcloudCommandRunner = async (_command, args) => {
       calls.push([...args]);
@@ -74,10 +68,9 @@ describe("local gcloud config copy provider", () => {
     writeFileSync(join(configDir, "logs", "ignored.log"), "noise");
     writeFileSync(join(configDir, "virtenv", "bin", "python"), "not copied config");
 
-    const schema = composeFdevSchema([gcloudAuthSchema]);
-    const db = createFdevDatabase(join(projectDir, "state.sqlite"), { schema });
-    await syncFdevDatabaseSchema(db, schema);
-    const store = createGcloudAuthStore(db);
+    const state = createStateStore({ projectDir });
+    await state.syncSchema();
+    const store = createGcloudAuthStore(state.providerStorage("gcloud.config.copy"));
     const calls: string[][] = [];
     const runner: GcloudCommandRunner = async (_command, args) => {
       calls.push([...args]);

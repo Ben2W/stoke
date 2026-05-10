@@ -5,7 +5,7 @@ Copy local `gcloud` config/auth files into fdev workspaces.
 This provider does not own Google OAuth. It requires the developer's local machine to have `gcloud` installed and authenticated, then copies selected files from the local gcloud config directory into a workspace. This makes normal VM-side commands such as `gcloud auth list` behave like they do locally.
 
 ```ts
-import { workflow } from "@freestyle-sh/fdev-sdk";
+import { workflow } from "@freestyle-sh/fdev";
 import {
   copyGcloudConfig,
   gcloudConfigCopyInjectionSteps,

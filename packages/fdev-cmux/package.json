@@ -9,6 +9,7 @@
   },
   "exports": {
     ".": "./src/index.ts",
+    "./host": "./src/host.ts",
     "./package.json": "./package.json"
   },
   "files": [
@@ -19,6 +20,10 @@
     "build": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
     "test": "bun test"
+  },
+  "dependencies": {
+    "@freestyle-sh/fdev": "workspace:*",
+    "@freestyle-sh/fdev-engine": "workspace:*"
   },
   "devDependencies": {
     "@types/bun": "latest",

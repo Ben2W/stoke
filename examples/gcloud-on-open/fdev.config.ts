@@ -1,4 +1,4 @@
-import { env, workflow } from "@freestyle-sh/fdev-sdk";
+import { env, workflow } from "@freestyle-sh/fdev";
 import { freestyle } from "@freestyle-sh/fdev-provider-freestyle";
 import {
   copyGcloudConfig,

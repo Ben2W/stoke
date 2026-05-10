@@ -74,7 +74,17 @@ jobs:
       - name: Verify packages are not already published
         run: |
           version="${GITHUB_REF_NAME#v}"
-          for pkg in @freestyle-sh/fdev-sdk @freestyle-sh/fdev-engine @freestyle-sh/fdev-provider-freestyle @freestyle-sh/fdev-cli; do
+          packages=(
+            @freestyle-sh/fdev-engine
+            @freestyle-sh/fdev-runtime-client
+            @freestyle-sh/fdev
+            @freestyle-sh/fdev-provider-freestyle
+            @freestyle-sh/fdev-provider-gcloud
+            @freestyle-sh/fdev-cmux
+            @freestyle-sh/fdev-vscode
+            @freestyle-sh/fdev-cli
+          )
+          for pkg in "${packages[@]}"; do
             if npm view "${pkg}@${version}" version >/dev/null 2>&1; then
               echo "${pkg}@${version} is already published" >&2
               exit 1
@@ -86,21 +96,35 @@ jobs:
       - name: Pack packages
         run: |
           mkdir -p dist/npm
-          pnpm -C packages/fdev-sdk pack --pack-destination ../../dist/npm
           pnpm -C packages/fdev-engine pack --pack-destination ../../dist/npm
+          pnpm -C packages/fdev-runtime-client pack --pack-destination ../../dist/npm
+          pnpm -C packages/fdev pack --pack-destination ../../dist/npm
           pnpm -C packages/fdev-provider-freestyle pack --pack-destination ../../dist/npm
+          pnpm -C packages/fdev-provider-gcloud pack --pack-destination ../../dist/npm
+          pnpm -C packages/fdev-cmux pack --pack-destination ../../dist/npm
+          pnpm -C packages/fdev-vscode pack --pack-destination ../../dist/npm
           pnpm -C packages/fdev-cli pack --pack-destination ../../dist/npm
 
       - name: Dry run package publish
         run: |
-          npx npm@latest publish dist/npm/freestyle-sh-fdev-sdk-*.tgz --access public --dry-run
+          version="$(bun -p 'require("./packages/fdev/package.json").version')"
           npx npm@latest publish dist/npm/freestyle-sh-fdev-engine-*.tgz --access public --dry-run
+          npx npm@latest publish dist/npm/freestyle-sh-fdev-runtime-client-*.tgz --access public --dry-run
+          npx npm@latest publish "dist/npm/freestyle-sh-fdev-${version}.tgz" --access public --dry-run
           npx npm@latest publish dist/npm/freestyle-sh-fdev-provider-freestyle-*.tgz --access public --dry-run
+          npx npm@latest publish dist/npm/freestyle-sh-fdev-provider-gcloud-*.tgz --access public --dry-run
+          npx npm@latest publish dist/npm/freestyle-sh-fdev-cmux-*.tgz --access public --dry-run
+          npx npm@latest publish dist/npm/freestyle-sh-fdev-vscode-*.tgz --access public --dry-run
           npx npm@latest publish dist/npm/freestyle-sh-fdev-cli-*.tgz --access public --dry-run
 
       - name: Publish packages
         run: |
-          npx npm@latest publish dist/npm/freestyle-sh-fdev-sdk-*.tgz --access public
+          version="$(bun -p 'require("./packages/fdev/package.json").version')"
           npx npm@latest publish dist/npm/freestyle-sh-fdev-engine-*.tgz --access public
+          npx npm@latest publish dist/npm/freestyle-sh-fdev-runtime-client-*.tgz --access public
+          npx npm@latest publish "dist/npm/freestyle-sh-fdev-${version}.tgz" --access public
           npx npm@latest publish dist/npm/freestyle-sh-fdev-provider-freestyle-*.tgz --access public
+          npx npm@latest publish dist/npm/freestyle-sh-fdev-provider-gcloud-*.tgz --access public
+          npx npm@latest publish dist/npm/freestyle-sh-fdev-cmux-*.tgz --access public
+          npx npm@latest publish dist/npm/freestyle-sh-fdev-vscode-*.tgz --access public
           npx npm@latest publish dist/npm/freestyle-sh-fdev-cli-*.tgz --access public

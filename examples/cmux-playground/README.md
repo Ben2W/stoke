@@ -2,7 +2,7 @@
 
 Minimal fdev workflow for testing local cmux integration.
 
-On every `fdev fork`, the workspace `onCreated` hook creates a local cmux workspace and runs:
+On every `fdev run create`, the workspace `onCreated` hook creates a local cmux workspace and runs:
 
 ```bash
 echo hello world

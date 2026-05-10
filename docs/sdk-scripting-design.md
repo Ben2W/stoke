@@ -27,7 +27,7 @@ There is no separate package spec layer and no `step.assert` helper. A step runs
 ## Step Example
 
 ```ts
-import { defineDevMachine, defineStep, env } from "@freestyle-sh/fdev-sdk";
+import { defineDevMachine, defineStep, env } from "@freestyle-sh/fdev";
 import { defineFreestyleProvider } from "@freestyle-sh/fdev-provider-freestyle";
 
 const gcloudStep = defineStep("install gcloud cli", async ({ vm }) => {
@@ -134,7 +134,7 @@ Dependent steps read prior values through `ctx.steps`.
 
 ## Workspace Hooks
 
-Machines can define a workspace hook that runs after `fdev fork` creates a workspace VM from the resolved snapshot:
+Machines can define a workspace hook that runs after `fdev run create` creates a workspace VM from the resolved snapshot:
 
 ```ts
 workspace: {
@@ -168,9 +168,9 @@ When applying a machine, the engine finds the latest cached prefix and only runs
 The CLI loads `fdev.config.ts`, validates the step chain, prints plans, applies missing steps, snapshots results, and forks workspaces from the latest resolved snapshot.
 
 ```bash
-fdev plan
-fdev apply
-fdev fork --name my-workspace
-fdev ls
-fdev ssh my-workspace
+fdev run plan
+fdev run apply
+fdev run create --name my-workspace
+fdev projects
+fdev run ssh my-workspace
 ```

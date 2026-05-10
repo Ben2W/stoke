@@ -2,21 +2,15 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  composeFdevSchema,
-  createFdevDatabase,
-  syncFdevDatabaseSchema,
-} from "@freestyle-sh/fdev-engine";
-import { gcloudAuthSchema } from "./schema.ts";
+import { createStateStore } from "@freestyle-sh/fdev-engine";
 import { createGcloudAuthStore } from "./store.ts";
 
 describe("gcloud auth store", () => {
   test("upserts local access token credentials", async () => {
     const projectDir = mkdtempSync(join(tmpdir(), "fdev-gcloud-"));
-    const schema = composeFdevSchema([gcloudAuthSchema]);
-    const db = createFdevDatabase(join(projectDir, "state.sqlite"), { schema });
-    await syncFdevDatabaseSchema(db, schema);
-    const store = createGcloudAuthStore(db);
+    const state = createStateStore({ projectDir });
+    await state.syncSchema();
+    const store = createGcloudAuthStore(state.providerStorage("gcloud.config.copy"));
 
     const first = store.saveCredentials({
       account: "dev@example.com",

@@ -1,14 +1,18 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { Database } from "bun:sqlite";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createDevMachineEngine, type InteractionPresentationRequest } from "./engine.ts";
+import { FDEV_STATE_SCHEMA_VERSION } from "./db/index.ts";
+import { createStateStore } from "./state.ts";
 import type {
+  BaseProviderPlugin,
   ProviderRuntimeContext,
   SshConnection,
   WorkflowProviderController,
 } from "./provider/types.ts";
-import type { ExecResult, JsonValue, WorkspaceRecord } from "@freestyle-sh/fdev-sdk";
+import type { ExecResult, JsonValue, WorkspaceRecord } from "./types.ts";
 
 describe("DevMachineEngine workflow runtime", () => {
   test("plans, applies graph nodes, reuses graph cache, and forks workspaces", async () => {
@@ -16,7 +20,7 @@ describe("DevMachineEngine workflow runtime", () => {
     writeFileSync(
       join(projectDir, "fdev.config.ts"),
       `
-        import { defineProvider, workflow } from "${import.meta.dir}/../../fdev-sdk/src/index.ts";
+        import { defineProvider, workflow } from "${import.meta.dir}/index.ts";
 
         const app = workflow("test", {
           providers: {
@@ -68,6 +72,25 @@ describe("DevMachineEngine workflow runtime", () => {
               const vm = providers.test.fromWorkspace(workspace);
               await vm.exec("touch /tmp/open-" + workspace.name, { name: "mark workspace open" });
             },
+          })
+          .operation("mark", {
+            requiredHostCapabilities: [{ id: "cmux.open", schemaHash: "sha256:cmux-open-schema" }],
+            input: (workflow) =>
+              workflow
+                .workspaceInput({ name: "workspace", position: 0 })
+                .extend({
+                  label: workflow.string({ defaultValue: "marked" }),
+                }),
+            run: async ({ input, providers, local }) => {
+              const vm = providers.test.fromWorkspace(input.workspace);
+              await vm.exec("touch /tmp/mark-" + input.workspace.name, { name: "mark via operation" });
+              await local.open("mark://" + input.workspace.name);
+              return {
+                workspace: input.workspace.name,
+                label: input.label,
+                cwd: input.workspace.cwd ?? null,
+              };
+            },
           });
       `,
     );
@@ -115,6 +138,15 @@ describe("DevMachineEngine workflow runtime", () => {
     expect(provider.workspaceContextResourceIds).toEqual(["workspace-work"]);
     expect(provider.hasFile("workspace-work", "/tmp/workspace-work")).toBe(true);
 
+    const markOperation = engine.listOperations().find((operation) => operation.id === "mark");
+    expect(markOperation?.requiredHostCapabilities).toEqual([
+      { id: "cmux.open", schemaHash: "sha256:cmux-open-schema" },
+    ]);
+    const marked = await engine.runOperation({ operation: "mark", input: { workspace: "work" } });
+    expect(marked).toEqual({ workspace: "work", label: "marked", cwd: "/workspace/repo" });
+    expect(opened).toEqual(["vscode://work", "mark://work"]);
+    expect(provider.hasFile("workspace-work", "/tmp/mark-work")).toBe(true);
+
     const terminal = await engine.attachTerminal({ workspaceOrVmId: "work", printOnly: true });
     expect(terminal.command).toBe("ssh workspace-work");
     expect(provider.workspaceContextResourceIds).toEqual(["workspace-work", "workspace-work"]);
@@ -128,12 +160,314 @@ describe("DevMachineEngine workflow runtime", () => {
     expect(engine.listWorkspaces()).toHaveLength(0);
   });
 
+  test("creates workspaces from config create callbacks and exposes persisted workspace data", async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), "fdev-"));
+    writeFileSync(
+      join(projectDir, "fdev.config.ts"),
+      `
+        import { defineConfig, defineProvider, sequence } from "${import.meta.dir}/index.ts";
+
+        const test = defineProvider("test", { token: "test-key" });
+
+        const root = sequence("create-test")
+          .step("prepare", async ({ providers }) => {
+            const vm = await providers.test.createVm();
+            await vm.exec("touch /tmp/template", { name: "prepare template" });
+            return {
+              vm: await vm.snapshotRef(),
+              repoPath: "/workspace/repo",
+            };
+          })
+          .create(async ({ ctx, name, providers }) => {
+            const vm = await providers.test.fromSnapshot(ctx.vm);
+            await vm.exec("touch /tmp/create-" + name, { name: "create workspace" });
+            return {
+              name,
+              vmId: vm.vmId,
+              sourceSnapshot: ctx.vm,
+              repoPath: ctx.repoPath,
+              ready: true,
+            };
+          })
+          .operation("inspect", {
+            input: (workflow) => workflow.workspaceInput({ name: "workspace", position: 0 }),
+            run: async ({ input, local }) => {
+              await local.open("created://" + input.workspace.name);
+              return {
+                vmId: input.workspace.data.vmId,
+                repoPath: input.workspace.data.repoPath,
+                ready: input.workspace.data.ready,
+              };
+            },
+          });
+
+        export default defineConfig({
+          providers: { test },
+          workflows: { root },
+        });
+      `,
+    );
+
+    const opened: string[] = [];
+    const provider = new FakeWorkflowProvider();
+    const engine = await createDevMachineEngine({
+      projectDir,
+      providerFactory: () => provider,
+      local: {
+        open: async (target) => {
+          opened.push(target);
+        },
+      },
+    });
+
+    await engine.load();
+    const projectInfo = engine.getProjectInfo();
+    expect(projectInfo.workflow?.createsWorkspace).toBe(true);
+    expect(projectInfo.workflows.map((workflow) => workflow.name)).toEqual(["create-test"]);
+    expect(engine.listOperations().map((operation) => operation.id)).toEqual(["inspect"]);
+
+    const workspace = await engine.fork({ name: "created" });
+    expect(workspace.name).toBe("created");
+    expect(workspace.providerId).toBe("config");
+    expect(workspace.resourceId).toBe("vm-2");
+    expect(workspace.metadata).toMatchObject({
+      name: "created",
+      vmId: "vm-2",
+      repoPath: "/workspace/repo",
+      ready: true,
+    });
+    expect(provider.hasFile("vm-2", "/tmp/create-created")).toBe(true);
+
+    const inspected = await engine.runOperation({ operation: "inspect", input: { workspace: "created" } });
+    expect(inspected).toEqual({
+      vmId: "vm-2",
+      repoPath: "/workspace/repo",
+      ready: true,
+    });
+    expect(opened).toEqual(["created://created"]);
+  });
+
+  test("loads multiple workflows from defineConfig", async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), "fdev-"));
+    writeFileSync(
+      join(projectDir, "fdev.config.ts"),
+      `
+        import { defineConfig, sequence } from "${import.meta.dir}/index.ts";
+
+        const api = sequence("api").step("ready", async () => ({ api: true }));
+        const web = sequence("web").step("ready", async () => ({ web: true }));
+
+        export default defineConfig({
+          providers: {},
+          workflows: { api, web },
+        });
+      `,
+    );
+
+    const engine = await createDevMachineEngine({
+      projectDir,
+      providerFactory: () => new FakeWorkflowProvider(),
+    });
+
+    await engine.load();
+
+    expect(engine.listWorkflowSummaries().map((workflow) => workflow.name)).toEqual(["api", "web"]);
+    expect(engine.getProjectInfo().workflow).toBeUndefined();
+    await expect(engine.plan()).rejects.toThrow("Multiple workflows are defined");
+    expect((await engine.plan({ workflow: "api" })).workflow).toBe("api");
+  });
+
+  test("creates state through an injectable state service factory", async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), "fdev-"));
+    const statePath = join(projectDir, "custom-state.sqlite");
+    writeFileSync(
+      join(projectDir, "fdev.config.ts"),
+      `
+        import { defineConfig, sequence } from "${import.meta.dir}/index.ts";
+
+        const root = sequence("factory-test").step("ready", async () => ({ ready: true }));
+
+        export default defineConfig({
+          providers: {},
+          workflows: { root },
+        });
+      `,
+    );
+
+    const configPath = join(projectDir, "fdev.config.ts");
+    const calls: Array<{ projectDir: string; configPath?: string; statePath?: string }> = [];
+    const engine = await createDevMachineEngine({
+      projectDir,
+      statePath,
+      providerFactory: () => new FakeWorkflowProvider(),
+      stateFactory: (options) => {
+        calls.push({
+          projectDir: options.projectDir,
+          configPath: options.configPath,
+          statePath: options.statePath,
+        });
+        return createStateStore(options);
+      },
+    });
+
+    await engine.load();
+
+    expect(calls).toEqual([{ projectDir, configPath, statePath }]);
+    expect(engine.getProjectInfo().statePath).toBe(statePath);
+
+    const state = createStateStore({ projectDir, statePath: join(projectDir, "provided-state.sqlite") });
+    const engineWithState = await createDevMachineEngine({
+      projectDir,
+      providerFactory: () => new FakeWorkflowProvider(),
+      state,
+      stateFactory: () => {
+        throw new Error("stateFactory should not be called when state is provided");
+      },
+    });
+
+    await engineWithState.load();
+    expect(engineWithState.getProjectInfo().statePath).toBe(state.path);
+  });
+
+  test("resets stale state before applying the Drizzle push schema", async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), "fdev-"));
+    const statePath = join(projectDir, ".fdev", "state.sqlite");
+    mkdirSync(join(projectDir, ".fdev"));
+    const legacy = new Database(statePath, { create: true });
+    legacy.run(`
+      CREATE TABLE workspaces (
+        id TEXT PRIMARY KEY NOT NULL,
+        name TEXT NOT NULL,
+        provider_id TEXT NOT NULL,
+        vm_id TEXT NOT NULL,
+        machine TEXT NOT NULL,
+        snapshot_id TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        metadata_json TEXT NOT NULL
+      )
+    `);
+    legacy
+      .query(`
+        INSERT INTO workspaces (
+          id, name, provider_id, vm_id, machine, snapshot_id, created_at, updated_at, metadata_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `)
+      .run(
+        "workspace-1",
+        "demo",
+        "freestyle",
+        "vm-1",
+        "smoke",
+        "snap-1",
+        "2026-05-10T00:00:00.000Z",
+        "2026-05-10T00:00:00.000Z",
+        JSON.stringify({ ready: true }),
+      );
+    legacy.close();
+
+    const state = createStateStore({ projectDir, statePath });
+    const result = await state.syncSchema();
+    const workspaces = state.listWorkspaces();
+
+    expect(result.applied).toEqual([FDEV_STATE_SCHEMA_VERSION]);
+    expect(result.hasDataLoss).toBe(true);
+    expect(result.warnings.some((warning) => warning.startsWith("Reset fdev state database after Drizzle push failed"))).toBe(
+      true,
+    );
+    expect(workspaces).toEqual([]);
+
+    const now = new Date().toISOString();
+    state.saveWorkspace({
+      id: "workspace-2",
+      name: "demo",
+      providerId: "freestyle",
+      workflow: "smoke",
+      resourceId: "resource-2",
+      snapshotId: "snap-2",
+      sourceRef: { snapshotId: "snap-2" },
+      context: { ready: true },
+      createdAt: now,
+      updatedAt: now,
+      metadata: { ready: true },
+    });
+    expect(state.getWorkspace("demo")).toMatchObject({
+      name: "demo",
+      workflow: "smoke",
+      resourceId: "resource-2",
+    });
+  });
+
+  test("stores provider JSON state in fdev-owned provider storage", async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), "fdev-"));
+    const plugin: BaseProviderPlugin = {
+      providerId: "test",
+      createProvider({ storage }) {
+        storage.set("ready", { value: "provider" });
+        return new FakeWorkflowProvider();
+      },
+    };
+
+    writeFileSync(
+      join(projectDir, "fdev.config.ts"),
+      `
+        import { defineProvider, workflow } from "${import.meta.dir}/index.ts";
+
+        const app = workflow("provider-storage", {
+          providers: {
+            test: defineProvider("test", {}),
+          },
+        });
+
+        export default app.sequence("root").task("ready", async () => ({ ready: true }));
+      `,
+    );
+
+    const engine = await createDevMachineEngine({
+      projectDir,
+      providers: [plugin],
+    });
+
+    await engine.load();
+    await engine.plan();
+
+    const statePath = engine.getProjectInfo().statePath;
+    const main = new Database(statePath);
+    const mainTables = main
+      .query<{ name: string }, []>("select name from sqlite_master where type = 'table' order by name")
+      .all()
+      .map((row) => row.name);
+
+    expect(mainTables).toContain("workspaces");
+    expect(mainTables).toContain("provider_state");
+    expect(mainTables).toContain("runtime_metadata");
+    expect(mainTables).not.toContain("provider_local_state");
+
+    const row = main
+      .query<{ value_json: string }, []>(
+        "select value_json from provider_state where provider_id = 'test' and key = 'ready'",
+      )
+      .get();
+    const metadataRows = main
+      .query<{ key: string; value_json: string }, []>(
+        "select key, value_json from runtime_metadata order by key",
+      )
+      .all();
+    main.close();
+
+    expect(row ? JSON.parse(row.value_json).value : undefined).toBe("provider");
+    const metadata = Object.fromEntries(metadataRows.map((item) => [item.key, JSON.parse(item.value_json)]));
+    expect(metadata["state.schemaVersion"]).toBe(FDEV_STATE_SCHEMA_VERSION);
+    expect(metadata["project.dir"]).toBe(projectDir);
+    expect(metadata["config.path"]).toBe(join(projectDir, "fdev.config.ts"));
+  });
+
   test("rejects task outputs that are not JSON serializable", async () => {
     const projectDir = mkdtempSync(join(tmpdir(), "fdev-"));
     writeFileSync(
       join(projectDir, "fdev.config.ts"),
       `
-        import { defineProvider, workflow } from "${import.meta.dir}/../../fdev-sdk/src/index.ts";
+        import { defineProvider, workflow } from "${import.meta.dir}/index.ts";
 
         const app = workflow("test", {
           providers: {
@@ -161,7 +495,7 @@ describe("DevMachineEngine workflow runtime", () => {
     writeFileSync(
       join(projectDir, "fdev.config.ts"),
       `
-        import { defineProvider, workflow } from "${import.meta.dir}/../../fdev-sdk/src/index.ts";
+        import { defineProvider, workflow } from "${import.meta.dir}/index.ts";
 
         const app = workflow("test", {
           providers: {
@@ -207,7 +541,7 @@ describe("DevMachineEngine workflow runtime", () => {
     writeFileSync(
       join(projectDir, "fdev.config.ts"),
       `
-        import { defineProvider, workflow } from "${import.meta.dir}/../../fdev-sdk/src/index.ts";
+        import { defineProvider, workflow } from "${import.meta.dir}/index.ts";
 
         const app = workflow("test", {
           providers: {
@@ -260,7 +594,7 @@ describe("DevMachineEngine workflow runtime", () => {
     writeFileSync(
       join(projectDir, "fdev.config.ts"),
       `
-        import { defineProvider, workflow } from "${import.meta.dir}/../../fdev-sdk/src/index.ts";
+        import { defineProvider, workflow } from "${import.meta.dir}/index.ts";
 
         const app = workflow("test", {
           providers: {
@@ -309,7 +643,7 @@ describe("DevMachineEngine workflow runtime", () => {
     writeFileSync(
       join(projectDir, "fdev.config.ts"),
       `
-        import { defineProvider, workflow } from "${import.meta.dir}/../../fdev-sdk/src/index.ts";
+        import { defineProvider, workflow } from "${import.meta.dir}/index.ts";
 
         const app = workflow("test", {
           providers: {

@@ -1,6 +1,5 @@
-import { eq } from "drizzle-orm";
-import type { FdevDatabase, FdevDatabaseSchema } from "@freestyle-sh/fdev-engine";
-import { gcloudLocalCredentials } from "./schema.ts";
+import type { ProviderStorage } from "@freestyle-sh/fdev-engine";
+import type { JsonValue } from "@freestyle-sh/fdev";
 
 export const DEFAULT_GCLOUD_CREDENTIAL_KEY = "default";
 
@@ -25,15 +24,10 @@ export type GcloudCredentialsInput = {
   expiresAt: string;
 };
 
-export function createGcloudAuthStore<TSchema extends FdevDatabaseSchema>(db: FdevDatabase<TSchema>) {
+export function createGcloudAuthStore(storage: ProviderStorage) {
   return {
     getCredentials(key = DEFAULT_GCLOUD_CREDENTIAL_KEY): GcloudStoredCredentials | undefined {
-      const row = db
-        .select()
-        .from(gcloudLocalCredentials)
-        .where(eq(gcloudLocalCredentials.key, key))
-        .get();
-      return row ? toCredentials(row) : undefined;
+      return parseCredentials(storage.get(credentialsKey(key))?.value);
     },
 
     saveCredentials(input: GcloudCredentialsInput): GcloudStoredCredentials {
@@ -52,21 +46,7 @@ export function createGcloudAuthStore<TSchema extends FdevDatabaseSchema>(db: Fd
         updatedAt: now,
       };
 
-      db.insert(gcloudLocalCredentials)
-        .values(credentials)
-        .onConflictDoUpdate({
-          target: gcloudLocalCredentials.key,
-          set: {
-            account: credentials.account,
-            scopes: credentials.scopes,
-            accessToken: credentials.accessToken,
-            tokenType: credentials.tokenType,
-            expiresAt: credentials.expiresAt,
-            updatedAt: credentials.updatedAt,
-          },
-        })
-        .run();
-
+      storage.set(credentialsKey(key), credentials as unknown as JsonValue);
       return credentials;
     },
   };
@@ -76,16 +56,44 @@ export function normalizeScopes(scopes: readonly string[]): string[] {
   return [...new Set(scopes.map((scope) => scope.trim()).filter(Boolean))].sort();
 }
 
-function toCredentials(row: typeof gcloudLocalCredentials.$inferSelect): GcloudStoredCredentials {
+function credentialsKey(key: string): string {
+  return `credentials:${key}`;
+}
+
+function parseCredentials(value: JsonValue | undefined): GcloudStoredCredentials | undefined {
+  if (!isRecord(value)) return undefined;
   return {
-    id: row.id,
-    key: row.key,
-    account: row.account,
-    scopes: row.scopes,
-    accessToken: row.accessToken,
-    tokenType: row.tokenType,
-    expiresAt: row.expiresAt,
-    createdAt: row.createdAt,
-    updatedAt: row.updatedAt,
+    id: requiredString(value, "id"),
+    key: requiredString(value, "key"),
+    account: optionalStringOrNull(value, "account"),
+    scopes: stringArray(value.scopes, "scopes"),
+    accessToken: requiredString(value, "accessToken"),
+    tokenType: requiredString(value, "tokenType"),
+    expiresAt: requiredString(value, "expiresAt"),
+    createdAt: requiredString(value, "createdAt"),
+    updatedAt: requiredString(value, "updatedAt"),
   };
+}
+
+function requiredString(record: Record<string, JsonValue>, key: string): string {
+  const value = record[key];
+  if (typeof value !== "string" || value.trim() === "") {
+    throw new Error(`Invalid gcloud provider state: ${key} must be a non-empty string`);
+  }
+  return value;
+}
+
+function optionalStringOrNull(record: Record<string, JsonValue>, key: string): string | null | undefined {
+  const value = record[key];
+  if (value === undefined || value === null || typeof value === "string") return value;
+  throw new Error(`Invalid gcloud provider state: ${key} must be a string or null`);
+}
+
+function stringArray(value: JsonValue | undefined, key: string): string[] {
+  if (Array.isArray(value) && value.every((item) => typeof item === "string")) return value;
+  throw new Error(`Invalid gcloud provider state: ${key} must be a string array`);
+}
+
+function isRecord(value: unknown): value is Record<string, JsonValue> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }

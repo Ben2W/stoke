@@ -2,19 +2,17 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { composeFdevSchema, createFdevDatabase, syncFdevDatabaseSchema } from "@freestyle-sh/fdev-engine";
+import { createStateStore } from "@freestyle-sh/fdev-engine";
 import { freestyleIdentityId, freestyleToken, freestyleTokenId } from "./auth.ts";
-import { freestyleSchema } from "./schema.ts";
 import { createFreestyleStore } from "./store.ts";
 
 describe("createFreestyleStore", () => {
   test("saves and reuses a single default identity row", async () => {
     const projectDir = mkdtempSync(join(tmpdir(), "fdev-provider-freestyle-"));
-    const schema = composeFdevSchema([freestyleSchema]);
-    const db = createFdevDatabase(join(projectDir, "state.sqlite"), { schema });
-    await syncFdevDatabaseSchema(db, schema);
+    const state = createStateStore({ projectDir });
+    await state.syncSchema();
 
-    const store = createFreestyleStore(db);
+    const store = createFreestyleStore(state.providerStorage("freestyle"));
 
     expect(store.getIdentity()).toBeUndefined();
 

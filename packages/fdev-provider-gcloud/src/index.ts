@@ -1,4 +1,4 @@
-import { defineProvider, type WorkflowProviderDefinition } from "@freestyle-sh/fdev-sdk";
+import { defineProvider, type WorkflowProviderDefinition } from "@freestyle-sh/fdev";
 import type { BaseProviderPlugin } from "@freestyle-sh/fdev-engine";
 import * as z from "zod/v4-mini";
 import {
@@ -8,7 +8,6 @@ import {
   type GcloudConfigCopyConfig,
   type GcloudConfigCopyRuntime,
 } from "./provider.ts";
-import { gcloudAuthSchema } from "./schema.ts";
 import { createGcloudAuthStore } from "./store.ts";
 
 const gcloudConfigCopyProviderConfigSchema = z.object({
@@ -41,11 +40,10 @@ export const defineGcloudConfigCopyProvider = provider;
 
 export const gcloudConfigCopyProviderPlugin: BaseProviderPlugin = {
   providerId: GCLOUD_CONFIG_COPY_PROVIDER_ID,
-  schema: gcloudAuthSchema,
-  async createProvider({ provider, db }) {
+  async createProvider({ provider, storage }) {
     const config = parseGcloudConfigCopyProviderConfig(provider.config);
     await assertLocalGcloudReady(config);
-    return createGcloudConfigCopyController(config, createGcloudAuthStore(db));
+    return createGcloudConfigCopyController(config, createGcloudAuthStore(storage));
   },
 };
 
@@ -66,7 +64,6 @@ export {
   gcloudConfigCopyInjectionSteps,
   gcloudCopiedConfigReadyCommand,
 } from "./inject.ts";
-export { gcloudLocalCredentials, gcloudAuthSchema } from "./schema.ts";
 export { createGcloudAuthStore, normalizeScopes } from "./store.ts";
 export { FDEV_PROVIDER_GCLOUD_VERSION } from "./version.ts";
 export type {
@@ -87,7 +84,6 @@ export type {
   GcloudConfigCopyInjectionOptions,
   GcloudConfigCopyInjectionStep,
 } from "./inject.ts";
-export type { GcloudAuthSchema } from "./schema.ts";
 export type { GcloudCredentialsInput, GcloudStoredCredentials } from "./store.ts";
 
 function parseGcloudConfigCopyProviderConfig(value: unknown): GcloudConfigCopyConfig {

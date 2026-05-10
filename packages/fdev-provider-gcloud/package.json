@@ -21,9 +21,8 @@
     "test": "bun test"
   },
   "dependencies": {
+    "@freestyle-sh/fdev": "workspace:*",
     "@freestyle-sh/fdev-engine": "workspace:*",
-    "@freestyle-sh/fdev-sdk": "workspace:*",
-    "drizzle-orm": "^0.45.2",
     "zod": "^4"
   },
   "devDependencies": {

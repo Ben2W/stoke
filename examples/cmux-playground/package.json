@@ -4,21 +4,20 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "fdev:plan": "fdev plan",
-    "fdev:apply": "fdev apply",
-    "fdev:fork": "fdev fork --name cmux-playground",
-    "fdev:rm": "fdev rm cmux-playground -y",
+    "fdev:plan": "fdev run plan",
+    "fdev:apply": "fdev run apply",
+    "fdev:fork": "fdev run create --name cmux-playground",
+    "fdev:rm": "fdev run delete cmux-playground -y",
     "typecheck": "tsc --noEmit",
     "test": "echo no cmux playground example tests yet"
   },
   "dependencies": {
     "@freestyle-sh/fdev-cmux": "workspace:*",
     "@freestyle-sh/fdev-provider-freestyle": "workspace:*",
-    "@freestyle-sh/fdev-sdk": "workspace:*"
+    "@freestyle-sh/fdev": "workspace:*"
   },
   "devDependencies": {
     "@freestyle-sh/fdev-cli": "workspace:*",
-    "@freestyle-sh/fdev-runtime": "workspace:*",
     "@types/bun": "latest",
     "typescript": "latest"
   }

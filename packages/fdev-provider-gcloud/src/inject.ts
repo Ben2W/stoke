@@ -1,4 +1,4 @@
-import type { ExecOptions } from "@freestyle-sh/fdev-sdk";
+import type { ExecOptions } from "@freestyle-sh/fdev";
 import { parseDurationMs, type DurationInput } from "./duration.ts";
 
 export const DEFAULT_GCLOUD_ACCESS_TOKEN_PATH = "${HOME:-/root}/.config/fdev/gcloud/access-token";

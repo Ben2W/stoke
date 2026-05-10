@@ -472,6 +472,24 @@ export function formatShellCommand(args: readonly string[]): string {
 }
 
 export { FDEV_CMUX_VERSION } from "./version.ts";
+export {
+  CMUX_OPEN_CAPABILITY,
+  CMUX_OPEN_CAPABILITY_ID,
+  CMUX_OPEN_SCHEMA_HASH,
+  type CmuxOpenInput,
+  type CmuxOpenResult,
+  type CmuxOpenSession,
+  type CmuxOpenSshInput,
+  type CmuxRemoteReadyOptions,
+} from "./capabilities.ts";
+export {
+  CMUX_PROVIDER_ID,
+  cmux,
+  cmuxProviderPlugin,
+  provider as defineCmuxProvider,
+  type CmuxProviderDefinition,
+  type CmuxRuntime,
+} from "./provider.ts";
 
 function runSpawnSync(args: readonly string[]): CmuxCommandResult {
   const result = Bun.spawnSync([...args], {

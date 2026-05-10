@@ -8,8 +8,8 @@ Run from this directory:
 pnpm fdev:plan
 pnpm fdev:apply
 pnpm fdev:fork
-pnpm exec fdev ls
-pnpm exec fdev ssh smoke-workspace --print
+pnpm exec fdev projects
+pnpm exec fdev run ssh smoke-workspace --print
 ```
 
 During `pnpm fdev:apply`, `fdev` opens a local browser terminal for the interactive step. When the terminal work is done, click Finished.

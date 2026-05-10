@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { projectIdFor, runtimePaths } from "@freestyle-sh/fdev-runtime-client";
+import { projectIdFor, runtimePaths, SUPPORTED_RUNTIME_API_VERSION } from "@freestyle-sh/fdev-runtime-client";
 import { completeFdev, formatCompletionItems, renderCompletionScript } from "./completion.ts";
 
 describe("CLI completion", () => {
@@ -11,8 +11,8 @@ describe("CLI completion", () => {
     await withWorkspaceRuntime({ projectDir }, async () => {
       const items = await completeFdev({
         cwd: projectDir,
-        words: ["fdev", "ssh", ""],
-        currentIndex: 2,
+        words: ["fdev", "run", "ssh", ""],
+        currentIndex: 3,
       });
 
       expect(items.map((item) => item.value)).toEqual(["api", "web"]);
@@ -25,8 +25,8 @@ describe("CLI completion", () => {
     await withWorkspaceRuntime({ projectDir }, async () => {
       const items = await completeFdev({
         cwd: projectDir,
-        words: ["fdev", "ssh", "vm-"],
-        currentIndex: 2,
+        words: ["fdev", "run", "ssh", "vm-"],
+        currentIndex: 3,
       });
 
       expect(items.map((item) => item.value)).toEqual(["vm-api", "vm-web"]);
@@ -39,8 +39,8 @@ describe("CLI completion", () => {
     await withWorkspaceRuntime({ projectDir, cleanupDir: parentDir }, async () => {
       const items = await completeFdev({
         cwd: parentDir,
-        words: ["fdev", "-C", "project", "ssh", ""],
-        currentIndex: 4,
+        words: ["fdev", "-C", "project", "run", "ssh", ""],
+        currentIndex: 5,
       });
 
       expect(items.map((item) => item.value)).toEqual(["api", "web"]);
@@ -76,22 +76,87 @@ async function withWorkspaceRuntime(
     port: 0,
     fetch(request) {
       if (request.headers.get("authorization") !== `Bearer ${token}`) {
-        return Response.json({ error: { message: "Unauthorized" } }, { status: 401 });
+        return runtimeJson({ error: { message: "Unauthorized" } }, { status: 401 });
       }
 
       const { pathname } = new URL(request.url);
       if (pathname === "/health") {
-        return Response.json({ ok: true, projectId });
+        return runtimeJson({
+          ok: true,
+          projectId,
+          projectDir: input.projectDir,
+          configPath,
+          engineVersion: "engine-test",
+          runtimeVersion: "runtime-test",
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        });
       }
       if (pathname === "/workspaces") {
-        return Response.json({
+        const now = new Date(0).toISOString();
+        return runtimeJson({
           workspaces: [
-            { name: "api", resourceId: "vm-api" },
-            { name: "web", resourceId: "vm-web" },
+            {
+              id: "workspace-api",
+              name: "api",
+              providerId: "freestyle",
+              workflow: "smoke",
+              resourceId: "vm-api",
+              sourceRef: null,
+              context: {},
+              metadata: {},
+              data: {},
+              createdAt: now,
+              updatedAt: now,
+            },
+            {
+              id: "workspace-web",
+              name: "web",
+              providerId: "freestyle",
+              workflow: "smoke",
+              resourceId: "vm-web",
+              sourceRef: null,
+              context: {},
+              metadata: {},
+              data: {},
+              createdAt: now,
+              updatedAt: now,
+            },
           ],
         });
       }
-      return Response.json({ error: { message: "Not found" } }, { status: 404 });
+      if (pathname === "/operations") {
+        return runtimeJson({
+          hostMethods: {
+            known: [],
+            requiredByOperations: {},
+          },
+          hostCapabilities: {
+            optional: [],
+            requiredByOperations: {},
+          },
+          operations: [
+            {
+              id: "ssh",
+              kind: "command",
+              source: "core",
+              title: "SSH",
+              description: "open SSH",
+              cli: {
+                positionals: [{ name: "workspaceOrVmId", index: 0 }],
+                options: [{ name: "print", flag: "--print", type: "boolean", runtime: false }],
+              },
+              inputSchema: {
+                type: "object",
+                additionalProperties: false,
+                properties: {
+                  workspaceOrVmId: { type: "string" },
+                },
+              },
+            },
+          ],
+        });
+      }
+      return runtimeJson({ error: { message: "Not found" } }, { status: 404 });
     },
   });
 
@@ -120,4 +185,10 @@ async function withWorkspaceRuntime(
     rmSync(fdevHome, { recursive: true, force: true });
     rmSync(input.cleanupDir ?? input.projectDir, { recursive: true, force: true });
   }
+}
+
+function runtimeJson(body: unknown, init: ResponseInit = {}): Response {
+  const headers = new Headers(init.headers);
+  headers.set("x-fdev-api-version", String(SUPPORTED_RUNTIME_API_VERSION));
+  return Response.json(body, { ...init, headers });
 }

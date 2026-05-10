@@ -1,24 +1,19 @@
-import { env, workflow } from "@freestyle-sh/fdev-sdk";
+import { defineConfig, env, sequence } from "@freestyle-sh/fdev";
 import { freestyle } from "@freestyle-sh/fdev-provider-freestyle";
 
-const app = workflow("smoke", {
-  providers: {
-    freestyle: freestyle.provider({
-      apiKey: env("FREESTYLE_API_KEY"),
-      image: "ubuntu-24.04",
-    }),
-    terminal: freestyle.terminal(),
-  },
+const freestyleProvider = freestyle.provider({
+  apiKey: env.secret("FREESTYLE_API_KEY"),
+  image: "ubuntu-24.04",
 });
 
-export default app
-  .sequence("smoke")
-  .task("create-vm", async ({ freestyle }) => {
-    const vm = await freestyle.vms.create();
+const smoke = sequence("smoke")
+  .step("create-vm", async ({ providers }) => {
+    console.log("Creating VM...");
+    const vm = await providers.freestyle.vms.create();
     return { vm: await vm.snapshotRef() };
   })
-  .task("install-gcloud-cli", async ({ ctx, freestyle }) => {
-    const vm = await freestyle.vms.fromSnapshot(ctx.vm);
+  .step("install-gcloud-cli", async ({ ctx, providers }) => {
+    const vm = await providers.freestyle.vms.fromSnapshot(ctx.vm);
     const installed = await vm.probe("command -v gcloud", {
       name: "check gcloud cli",
     });
@@ -45,8 +40,8 @@ export default app
 
     return { vm: await vm.snapshotRef() };
   })
-  .task("gcloud-login", async ({ ctx, freestyle, terminal }) => {
-    const vm = await freestyle.vms.fromSnapshot(ctx.vm);
+  .step("gcloud-login", async ({ ctx, providers }) => {
+    const vm = await providers.freestyle.vms.fromSnapshot(ctx.vm);
     const loggedIn = await vm.probe(
       "gcloud auth list --filter=status:ACTIVE --format='value(account)' | grep -q .",
       {
@@ -55,7 +50,7 @@ export default app
     );
     if (loggedIn.ok) return { vm: await vm.snapshotRef() };
 
-    await terminal.open("Log in to gcloud", {
+    await providers.terminal.open("Log in to gcloud", {
       target: vm,
       command: "gcloud auth login",
       instructions:
@@ -78,3 +73,13 @@ export default app
   .workspace({
     source: (ctx) => ctx.vm,
   });
+
+export default defineConfig({
+  providers: {
+    freestyle: freestyleProvider,
+    terminal: freestyle.terminal(),
+  },
+  workflows: {
+    smoke,
+  },
+});

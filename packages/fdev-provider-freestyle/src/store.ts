@@ -1,6 +1,5 @@
-import { eq } from "drizzle-orm";
-import type { FdevDatabase, FdevDatabaseSchema } from "@freestyle-sh/fdev-engine";
-import type { JsonValue } from "@freestyle-sh/fdev-sdk";
+import type { ProviderStorage } from "@freestyle-sh/fdev-engine";
+import type { JsonValue } from "@freestyle-sh/fdev";
 import {
   freestyleIdentityId,
   freestyleToken,
@@ -9,7 +8,6 @@ import {
   type FreestyleToken,
   type FreestyleTokenId,
 } from "./auth.ts";
-import { freestyleGitRelationships, freestyleIdentities } from "./schema.ts";
 
 const DEFAULT_IDENTITY_KEY = "default";
 
@@ -35,15 +33,10 @@ export type FreestyleIdentity = {
   updatedAt: string;
 };
 
-export function createFreestyleStore<TSchema extends FdevDatabaseSchema>(db: FdevDatabase<TSchema>) {
+export function createFreestyleStore(storage: ProviderStorage) {
   return {
     getIdentity(key = DEFAULT_IDENTITY_KEY): FreestyleIdentity | undefined {
-      const row = db
-        .select()
-        .from(freestyleIdentities)
-        .where(eq(freestyleIdentities.key, key))
-        .get();
-      return row ? toIdentity(row) : undefined;
+      return parseIdentity(storage.get(identityKey(key))?.value);
     },
 
     saveIdentity(input: {
@@ -65,29 +58,12 @@ export function createFreestyleStore<TSchema extends FdevDatabaseSchema>(db: Fde
         updatedAt: now,
       };
 
-      db.insert(freestyleIdentities)
-        .values(identity)
-        .onConflictDoUpdate({
-          target: freestyleIdentities.key,
-          set: {
-            identityId: identity.identityId,
-            tokenId: identity.tokenId,
-            token: identity.token,
-            updatedAt: identity.updatedAt,
-          },
-        })
-        .run();
-
+      storage.set(identityKey(key), identity as unknown as JsonValue);
       return identity;
     },
 
     getGitRelationship(workspaceId: string): FreestyleGitRelationship | undefined {
-      const row = db
-        .select()
-        .from(freestyleGitRelationships)
-        .where(eq(freestyleGitRelationships.workspaceId, workspaceId))
-        .get();
-      return row ? toGitRelationship(row) : undefined;
+      return parseGitRelationship(storage.get(gitRelationshipKey(workspaceId))?.value);
     },
 
     saveGitRelationship(input: Omit<FreestyleGitRelationship, "id" | "createdAt" | "updatedAt">): FreestyleGitRelationship {
@@ -100,48 +76,67 @@ export function createFreestyleStore<TSchema extends FdevDatabaseSchema>(db: Fde
         ...input,
       };
 
-      db.insert(freestyleGitRelationships)
-        .values(relationship)
-        .onConflictDoUpdate({
-          target: freestyleGitRelationships.workspaceId,
-          set: {
-            vmId: relationship.vmId,
-            remoteUrl: relationship.remoteUrl,
-            branch: relationship.branch,
-            commitSha: relationship.commitSha,
-            metadata: relationship.metadata,
-            updatedAt: relationship.updatedAt,
-          },
-        })
-        .run();
-
+      storage.set(gitRelationshipKey(input.workspaceId), relationship as unknown as JsonValue);
       return relationship;
     },
   };
 }
 
-function toIdentity(row: typeof freestyleIdentities.$inferSelect): FreestyleIdentity {
+function identityKey(key: string): string {
+  return `identity:${key}`;
+}
+
+function gitRelationshipKey(workspaceId: string): string {
+  return `git:${workspaceId}`;
+}
+
+function parseIdentity(value: JsonValue | undefined): FreestyleIdentity | undefined {
+  if (!isRecord(value)) return undefined;
   return {
-    id: row.id,
-    key: row.key,
-    identityId: freestyleIdentityId(row.identityId),
-    tokenId: freestyleTokenId(row.tokenId),
-    token: freestyleToken(row.token),
-    createdAt: row.createdAt,
-    updatedAt: row.updatedAt,
+    id: requiredString(value, "id"),
+    key: requiredString(value, "key"),
+    identityId: freestyleIdentityId(requiredString(value, "identityId")),
+    tokenId: freestyleTokenId(requiredString(value, "tokenId")),
+    token: freestyleToken(requiredString(value, "token")),
+    createdAt: requiredString(value, "createdAt"),
+    updatedAt: requiredString(value, "updatedAt"),
   };
 }
 
-function toGitRelationship(row: typeof freestyleGitRelationships.$inferSelect): FreestyleGitRelationship {
+function parseGitRelationship(value: JsonValue | undefined): FreestyleGitRelationship | undefined {
+  if (!isRecord(value)) return undefined;
   return {
-    id: row.id,
-    workspaceId: row.workspaceId,
-    vmId: row.vmId,
-    remoteUrl: row.remoteUrl,
-    branch: row.branch,
-    commitSha: row.commitSha,
-    metadata: row.metadata,
-    createdAt: row.createdAt,
-    updatedAt: row.updatedAt,
+    id: requiredString(value, "id"),
+    workspaceId: requiredString(value, "workspaceId"),
+    vmId: requiredString(value, "vmId"),
+    remoteUrl: optionalStringOrNull(value, "remoteUrl"),
+    branch: optionalStringOrNull(value, "branch"),
+    commitSha: optionalStringOrNull(value, "commitSha"),
+    metadata: recordValue(value.metadata),
+    createdAt: requiredString(value, "createdAt"),
+    updatedAt: requiredString(value, "updatedAt"),
   };
+}
+
+function requiredString(record: Record<string, JsonValue>, key: string): string {
+  const value = record[key];
+  if (typeof value !== "string" || value.trim() === "") {
+    throw new Error(`Invalid Freestyle provider state: ${key} must be a non-empty string`);
+  }
+  return value;
+}
+
+function optionalStringOrNull(record: Record<string, JsonValue>, key: string): string | null | undefined {
+  const value = record[key];
+  if (value === undefined || value === null || typeof value === "string") return value;
+  throw new Error(`Invalid Freestyle provider state: ${key} must be a string or null`);
+}
+
+function recordValue(value: JsonValue | undefined): Record<string, JsonValue> {
+  if (isRecord(value)) return value;
+  throw new Error(`Invalid Freestyle provider state: metadata must be an object`);
+}
+
+function isRecord(value: unknown): value is Record<string, JsonValue> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }

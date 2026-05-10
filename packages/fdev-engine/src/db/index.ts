@@ -5,6 +5,8 @@ import { drizzle, type BunSQLiteDatabase } from "drizzle-orm/bun-sqlite";
 import { pushSQLiteSchema } from "drizzle-kit/api";
 import { coreSchema, type CoreSchema } from "./schema/index.ts";
 
+export const FDEV_STATE_SCHEMA_VERSION = "drizzle-push";
+
 export type FdevDatabase<TSchema extends Record<string, unknown> = CoreSchema> =
   BunSQLiteDatabase<TSchema> & { $client: Database };
 
@@ -15,6 +17,8 @@ export type CreateFdevDatabaseOptions<TSchema extends FdevDatabaseSchema = CoreS
 };
 
 export type SchemaSyncResult = {
+  applied: string[];
+  schemaVersion: string;
   statements: string[];
   warnings: string[];
   hasDataLoss: boolean;
@@ -51,21 +55,84 @@ export async function syncFdevDatabaseSchema<TSchema extends FdevDatabaseSchema>
   db: FdevDatabase<TSchema>,
   schema: TSchema,
 ): Promise<SchemaSyncResult> {
+  try {
+    const result = await pushFdevDatabaseSchema(db, schema);
+    return toSchemaSyncResult(result);
+  } catch (error) {
+    const resetStatements = resetFdevDatabase(db);
+    const result = await pushFdevDatabaseSchema(db, schema);
+    return toSchemaSyncResult(result, {
+      resetStatements,
+      resetReason: errorMessage(error),
+    });
+  }
+}
+
+async function pushFdevDatabaseSchema<TSchema extends FdevDatabaseSchema>(
+  db: FdevDatabase<TSchema>,
+  schema: TSchema,
+): Promise<PushSQLiteSchemaResult> {
   const pushSchema = pushSQLiteSchema as unknown as PushSQLiteSchemaForBun;
   const result = await silenceStdout(() => pushSchema(schema, db));
-  await result.apply();
+  await silenceStdout(() => result.apply());
+  return result;
+}
 
+function toSchemaSyncResult(
+  result: PushSQLiteSchemaResult,
+  reset?: { resetStatements: string[]; resetReason: string },
+): SchemaSyncResult {
+  const statements = [...(reset?.resetStatements ?? []), ...result.statementsToExecute];
+  const warnings = [...result.warnings];
+  if (reset) {
+    warnings.unshift(`Reset fdev state database after Drizzle push failed: ${reset.resetReason}`);
+  }
   return {
-    statements: result.statementsToExecute,
-    warnings: result.warnings,
-    hasDataLoss: result.hasDataLoss,
+    applied: statements.length > 0 ? [FDEV_STATE_SCHEMA_VERSION] : [],
+    schemaVersion: FDEV_STATE_SCHEMA_VERSION,
+    statements,
+    warnings,
+    hasDataLoss: reset !== undefined || result.hasDataLoss,
   };
 }
 
-export function composeFdevSchema<const Schemas extends readonly FdevDatabaseSchema[]>(
-  schemas: Schemas,
-): CoreSchema & Schemas[number] {
-  return Object.assign({}, coreSchema, ...schemas) as CoreSchema & Schemas[number];
+function resetFdevDatabase<TSchema extends FdevDatabaseSchema>(db: FdevDatabase<TSchema>): string[] {
+  const rows = db.$client
+    .query(`
+      SELECT type, name
+      FROM sqlite_schema
+      WHERE type IN ('table', 'view', 'trigger')
+        AND name NOT LIKE 'sqlite_%'
+      ORDER BY CASE type
+        WHEN 'view' THEN 0
+        WHEN 'trigger' THEN 1
+        ELSE 2
+      END
+    `)
+    .all() as Array<{ type: "table" | "view" | "trigger"; name: string }>;
+
+  const statements = [
+    "PRAGMA foreign_keys=OFF",
+    ...rows.map((row) => `DROP ${row.type.toUpperCase()} IF EXISTS ${quoteSqlIdentifier(row.name)}`),
+    "PRAGMA foreign_keys=ON",
+  ];
+  const dropStatements = statements.slice(1, -1);
+  const reset = db.$client.transaction(() => {
+    for (const sql of dropStatements) {
+      db.$client.run(sql);
+    }
+  });
+  db.$client.run("PRAGMA foreign_keys=OFF");
+  try {
+    reset();
+  } finally {
+    db.$client.run("PRAGMA foreign_keys=ON");
+  }
+  return statements;
+}
+
+function quoteSqlIdentifier(name: string): string {
+  return `"${name.replaceAll('"', '""')}"`;
 }
 
 async function silenceStdout<T>(run: () => Promise<T>): Promise<T> {
@@ -75,5 +142,15 @@ async function silenceStdout<T>(run: () => Promise<T>): Promise<T> {
     return await run();
   } finally {
     process.stdout.write = write;
+  }
+}
+
+function errorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (typeof error === "string") return error;
+  try {
+    return JSON.stringify(error);
+  } catch {
+    return String(error);
   }
 }

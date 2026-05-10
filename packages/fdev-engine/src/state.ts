@@ -1,16 +1,17 @@
 import { join } from "node:path";
-import { asc, desc, eq, or } from "drizzle-orm";
-import type { JsonValue, WorkspaceRecord } from "@freestyle-sh/fdev-sdk";
+import { and, asc, desc, eq, or } from "drizzle-orm";
+import type { ProviderStorage, ProviderStorageRecord } from "./provider/types.ts";
+import type { JsonValue, WorkspaceRecord } from "./types.ts";
 import {
-  composeFdevSchema,
   createFdevDatabase,
   syncFdevDatabaseSchema,
   type FdevDatabase,
-  type FdevDatabaseSchema,
   type SchemaSyncResult,
 } from "./db/index.ts";
-import { workflowNodeRuns, workspaces } from "./db/schema/index.ts";
+import { coreSchema, type CoreSchema } from "./db/schema/index.ts";
+import { providerState, runtimeMetadata, workflowNodeRuns, workspaces } from "./db/schema/index.ts";
 import { stableJson } from "./hash.ts";
+import { FDEV_ENGINE_VERSION } from "./version.ts";
 
 export type WorkflowNodeRunRecord = {
   id: string;
@@ -30,20 +31,60 @@ export type WorkflowNodeRunRecord = {
 
 export type SnapshotRecord = WorkflowNodeRunRecord;
 
-export class StateStore {
+export type StateServiceOptions = {
+  projectDir: string;
+  statePath?: string;
+  projectId?: string;
+  configPath?: string;
+  runtimeVersion?: string;
+  source?: JsonValue;
+};
+
+export type StateServiceFactory = (options: StateServiceOptions) => StateService;
+
+export interface StateService {
   readonly path: string;
-  readonly db: FdevDatabase<FdevDatabaseSchema>;
-  private readonly schema: FdevDatabaseSchema;
+  syncSchema(): Promise<SchemaSyncResult>;
+  listWorkspaces(): WorkspaceRecord[];
+  findWorkspace(nameOrResourceId: string): WorkspaceRecord | undefined;
+  getWorkspace(name: string): WorkspaceRecord | undefined;
+  saveWorkspace(workspace: WorkspaceRecord): void;
+  deleteWorkspace(name: string): void;
+  listNodeRuns(): WorkflowNodeRunRecord[];
+  listSnapshots(): SnapshotRecord[];
+  findReusableNodeRun(input: {
+    workflow: string;
+    nodePath: string;
+    nodeKey: string;
+    providerFingerprint: string;
+    upstreamRunIds: readonly string[];
+  }): WorkflowNodeRunRecord | undefined;
+  saveNodeRun(run: WorkflowNodeRunRecord): void;
+  providerStorage(providerId: string): ProviderStorage;
+}
+
+export class StateStore implements StateService {
+  readonly path: string;
+  readonly db: FdevDatabase<CoreSchema>;
+  private readonly schema = coreSchema;
+  private readonly projectDir: string;
+  private readonly metadata: Omit<StateServiceOptions, "projectDir" | "statePath">;
   private schemaSync?: Promise<SchemaSyncResult>;
 
-  constructor(projectDir: string, options: { providerSchemas?: FdevDatabaseSchema[]; statePath?: string } = {}) {
+  constructor(projectDir: string, options: Omit<StateServiceOptions, "projectDir"> = {}) {
+    this.projectDir = projectDir;
     this.path = options.statePath ?? join(projectDir, ".fdev", "state.sqlite");
-    this.schema = composeFdevSchema(options.providerSchemas ?? []);
+    this.metadata = {
+      projectId: options.projectId,
+      configPath: options.configPath,
+      runtimeVersion: options.runtimeVersion,
+      source: options.source,
+    };
     this.db = createFdevDatabase(this.path, { schema: this.schema });
   }
 
   async syncSchema(): Promise<SchemaSyncResult> {
-    this.schemaSync ??= syncFdevDatabaseSchema(this.db, this.schema);
+    this.schemaSync ??= this.syncSchemaOnce();
     return await this.schemaSync;
   }
 
@@ -132,7 +173,46 @@ export class StateStore {
   saveNodeRun(run: WorkflowNodeRunRecord): void {
     this.db.insert(workflowNodeRuns).values(run).run();
   }
+
+  providerStorage(providerId: string): ProviderStorage {
+    return new StateProviderStorage(this.db, providerId);
+  }
+
+  private async syncSchemaOnce(): Promise<SchemaSyncResult> {
+    const result = await syncFdevDatabaseSchema(this.db, this.schema);
+    this.writeRuntimeMetadata(result.schemaVersion);
+    return result;
+  }
+
+  private writeRuntimeMetadata(schemaVersion: string): void {
+    const now = new Date().toISOString();
+    const entries: Array<[string, JsonValue]> = [
+      ["engine.version", FDEV_ENGINE_VERSION],
+      ["state.schemaVersion", schemaVersion],
+      ["project.dir", this.projectDir],
+      ["state.path", this.path],
+    ];
+
+    if (this.metadata.projectId) entries.push(["project.id", this.metadata.projectId]);
+    if (this.metadata.configPath) entries.push(["config.path", this.metadata.configPath]);
+    if (this.metadata.runtimeVersion) entries.push(["runtime.version", this.metadata.runtimeVersion]);
+    if (this.metadata.source !== undefined) entries.push(["source", this.metadata.source]);
+
+    for (const [key, value] of entries) {
+      this.db
+        .insert(runtimeMetadata)
+        .values({ key, value, updatedAt: now })
+        .onConflictDoUpdate({
+          target: runtimeMetadata.key,
+          set: { value, updatedAt: now },
+        })
+        .run();
+    }
+  }
 }
+
+export const createStateStore: StateServiceFactory = (options) =>
+  new StateStore(options.projectDir, options);
 
 function toWorkspaceRecord(row: typeof workspaces.$inferSelect): WorkspaceRecord {
   return {
@@ -165,5 +245,74 @@ function toNodeRunRecord(row: typeof workflowNodeRuns.$inferSelect): WorkflowNod
     invalidated: row.invalidated,
     createdAt: row.createdAt,
     metadata: row.metadata,
+  };
+}
+
+class StateProviderStorage implements ProviderStorage {
+  constructor(
+    private readonly db: FdevDatabase<CoreSchema>,
+    private readonly providerId: string,
+  ) {}
+
+  get<Value extends JsonValue = JsonValue>(key: string): ProviderStorageRecord<Value> | undefined {
+    const row = this.db
+      .select()
+      .from(providerState)
+      .where(and(eq(providerState.providerId, this.providerId), eq(providerState.key, key)))
+      .get();
+    return row ? toProviderStorageRecord(row) as ProviderStorageRecord<Value> : undefined;
+  }
+
+  set<Value extends JsonValue = JsonValue>(key: string, value: Value): ProviderStorageRecord<Value> {
+    const now = new Date().toISOString();
+    const existing = this.get(key);
+    const record: ProviderStorageRecord<Value> = {
+      providerId: this.providerId,
+      key,
+      value,
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+    };
+    this.db
+      .insert(providerState)
+      .values(record)
+      .onConflictDoUpdate({
+        target: [providerState.providerId, providerState.key],
+        set: {
+          value,
+          updatedAt: record.updatedAt,
+        },
+      })
+      .run();
+    return record;
+  }
+
+  delete(key: string): void {
+    this.db
+      .delete(providerState)
+      .where(and(eq(providerState.providerId, this.providerId), eq(providerState.key, key)))
+      .run();
+  }
+
+  entries(prefix = ""): ProviderStorageRecord[] {
+    const rows = this.db
+      .select()
+      .from(providerState)
+      .where(eq(providerState.providerId, this.providerId))
+      .orderBy(asc(providerState.key))
+      .all();
+    return rows
+      .filter((row) => row.key.startsWith(prefix))
+      .map(toProviderStorageRecord);
+  }
+}
+
+function toProviderStorageRecord(row: typeof providerState.$inferSelect): ProviderStorageRecord {
+  return {
+    providerId: row.providerId,
+    key: row.key,
+    value: row.value,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
   };
 }

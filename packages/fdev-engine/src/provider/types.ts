@@ -9,8 +9,7 @@ import type {
   MaybePromise,
   ProviderWorkspaceContext,
   WorkspaceRecord,
-} from "@freestyle-sh/fdev-sdk";
-import type { FdevDatabase, FdevDatabaseSchema } from "../db/index.ts";
+} from "../types.ts";
 
 export type VmHandle = {
   vmId: string;
@@ -110,16 +109,30 @@ export interface WorkflowProviderController<
 
 export type ProviderFactoryInput = {
   provider: LoadedProviderDefinition;
-  db: FdevDatabase<FdevDatabaseSchema>;
+  storage: ProviderStorage;
 };
 
 export type ProviderFactory = (
   input: ProviderFactoryInput,
 ) => WorkflowProviderController | Promise<WorkflowProviderController>;
 
+export type ProviderStorageRecord<Value extends JsonValue = JsonValue> = {
+  providerId: string;
+  key: string;
+  value: Value;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export interface ProviderStorage {
+  get<Value extends JsonValue = JsonValue>(key: string): ProviderStorageRecord<Value> | undefined;
+  set<Value extends JsonValue = JsonValue>(key: string, value: Value): ProviderStorageRecord<Value>;
+  delete(key: string): void;
+  entries(prefix?: string): ProviderStorageRecord[];
+}
+
 export type BaseProviderPlugin = {
   providerId: string;
-  schema?: FdevDatabaseSchema;
   createProvider(input: ProviderFactoryInput): WorkflowProviderController | Promise<WorkflowProviderController>;
 };
 

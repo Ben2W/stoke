@@ -4,22 +4,21 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "fdev:plan": "fdev plan",
-    "fdev:apply": "fdev apply",
-    "fdev:fork": "fdev fork --name website-workspace",
-    "fdev:ssh": "fdev ssh website-workspace",
-    "fdev:rm": "fdev rm website-workspace -y",
+    "fdev:plan": "fdev run plan",
+    "fdev:apply": "fdev run apply",
+    "fdev:fork": "fdev run create --name website-workspace",
+    "fdev:ssh": "fdev run ssh website-workspace",
+    "fdev:rm": "fdev run delete website-workspace -y",
     "typecheck": "tsc --noEmit",
     "test": "echo no freestyle website example tests yet"
   },
   "dependencies": {
     "@freestyle-sh/fdev-cmux": "workspace:*",
     "@freestyle-sh/fdev-provider-freestyle": "workspace:*",
-    "@freestyle-sh/fdev-sdk": "workspace:*"
+    "@freestyle-sh/fdev": "workspace:*"
   },
   "devDependencies": {
     "@freestyle-sh/fdev-cli": "workspace:*",
-    "@freestyle-sh/fdev-runtime": "workspace:*",
     "@types/bun": "latest",
     "typescript": "latest"
   }

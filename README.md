@@ -5,10 +5,12 @@
 This repo is a pnpm/turbo workspace:
 
 ```text
-packages/fdev-sdk/      SDK authoring API and public config types
-packages/fdev-engine/   config loader, workflow engine, provider contracts, state
+packages/fdev/          project authoring API and project-local runtime binary
+packages/fdev-engine/   authoring API, config loader, workflow engine, provider contracts, state
+packages/fdev-runtime-client/ shared daemon lifecycle client
 packages/fdev-provider-freestyle/ Freestyle provider implementation
 packages/fdev-provider-gcloud/    local Google Cloud CLI auth provider
+packages/fdev-vscode/   VS Code host package
 packages/fdev-cli/      global `fdev` command
 apps/app/               placeholder for the future app
 apps/install-worker/    Cloudflare Worker for install and release metadata
@@ -40,16 +42,16 @@ pnpm release:check
 pnpm build:cli-binaries
 pnpm smoke:plan
 pnpm smoke:apply
-pnpm --filter @freestyle-sh/fdev-cli fdev -C ../../examples/smoke fork --name my-workspace
-pnpm --filter @freestyle-sh/fdev-cli fdev -C ../../examples/smoke ls
-pnpm --filter @freestyle-sh/fdev-cli fdev -C ../../examples/smoke ssh my-workspace --print
+pnpm --filter @freestyle-sh/fdev-cli fdev -C ../../examples/smoke run create --name my-workspace
+pnpm --filter @freestyle-sh/fdev-cli fdev -C ../../examples/smoke projects
+pnpm --filter @freestyle-sh/fdev-cli fdev -C ../../examples/smoke run ssh my-workspace --print
 ```
 
 The CLI also has built-in help:
 
 ```bash
 pnpm --filter @freestyle-sh/fdev-cli fdev help
-pnpm --filter @freestyle-sh/fdev-cli fdev help fork
+pnpm --filter @freestyle-sh/fdev-cli fdev help run
 ```
 
 Enable shell completion:
@@ -61,7 +63,7 @@ eval "$(fdev completion zsh)"
 ```
 
 The installer adds the completion hook for new installs.
-Completion includes dynamic workspace targets, so `fdev ssh <tab>` suggests locally known workspaces from `.fdev/state.sqlite`.
+Completion includes dynamic runtime operation and workspace targets, so `fdev run ssh <tab>` suggests locally known workspaces from the runtime API.
 
 Initialize a new fdev project:
 
@@ -79,6 +81,15 @@ That creates `./platform`. Use `-C <dir>` with `init` to choose a parent directo
 
 By default other `fdev` commands load `fdev.config.ts` from the current directory. Use `-C <dir>` to point at another project directory, or `--config <file>` to load an exact config file.
 
+Remote GitHub project targets can be run without cloning first:
+
+```bash
+fdev run plan github:owner/repo
+fdev run apply github:owner/repo#branch-name
+```
+
+The CLI materializes the repo into `~/.fdev/projects`, installs dependencies if the project runtime is missing, stores state beside the cache, and asks for explicit trust before executing remote project code.
+
 ## Current Scope
 
 Implemented:
@@ -91,8 +102,10 @@ Implemented:
 - Freestyle provider package for VM create, snapshot refs, create-from-snapshot, provider-owned terminal sessions, workspace fork, exec, and SSH command generation
 - Google Cloud provider package for copying local `gcloud` config/auth files, token brokering, and injection helpers
 - local `.fdev/state.sqlite` node-run/workspace cache
-- Commander-based `fdev` CLI for `init`, `plan`, `apply`, `fork`, `ls`, `ssh`, `snapshot`, and `rm`
-- pnpm/turbo workspace with separate SDK, engine, CLI packages, app placeholder, and smoke example
+- manifest-driven `fdev run <operation>` CLI host for runtime-exposed project operations
+- project-local runtime daemon with handle/token/lock lifecycle through `@freestyle-sh/fdev-runtime-client`
+- VS Code host package using the shared runtime manager
+- pnpm/turbo workspace with project package, engine, hosts, app placeholder, and smoke example
 
 The app is intentionally not implemented yet. It should later wrap the same `DevMachineEngine`.
 

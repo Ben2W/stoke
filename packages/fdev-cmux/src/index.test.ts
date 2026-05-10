@@ -3,8 +3,13 @@ import { createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
+import type { ProviderStorage, ProviderStorageRecord } from "@freestyle-sh/fdev-engine";
+import type { JsonValue } from "@freestyle-sh/fdev";
 import {
+  CMUX_OPEN_CAPABILITY,
   CmuxCommandError,
+  cmux,
+  cmuxProviderPlugin,
   createCmuxClient,
   formatShellCommand,
   isInsideCmuxTerminal,
@@ -12,7 +17,9 @@ import {
   parseOptionalCmuxHandle,
   type CmuxRpcParams,
   type CmuxRpcResult,
+  type CmuxRuntime,
 } from "./index.ts";
+import { openCmux, type CmuxOpenClient } from "./host.ts";
 
 describe("cmux sdk", () => {
   test("parses workspace refs from cmux text output", () => {
@@ -393,7 +400,237 @@ describe("cmux sdk", () => {
 
     expect(() => cmux.run(["bad"])).toThrow(CmuxCommandError);
   });
+
+  test("handles cmux.open host capability for an ssh workspace", async () => {
+    const calls: Array<{ method: string; params: unknown }> = [];
+    const client = fakeOpenClient(calls);
+
+    const result = await openCmux({
+      name: "website",
+      ssh: {
+        kind: "ssh",
+        host: "vm-ssh.freestyle.sh",
+        username: "vm_123",
+        auth: { type: "token", token: "token_123" },
+        command: "ssh vm_123:token_123@vm-ssh.freestyle.sh",
+      },
+      cwd: "/workspace/site",
+      command: "pnpm dev",
+      url: "http://localhost:4321",
+    }, { client });
+
+    expect(result).toEqual({
+      sessionId: "workspace-1",
+      workspaceId: "workspace-1",
+      workspaceRef: "workspace:1",
+      terminalPaneId: "pane-1",
+      terminalSurfaceId: "surface-1",
+      browserPaneId: "pane-2",
+      browserSurfaceId: "surface-2",
+    });
+    expect(calls).toEqual([
+      {
+        method: "ssh",
+        params: expect.objectContaining({
+          destination: "vm_123,token_123@vm-ssh.freestyle.sh",
+          name: "website",
+          terminalStartupCommand: "ssh vm_123:token_123@vm-ssh.freestyle.sh",
+          sshOptions: [
+            "StrictHostKeyChecking=no",
+            "UserKnownHostsFile=/dev/null",
+            "LogLevel=ERROR",
+            "IdentitiesOnly=yes",
+            "IdentityFile=/dev/null",
+            "ControlMaster=no",
+          ],
+        }),
+      },
+      {
+        method: "newPane",
+        params: {
+          workspace: "workspace-1",
+          type: "terminal",
+          direction: "down",
+          focus: true,
+        },
+      },
+      {
+        method: "send",
+        params: {
+          workspace: "workspace-1",
+          surface: "surface-1",
+          text: "cd /workspace/site && pnpm dev\n",
+        },
+      },
+      {
+        method: "waitForRemoteReady",
+        params: {
+          workspace: "workspace-1",
+          options: {},
+        },
+      },
+      {
+        method: "portsKick",
+        params: {
+          workspace: "workspace-1",
+          surface: "surface-1",
+          reason: "command",
+        },
+      },
+      {
+        method: "browserOpen",
+        params: {
+          workspace: "workspace-1",
+          url: "http://localhost:4321",
+          focus: true,
+        },
+      },
+      {
+        method: "selectWorkspace",
+        params: "workspace-1",
+      },
+    ]);
+  });
+
+  test("exposes a provider facade that requests cmux.open from the local host", async () => {
+    const definition = cmux.provider();
+    expect(definition.providerId).toBe("cmux");
+    expect(definition.plugin).toBe(cmuxProviderPlugin);
+    expect(cmux.capabilities.open).toBe(CMUX_OPEN_CAPABILITY);
+
+    const controller = await cmuxProviderPlugin.createProvider({
+      provider: { providerId: "cmux", config: {} },
+      storage: memoryProviderStorage("cmux"),
+    });
+    const requests: Array<{ capability: string; params: unknown }> = [];
+    const runtime = await controller.runtime({
+      workflow: "test",
+      nodePath: "operation.open",
+      emit: () => {},
+      interaction: {
+        present: async <Result,>() => undefined as Result,
+      },
+      metadata: () => {},
+      local: {
+        open: async () => {},
+        requestCapability: async <Result,>(capability: string, params: unknown) => {
+          requests.push({ capability, params });
+          return { sessionId: "workspace-1", workspaceId: "workspace-1" } as Result;
+        },
+      },
+    }) as CmuxRuntime;
+
+    const session = await runtime.open({ name: "workspace" });
+
+    expect(requests).toEqual([
+      {
+        capability: "cmux.open",
+        params: { name: "workspace" },
+      },
+    ]);
+    expect(session.sessionId).toBe("workspace-1");
+
+    let closed = false;
+    void session.closed.then(() => {
+      closed = true;
+    });
+    await Bun.sleep(5);
+    expect(closed).toBe(false);
+  });
+
+  test("uses host capability close reporting when the runtime provides it", async () => {
+    const controller = await cmuxProviderPlugin.createProvider({
+      provider: { providerId: "cmux", config: {} },
+      storage: memoryProviderStorage("cmux"),
+    });
+    let resolveClosed!: () => void;
+    const runtime = await controller.runtime({
+      workflow: "test",
+      nodePath: "operation.open",
+      emit: () => {},
+      interaction: {
+        present: async <Result,>() => undefined as Result,
+      },
+      metadata: () => {},
+      local: {
+        open: async () => {},
+        requestCapabilitySession: async <Result,>(capability: string, params: unknown) => {
+          expect(capability).toBe("cmux.open");
+          expect(params).toEqual({ name: "workspace" });
+          return {
+            result: { sessionId: "workspace-1", workspaceId: "workspace-1" } as Result,
+            closed: new Promise<void>((resolve) => {
+              resolveClosed = resolve;
+            }),
+          };
+        },
+      },
+    }) as CmuxRuntime;
+
+    const session = await runtime.open({ name: "workspace" });
+    let closed = false;
+    void session.closed.then(() => {
+      closed = true;
+    });
+
+    await Bun.sleep(5);
+    expect(closed).toBe(false);
+    resolveClosed();
+    await session.closed;
+    expect(closed).toBe(true);
+  });
 });
+
+function fakeOpenClient(calls: Array<{ method: string; params: unknown }>): CmuxOpenClient {
+  return {
+    async newWorkspace(params) {
+      calls.push({ method: "newWorkspace", params });
+      return { handle: "workspace-1", id: "workspace-1", ref: "workspace:1" };
+    },
+    async ssh(params) {
+      calls.push({ method: "ssh", params });
+      return { handle: "workspace-1", id: "workspace-1", ref: "workspace:1" };
+    },
+    async newPane(params) {
+      calls.push({ method: "newPane", params });
+      return {
+        workspace: "workspace-1",
+        workspaceRef: "workspace:1",
+        pane: "pane-1",
+        paneRef: "pane:1",
+        surface: "surface-1",
+        surfaceRef: "surface:1",
+      };
+    },
+    async send(params) {
+      calls.push({ method: "send", params });
+      return "OK";
+    },
+    async portsKick(params) {
+      calls.push({ method: "portsKick", params });
+      return "OK";
+    },
+    async browserOpen(params) {
+      calls.push({ method: "browserOpen", params });
+      return {
+        workspace: "workspace-1",
+        workspaceRef: "workspace:1",
+        pane: "pane-2",
+        paneRef: "pane:2",
+        surface: "surface-2",
+        surfaceRef: "surface:2",
+      };
+    },
+    async selectWorkspace(workspace) {
+      calls.push({ method: "selectWorkspace", params: workspace });
+      return "OK";
+    },
+    async waitForRemoteReady(workspace, options) {
+      calls.push({ method: "waitForRemoteReady", params: { workspace, options } });
+      return { handle: workspace, id: workspace, ref: "workspace:1", result: {} };
+    },
+  };
+}
 
 function restoreEnv(key: string, value: string | undefined): void {
   if (value === undefined) {
@@ -401,6 +638,34 @@ function restoreEnv(key: string, value: string | undefined): void {
     return;
   }
   process.env[key] = value;
+}
+
+function memoryProviderStorage(providerId: string): ProviderStorage {
+  const records = new Map<string, ProviderStorageRecord>();
+  return {
+    get<Value extends JsonValue = JsonValue>(key: string) {
+      return records.get(key) as ProviderStorageRecord<Value> | undefined;
+    },
+    set<Value extends JsonValue = JsonValue>(key: string, value: Value) {
+      const now = new Date().toISOString();
+      const existing = records.get(key);
+      const record: ProviderStorageRecord<Value> = {
+        providerId,
+        key,
+        value,
+        createdAt: existing?.createdAt ?? now,
+        updatedAt: now,
+      };
+      records.set(key, record as ProviderStorageRecord);
+      return record;
+    },
+    delete(key) {
+      records.delete(key);
+    },
+    entries(prefix = "") {
+      return [...records.values()].filter((record) => record.key.startsWith(prefix));
+    },
+  };
 }
 
 async function listen(server: Server, socketPath: string): Promise<void> {
