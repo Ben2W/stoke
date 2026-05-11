@@ -988,6 +988,15 @@ export class DevMachineEngine {
         metadata: (value) => {
           Object.assign(metadata, value);
         },
+        log: (data, options = {}) => {
+          this.emit({
+            type: "log.output",
+            nodePath,
+            stream: options.stream ?? "info",
+            label: options.label,
+            data,
+          });
+        },
       },
     });
     const output = normalizeTaskOutput(nodePath, result, input.node.options?.output, "fresh");
@@ -1022,6 +1031,7 @@ export class DevMachineEngine {
         ref: artifact,
       });
     }
+    this.emit({ type: "node.completed", nodePath, runId: record.id });
 
     return {
       context: { ...input.state.context, ...output },

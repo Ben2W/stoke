@@ -25,7 +25,7 @@ import type {
 } from "./types.ts";
 
 const reservedTaskContextKeys = new Set(["ctx", "runtime", "providers"]);
-const reservedHostOperationIds = new Set(["init", "doctor", "projects", "run", "help", "version", "completion"]);
+const reservedHostOperationIds = new Set(["init", "doctor", "projects", "run", "ls", "help", "version", "completion"]);
 
 const readEnv = (name: string, fallback?: string): string => {
   const value = process.env[name];

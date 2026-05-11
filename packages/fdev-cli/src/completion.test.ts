@@ -54,6 +54,16 @@ describe("CLI completion", () => {
     expect(formatCompletionItems(items, "zsh")).toBe("api\tvm-api");
     expect(renderCompletionScript("zsh")).toContain("fdev __complete");
   });
+
+  test("completes ls targets", async () => {
+    const items = await completeFdev({
+      cwd: process.cwd(),
+      words: ["fdev", "ls", ""],
+      currentIndex: 2,
+    });
+
+    expect(items.map((item) => item.value)).toEqual(["workspaces", "snapshots", "config", "--json"]);
+  });
 });
 
 async function withWorkspaceRuntime(

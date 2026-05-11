@@ -1,5 +1,5 @@
 import { Freestyle, VmBaseImage } from "freestyle";
-import type { CommandOptions, ExecOptions, ExecResult, JsonValue, WorkspaceRecord } from "@freestyle-sh/fdev";
+import type { CommandOptions, ExecOptions, ExecOutputChunk, ExecResult, JsonValue, WorkspaceRecord } from "@freestyle-sh/fdev";
 import type {
   BaseDevMachineProvider,
   ProviderRuntimeContext,
@@ -213,6 +213,9 @@ class FreestyleProvider implements BaseDevMachineProvider<FreestyleWorkspaceCont
     const stderr = result.stderr ?? "";
     const exitCode = result.statusCode ?? 0;
 
+    if (stdout) await options?.onOutput?.({ stream: "stdout", data: stdout });
+    if (stderr) await options?.onOutput?.({ stream: "stderr", data: stderr });
+
     return {
       stdout,
       stderr,
@@ -350,26 +353,27 @@ function createVmRuntime(
   const runCommand = async (command: string, options?: CommandOptions) => {
     const commandName = options?.name ?? command;
     const { name: _name, ...execOptions } = options ?? {};
+    const callerOnOutput = execOptions.onOutput;
+    const streamed = new Set<ExecOutputChunk["stream"]>();
+    const onOutput = async (chunk: ExecOutputChunk) => {
+      if (!chunk.data) return;
+      streamed.add(chunk.stream);
+      context.emit({
+        type: "command.output",
+        nodePath: context.nodePath,
+        commandName,
+        stream: chunk.stream,
+        data: chunk.data,
+      });
+      await callerOnOutput?.(chunk);
+    };
     context.emit({ type: "command.started", nodePath: context.nodePath, commandName, command });
-    const result = await provider.exec(vm, command, execOptions);
-    if (result.stdout) {
-      context.emit({
-        type: "command.output",
-        nodePath: context.nodePath,
-        commandName,
-        stream: "stdout",
-        data: result.stdout,
-      });
-    }
-    if (result.stderr) {
-      context.emit({
-        type: "command.output",
-        nodePath: context.nodePath,
-        commandName,
-        stream: "stderr",
-        data: result.stderr,
-      });
-    }
+    const result = await provider.exec(vm, command, {
+      ...execOptions,
+      onOutput,
+    });
+    if (result.stdout && !streamed.has("stdout")) await onOutput({ stream: "stdout", data: result.stdout });
+    if (result.stderr && !streamed.has("stderr")) await onOutput({ stream: "stderr", data: result.stderr });
     context.emit({ type: "command.completed", nodePath: context.nodePath, commandName, exitCode: result.exitCode });
     return { commandName, result };
   };

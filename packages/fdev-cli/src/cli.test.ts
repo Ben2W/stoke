@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { projectIdFor, runtimePaths, SUPPORTED_RUNTIME_API_VERSION } from "@freestyle-sh/fdev-runtime-client";
 import { FDEV_CLI_VERSION } from "./version.ts";
 
 const cliPath = join(import.meta.dir, "cli.ts");
@@ -18,6 +19,12 @@ describe("CLI entrypoint", () => {
   });
 
   test("exposes static help and version bootstrap commands", async () => {
+    const rootHelp = await runCli([]);
+    expect(rootHelp.exitCode).toBe(0);
+    expect(rootHelp.stderr).toBe("");
+    expect(rootHelp.stdout).toContain("fdev");
+    expect(rootHelp.stdout).toContain("run         Run a project operation exposed by the runtime");
+
     const version = await runCli(["version"]);
     expect(version.exitCode).toBe(0);
     expect(version.stderr).toBe("");
@@ -28,6 +35,14 @@ describe("CLI entrypoint", () => {
     expect(help.stderr).toBe("");
     expect(help.stdout).toContain("fdev");
     expect(help.stdout).toContain("run         Run a project operation exposed by the runtime");
+  });
+
+  test("reports unknown commands through Commander", async () => {
+    const result = await runCli(["unknown"]);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain("unknown command 'unknown'");
   });
 
   test("serves dynamic shell completion endpoint", async () => {
@@ -58,6 +73,38 @@ describe("CLI entrypoint", () => {
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }
+  });
+
+  test("lists workspaces from the project runtime", async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), "fdev-cli-ls-"));
+
+    await withWorkspaceRuntime({ projectDir }, async ({ env }) => {
+      const result = await runCli(["-C", projectDir, "ls"], { env });
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stderr).toBe("");
+      expect(result.stdout).toContain("name  resource  snapshot  workflow");
+      expect(result.stdout).toContain("api   vm-api    snap-api  smoke");
+    });
+  });
+
+  test("lists workspaces as JSON", async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), "fdev-cli-ls-json-"));
+
+    await withWorkspaceRuntime({ projectDir }, async ({ env }) => {
+      const result = await runCli(["-C", projectDir, "ls", "--json"], { env });
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stderr).toBe("");
+      expect(JSON.parse(result.stdout)).toMatchObject({
+        workspaces: [{
+          name: "api",
+          workflow: "smoke",
+          resourceId: "vm-api",
+          snapshotId: "snap-api",
+        }],
+      });
+    });
   });
 
   test("requires discovered projects for run --all", async () => {
@@ -98,7 +145,7 @@ describe("CLI entrypoint", () => {
 
 async function runCli(
   args: string[],
-  options: { cwd?: string } = {},
+  options: { cwd?: string; env?: Record<string, string | undefined> } = {},
 ): Promise<{ exitCode: number; stdout: string; stderr: string }> {
   const proc = Bun.spawn(["bun", cliPath, ...args], {
     cwd: options.cwd,
@@ -106,6 +153,7 @@ async function runCli(
     stderr: "pipe",
     env: {
       ...process.env,
+      ...options.env,
       FORCE_COLOR: "0",
       NO_COLOR: "1",
     },
@@ -117,4 +165,89 @@ async function runCli(
     new Response(proc.stderr).text(),
   ]);
   return { exitCode, stdout, stderr };
+}
+
+async function withWorkspaceRuntime(
+  input: { projectDir: string },
+  run: (context: { env: Record<string, string> }) => Promise<void>,
+): Promise<void> {
+  const fdevHome = mkdtempSync(join(tmpdir(), "fdev-home-"));
+  const token = "test-token";
+  const configPath = join(input.projectDir, "fdev.config.ts");
+  const projectId = projectIdFor({ projectDir: input.projectDir, configPath });
+  const paths = runtimePaths(projectId, fdevHome);
+  mkdirSync(input.projectDir, { recursive: true });
+  mkdirSync(paths.root, { recursive: true });
+  writeFileSync(configPath, "export default {}\n");
+  writeFileSync(paths.tokenPath, `${token}\n`);
+
+  const now = new Date(0).toISOString();
+  const server = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    fetch(request) {
+      if (request.headers.get("authorization") !== `Bearer ${token}`) {
+        return runtimeJson({ error: { message: "Unauthorized" } }, { status: 401 });
+      }
+
+      const { pathname } = new URL(request.url);
+      if (pathname === "/health") {
+        return runtimeJson({
+          ok: true,
+          projectId,
+          projectDir: input.projectDir,
+          configPath,
+          statePath: join(input.projectDir, ".fdev", "state.sqlite"),
+          engineVersion: "engine-test",
+          runtimeVersion: "runtime-test",
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        });
+      }
+      if (pathname === "/workspaces") {
+        return runtimeJson({
+          workspaces: [{
+            id: "workspace-api",
+            name: "api",
+            providerId: "freestyle",
+            workflow: "smoke",
+            resourceId: "vm-api",
+            snapshotId: "snap-api",
+            sourceRef: null,
+            context: {},
+            metadata: {},
+            data: {},
+            createdAt: now,
+            updatedAt: now,
+          }],
+        });
+      }
+      return runtimeJson({ error: { message: "Not found" } }, { status: 404 });
+    },
+  });
+
+  writeFileSync(
+    paths.handlePath,
+    `${JSON.stringify({
+      projectId,
+      projectDir: input.projectDir,
+      configPath,
+      pid: process.pid,
+      url: `http://127.0.0.1:${server.port}`,
+      tokenPath: paths.tokenPath,
+    }, null, 2)}\n`,
+  );
+
+  try {
+    await run({ env: { FDEV_HOME: fdevHome } });
+  } finally {
+    server.stop(true);
+    rmSync(fdevHome, { recursive: true, force: true });
+    rmSync(input.projectDir, { recursive: true, force: true });
+  }
+}
+
+function runtimeJson(body: unknown, init: ResponseInit = {}): Response {
+  const headers = new Headers(init.headers);
+  headers.set("x-fdev-api-version", String(SUPPORTED_RUNTIME_API_VERSION));
+  return Response.json(body, { ...init, headers });
 }

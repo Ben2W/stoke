@@ -12,7 +12,7 @@ import type {
   SshConnection,
   WorkflowProviderController,
 } from "./provider/types.ts";
-import type { ExecResult, JsonValue, WorkspaceRecord } from "./types.ts";
+import type { DevMachineEvent, ExecResult, JsonValue, WorkspaceRecord } from "./types.ts";
 
 describe("DevMachineEngine workflow runtime", () => {
   test("plans, applies graph nodes, reuses graph cache, and forks workspaces", async () => {
@@ -28,7 +28,8 @@ describe("DevMachineEngine workflow runtime", () => {
           },
         });
 
-        const base = app.sequence("base").task("first", async ({ test }) => {
+        const base = app.sequence("base").task("first", async ({ runtime, test }) => {
+          runtime.log("preparing base\\n", { label: "setup" });
           const vm = await test.createVm();
           await vm.exec("touch /tmp/first", { name: "touch first" });
           if (!(await vm.exists("/tmp/first"))) throw new Error("first was not created");
@@ -96,6 +97,7 @@ describe("DevMachineEngine workflow runtime", () => {
     );
 
     const opened: string[] = [];
+    const events: DevMachineEvent[] = [];
     const provider = new FakeWorkflowProvider();
     const engine = await createDevMachineEngine({
       projectDir,
@@ -106,6 +108,7 @@ describe("DevMachineEngine workflow runtime", () => {
         },
       },
     });
+    engine.onEvent((event) => events.push(event));
 
     await engine.load();
 
@@ -122,6 +125,13 @@ describe("DevMachineEngine workflow runtime", () => {
 
     const applied = await engine.apply();
     expect(applied.snapshotId).toBe("snap-2");
+    expect(events).toContainEqual({
+      type: "log.output",
+      nodePath: "base.first",
+      stream: "info",
+      label: "setup",
+      data: "preparing base\n",
+    });
     expect(provider.snapshots).toHaveLength(2);
     expect(engine.listNodeRuns()).toHaveLength(4);
 

@@ -1,14 +1,10 @@
 #!/usr/bin/env bun
 import { existsSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
-import { createInterface } from "node:readline/promises";
-import * as Args from "@effect/cli/Args";
-import * as CliCommand from "@effect/cli/Command";
-import * as Options from "@effect/cli/Options";
-import * as ValidationError from "@effect/cli/ValidationError";
-import * as BunContext from "@effect/platform-bun/BunContext";
 import chalk from "chalk";
-import { Effect, Option } from "effect";
+import { Command, CommanderError } from "commander";
+import inquirer from "inquirer";
+import ora from "ora";
 import {
   getOrStartRuntime,
   type RuntimeClient,
@@ -32,6 +28,7 @@ import {
 import { FDEV_CLI_VERSION } from "./version.ts";
 import { initProject, normalizeMachineName, type InitProjectResult } from "./init.ts";
 import { openExternalTarget } from "./interaction.ts";
+import { createRunPresenter, type RunPresenter } from "./run-presenter.ts";
 import {
   completeFdev,
   formatCompletionItems,
@@ -73,12 +70,17 @@ type RunOptions = {
   discover: boolean;
 };
 
+type ListOptions = {
+  target?: string;
+};
+
 type PackageManager = "npm" | "bun" | "pnpm" | "skip";
 
 type InitInstallResult = {
   packageManager: PackageManager;
   command?: string;
   skipped: boolean;
+  reported?: boolean;
 };
 
 type EngineProjectInfo = {
@@ -155,142 +157,141 @@ const CLI_HOST_CAPABILITIES: Array<{ id: string; schemaHash?: string }> = [
   ...(capability.schemaHash ? { schemaHash: capability.schemaHash } : {}),
 }));
 
-const rootCommand = CliCommand.withDescription(
-  CliCommand.make("fdev", {
-    project: optionalOption(
-      Options.withAlias(
-        Options.withDescription(Options.text("project"), `Project directory containing ${DEFAULT_CONFIG_FILE}`),
-        "C",
-      ),
-    ),
-    config: optionalOption(Options.withDescription(Options.text("config"), "Exact config file to load")),
-    state: optionalOption(Options.withDescription(Options.text("state"), "Local runtime state database path")),
-    json: Options.withDescription(Options.withDefault(Options.boolean("json"), false), "Print machine-readable JSON where supported"),
-  }),
-  "Freestyle workflow CLI",
-);
-
-const jsonOption = Options.withDescription(
-  Options.withDefault(Options.boolean("json"), false),
-  "Print machine-readable JSON",
-);
-
-const initCommand = CliCommand.withDescription(
-  CliCommand.make("init", {
-    name: optionalOption(Options.withDescription(Options.text("name"), "Project and workflow name")),
-    apiKey: optionalOption(Options.withDescription(Options.text("api-key"), "Freestyle API key")),
-    packageManager: optionalOption(
-      Options.withDescription(
-        Options.choice("package-manager", ["npm", "bun", "pnpm", "skip"] as const),
-        "Install with npm, bun, pnpm, or skip",
-      ),
-    ),
-    force: Options.withDescription(Options.withDefault(Options.boolean("force"), false), "Overwrite an existing config file"),
-    json: jsonOption,
-  }, (options) => withRootInvocation(options.json, (invocation) => runInit(invocation, options))),
-  "Initialize an fdev project",
-);
-
-const runOperationCommand = CliCommand.withDescription(
-  CliCommand.make("run", {
-    operation: Args.withDescription(Args.text({ name: "operation" }), "Runtime operation"),
-    args: Args.repeated(Args.withDescription(Args.text({ name: "args" }), "Runtime operation arguments")),
-    all: Options.withDescription(Options.withDefault(Options.boolean("all"), false), "Run against every discovered project"),
-    discover: Options.withDescription(Options.withDefault(Options.boolean("discover"), false), "Discover projects below the selected directory"),
-    json: jsonOption,
-  }, (options) => withRootInvocation(options.json, (invocation) =>
-    runProjectOperation(invocation, options.operation, options.args, options)
-  )),
-  "Run a project operation exposed by the runtime",
-);
-
-const projectsCommand = CliCommand.withDescription(
-  CliCommand.make("projects", {
-    json: jsonOption,
-  }, (options) => withRootInvocation(options.json, async (invocation) => {
-    const projects = discoverProjectConfigs({
-      project: invocation.global.project,
-      config: invocation.global.config,
-    });
-    if (wantsJson(invocation)) {
-      printJson({ projects });
-      return;
-    }
-    if (projects.length === 0) {
-      console.log("No fdev projects found.");
-      return;
-    }
-    printTable(["project", "config"], projects.map((project) => [
-      project.projectDir,
-      project.configPath,
-    ]));
-  })),
-  "Discover fdev projects below the current directory",
-);
-
-const doctorCommand = CliCommand.withDescription(
-  CliCommand.make("doctor", {
-    cli: Options.withDescription(Options.withDefault(Options.boolean("cli"), false), "Show CLI diagnostics without connecting to a project runtime"),
-    json: jsonOption,
-  }, (options) => withRootInvocation(options.json, (invocation) => runDoctor(invocation, options))),
-  "Show fdev runtime diagnostics",
-);
-
-const versionCommand = CliCommand.withDescription(
-  CliCommand.make("version", {
-    json: jsonOption,
-  }, (options) => withRootInvocation(options.json, (invocation) => runVersion(invocation))),
-  "Show fdev CLI version",
-);
-
-const helpCommand = CliCommand.withDescription(
-  CliCommand.make("help", {
-    json: jsonOption,
-  }, (options) => withRootInvocation(options.json, (invocation) => runHelp(invocation))),
-  "Show fdev CLI help",
-);
-
-const completionCommand = CliCommand.withDescription(
-  CliCommand.make("completion", {
-    shell: optionalArg(Args.withDescription(Args.text({ name: "shell" }), "Completion shell")),
-  }, (options) => Effect.sync(() => {
-    console.log(renderCompletionScript(resolveCompletionShell(options.shell)));
-  })),
-  "Generate shell completion script",
-);
-
-const cliCommand = CliCommand.withSubcommands(rootCommand, [
-  helpCommand,
-  initCommand,
-  runOperationCommand,
-  projectsCommand,
-  doctorCommand,
-  versionCommand,
-  completionCommand,
-]);
-
 if (process.argv[2] === "__complete") {
   runCompletionEndpoint(process.argv.slice(3)).catch(handleCliError);
 } else {
-  Effect.runPromise(
-    CliCommand.run(cliCommand, {
-      name: "fdev",
-      version: FDEV_CLI_VERSION,
-      executable: "fdev",
-    })(process.argv).pipe(Effect.provide(BunContext.layer)),
-  ).catch(handleCliError);
+  runCli(process.argv).catch(handleCliError);
 }
 
-function optionalOption<A>(option: Options.Options<A>): Options.Options<A | undefined> {
-  return Options.map(Options.optional(option), Option.getOrUndefined);
+async function runCli(argv: string[]): Promise<void> {
+  const program = new Command();
+  program
+    .name("fdev")
+    .description("Freestyle workflow CLI")
+    .usage("[options] <command>")
+    .version(FDEV_CLI_VERSION, "-v, --version", "Show fdev CLI version")
+    .showHelpAfterError()
+    .exitOverride()
+    .argument("[command]")
+    .option("-C, --project <project>", `Project directory containing ${DEFAULT_CONFIG_FILE}`)
+    .option("--config <config>", "Exact config file to load")
+    .option("--state <state>", "Local runtime state database path")
+    .option("--json", "Print machine-readable JSON where supported")
+    .action(async (command?: string) => {
+      if (command) program.error(`unknown command '${command}'`);
+      await runHelp(makeInvocation(rootOptions(program)));
+    });
+
+  program
+    .command("init")
+    .description("Initialize an fdev project")
+    .option("--name <name>", "Project and workflow name")
+    .option("--api-key <apiKey>", "Freestyle API key")
+    .option("--package-manager <packageManager>", "Install with npm, bun, pnpm, or skip")
+    .option("--force", "Overwrite an existing config file")
+    .option("--json", "Print machine-readable JSON")
+    .action(async (options: {
+      name?: string;
+      apiKey?: string;
+      packageManager?: string;
+      force?: boolean;
+      json?: boolean;
+    }) => {
+      await runInit(makeInvocation(rootOptions(program), options.json), {
+        name: options.name,
+        apiKey: options.apiKey,
+        packageManager: parsePackageManagerOption(options.packageManager),
+        force: Boolean(options.force),
+      });
+    });
+
+  program
+    .command("run <operation> [args...]")
+    .description("Run a project operation exposed by the runtime")
+    .allowUnknownOption(true)
+    .option("--all", "Run against every discovered project")
+    .option("--discover", "Discover projects below the selected directory")
+    .option("--json", "Print machine-readable JSON")
+    .action(async (
+      operation: string,
+      args: string[],
+      options: { all?: boolean; discover?: boolean; json?: boolean },
+    ) => {
+      await runProjectOperation(makeInvocation(rootOptions(program), options.json), operation, args ?? [], {
+        all: Boolean(options.all),
+        discover: Boolean(options.discover),
+      });
+    });
+
+  program
+    .command("ls [target]")
+    .description("List project workspaces")
+    .option("--json", "Print machine-readable JSON")
+    .action(async (target: string | undefined, options: { json?: boolean }) => {
+      await runList(makeInvocation(rootOptions(program), options.json), { target });
+    });
+
+  program
+    .command("projects")
+    .description("Discover fdev projects below the current directory")
+    .option("--json", "Print machine-readable JSON")
+    .action(async (options: { json?: boolean }) => {
+      await runProjects(makeInvocation(rootOptions(program), options.json));
+    });
+
+  program
+    .command("doctor")
+    .description("Show fdev runtime diagnostics")
+    .option("--cli", "Show CLI diagnostics without connecting to a project runtime")
+    .option("--json", "Print machine-readable JSON")
+    .action(async (options: { cli?: boolean; json?: boolean }) => {
+      await runDoctor(makeInvocation(rootOptions(program), options.json), { cli: Boolean(options.cli) });
+    });
+
+  program
+    .command("version")
+    .description("Show fdev CLI version")
+    .option("--json", "Print machine-readable JSON")
+    .action(async (options: { json?: boolean }) => {
+      await runVersion(makeInvocation(rootOptions(program), options.json));
+    });
+
+  program
+    .command("help")
+    .description("Show fdev CLI help")
+    .option("--json", "Print machine-readable JSON")
+    .action(async (options: { json?: boolean }) => {
+      await runHelp(makeInvocation(rootOptions(program), options.json));
+    });
+
+  program
+    .command("completion [shell]")
+    .description("Generate shell completion script")
+    .action((shell?: string) => {
+      console.log(renderCompletionScript(resolveCompletionShell(shell)));
+    });
+  await program.parseAsync(argv);
 }
 
-function optionalArg<A>(arg: Args.Args<A>): Args.Args<A | undefined> {
-  return Args.map(Args.optional(arg), Option.getOrUndefined);
+function rootOptions(program: Command): GlobalOptions {
+  const options = program.opts<{
+    project?: string;
+    config?: string;
+    state?: string;
+    json?: boolean;
+  }>();
+  return {
+    project: options.project,
+    config: options.config,
+    state: options.state,
+    json: Boolean(options.json),
+  };
 }
 
-function withRootInvocation(commandJson: boolean, run: (invocation: CliInvocation) => Promise<void>) {
-  return Effect.flatMap(rootCommand, (global) => Effect.promise(() => run(makeInvocation(global, commandJson))));
+function parsePackageManagerOption(value: string | undefined): PackageManager | undefined {
+  if (value === undefined) return undefined;
+  if (isPackageManager(value)) return value;
+  throw new Error(`Unknown package manager ${value}. Expected npm, bun, pnpm, or skip.`);
 }
 
 function makeInvocation(global: GlobalOptions, commandJson = false): CliInvocation {
@@ -346,15 +347,12 @@ function parseCompletionEndpointArgs(args: string[]): CompletionOptions & { word
 }
 
 function handleCliError(error: unknown): void {
-  if (!isPrintedValidationFailure(error)) {
-    console.error(error instanceof Error ? error.message : String(error));
+  if (error instanceof CommanderError) {
+    process.exitCode = error.exitCode;
+    return;
   }
+  console.error(error instanceof Error ? error.message : String(error));
   process.exitCode = 1;
-}
-
-function isPrintedValidationFailure(error: unknown): boolean {
-  if (ValidationError.isValidationError(error)) return true;
-  return error instanceof Error && error.message.startsWith('{"_tag":');
 }
 
 async function runInit(invocation: CliInvocation, options: InitOptions): Promise<void> {
@@ -441,21 +439,21 @@ function resolveInitProjectPaths(invocation: CliInvocation, name: string): { pro
 }
 
 async function promptName(): Promise<string> {
-  const rl = createInterface({ input: process.stdin, output: process.stdout });
-
-  try {
-    for (;;) {
-      const prompt = `${chalk.cyan("?")} Project name: `;
-      const answer = await rl.question(prompt);
+  const answers = await inquirer.prompt<{ name: string }>([{
+    type: "input",
+    name: "name",
+    message: "Project name:",
+    validate(value: string) {
       try {
-        return normalizeMachineName(answer);
+        normalizeMachineName(value);
+        return true;
       } catch (error) {
-        console.log(chalk.red(error instanceof Error ? error.message : String(error)));
+        return error instanceof Error ? error.message : String(error);
       }
-    }
-  } finally {
-    rl.close();
-  }
+    },
+    filter: (value: string) => normalizeMachineName(value),
+  }]);
+  return answers.name;
 }
 
 async function promptRequiredSecret(label: string): Promise<string> {
@@ -473,213 +471,28 @@ async function promptPackageManager(defaultValue: PackageManager): Promise<Packa
     { value: "pnpm", label: "pnpm", hint: "pnpm install" },
     { value: "skip", label: "skip", hint: "do not install now" },
   ];
-  const stdin = process.stdin;
-  if (stdin.isTTY && process.stdout.isTTY) {
-    return await promptSelect("Install dependencies?", choices, defaultValue);
-  }
-
-  return await promptPackageManagerText(defaultValue);
-}
-
-async function promptPackageManagerText(defaultValue: PackageManager): Promise<PackageManager> {
-  const rl = createInterface({ input: process.stdin, output: process.stdout });
-  const choices = "npm, bun, pnpm, skip";
-
-  try {
-    for (;;) {
-      const prompt = `${chalk.cyan("?")} Install dependencies with which package manager? ${chalk.dim(`(${choices}; default ${defaultValue})`)} `;
-      const answer = (await rl.question(prompt)).trim().toLowerCase();
-      const value = answer || defaultValue;
-      if (isPackageManager(value)) return value;
-      console.log(chalk.red(`Choose one of: ${choices}.`));
-    }
-  } finally {
-    rl.close();
-  }
-}
-
-async function promptSelect<T extends string>(
-  label: string,
-  choices: Array<{ value: T; label: string; hint?: string }>,
-  defaultValue: T,
-): Promise<T> {
-  const stdin = process.stdin;
-  const stdout = process.stdout;
-  const defaultIndex = choices.findIndex((choice) => choice.value === defaultValue);
-  let index = defaultIndex >= 0 ? defaultIndex : 0;
-  let rendered = false;
-  const lineCount = choices.length + 1;
-
-  return new Promise<T>((resolvePromise, reject) => {
-    const wasRaw = stdin.isRaw;
-
-    const render = () => {
-      if (rendered) {
-        stdout.write(`\x1b[${lineCount}A\x1b[J`);
-      }
-      rendered = true;
-      stdout.write(`${chalk.cyan("?")} ${label}\n`);
-      for (const [choiceIndex, choice] of choices.entries()) {
-        const selected = choiceIndex === index;
-        const pointer = selected ? chalk.cyan("›") : " ";
-        const name = selected ? chalk.cyan(choice.label) : choice.label;
-        const hint = choice.hint ? chalk.dim(` ${choice.hint}`) : "";
-        stdout.write(`${pointer} ${name}${hint}\n`);
-      }
-    };
-
-    const cleanup = () => {
-      stdin.off("data", onData);
-      stdin.setRawMode(wasRaw);
-      stdin.pause();
-      stdout.write("\x1b[?25h");
-    };
-
-    const finish = () => {
-      const selected = choices[index]!;
-      if (rendered) {
-        stdout.write(`\x1b[${lineCount}A\x1b[J`);
-      }
-      cleanup();
-      stdout.write(`${chalk.cyan("?")} ${label} ${chalk.green(selected.label)}\n`);
-      resolvePromise(selected.value);
-    };
-
-    const cancel = () => {
-      cleanup();
-      stdout.write("\n");
-      reject(new Error("Init cancelled."));
-    };
-
-    const move = (delta: number) => {
-      index = (index + delta + choices.length) % choices.length;
-      render();
-    };
-
-    const onData = (chunk: Buffer | string) => {
-      const key = String(chunk);
-      if (key.includes("\u0003")) {
-        cancel();
-        return;
-      }
-
-      for (let offset = 0; offset < key.length;) {
-        if (key.startsWith("\u001b[A", offset)) {
-          move(-1);
-          offset += 3;
-          continue;
-        }
-        if (key.startsWith("\u001b[B", offset)) {
-          move(1);
-          offset += 3;
-          continue;
-        }
-
-        const char = key[offset]!;
-        if (char === "\r" || char === "\n" || char === " ") {
-          finish();
-          return;
-        }
-        if (char === "k") {
-          move(-1);
-          offset += 1;
-          continue;
-        }
-        if (char === "j") {
-          move(1);
-          offset += 1;
-          continue;
-        }
-
-        const numericChoice = Number(char);
-        if (Number.isInteger(numericChoice) && numericChoice >= 1 && numericChoice <= choices.length) {
-          index = numericChoice - 1;
-          finish();
-          return;
-        }
-
-        offset += 1;
-      }
-    };
-
-    stdout.write("\x1b[?25l");
-    stdin.resume();
-    stdin.setRawMode(true);
-    stdin.setEncoding("utf8");
-    stdin.on("data", onData);
-    render();
-  });
+  const answers = await inquirer.prompt<{ packageManager: PackageManager }>([{
+    type: "select",
+    name: "packageManager",
+    message: "Install dependencies?",
+    default: defaultValue,
+    choices: choices.map((choice) => ({
+      name: choice.label,
+      value: choice.value,
+      description: choice.hint,
+    })),
+  }]);
+  return answers.packageManager;
 }
 
 async function promptSecret(label: string): Promise<string> {
-  const stdin = process.stdin;
-  const stdout = process.stdout;
-  const canUseRawMode = Boolean(stdin.isTTY && stdout.isTTY && stdin.setRawMode);
-
-  if (!canUseRawMode) {
-    const rl = createInterface({ input: stdin, output: stdout });
-    try {
-      return await rl.question(`${chalk.cyan("?")} ${label}: `);
-    } finally {
-      rl.close();
-    }
-  }
-
-  return new Promise<string>((resolve, reject) => {
-    let value = "";
-    const wasRaw = stdin.isRaw;
-
-    const cleanup = () => {
-      stdin.off("data", onData);
-      stdin.setRawMode(wasRaw);
-      stdin.pause();
-    };
-
-    const finish = () => {
-      cleanup();
-      stdout.write("\n");
-      resolve(value);
-    };
-
-    const cancel = () => {
-      cleanup();
-      stdout.write("\n");
-      reject(new Error("Init cancelled."));
-    };
-
-    const onData = (chunk: Buffer | string) => {
-      for (const char of String(chunk)) {
-        if (char === "\u0003") {
-          cancel();
-          return;
-        }
-
-        if (char === "\r" || char === "\n") {
-          finish();
-          return;
-        }
-
-        if (char === "\u007f" || char === "\b") {
-          if (value.length > 0) {
-            value = value.slice(0, -1);
-            stdout.write("\b \b");
-          }
-          continue;
-        }
-
-        if (char >= " ") {
-          value += char;
-          stdout.write("*");
-        }
-      }
-    };
-
-    stdout.write(`${chalk.cyan("?")} ${label}: `);
-    stdin.resume();
-    stdin.setRawMode(true);
-    stdin.setEncoding("utf8");
-    stdin.on("data", onData);
-  });
+  const answers = await inquirer.prompt<{ value: string }>([{
+    type: "password",
+    name: "value",
+    message: `${label}:`,
+    mask: "*",
+  }]);
+  return answers.value;
 }
 
 async function runPackageManagerInstall(
@@ -692,6 +505,32 @@ async function runPackageManagerInstall(
   }
 
   const command = packageManagerInstallCommand(packageManager);
+  if (!jsonMode && process.stderr.isTTY) {
+    const spinner = ora({
+      text: `installing ${command.join(" ")}`,
+      stream: process.stderr,
+    }).start();
+    const proc = Bun.spawn(command, {
+      cwd: projectDir,
+      stdin: "inherit",
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [exitCode, stdout, stderr] = await Promise.all([
+      proc.exited,
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+    ]);
+    if (exitCode !== 0) {
+      spinner.fail(`${command.join(" ")} failed`);
+      if (stdout) process.stdout.write(stdout);
+      if (stderr) process.stderr.write(stderr);
+      throw new Error(`${command.join(" ")} failed with exit code ${exitCode}`);
+    }
+    spinner.succeed(`installed ${command.join(" ")}`);
+    return { packageManager, command: command.join(" "), skipped: false, reported: true };
+  }
+
   if (!jsonMode) {
     console.log("");
     console.log(`${chalk.cyan("installing")} ${command.join(" ")}`);
@@ -727,7 +566,7 @@ function printInitResult(result: InitProjectResult, install: InitInstallResult):
 
   if (install.skipped) {
     console.log(`${chalk.dim("install")} skipped`);
-  } else if (install.command) {
+  } else if (install.command && !install.reported) {
     console.log(`${chalk.green("installed")} ${install.command}`);
   }
 
@@ -867,6 +706,57 @@ async function runDiscoveredProjectOperation(
   if (wantsJson(invocation)) {
     printJson({ projects: results });
   }
+}
+
+async function runProjects(invocation: CliInvocation): Promise<void> {
+  const projects = discoverProjectConfigs({
+    project: invocation.global.project,
+    config: invocation.global.config,
+  });
+  if (wantsJson(invocation)) {
+    printJson({ projects });
+    return;
+  }
+  if (projects.length === 0) {
+    console.log("No fdev projects found.");
+    return;
+  }
+  printTable(["project", "config"], projects.map((project) => [
+    project.projectDir,
+    project.configPath,
+  ]));
+}
+
+async function runList(invocation: CliInvocation, options: ListOptions): Promise<void> {
+  const target = normalizeListTarget(options.target);
+  const runtime = await loadRuntime(invocation);
+
+  if (target === "workspaces") {
+    const { workspaces } = await runtime.control.workspaces();
+    if (wantsJson(invocation)) {
+      printJson({ workspaces });
+      return;
+    }
+    printWorkspaces(workspaces);
+    return;
+  }
+
+  if (target === "snapshots") {
+    const { snapshots } = await runtime.control.snapshots();
+    if (wantsJson(invocation)) {
+      printJson({ snapshots });
+      return;
+    }
+    printSnapshots(snapshots as SnapshotRecord[]);
+    return;
+  }
+
+  const project = await readRuntimeProject(runtime);
+  if (wantsJson(invocation)) {
+    printJson(project);
+    return;
+  }
+  printConfig(project);
 }
 
 async function executeRuntimeOperation(
@@ -1209,6 +1099,7 @@ async function runHelp(invocation: CliInvocation): Promise<void> {
         { name: "help", description: "Show fdev CLI help" },
         { name: "init", description: "Initialize an fdev project" },
         { name: "run", description: "Run a project operation exposed by the runtime" },
+        { name: "ls", description: "List project workspaces" },
         { name: "projects", description: "Discover fdev projects below the current directory" },
         { name: "doctor", description: "Show fdev runtime diagnostics" },
         { name: "version", description: "Show fdev CLI version" },
@@ -1227,6 +1118,7 @@ async function runHelp(invocation: CliInvocation): Promise<void> {
     "  help        Show fdev CLI help",
     "  init        Initialize an fdev project",
     "  run         Run a project operation exposed by the runtime",
+    "  ls          List project workspaces",
     "  projects    Discover fdev projects below the current directory",
     "  doctor      Show fdev runtime diagnostics",
     "  version     Show fdev CLI version",
@@ -1304,6 +1196,9 @@ async function runRuntimeOperation<T>(
   options: { renderEvents: boolean },
 ): Promise<T> {
   const started = await runtime.control.startRun({ operation, input });
+  let presenter: RunPresenter | undefined = options.renderEvents
+    ? createRunPresenter(operation)
+    : undefined;
   let result: T | undefined;
   let failure: Error | undefined;
 
@@ -1313,30 +1208,42 @@ async function runRuntimeOperation<T>(
     sendSession?: (message: unknown) => void | Promise<void>,
   ) => {
     if (isHostRequestEvent(event)) {
-      if (respond) {
-        await answerHostRequestOverSession(respond, event);
-      } else {
-        await answerHostRequest(runtime, event);
+      const suspendPresenter = hostRequestNeedsTerminal(event);
+      if (suspendPresenter) presenter?.pause();
+      try {
+        if (respond) {
+          await answerHostRequestOverSession(respond, event, { quietOpen: Boolean(presenter) });
+        } else {
+          await answerHostRequest(runtime, event, { quietOpen: Boolean(presenter) });
+        }
+      } finally {
+        if (suspendPresenter) presenter?.resume();
       }
       return;
     }
     if (isHostCapabilityRequestEvent(event)) {
-      if (sendSession) {
-        await answerHostCapabilityRequestOverSession(sendSession, event);
-      } else if (respond) {
-        await answerHostCapabilityRequestOverSession((message) => {
-          if (isRecord(message) && message.type === "response") {
-            const id = typeof message.id === "string" ? message.id : undefined;
-            if (id) return respond(id, "error" in message ? { error: message.error } : { result: message.result });
-          }
-          throw new Error(`Session response channel cannot send ${String(isRecord(message) ? message.type : typeof message)}`);
-        }, event);
-      } else {
-        await answerHostCapabilityRequest(runtime, event);
+      presenter?.pause();
+      try {
+        if (sendSession) {
+          await answerHostCapabilityRequestOverSession(sendSession, event);
+        } else if (respond) {
+          await answerHostCapabilityRequestOverSession((message) => {
+            if (isRecord(message) && message.type === "response") {
+              const id = typeof message.id === "string" ? message.id : undefined;
+              if (id) return respond(id, "error" in message ? { error: message.error } : { result: message.result });
+            }
+            throw new Error(`Session response channel cannot send ${String(isRecord(message) ? message.type : typeof message)}`);
+          }, event);
+        } else {
+          await answerHostCapabilityRequest(runtime, event);
+        }
+      } finally {
+        presenter?.resume();
       }
       return;
     }
     if (isRecord(event) && event.type === "run.completed") {
+      presenter?.render({ ...event, type: "run.completed" });
       result = event.result as T;
       return;
     }
@@ -1345,48 +1252,55 @@ async function runRuntimeOperation<T>(
         ? event.error.message
         : "Runtime operation failed";
       failure = new Error(message);
+      presenter?.render({ ...event, type: "run.failed" });
       return;
     }
     if (options.renderEvents && isDevMachineEvent(event)) {
-      renderEvent(event);
+      if (presenter) presenter.render(event);
+      else renderEvent(event);
     }
   };
 
-  if (started.sessionUrl) {
-    await runtime.runSession(started.runId, {
-      hello: {
-        type: "hello",
-        transportVersion: 1,
-        host: {
-          name: "fdev-cli",
-          version: FDEV_CLI_VERSION,
+  try {
+    if (started.sessionUrl) {
+      await runtime.runSession(started.runId, {
+        hello: {
+          type: "hello",
+          transportVersion: 1,
+          host: {
+            name: "fdev-cli",
+            version: FDEV_CLI_VERSION,
+          },
+          hostMethods: CLI_HOST_METHODS,
+          hostCapabilities: CLI_HOST_CAPABILITIES,
         },
-        hostMethods: CLI_HOST_METHODS,
-        hostCapabilities: CLI_HOST_CAPABILITIES,
-      },
-      onOpen(session) {
-        return installRunCancelHandler(session);
-      },
-      onClose() {
-        uninstallRunCancelHandler();
-      },
-      async onMessage(message, session) {
-        if (isRecord(message) && message.type === "hello.ack") return;
-        if (isRecord(message) && message.type === "run.event") {
-          await handleEvent(message.event);
-          return;
-        }
-        await handleEvent(
-          message,
-          (id, response) => session.send({ type: "response", id, ...(response as object) }),
-          (sessionMessage) => session.send(sessionMessage),
-        );
-        if (result !== undefined || failure) session.close();
-      },
-    });
+        onOpen(session) {
+          return installRunCancelHandler(session);
+        },
+        onClose() {
+          uninstallRunCancelHandler();
+        },
+        async onMessage(message, session) {
+          if (isRecord(message) && message.type === "hello.ack") return;
+          if (isRecord(message) && message.type === "run.event") {
+            await handleEvent(message.event);
+            return;
+          }
+          await handleEvent(
+            message,
+            (id, response) => session.send({ type: "response", id, ...(response as object) }),
+            (sessionMessage) => session.send(sessionMessage),
+          );
+          if (result !== undefined || failure) session.close();
+        },
+      });
+      uninstallRunCancelHandler();
+    } else {
+      await runtime.runEvents(started.runId, handleEvent);
+    }
+  } finally {
+    presenter?.close();
     uninstallRunCancelHandler();
-  } else {
-    await runtime.runEvents(started.runId, handleEvent);
   }
 
   if (failure) throw failure;
@@ -1450,6 +1364,10 @@ type HostCapabilityRequestEvent = {
   params: unknown;
 };
 
+type HostRequestHandlingOptions = {
+  quietOpen?: boolean;
+};
+
 class UnsupportedHostCapabilityError extends Error {
   constructor(capability: string) {
     super(
@@ -1460,10 +1378,14 @@ class UnsupportedHostCapabilityError extends Error {
   }
 }
 
-async function answerHostRequest(runtime: RuntimeClient, event: HostRequestEvent): Promise<void> {
+async function answerHostRequest(
+  runtime: RuntimeClient,
+  event: HostRequestEvent,
+  options: HostRequestHandlingOptions = {},
+): Promise<void> {
   if (!event.requestId) throw new Error(`Host request is missing requestId`);
   try {
-    const result = await handleHostRequest(event.method, event.params);
+    const result = await handleHostRequest(event.method, event.params, options);
     await runtime.control.hostResponse(event.requestId, { result });
   } catch (error) {
     await runtime.control.hostResponse(event.requestId, {
@@ -1477,11 +1399,12 @@ async function answerHostRequest(runtime: RuntimeClient, event: HostRequestEvent
 async function answerHostRequestOverSession(
   respond: (id: string, response: unknown) => void | Promise<void>,
   event: HostRequestEvent,
+  options: HostRequestHandlingOptions = {},
 ): Promise<void> {
   const id = event.id ?? event.requestId;
   if (!id) throw new Error(`Host request is missing id`);
   try {
-    const result = await handleHostRequest(event.method, event.params);
+    const result = await handleHostRequest(event.method, event.params, options);
     await respond(id, { result });
   } catch (error) {
     await respond(id, {
@@ -1524,7 +1447,11 @@ async function answerHostCapabilityRequestOverSession(
   }
 }
 
-async function handleHostRequest(method: string, params: unknown): Promise<unknown> {
+async function handleHostRequest(
+  method: string,
+  params: unknown,
+  options: HostRequestHandlingOptions = {},
+): Promise<unknown> {
   switch (method) {
     case "message.show":
       return showHostMessage(params);
@@ -1535,12 +1462,29 @@ async function handleHostRequest(method: string, params: unknown): Promise<unkno
     case "prompt.select":
       return await promptHostSelect(params);
     case "open.external":
-      return openHostExternal(params);
+      return openHostExternal(params, options);
     case "host.command.run":
       return await runHostCommand(params);
     default:
       throw new Error(`Unsupported host method ${method}`);
   }
+}
+
+function hostRequestNeedsTerminal(event: HostRequestEvent): boolean {
+  switch (event.method) {
+    case "open.external":
+      return false;
+    case "host.command.run":
+      return !isTrustedCaptureHostCommand(event.params);
+    default:
+      return true;
+  }
+}
+
+function isTrustedCaptureHostCommand(params: unknown): boolean {
+  return process.env.FDEV_TRUST_HOST_COMMANDS === "1" &&
+    isRecord(params) &&
+    params.mode !== "interactive";
 }
 
 type HandledHostCapability = {
@@ -1599,26 +1543,26 @@ async function promptHostText(params: unknown): Promise<string> {
     if (defaultValue !== undefined) return defaultValue;
     throw new Error(`Host prompt requires an interactive terminal: ${message}`);
   }
-  const rl = createInterface({ input: process.stdin, output: process.stdout });
-  try {
-    const suffix = defaultValue === undefined ? "" : chalk.dim(` (${defaultValue})`);
-    const answer = await rl.question(`${chalk.cyan("?")} ${message}${suffix} `);
-    return answer || defaultValue || "";
-  } finally {
-    rl.close();
-  }
+  const answers = await inquirer.prompt<{ value: string }>([{
+    type: "input",
+    name: "value",
+    message,
+    default: defaultValue,
+  }]);
+  return answers.value || defaultValue || "";
 }
 
 async function promptHostConfirm(params: unknown): Promise<boolean> {
   const message = stringField(params, "message") ?? "Continue?";
   const defaultValue = booleanField(params, "defaultValue") ?? false;
   if (!canPrompt()) return defaultValue;
-  const answer = (await promptHostText({
-    message: `${message} ${chalk.dim(defaultValue ? "[Y/n]" : "[y/N]")}`,
-    defaultValue: defaultValue ? "y" : "n",
-  })).trim().toLowerCase();
-  if (!answer) return defaultValue;
-  return answer === "y" || answer === "yes";
+  const answers = await inquirer.prompt<{ value: boolean }>([{
+    type: "confirm",
+    name: "value",
+    message,
+    default: defaultValue,
+  }]);
+  return answers.value;
 }
 
 async function promptHostSelect(params: unknown): Promise<string> {
@@ -1635,13 +1579,25 @@ async function promptHostSelect(params: unknown): Promise<string> {
     : [];
   if (options.length === 0) throw new Error(`Host select prompt has no options`);
   const defaultValue = stringField(params, "defaultValue") ?? options[0]!.value;
-  return await promptSelect(message, options, defaultValue);
+  if (!canPrompt()) return defaultValue;
+  const answers = await inquirer.prompt<{ value: string }>([{
+    type: "select",
+    name: "value",
+    message,
+    default: defaultValue,
+    choices: options.map((option) => ({
+      name: option.label,
+      value: option.value,
+      description: option.hint,
+    })),
+  }]);
+  return answers.value;
 }
 
-function openHostExternal(params: unknown): null {
+function openHostExternal(params: unknown, options: HostRequestHandlingOptions = {}): null {
   const target = stringField(params, "target");
   if (!target) throw new Error(`open.external requires target`);
-  console.error(`open ${target}`);
+  if (!options.quietOpen) console.error(`open ${target}`);
   openExternalTarget(target);
   return null;
 }
@@ -1803,7 +1759,9 @@ function printPlan(plan: WorkflowPlan): void {
   printTable(["#", "status", "node", "reason"], rows);
 }
 
-function printWorkspaces(workspaces: WorkspaceRecord[]): void {
+function printWorkspaces(
+  workspaces: ReadonlyArray<Pick<WorkspaceRecord, "name" | "workflow" | "snapshotId" | "createdAt"> & { resourceId?: string }>,
+): void {
   if (workspaces.length === 0) {
     console.log("No workspaces.");
     return;
@@ -1813,7 +1771,7 @@ function printWorkspaces(workspaces: WorkspaceRecord[]): void {
     ["name", "resource", "snapshot", "workflow", "created"],
     workspaces.map((workspace) => [
       workspace.name,
-      workspace.resourceId,
+      workspace.resourceId ?? "",
       workspace.snapshotId ?? "",
       workspace.workflow,
       workspace.createdAt,
@@ -1888,6 +1846,9 @@ function renderEvent(event: DevMachineEvent): void {
     case "node.started":
       console.error(`node ${event.nodePath}`);
       return;
+    case "node.completed":
+      console.error(`node ${event.nodePath} completed`);
+      return;
     case "command.started":
       console.error(`command ${event.commandName}`);
       return;
@@ -1896,6 +1857,9 @@ function renderEvent(event: DevMachineEvent): void {
       return;
     case "command.completed":
       console.error(`command ${event.commandName} exited ${event.exitCode}`);
+      return;
+    case "log.output":
+      process.stderr.write(event.data);
       return;
     case "interaction.awaiting_user":
       console.error(`interaction ${event.label}`);

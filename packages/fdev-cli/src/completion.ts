@@ -18,6 +18,7 @@ const COMMANDS: CompletionItem[] = [
   { value: "help", description: "show CLI help" },
   { value: "init", description: "initialize an fdev project" },
   { value: "run", description: "run a project operation" },
+  { value: "ls", description: "list project workspaces" },
   { value: "projects", description: "discover fdev projects" },
   { value: "doctor", description: "show runtime diagnostics" },
   { value: "version", description: "show CLI version" },
@@ -47,6 +48,12 @@ const COMMAND_OPTIONS: Record<string, CompletionItem[]> = {
   run: [
     { value: "--all", description: "run against every discovered project" },
     { value: "--discover", description: "discover projects below the selected directory" },
+    { value: "--json", description: "print JSON" },
+  ],
+  ls: [
+    { value: "workspaces", description: "list workspaces" },
+    { value: "snapshots", description: "list snapshots" },
+    { value: "config", description: "show project config" },
     { value: "--json", description: "print JSON" },
   ],
   projects: [
@@ -132,6 +139,10 @@ export async function completeFdev(input: CompleteFdevInput): Promise<Completion
 
   if (command === "completion" && positionalCount === 0) {
     return filterItems(COMMAND_OPTIONS.completion, current);
+  }
+
+  if (command === "ls" && positionalCount === 0) {
+    return filterItems(COMMAND_OPTIONS.ls, current);
   }
 
   return [];

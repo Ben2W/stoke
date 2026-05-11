@@ -27,10 +27,18 @@ export type ResolvableObject<T> = {
     : Resolvable<T[Key]>;
 };
 
+export type ExecOutputStream = "stdout" | "stderr";
+
+export type ExecOutputChunk = {
+  stream: ExecOutputStream;
+  data: string;
+};
+
 export type ExecOptions = {
   cwd?: string;
   env?: Record<string, string | undefined>;
   timeoutMs?: number;
+  onOutput?: (chunk: ExecOutputChunk) => MaybePromise<void>;
 };
 
 export type ExecResult = {
@@ -79,6 +87,8 @@ export type LocalCommandResult = {
   stdout: string | null;
   stderr: string | null;
 };
+
+export type WorkflowLogStream = "stdout" | "stderr" | "info";
 
 export type WorkflowProviderDefinition<
   ProviderId extends string = string,
@@ -130,6 +140,7 @@ export type WorkflowRuntimeHelpers = {
   readonly workflow: string;
   readonly nodePath: string;
   metadata(metadata: JsonObject): void;
+  log(data: string, options?: { stream?: WorkflowLogStream; label?: string }): void;
 };
 
 export type WorkflowTaskRuntime<
@@ -563,10 +574,12 @@ export type WorkflowEvent =
   | { type: "plan.created"; workflow: string; cachedNodeCount: number; nodeCount: number }
   | { type: "node.cached"; nodePath: string; runId: string }
   | { type: "node.started"; nodePath: string }
+  | { type: "node.completed"; nodePath: string; runId: string }
   | { type: "vm.created"; providerId: string; vmId: string; fromSnapshotId?: string }
   | { type: "command.started"; nodePath?: string; commandName: string; command: string }
-  | { type: "command.output"; nodePath?: string; commandName: string; stream: "stdout" | "stderr"; data: string }
+  | { type: "command.output"; nodePath?: string; commandName: string; stream: ExecOutputStream; data: string }
   | { type: "command.completed"; nodePath?: string; commandName: string; exitCode: number }
+  | { type: "log.output"; nodePath: string; stream: WorkflowLogStream; label?: string; data: string }
   | {
       type: "interaction.awaiting_user";
       nodePath: string;

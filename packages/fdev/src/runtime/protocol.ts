@@ -2,7 +2,7 @@ import { Schema } from "effect";
 import type { WorkflowEvent } from "@freestyle-sh/fdev-engine";
 
 export const RUNTIME_API_VERSION = 1;
-export const RUNTIME_PROTOCOL_HASH = "sha256:2f8e75a809782ffdd0cf3155723bd2155bdfa95b96dda9b43f019069f9226550";
+export const RUNTIME_PROTOCOL_HASH = "sha256:6dc28b06c95c98d310db445f1b19aef478cd828f11287467fe261483dfde4f81";
 export const DEFAULT_IDLE_MS = 30 * 60 * 1000;
 
 export class RuntimeProtocolSchemaError extends Error {
