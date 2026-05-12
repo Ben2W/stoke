@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -40,6 +40,26 @@ describe("runtime manager", () => {
     expect(first.startsWith("sha256-")).toBe(true);
     expect(differentConfig).not.toBe(first);
     expect(differentSource).not.toBe(first);
+  });
+
+  test("includes config contents in local runtime ids", () => {
+    const root = mkdtempSync(join(tmpdir(), "fdev-runtime-client-id-"));
+    try {
+      const projectDir = join(root, "project");
+      const configPath = join(projectDir, "fdev.config.ts");
+      mkdirSync(projectDir, { recursive: true });
+      writeFileSync(configPath, "export default { name: 'one' }\n");
+
+      const first = projectIdFor({ projectDir, configPath });
+      const second = projectIdFor({ projectDir, configPath });
+      writeFileSync(configPath, "export default { name: 'two' }\n");
+      const changed = projectIdFor({ projectDir, configPath });
+
+      expect(second).toBe(first);
+      expect(changed).not.toBe(first);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   test("derives handle, token, and lock paths from fdev home", () => {

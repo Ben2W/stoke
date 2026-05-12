@@ -86,7 +86,13 @@ export function getOrStartRuntimeEffect(options: GetOrStartRuntimeOptions): Effe
 async function getOrStartRuntimeUnsafe(options: GetOrStartRuntimeOptions): Promise<RuntimeClient> {
   const projectDir = resolve(options.projectDir);
   const configPath = resolve(options.configPath);
-  const projectId = projectIdFor({ projectDir, configPath });
+  const statePath = options.statePath ? resolve(options.statePath) : undefined;
+  const projectId = projectIdFor({
+    projectDir,
+    configPath,
+    statePath,
+    source: options.source,
+  });
   const paths = runtimePaths(projectId, options.fdevHome);
 
   const existing = await tryExistingRuntime(paths, projectId);
@@ -99,6 +105,7 @@ async function getOrStartRuntimeUnsafe(options: GetOrStartRuntimeOptions): Promi
       ...options,
       projectDir,
       configPath,
+      statePath,
       projectId,
       paths,
     });
@@ -116,10 +123,12 @@ async function getOrStartRuntimeUnsafe(options: GetOrStartRuntimeOptions): Promi
 }
 
 export function projectIdFor(options: RuntimeProjectOptions): string {
+  const configPath = resolve(options.configPath);
   const hash = createHash("sha256");
   hash.update(JSON.stringify({
     projectDir: resolve(options.projectDir),
-    configPath: resolve(options.configPath),
+    configPath,
+    configHash: configHashFor(configPath),
     statePath: options.statePath ? resolve(options.statePath) : null,
     source: options.source ?? null,
   }));
@@ -407,6 +416,13 @@ function readReadyLine(proc: ChildProcessByStdio<null, Readable, null>, paths: R
 
 function removeStale(paths: RuntimePaths): void {
   rmSync(paths.handlePath, { force: true });
+}
+
+function configHashFor(configPath: string): string | null {
+  if (!existsSync(configPath)) return null;
+  const hash = createHash("sha256");
+  hash.update(readFileSync(configPath));
+  return hash.digest("hex");
 }
 
 function isFileExistsError(error: unknown): boolean {

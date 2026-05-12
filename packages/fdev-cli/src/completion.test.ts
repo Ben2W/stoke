@@ -74,11 +74,11 @@ async function withWorkspaceRuntime(
   const fdevHome = mkdtempSync(join(tmpdir(), "fdev-home-"));
   const token = "test-token";
   const configPath = join(input.projectDir, "fdev.config.ts");
+  mkdirSync(input.projectDir, { recursive: true });
+  writeFileSync(configPath, "export default {}\n");
   const projectId = projectIdFor({ projectDir: input.projectDir, configPath });
   const paths = runtimePaths(projectId, fdevHome);
-  mkdirSync(input.projectDir, { recursive: true });
   mkdirSync(paths.root, { recursive: true });
-  writeFileSync(configPath, "export default {}\n");
   writeFileSync(paths.tokenPath, `${token}\n`);
 
   const server = Bun.serve({

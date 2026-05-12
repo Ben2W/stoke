@@ -1,8 +1,6 @@
-import { createCmuxClient } from "@freestyle-sh/fdev-cmux";
+import { cmux } from "@freestyle-sh/fdev-cmux";
 import { freestyle } from "@freestyle-sh/fdev-provider-freestyle";
 import { env, workflow } from "@freestyle-sh/fdev";
-
-const cmux = createCmuxClient();
 
 const app = workflow("cmux-playground", {
   providers: {
@@ -10,6 +8,7 @@ const app = workflow("cmux-playground", {
       apiKey: env("FREESTYLE_API_KEY"),
       image: "ubuntu-24.04",
     }),
+    cmux: cmux.provider(),
   },
 });
 
@@ -21,8 +20,8 @@ export default app
   })
   .workspace({
     source: (ctx) => ctx.vm,
-    onCreated: async ({ workspace }) => {
-      await cmux.newWorkspace({
+    onCreated: async ({ providers, workspace }) => {
+      await providers.cmux.open({
         name: workspace.name,
         command: "echo hello world",
         focus: true,
