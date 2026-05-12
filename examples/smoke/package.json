@@ -4,14 +4,17 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "plan": "fdev plan",
-    "apply": "fdev apply",
-    "fork": "fdev fork --name smoke-workspace",
+    "fdev:plan": "fdev run plan",
+    "fdev:apply": "fdev run apply",
+    "fdev:fork": "fdev run create --name smoke-workspace",
+    "fdev:ssh": "fdev run ssh smoke-workspace",
+    "fdev:rm": "fdev run delete smoke-workspace -y",
     "typecheck": "tsc --noEmit",
     "test": "echo no smoke example tests yet"
   },
   "dependencies": {
-    "@freestyle-sh/fdev-sdk": "workspace:*"
+    "@freestyle-sh/fdev-provider-freestyle": "workspace:*",
+    "@freestyle-sh/fdev": "workspace:*"
   },
   "devDependencies": {
     "@freestyle-sh/fdev-cli": "workspace:*",

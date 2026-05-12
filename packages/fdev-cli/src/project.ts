@@ -1,10 +1,9 @@
-import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { FDEV_ENGINE_VERSION } from "@freestyle-sh/fdev-engine";
-import { FDEV_CLI_VERSION } from "./version.ts";
+import { existsSync, readdirSync } from "node:fs";
 
 export const DEFAULT_CONFIG_FILE = "fdev.config.ts";
-export const SDK_PACKAGE_NAME = "@freestyle-sh/fdev-sdk";
+export const PROJECT_PACKAGE_NAME = "@freestyle-sh/fdev";
+export const FREESTYLE_PROVIDER_PACKAGE_NAME = "@freestyle-sh/fdev-provider-freestyle";
 
 export type ConfigPathOptions = {
   project?: string;
@@ -17,62 +16,79 @@ export type ResolvedConfigPaths = {
   configPath: string;
 };
 
+export type DiscoveredProject = ResolvedConfigPaths;
+
 export function resolveConfigPaths(options: ConfigPathOptions): ResolvedConfigPaths {
   const cwd = resolve(options.cwd ?? process.cwd());
-  const projectBase = resolve(cwd, options.project ?? ".");
-  const configPath = options.config
-    ? resolve(options.project ? projectBase : cwd, options.config)
-    : join(projectBase, DEFAULT_CONFIG_FILE);
+  if (options.config) {
+    const projectBase = options.project ? resolve(cwd, options.project) : cwd;
+    const configPath = resolve(projectBase, options.config);
+    return {
+      projectDir: dirname(configPath),
+      configPath,
+    };
+  }
+
+  const projectDir = options.project ? resolve(cwd, options.project) : findNearestProjectDir(cwd);
+  const configPath = join(projectDir, DEFAULT_CONFIG_FILE);
+
+  if (!existsSync(configPath)) {
+    throw new Error(`No fdev config found at ${configPath}. Run "fdev init" or pass --config <file>.`);
+  }
 
   return {
-    projectDir: dirname(configPath),
+    projectDir,
     configPath,
   };
 }
 
-export function assertVersionAlignment(projectDir: string): void {
-  const projectSdk = readLocalSdkVersion(projectDir);
-  if (!projectSdk) {
-    throw new Error(
-      [
-        `No local ${SDK_PACKAGE_NAME} install found for ${projectDir}.`,
-        ``,
-        `Run "fdev init", then install dependencies for the project.`,
-      ].join("\n"),
-    );
-  }
+export function discoverProjectConfigs(options: ConfigPathOptions = {}): DiscoveredProject[] {
+  if (options.config) return [resolveConfigPaths(options)];
 
-  if (FDEV_CLI_VERSION === FDEV_ENGINE_VERSION && FDEV_CLI_VERSION === projectSdk.version) {
+  const cwd = resolve(options.cwd ?? process.cwd());
+  const root = resolve(cwd, options.project ?? ".");
+  const projects: DiscoveredProject[] = [];
+  visitProjectDirs(root, projects);
+  return projects.sort((left, right) => left.configPath.localeCompare(right.configPath));
+}
+
+function findNearestProjectDir(start: string): string {
+  let current = start;
+  for (;;) {
+    if (existsSync(join(current, DEFAULT_CONFIG_FILE))) return current;
+    const parent = dirname(current);
+    if (parent === current) {
+      throw new Error(`No fdev config found from ${start} upward. Run "fdev init" or pass --config <file>.`);
+    }
+    current = parent;
+  }
+}
+
+function visitProjectDirs(dir: string, projects: DiscoveredProject[]): void {
+  const configPath = join(dir, DEFAULT_CONFIG_FILE);
+  if (existsSync(configPath)) {
+    projects.push({ projectDir: dir, configPath });
     return;
   }
 
-  throw new Error(
-    [
-      `fdev version mismatch`,
-      ``,
-      `global CLI:  ${FDEV_CLI_VERSION}`,
-      `engine:      ${FDEV_ENGINE_VERSION}`,
-      `project SDK: ${projectSdk.version}`,
-      ``,
-      `Install matching versions:`,
-      `  npm i -g @freestyle-sh/fdev-cli@${projectSdk.version}`,
-      `or`,
-      `  pnpm add -D ${SDK_PACKAGE_NAME}@${FDEV_CLI_VERSION}`,
-    ].join("\n"),
-  );
-}
-
-export function readLocalSdkVersion(projectDir: string): { version: string; packageJsonPath: string } | undefined {
-  const packageJsonPath = join(projectDir, "node_modules", "@freestyle-sh", "fdev-sdk", "package.json");
-  if (!existsSync(packageJsonPath)) return undefined;
-
-  const parsed = JSON.parse(readFileSync(packageJsonPath, "utf8")) as { version?: unknown };
-  if (typeof parsed.version !== "string") {
-    throw new Error(`${packageJsonPath} does not declare a package version`);
+  let entries;
+  try {
+    entries = readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return;
   }
 
-  return {
-    version: parsed.version,
-    packageJsonPath,
-  };
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    if (shouldSkipDiscoveryDir(entry.name)) continue;
+    visitProjectDirs(join(dir, entry.name), projects);
+  }
+}
+
+function shouldSkipDiscoveryDir(name: string): boolean {
+  return name === ".git" ||
+    name === ".fdev" ||
+    name === "node_modules" ||
+    name === "dist" ||
+    name === "build";
 }

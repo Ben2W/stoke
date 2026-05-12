@@ -389,6 +389,7 @@ update_path() {
         echo ""
         echo "# fdev"
         echo "fish_add_path \\"$install_dir\\""
+        echo "$(completion_profile_line)"
       } >> "$profile"
       ;;
     *)
@@ -396,12 +397,13 @@ update_path() {
         echo ""
         echo "# fdev"
         echo "export PATH=\\"$install_dir:\\$PATH\\""
+        echo "$(completion_profile_line)"
       } >> "$profile"
       ;;
   esac
 
   echo ""
-  echo "Added fdev to PATH in $profile"
+  echo "Added fdev to PATH and enabled shell completion in $profile"
   print_current_shell_instructions
 }
 
@@ -445,8 +447,14 @@ print_path_instructions() {
   echo ""
   echo "Add this to your shell profile:"
   case "$shell_name" in
-    fish) echo "  fish_add_path \\"$install_dir\\"" ;;
-    *) echo "  export PATH=\\"$install_dir:\\$PATH\\"" ;;
+    fish)
+      echo "  fish_add_path \\"$install_dir\\""
+      echo "  $(completion_profile_line)"
+      ;;
+    *)
+      echo "  export PATH=\\"$install_dir:\\$PATH\\""
+      echo "  $(completion_profile_line)"
+      ;;
   esac
   print_current_shell_instructions
 }
@@ -454,8 +462,22 @@ print_path_instructions() {
 print_current_shell_instructions() {
   echo "Restart your shell, or run this now:"
   case "$shell_name" in
-    fish) echo "  set -gx PATH \\"$install_dir\\" \\$PATH" ;;
-    *) echo "  export PATH=\\"$install_dir:\\$PATH\\"" ;;
+    fish)
+      echo "  set -gx PATH \\"$install_dir\\" \\$PATH"
+      echo "  $(completion_profile_line)"
+      ;;
+    *)
+      echo "  export PATH=\\"$install_dir:\\$PATH\\""
+      echo "  $(completion_profile_line)"
+      ;;
+  esac
+}
+
+completion_profile_line() {
+  case "$shell_name" in
+    fish) echo "fdev completion fish | source" ;;
+    bash) echo "eval \\"\\$(fdev completion bash)\\"" ;;
+    *) echo "eval \\"\\$(fdev completion zsh)\\"" ;;
   esac
 }
 

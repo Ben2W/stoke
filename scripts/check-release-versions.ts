@@ -4,16 +4,46 @@ import { join } from "node:path";
 const root = join(import.meta.dir, "..");
 const packages = [
   {
-    name: "@freestyle-sh/fdev-sdk",
-    dir: "packages/fdev-sdk",
-    versionFile: "packages/fdev-sdk/src/version.ts",
-    constant: "FDEV_SDK_VERSION",
-  },
-  {
     name: "@freestyle-sh/fdev-engine",
     dir: "packages/fdev-engine",
     versionFile: "packages/fdev-engine/src/version.ts",
     constant: "FDEV_ENGINE_VERSION",
+  },
+  {
+    name: "@freestyle-sh/fdev-runtime-client",
+    dir: "packages/fdev-runtime-client",
+    versionFile: "packages/fdev-runtime-client/src/version.ts",
+    constant: "FDEV_RUNTIME_CLIENT_VERSION",
+  },
+  {
+    name: "@freestyle-sh/fdev",
+    dir: "packages/fdev",
+    versionFile: "packages/fdev/src/version.ts",
+    constant: "FDEV_VERSION",
+  },
+  {
+    name: "@freestyle-sh/fdev-provider-freestyle",
+    dir: "packages/fdev-provider-freestyle",
+    versionFile: "packages/fdev-provider-freestyle/src/version.ts",
+    constant: "FDEV_PROVIDER_FREESTYLE_VERSION",
+  },
+  {
+    name: "@freestyle-sh/fdev-provider-gcloud",
+    dir: "packages/fdev-provider-gcloud",
+    versionFile: "packages/fdev-provider-gcloud/src/version.ts",
+    constant: "FDEV_PROVIDER_GCLOUD_VERSION",
+  },
+  {
+    name: "@freestyle-sh/fdev-cmux",
+    dir: "packages/fdev-cmux",
+    versionFile: "packages/fdev-cmux/src/version.ts",
+    constant: "FDEV_CMUX_VERSION",
+  },
+  {
+    name: "@freestyle-sh/fdev-vscode",
+    dir: "packages/fdev-vscode",
+    versionFile: "packages/fdev-vscode/src/version.ts",
+    constant: "FDEV_VSCODE_VERSION",
   },
   {
     name: "@freestyle-sh/fdev-cli",

@@ -1,13 +1,14 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { assertVersionAlignment, resolveConfigPaths } from "./project.ts";
-import { FDEV_CLI_VERSION } from "./version.ts";
+import { discoverProjectConfigs, resolveConfigPaths } from "./project.ts";
 
 describe("CLI project resolution", () => {
   test("resolves -C to that directory's fdev.config.ts", () => {
     const cwd = mkdtempSync(join(tmpdir(), "fdev-cli-"));
+    mkdirSync(join(cwd, "example"));
+    writeFileSync(join(cwd, "example", "fdev.config.ts"), "export default {}\n");
     const paths = resolveConfigPaths({ cwd, project: "example" });
 
     expect(paths.projectDir).toBe(join(cwd, "example"));
@@ -21,29 +22,30 @@ describe("CLI project resolution", () => {
     expect(paths.projectDir).toBe(join(cwd, "machines"));
     expect(paths.configPath).toBe(join(cwd, "machines", "platform.ts"));
   });
+
+  test("searches upward from cwd for the nearest config", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "fdev-cli-"));
+    mkdirSync(join(cwd, "project", "nested"), { recursive: true });
+    writeFileSync(join(cwd, "project", "fdev.config.ts"), "export default {}\n");
+
+    const paths = resolveConfigPaths({ cwd: join(cwd, "project", "nested") });
+
+    expect(paths.projectDir).toBe(join(cwd, "project"));
+    expect(paths.configPath).toBe(join(cwd, "project", "fdev.config.ts"));
+  });
+
+  test("discovers projects downward without entering dependency directories", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "fdev-cli-"));
+    mkdirSync(join(cwd, "api"), { recursive: true });
+    mkdirSync(join(cwd, "node_modules", "ignored"), { recursive: true });
+    writeFileSync(join(cwd, "api", "fdev.config.ts"), "export default {}\n");
+    writeFileSync(join(cwd, "node_modules", "ignored", "fdev.config.ts"), "export default {}\n");
+
+    const projects = discoverProjectConfigs({ cwd });
+
+    expect(projects).toEqual([{
+      projectDir: join(cwd, "api"),
+      configPath: join(cwd, "api", "fdev.config.ts"),
+    }]);
+  });
 });
-
-describe("version alignment", () => {
-  test("passes when the local SDK version matches the CLI", () => {
-    const projectDir = projectWithSdkVersion(FDEV_CLI_VERSION);
-    expect(() => assertVersionAlignment(projectDir)).not.toThrow();
-  });
-
-  test("errors when the local SDK version differs", () => {
-    const projectDir = projectWithSdkVersion("9.9.9");
-    expect(() => assertVersionAlignment(projectDir)).toThrow("fdev version mismatch");
-  });
-
-  test("errors when the local SDK is missing", () => {
-    const projectDir = mkdtempSync(join(tmpdir(), "fdev-cli-"));
-    expect(() => assertVersionAlignment(projectDir)).toThrow("No local @freestyle-sh/fdev-sdk install found");
-  });
-});
-
-function projectWithSdkVersion(version: string): string {
-  const projectDir = mkdtempSync(join(tmpdir(), "fdev-cli-"));
-  const packageDir = join(projectDir, "node_modules", "@freestyle-sh", "fdev-sdk");
-  mkdirSync(packageDir, { recursive: true });
-  writeFileSync(join(packageDir, "package.json"), `${JSON.stringify({ version }, null, 2)}\n`);
-  return projectDir;
-}

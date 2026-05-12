@@ -1,0 +1,25 @@
+{
+  "name": "@freestyle-sh/fdev-example-gcloud-on-open",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "fdev:plan": "fdev run plan",
+    "fdev:apply": "fdev run apply",
+    "fdev:fork": "fdev run create --name gcloud-workspace",
+    "fdev:ssh": "fdev run ssh gcloud-workspace --print",
+    "fdev:rm": "fdev run delete gcloud-workspace -y",
+    "typecheck": "tsc --noEmit",
+    "test": "echo no gcloud on-open example tests yet"
+  },
+  "dependencies": {
+    "@freestyle-sh/fdev-provider-freestyle": "workspace:*",
+    "@freestyle-sh/fdev-provider-gcloud": "workspace:*",
+    "@freestyle-sh/fdev": "workspace:*"
+  },
+  "devDependencies": {
+    "@freestyle-sh/fdev-cli": "workspace:*",
+    "@types/bun": "latest",
+    "typescript": "latest"
+  }
+}

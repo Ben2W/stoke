@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { initProject, normalizeMachineName } from "./init.ts";
-import { SDK_PACKAGE_NAME } from "./project.ts";
+import { FREESTYLE_PROVIDER_PACKAGE_NAME, PROJECT_PACKAGE_NAME } from "./project.ts";
 import { FDEV_CLI_VERSION } from "./version.ts";
 
 describe("initProject", () => {
@@ -28,16 +28,18 @@ describe("initProject", () => {
       packageJson: true,
     });
 
-    expect(readFileSync(join(projectDir, "fdev.config.ts"), "utf8")).toContain('name: "platform-api"');
+    expect(readFileSync(join(projectDir, "fdev.config.ts"), "utf8")).toContain('sequence("platform-api"');
+    expect(readFileSync(join(projectDir, "fdev.config.ts"), "utf8")).toContain("defineConfig({");
     expect(readFileSync(join(projectDir, ".env"), "utf8")).toBe("FREESTYLE_API_KEY=fs_test_123\n");
     expect(readFileSync(join(projectDir, ".env.example"), "utf8")).toBe("FREESTYLE_API_KEY=\n");
     expect(readFileSync(join(projectDir, ".gitignore"), "utf8")).toContain(".env\n.fdev/\n");
 
     const pkg = JSON.parse(readFileSync(join(projectDir, "package.json"), "utf8"));
     expect(pkg.name).toBe("platform-api");
-    expect(pkg.scripts.plan).toBe("fdev plan");
-    expect(pkg.scripts.apply).toBe("fdev apply");
-    expect(pkg.devDependencies[SDK_PACKAGE_NAME]).toBe(FDEV_CLI_VERSION);
+    expect(pkg.scripts.plan).toBe("fdev run plan");
+    expect(pkg.scripts.apply).toBe("fdev run apply");
+    expect(pkg.devDependencies[PROJECT_PACKAGE_NAME]).toBe(FDEV_CLI_VERSION);
+    expect(pkg.devDependencies[FREESTYLE_PROVIDER_PACKAGE_NAME]).toBe(FDEV_CLI_VERSION);
   });
 
   test("updates existing project files without replacing package metadata", () => {
@@ -65,7 +67,7 @@ describe("initProject", () => {
     const pkg = JSON.parse(readFileSync(join(projectDir, "package.json"), "utf8"));
     expect(pkg.name).toBe("existing");
     expect(pkg.scripts.test).toBe("bun test");
-    expect(pkg.scripts.plan).toBe("fdev plan");
+    expect(pkg.scripts.plan).toBe("fdev run plan");
   });
 });
 

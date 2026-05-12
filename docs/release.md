@@ -25,8 +25,13 @@ The CLI release workflow verifies that the tag matches the package version, runs
 The npm publish workflow verifies the same tag, runs checks, packs each package with pnpm, dry-runs package publishing, then publishes the tarballs to npm in dependency order:
 
 ```text
-@freestyle-sh/fdev-sdk
 @freestyle-sh/fdev-engine
+@freestyle-sh/fdev-runtime-client
+@freestyle-sh/fdev
+@freestyle-sh/fdev-provider-freestyle
+@freestyle-sh/fdev-provider-gcloud
+@freestyle-sh/fdev-cmux
+@freestyle-sh/fdev-vscode
 @freestyle-sh/fdev-cli
 ```
 
@@ -34,8 +39,13 @@ The release tag, package versions, and hardcoded runtime versions must match exa
 
 ```text
 tag:                  v0.1.0
-@freestyle-sh/fdev-sdk:  0.1.0
 @freestyle-sh/fdev-engine: 0.1.0
+@freestyle-sh/fdev-runtime-client: 0.1.0
+@freestyle-sh/fdev:  0.1.0
+@freestyle-sh/fdev-provider-freestyle: 0.1.0
+@freestyle-sh/fdev-provider-gcloud: 0.1.0
+@freestyle-sh/fdev-cmux: 0.1.0
+@freestyle-sh/fdev-vscode: 0.1.0
 @freestyle-sh/fdev-cli:  0.1.0
 ```
 
@@ -70,8 +80,13 @@ permissions:
 Each package must have a trusted publisher configured on npm:
 
 ```bash
-npx npm@latest trust github @freestyle-sh/fdev-sdk --repo freestyle-sh/fdev --file publish-npm.yml -y
 npx npm@latest trust github @freestyle-sh/fdev-engine --repo freestyle-sh/fdev --file publish-npm.yml -y
+npx npm@latest trust github @freestyle-sh/fdev-runtime-client --repo freestyle-sh/fdev --file publish-npm.yml -y
+npx npm@latest trust github @freestyle-sh/fdev --repo freestyle-sh/fdev --file publish-npm.yml -y
+npx npm@latest trust github @freestyle-sh/fdev-provider-freestyle --repo freestyle-sh/fdev --file publish-npm.yml -y
+npx npm@latest trust github @freestyle-sh/fdev-provider-gcloud --repo freestyle-sh/fdev --file publish-npm.yml -y
+npx npm@latest trust github @freestyle-sh/fdev-cmux --repo freestyle-sh/fdev --file publish-npm.yml -y
+npx npm@latest trust github @freestyle-sh/fdev-vscode --repo freestyle-sh/fdev --file publish-npm.yml -y
 npx npm@latest trust github @freestyle-sh/fdev-cli --repo freestyle-sh/fdev --file publish-npm.yml -y
 ```
 
@@ -88,8 +103,13 @@ For the first publish only:
 5. Configure trusted publishing:
 
 ```bash
-npx npm@latest trust github @freestyle-sh/fdev-sdk --repo freestyle-sh/fdev --file publish-npm.yml -y
 npx npm@latest trust github @freestyle-sh/fdev-engine --repo freestyle-sh/fdev --file publish-npm.yml -y
+npx npm@latest trust github @freestyle-sh/fdev-runtime-client --repo freestyle-sh/fdev --file publish-npm.yml -y
+npx npm@latest trust github @freestyle-sh/fdev --repo freestyle-sh/fdev --file publish-npm.yml -y
+npx npm@latest trust github @freestyle-sh/fdev-provider-freestyle --repo freestyle-sh/fdev --file publish-npm.yml -y
+npx npm@latest trust github @freestyle-sh/fdev-provider-gcloud --repo freestyle-sh/fdev --file publish-npm.yml -y
+npx npm@latest trust github @freestyle-sh/fdev-cmux --repo freestyle-sh/fdev --file publish-npm.yml -y
+npx npm@latest trust github @freestyle-sh/fdev-vscode --repo freestyle-sh/fdev --file publish-npm.yml -y
 npx npm@latest trust github @freestyle-sh/fdev-cli --repo freestyle-sh/fdev --file publish-npm.yml -y
 ```
 

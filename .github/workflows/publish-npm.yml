@@ -51,31 +51,64 @@ jobs:
       - name: Check npm bootstrap status
         id: bootstrap
         run: |
-          if npm view @freestyle-sh/fdev-sdk name >/dev/null 2>&1; then
+          packages=(
+            @freestyle-sh/fdev-engine
+            @freestyle-sh/fdev-runtime-client
+            @freestyle-sh/fdev
+            @freestyle-sh/fdev-provider-freestyle
+            @freestyle-sh/fdev-provider-gcloud
+            @freestyle-sh/fdev-cmux
+            @freestyle-sh/fdev-vscode
+            @freestyle-sh/fdev-cli
+          )
+          missing=()
+          for pkg in "${packages[@]}"; do
+            if ! npm view "$pkg" name >/dev/null 2>&1; then
+              missing+=("$pkg")
+            fi
+          done
+          if [ "${#missing[@]}" -eq 0 ]; then
             echo "published=true" >> "$GITHUB_OUTPUT"
           else
             echo "published=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::npm packages do not exist yet; run the one-time Bootstrap npm Packages workflow first"
+            echo "::notice::npm packages do not exist yet (${missing[*]}); run the one-time Bootstrap npm Packages workflow first"
           fi
 
       - name: Pack packages
         if: steps.bootstrap.outputs.published == 'true'
         run: |
           mkdir -p dist/npm
-          pnpm -C packages/fdev-sdk pack --pack-destination ../../dist/npm
           pnpm -C packages/fdev-engine pack --pack-destination ../../dist/npm
+          pnpm -C packages/fdev-runtime-client pack --pack-destination ../../dist/npm
+          pnpm -C packages/fdev pack --pack-destination ../../dist/npm
+          pnpm -C packages/fdev-provider-freestyle pack --pack-destination ../../dist/npm
+          pnpm -C packages/fdev-provider-gcloud pack --pack-destination ../../dist/npm
+          pnpm -C packages/fdev-cmux pack --pack-destination ../../dist/npm
+          pnpm -C packages/fdev-vscode pack --pack-destination ../../dist/npm
           pnpm -C packages/fdev-cli pack --pack-destination ../../dist/npm
 
       - name: Dry run package publish
         if: steps.bootstrap.outputs.published == 'true'
         run: |
-          npx npm@latest publish dist/npm/freestyle-sh-fdev-sdk-*.tgz --access public --dry-run
+          version="$(bun -p 'require("./packages/fdev/package.json").version')"
           npx npm@latest publish dist/npm/freestyle-sh-fdev-engine-*.tgz --access public --dry-run
+          npx npm@latest publish dist/npm/freestyle-sh-fdev-runtime-client-*.tgz --access public --dry-run
+          npx npm@latest publish "dist/npm/freestyle-sh-fdev-${version}.tgz" --access public --dry-run
+          npx npm@latest publish dist/npm/freestyle-sh-fdev-provider-freestyle-*.tgz --access public --dry-run
+          npx npm@latest publish dist/npm/freestyle-sh-fdev-provider-gcloud-*.tgz --access public --dry-run
+          npx npm@latest publish dist/npm/freestyle-sh-fdev-cmux-*.tgz --access public --dry-run
+          npx npm@latest publish dist/npm/freestyle-sh-fdev-vscode-*.tgz --access public --dry-run
           npx npm@latest publish dist/npm/freestyle-sh-fdev-cli-*.tgz --access public --dry-run
 
       - name: Publish packages
         if: steps.bootstrap.outputs.published == 'true'
         run: |
-          npx npm@latest publish dist/npm/freestyle-sh-fdev-sdk-*.tgz --access public
+          version="$(bun -p 'require("./packages/fdev/package.json").version')"
           npx npm@latest publish dist/npm/freestyle-sh-fdev-engine-*.tgz --access public
+          npx npm@latest publish dist/npm/freestyle-sh-fdev-runtime-client-*.tgz --access public
+          npx npm@latest publish "dist/npm/freestyle-sh-fdev-${version}.tgz" --access public
+          npx npm@latest publish dist/npm/freestyle-sh-fdev-provider-freestyle-*.tgz --access public
+          npx npm@latest publish dist/npm/freestyle-sh-fdev-provider-gcloud-*.tgz --access public
+          npx npm@latest publish dist/npm/freestyle-sh-fdev-cmux-*.tgz --access public
+          npx npm@latest publish dist/npm/freestyle-sh-fdev-vscode-*.tgz --access public
           npx npm@latest publish dist/npm/freestyle-sh-fdev-cli-*.tgz --access public

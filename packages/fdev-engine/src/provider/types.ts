@@ -1,12 +1,15 @@
-import type { ExecOptions, ExecResult } from "@freestyle-sh/fdev-sdk";
-
-export type CreateVmInput = {
-  image: string;
-  cpu?: number;
-  memory?: string | number;
-  disk?: string | number;
-  idleTimeoutSeconds?: number | null;
-};
+import type {
+  EventHandler,
+  ExecOptions,
+  ExecResult,
+  JsonObject,
+  JsonValue,
+  LoadedProviderDefinition,
+  LocalWorkspaceRuntime,
+  MaybePromise,
+  ProviderWorkspaceContext,
+  WorkspaceRecord,
+} from "../types.ts";
 
 export type VmHandle = {
   vmId: string;
@@ -17,18 +20,120 @@ export type SnapshotHandle = {
   sourceVmId: string;
 };
 
-export type TerminalHandle = {
+export type SshOptions = {
+  user?: string;
+};
+
+export type SshConnection = {
+  kind: "ssh";
+  host: string;
+  port?: number;
+  username: string;
+  auth: { type: "token"; token: string } | { type: "privateKey"; privateKey: string };
   command: string;
 };
 
-export interface DevMachineProvider {
-  createVm(input: CreateVmInput): Promise<VmHandle>;
-  createVmFromSnapshot(input: { snapshotId: string; idleTimeoutSeconds?: number | null }): Promise<VmHandle>;
+export interface BaseDevMachineProvider<
+  WorkspaceContext extends ProviderWorkspaceContext = ProviderWorkspaceContext,
+> {
+  readonly providerId: string;
+  createVm(): Promise<VmHandle>;
+  createVmFromSnapshot(input: { snapshotId: string }): Promise<VmHandle>;
   exec(vm: VmHandle, command: string, options?: ExecOptions): Promise<ExecResult>;
   readFile(vm: VmHandle, path: string): Promise<string>;
   writeFile(vm: VmHandle, path: string, content: string): Promise<void>;
   snapshot(vm: VmHandle): Promise<SnapshotHandle>;
-  forkVm(vm: VmHandle): Promise<VmHandle>;
-  openTerminal(vm: VmHandle, options?: { user?: string }): Promise<TerminalHandle>;
+  ssh(vm: VmHandle, options?: SshOptions): Promise<SshConnection>;
+  workspaceContext?(vm: VmHandle, input: { workspace: WorkspaceRecord }): MaybePromise<WorkspaceContext>;
   deleteVm(vm: VmHandle): Promise<void>;
 }
+
+export type InteractionPresentationRequest = {
+  id: string;
+  nodePath: string;
+  title: string;
+  url: string;
+  instructions?: string;
+};
+
+export type InteractionPresenter = (request: InteractionPresentationRequest) => Promise<void>;
+
+export type ProviderInteractionSession<Result = void> = {
+  id?: string;
+  title: string;
+  url: string;
+  instructions?: string;
+  completed: Promise<Result>;
+  stop(): MaybePromise<void>;
+};
+
+export type ProviderRuntimeContext = {
+  workflow: string;
+  nodePath: string;
+  emit: EventHandler;
+  interaction: {
+    present<Result>(session: ProviderInteractionSession<Result>): Promise<Result>;
+  };
+  local: LocalWorkspaceRuntime;
+  metadata(metadata: JsonObject): void;
+};
+
+export type WorkflowWorkspaceCreateResult = {
+  providerId?: string;
+  resourceId: string;
+  snapshotId?: string;
+  sourceRef?: JsonValue;
+  metadata?: JsonObject;
+};
+
+export interface WorkflowWorkspaceProvider<
+  WorkspaceContext extends ProviderWorkspaceContext = ProviderWorkspaceContext,
+> {
+  canUse(sourceRef: JsonValue): boolean;
+  createWorkspace(sourceRef: JsonValue, input: { name: string }): Promise<WorkflowWorkspaceCreateResult>;
+  deleteWorkspace(workspace: WorkspaceRecord): Promise<void>;
+  snapshotWorkspace(workspace: WorkspaceRecord): Promise<WorkflowWorkspaceCreateResult>;
+  ssh(workspaceOrResourceId: string, options?: SshOptions): Promise<SshConnection>;
+  workspaceContext?(workspace: WorkspaceRecord): MaybePromise<WorkspaceContext>;
+}
+
+export interface WorkflowProviderController<
+  Runtime = unknown,
+  WorkspaceContext extends ProviderWorkspaceContext = ProviderWorkspaceContext,
+> {
+  readonly providerId: string;
+  runtime(context: ProviderRuntimeContext): MaybePromise<Runtime>;
+  validateArtifact?(ref: JsonValue): MaybePromise<boolean>;
+  workspace?: WorkflowWorkspaceProvider<WorkspaceContext>;
+}
+
+export type ProviderFactoryInput = {
+  provider: LoadedProviderDefinition;
+  storage: ProviderStorage;
+};
+
+export type ProviderFactory = (
+  input: ProviderFactoryInput,
+) => WorkflowProviderController | Promise<WorkflowProviderController>;
+
+export type ProviderStorageRecord<Value extends JsonValue = JsonValue> = {
+  providerId: string;
+  key: string;
+  value: Value;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export interface ProviderStorage {
+  get<Value extends JsonValue = JsonValue>(key: string): ProviderStorageRecord<Value> | undefined;
+  set<Value extends JsonValue = JsonValue>(key: string, value: Value): ProviderStorageRecord<Value>;
+  delete(key: string): void;
+  entries(prefix?: string): ProviderStorageRecord[];
+}
+
+export type BaseProviderPlugin = {
+  providerId: string;
+  createProvider(input: ProviderFactoryInput): WorkflowProviderController | Promise<WorkflowProviderController>;
+};
+
+export type DevMachineProvider = BaseDevMachineProvider;
