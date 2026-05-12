@@ -16,7 +16,7 @@ import { defineHostCapabilities, defineHostCapability } from "./host.ts";
 
 describe("@freestyle-sh/fdev package boundary", () => {
   test("exports authoring API and project runtime entrypoints", () => {
-    expect(FDEV_VERSION).toBe("0.1.6");
+    expect(FDEV_VERSION).toBe("0.1.7");
     expect(env).toBeTypeOf("function");
     expect(env.secret).toBeTypeOf("function");
     expect(defineConfig).toBeTypeOf("function");

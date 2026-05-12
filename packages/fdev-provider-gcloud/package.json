@@ -1,6 +1,6 @@
 {
   "name": "@freestyle-sh/fdev-provider-gcloud",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "type": "module",
   "repository": {
     "type": "git",

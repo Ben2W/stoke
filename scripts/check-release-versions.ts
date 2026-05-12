@@ -65,6 +65,15 @@ const versions = packages.map((pkg) => {
     throw new Error(`${pkg.versionFile} must contain ${expectedLine}`);
   }
 
+  if (pkg.name === "@freestyle-sh/fdev") {
+    const runtimeVersionFile = "packages/fdev/src/runtime/version.ts";
+    const runtimeSource = readFileSync(join(root, runtimeVersionFile), "utf8");
+    const expectedRuntimeLine = `export const FDEV_RUNTIME_VERSION = "${packageJson.version}";`;
+    if (!runtimeSource.includes(expectedRuntimeLine)) {
+      throw new Error(`${runtimeVersionFile} must contain ${expectedRuntimeLine}`);
+    }
+  }
+
   return packageJson.version;
 });
 

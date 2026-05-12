@@ -2,7 +2,6 @@ import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { Database } from "bun:sqlite";
 import { drizzle, type BunSQLiteDatabase } from "drizzle-orm/bun-sqlite";
-import { pushSQLiteSchema } from "drizzle-kit/api";
 import { coreSchema, type CoreSchema } from "./schema/index.ts";
 
 export const FDEV_STATE_SCHEMA_VERSION = "drizzle-push";
@@ -72,6 +71,8 @@ async function pushFdevDatabaseSchema<TSchema extends FdevDatabaseSchema>(
   db: FdevDatabase<TSchema>,
   schema: TSchema,
 ): Promise<PushSQLiteSchemaResult> {
+  const drizzleKitApi = ["drizzle-kit", "api"].join("/");
+  const { pushSQLiteSchema } = await import(drizzleKitApi);
   const pushSchema = pushSQLiteSchema as unknown as PushSQLiteSchemaForBun;
   const result = await silenceStdout(() => pushSchema(schema, db));
   await silenceStdout(() => result.apply());
