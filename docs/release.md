@@ -10,17 +10,20 @@ Use this path for ordinary version bumps after all packages already exist on npm
 git checkout main
 git pull
 
-# Update package versions and version constants first.
+# Update package versions and version constants first. Example:
+#   packages/*/package.json: 0.1.9
+#   packages/*/src/version.ts: 0.1.9
+#   packages/sdk/src/runtime/version.ts: 0.1.9
 pnpm release:check
 pnpm typecheck
 pnpm test
 pnpm build
 pnpm build:cli-binaries
 
-git commit -am "Release Rigkit packages 0.1.8"
-git tag v0.1.8
+git commit -am "Release Rigkit packages 0.1.9"
+git tag v0.1.9
 git push origin main
-git push origin v0.1.8
+git push origin v0.1.9
 ```
 
 Pushing a `v*` tag runs:
@@ -35,16 +38,16 @@ Pushing a `v*` tag runs:
 The release tag, package versions, and hardcoded runtime versions must match exactly. `pnpm release:check` enforces this.
 
 ```text
-tag:                                      v0.1.8
-@rigkit/engine:                0.1.8
-@rigkit/runtime-client:        0.1.8
-@rigkit/sdk:                       0.1.8
-@rigkit/provider-freestyle:    0.1.8
-@rigkit/provider-gcloud-cli:       0.1.8
-@rigkit/provider-cmux:                  0.1.8
-@rigkit/provider-vscode:                0.1.8
-@rigkit/cli:                   0.1.8
-packages/sdk/src/runtime/version.ts:     0.1.8
+tag:                                      v0.1.9
+@rigkit/engine:                          0.1.9
+@rigkit/runtime-client:                  0.1.9
+@rigkit/sdk:                             0.1.9
+@rigkit/provider-freestyle:              0.1.9
+@rigkit/provider-gcloud-cli:             0.1.9
+@rigkit/provider-cmux:                   0.1.9
+@rigkit/provider-vscode:                 0.1.9
+@rigkit/cli:                             0.1.9
+packages/sdk/src/runtime/version.ts:     0.1.9
 ```
 
 ## Published Packages
@@ -64,7 +67,7 @@ The npm workflow packs and publishes packages in dependency order:
 
 Workspace dependencies should stay as `workspace:*` in the repo. The workflow runs `pnpm pack`, which converts workspace dependencies to the concrete release version inside each packed tarball.
 
-Project users should install `@rigkit/sdk` plus the provider or integration packages they use. `@rigkit/sdk` is deprecated and replaced by `@rigkit/sdk`; do not add new dependencies on `@rigkit/sdk` or `@rigkit/runtime`.
+Project users should install `@rigkit/sdk` plus the provider or integration packages they use. Legacy `@freestyle-sh/fdev*` packages are deprecated; do not add new dependencies on those package names.
 
 ## Trusted Publishing
 
@@ -83,29 +86,57 @@ npx npm@latest trust github @rigkit/cli --repo freestyle-sh/rigkit --file publis
 
 The `npm trust` command may require interactive npm 2FA or browser auth. Run it from a local terminal where the npm prompt can be completed.
 
-## First Publish Or New Package Bootstrap
+## Bootstrapping npm Packages
 
-npm trusted publishers can only be configured after a package exists on npm. Use `.github/workflows/bootstrap-npm.yml` only when publishing package names that do not exist yet.
+Use this path only when a publishable package name does not exist on npm yet, such as the first release under a new npm scope or when adding a new package. npm trusted publishers can only be configured after the package exists, so bootstrap uses a temporary npm token once, then normal releases go back to trusted publishing.
+
+Do not use bootstrap for normal version bumps. Once all package names exist and have trusted publishing configured, use the normal tag release flow above.
 
 Bootstrap flow:
 
-1. Create a temporary npm granular token with publish access to the `@rigkit` scope and `Bypass 2FA` enabled.
-2. Add it as a GitHub repo secret named `NPM_BOOTSTRAP_TOKEN`.
-3. Run the manual workflow with the release tag:
+1. Create the release commit and tag first. The package versions, version constants, and tag must match.
+2. Create a temporary npm granular token with publish access to the `@rigkit` scope and `Bypass 2FA` enabled.
+3. Add it as a GitHub repo secret named `NPM_BOOTSTRAP_TOKEN`.
+4. Run the manual bootstrap workflow with the release tag:
 
 ```bash
-gh workflow run bootstrap-npm.yml -f tag=v0.1.8
+gh workflow run bootstrap-npm.yml -f tag=v0.1.9
 ```
 
-4. Verify the packages exist:
+5. Verify the packages exist:
 
 ```bash
 npm view @rigkit/sdk version
 npm view @rigkit/runtime-client version
 ```
 
-5. Configure trusted publishing for each new package with `npx npm@latest trust github ...`.
-6. Delete the `NPM_BOOTSTRAP_TOKEN` secret and revoke the temporary npm token.
+6. Configure trusted publishing for each new package:
+
+```bash
+npx npm@latest trust github @rigkit/engine --repo freestyle-sh/rigkit --file publish-npm.yml -y
+npx npm@latest trust github @rigkit/runtime-client --repo freestyle-sh/rigkit --file publish-npm.yml -y
+npx npm@latest trust github @rigkit/sdk --repo freestyle-sh/rigkit --file publish-npm.yml -y
+npx npm@latest trust github @rigkit/provider-freestyle --repo freestyle-sh/rigkit --file publish-npm.yml -y
+npx npm@latest trust github @rigkit/provider-gcloud-cli --repo freestyle-sh/rigkit --file publish-npm.yml -y
+npx npm@latest trust github @rigkit/provider-cmux --repo freestyle-sh/rigkit --file publish-npm.yml -y
+npx npm@latest trust github @rigkit/provider-vscode --repo freestyle-sh/rigkit --file publish-npm.yml -y
+npx npm@latest trust github @rigkit/cli --repo freestyle-sh/rigkit --file publish-npm.yml -y
+```
+
+7. Verify trusted publishing:
+
+```bash
+npx npm@latest trust list @rigkit/engine
+npx npm@latest trust list @rigkit/runtime-client
+npx npm@latest trust list @rigkit/sdk
+npx npm@latest trust list @rigkit/provider-freestyle
+npx npm@latest trust list @rigkit/provider-gcloud-cli
+npx npm@latest trust list @rigkit/provider-cmux
+npx npm@latest trust list @rigkit/provider-vscode
+npx npm@latest trust list @rigkit/cli
+```
+
+8. Delete the `NPM_BOOTSTRAP_TOKEN` secret and revoke the temporary npm token.
 
 If a tag release includes a new package name, `publish-npm.yml` will detect the missing package and skip npm publishing. That is expected. Run `bootstrap-npm.yml` for that tag, configure trust for the new package, then use the normal tag flow for later releases.
 
@@ -119,7 +150,7 @@ Use this checklist when adding a package that should be published to npm.
 ```json
 {
   "name": "@rigkit/sdk-example",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "type": "module",
   "repository": {
     "type": "git",
