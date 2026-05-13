@@ -10,6 +10,7 @@
     "test": "turbo test",
     "release:check": "bun scripts/release/check.ts",
     "release:preflight": "bun scripts/release/preflight.ts",
+    "release:plan": "bun scripts/release/plan.ts",
     "release:bump": "bun scripts/release/bump.ts",
     "release:prepare": "bun scripts/release/prepare.ts",
     "release:version": "bun scripts/release/version.ts",

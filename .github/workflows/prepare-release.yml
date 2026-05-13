@@ -1,28 +1,19 @@
-name: Prepare Release
+name: Prepare Release Internal
 
 on:
-  workflow_dispatch:
+  workflow_call:
     inputs:
-      target_branch:
-        description: "Release branch to prepare, for example release/0.2"
-        required: true
       release_type:
-        description: "Release type"
+        description: "patch, minor, or major"
         required: true
-        default: auto
-        type: choice
-        options:
-          - auto
-          - patch
-          - minor
-          - major
+        type: string
 
 permissions:
   contents: write
   pull-requests: write
 
 concurrency:
-  group: prepare-release-${{ inputs.target_branch }}
+  group: prepare-release-${{ inputs.release_type }}-${{ github.ref_name }}
   cancel-in-progress: false
 
 jobs:
@@ -30,10 +21,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout target branch
+      - name: Checkout source branch
         uses: actions/checkout@v5
         with:
-          ref: ${{ inputs.target_branch }}
+          ref: ${{ github.ref_name }}
           fetch-depth: 0
 
       - name: Setup Bun
@@ -55,24 +46,44 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Plan release
+        id: plan
+        run: pnpm release:plan -- --release-type "${{ inputs.release_type }}"
+
+      - name: Create release branch
+        if: steps.plan.outputs.create_release_branch == 'true'
+        env:
+          TARGET_BRANCH: ${{ steps.plan.outputs.target_branch }}
+        run: |
+          remote_sha="$(git ls-remote origin "refs/heads/${TARGET_BRANCH}" | awk '{print $1}')"
+          head_sha="$(git rev-parse HEAD)"
+
+          if [ -n "$remote_sha" ]; then
+            if [ "$remote_sha" != "$head_sha" ]; then
+              echo "${TARGET_BRANCH} already exists at ${remote_sha}, expected ${head_sha}." >&2
+              echo "Use Prepare Patch Release from that branch, or delete/recreate the branch intentionally." >&2
+              exit 1
+            fi
+
+            echo "${TARGET_BRANCH} already exists at the current commit; reusing it."
+            exit 0
+          fi
+
+          git push origin "HEAD:refs/heads/${TARGET_BRANCH}"
+
       - name: Create automation branch
         id: branch
+        env:
+          VERSION: ${{ steps.plan.outputs.version }}
         run: |
-          safe_target="$(printf '%s' "${{ inputs.target_branch }}" | tr '/' '-')"
-          branch="automation/release-${safe_target}-${GITHUB_RUN_ID}"
+          branch="automation/release-v${VERSION}-${GITHUB_RUN_ID}"
           git switch -c "$branch"
           echo "branch=$branch" >> "$GITHUB_OUTPUT"
 
-      - name: Prepare version bump
-        id: prepare
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          pnpm release:prepare -- \
-            --target-branch "${{ inputs.target_branch }}" \
-            --release-type "${{ inputs.release_type }}"
+      - name: Apply version bump
+        run: pnpm release:bump -- "${{ steps.plan.outputs.version }}"
 
-      - name: Validate release branch
+      - name: Validate release
         run: pnpm release:preflight
 
       - name: Typecheck
@@ -95,21 +106,23 @@ jobs:
           fi
 
           git add .
-          git commit -m "Prepare Rigkit v${{ steps.prepare.outputs.version }}"
+          git commit -m "Prepare Rigkit v${{ steps.plan.outputs.version }}"
           git push --set-upstream origin "${{ steps.branch.outputs.branch }}"
 
       - name: Open release PR
         env:
           GH_TOKEN: ${{ github.token }}
-          TARGET_BRANCH: ${{ inputs.target_branch }}
+          TARGET_BRANCH: ${{ steps.plan.outputs.target_branch }}
           HEAD_BRANCH: ${{ steps.branch.outputs.branch }}
-          VERSION: ${{ steps.prepare.outputs.version }}
-          RELEASE_TYPE: ${{ steps.prepare.outputs.release_type }}
+          VERSION: ${{ steps.plan.outputs.version }}
+          RELEASE_TYPE: ${{ steps.plan.outputs.release_type }}
+          CURRENT_VERSION: ${{ steps.plan.outputs.current_version }}
         run: |
           body="$RUNNER_TEMP/release-pr.md"
           {
             echo "Prepares Rigkit v${VERSION}."
             echo ""
+            echo "- Current version: ${CURRENT_VERSION}"
             echo "- Target branch: ${TARGET_BRANCH}"
             echo "- Release type: ${RELEASE_TYPE}"
             echo ""

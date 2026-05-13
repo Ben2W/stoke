@@ -147,36 +147,35 @@ from the selected source ref.
 
 ## Prepare Release Workflow
 
-Manual GitHub Action:
+Manual GitHub Actions:
 
 ```text
-Prepare Release
-inputs:
-  target_branch: release/0.1
-  release_type: auto | patch | minor | major
+Prepare Patch Release
+Prepare Minor Release
+Prepare Major Release
 ```
 
 Behavior:
 
-1. Check out `target_branch`.
-2. Validate the branch name matches `release/x.y`.
-3. Compute the next version.
-4. Run `pnpm release:bump <computed-version-or-type>`.
+1. Check out the selected source branch.
+2. Compute the next version and target release branch.
+3. Create the target release branch for minor and major releases.
+4. Run `pnpm release:bump <computed-version>`.
 5. Generate the release PR body.
 6. Commit changes to a bot branch:
 
    ```text
-   automation/release-release-0.1-<run-id>
+   automation/release-v0.1.10-<run-id>
    ```
 
-7. Open or update a PR into:
+7. Open a PR into:
 
    ```text
    release/0.1
    ```
 
-When `release_type` is `auto`, the workflow should inspect merged PR labels
-since the previous release on that line and choose the highest bump.
+Patch releases must run from the existing release branch. Minor and major
+releases must run from `main` and create the new release branch automatically.
 
 ## Version Rules
 
@@ -307,6 +306,7 @@ Canary releases must never publish to `latest`.
 - `scripts/release/config.ts`
 - `pnpm release:check`
 - `pnpm release:preflight`
+- `pnpm release:plan`
 - `pnpm release:bump`
 - `pnpm release:prepare`
 - `pnpm release:pack`
@@ -314,6 +314,9 @@ Canary releases must never publish to `latest`.
 - `pnpm release:canary-version`
 - `.github/workflows/check-release-label.yml`
 - `.github/workflows/create-release-line.yml`
+- `.github/workflows/prepare-patch-release.yml`
+- `.github/workflows/prepare-minor-release.yml`
+- `.github/workflows/prepare-major-release.yml`
 - `.github/workflows/prepare-release.yml`
 - `.github/workflows/tag-release.yml`
 - `.github/workflows/publish-npm.yml`

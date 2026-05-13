@@ -14,16 +14,11 @@ release/0.2  -> 0.2.x
 release/1.0  -> 1.0.x
 ```
 
-Patch releases stay on the existing line. Minor and major releases need a new
-line first.
+Patch releases stay on the existing line. Minor and major prepare workflows
+create the new release branch automatically.
 
-Create a line with the manual workflow:
-
-```bash
-gh workflow run create-release-line.yml \
-  -f version_line=0.2 \
-  -f source_ref=main
-```
+`create-release-line.yml` still exists as an escape hatch for unusual manual
+branch setup, but the normal release flow should not need it.
 
 ## Feature PR Labels
 
@@ -41,25 +36,43 @@ tests, CI-only changes, or internal changes that should not publish packages.
 
 ## Preparing A Stable Release
 
-Run the manual prepare workflow against the release branch:
+Use the workflow that matches the release intent.
+
+For a patch on an existing release line, run the patch workflow from that
+release branch:
 
 ```bash
-gh workflow run prepare-release.yml \
-  -f target_branch=release/0.1 \
-  -f release_type=patch
+gh workflow run prepare-patch-release.yml --ref release/0.1
 ```
 
-`release_type` can be `auto`, `patch`, `minor`, or `major`. `auto` inspects
-merged PR labels since the last reachable release tag and chooses the highest
-release impact.
+For a new minor release from `main`:
+
+```bash
+gh workflow run prepare-minor-release.yml --ref main
+```
+
+For a new major release from `main`:
+
+```bash
+gh workflow run prepare-major-release.yml --ref main
+```
+
+The workflows compute the next version and target branch:
+
+```text
+patch from release/0.1 at 0.1.9 -> 0.1.10 into release/0.1
+minor from main at 0.1.9        -> 0.2.0 into release/0.2
+major from main at 1.7.4        -> 2.0.0 into release/2.0
+```
 
 The workflow:
 
-1. Checks out the release branch.
-2. Computes the next version.
-3. Runs `pnpm release:prepare`, which updates package versions and constants.
-4. Runs release preflight, typecheck, tests, and build.
-5. Opens a release PR back into the target `release/x.y` branch.
+1. Checks out the selected source branch.
+2. Computes the next version and target release branch.
+3. Creates the target release branch for minor and major releases.
+4. Runs `pnpm release:bump <version>`, which updates package versions and constants.
+5. Runs release preflight, typecheck, tests, and build.
+6. Opens a release PR back into the target `release/x.y` branch.
 
 Merging that release PR runs `tag-release.yml`, which creates and pushes the
 matching `v*` tag. The tag triggers:
@@ -74,6 +87,7 @@ Useful release scripts:
 ```bash
 pnpm release:check
 pnpm release:preflight
+pnpm release:plan -- --release-type patch
 pnpm release:bump patch
 pnpm release:bump minor
 pnpm release:bump major

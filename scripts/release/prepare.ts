@@ -1,60 +1,38 @@
 import { appendFileSync } from "node:fs";
-import {
-  bumpAllReleaseVersions,
-  bumpVersion,
-  getMergedPullRequestNumbersSinceLastTag,
-  getPullRequestLabels,
-  getReleaseState,
-  strongestReleaseType,
-} from "./lib";
-import { versionLineForVersion, type ReleaseType } from "./config";
+import { bumpAllReleaseVersions } from "./lib";
+import { createReleasePlan } from "./plan";
+import type { ReleaseType } from "./config";
 
 function valueArg(name: string) {
   const index = process.argv.indexOf(name);
   return index >= 0 ? process.argv[index + 1] : undefined;
 }
 
-function resolveReleaseType(input: string | undefined): ReleaseType {
-  if (input === "patch" || input === "minor" || input === "major") {
-    return input;
+function releaseTypeArg(): ReleaseType {
+  const value = valueArg("--release-type");
+  if (value === "patch" || value === "minor" || value === "major") {
+    return value;
   }
 
-  if (input && input !== "auto") {
-    throw new Error(`Invalid release type: ${input}`);
-  }
-
-  const prNumbers = getMergedPullRequestNumbersSinceLastTag();
-  const labels = prNumbers.flatMap((prNumber) => getPullRequestLabels(prNumber));
-  const releaseType = strongestReleaseType(labels);
-
-  if (!releaseType) {
-    throw new Error(
-      "Could not infer a release type from merged PR labels since the last tag.",
-    );
-  }
-
-  return releaseType;
+  throw new Error("Usage: pnpm release:prepare -- --release-type <patch|minor|major>");
 }
 
-const targetBranch = valueArg("--target-branch");
-const currentVersion = getReleaseState().version;
-const releaseType = resolveReleaseType(valueArg("--release-type"));
-const nextVersion = bumpVersion(currentVersion, releaseType);
-const expectedTargetBranch = `release/${versionLineForVersion(nextVersion)}`;
-
-if (targetBranch && targetBranch !== expectedTargetBranch) {
-  throw new Error(
-    `${releaseType} release ${nextVersion} must target ${expectedTargetBranch}, got ${targetBranch}`,
-  );
-}
-
-bumpAllReleaseVersions(nextVersion);
+const plan = createReleasePlan(releaseTypeArg());
+bumpAllReleaseVersions(plan.version);
 
 if (process.env.GITHUB_OUTPUT) {
   appendFileSync(
     process.env.GITHUB_OUTPUT,
-    `version=${nextVersion}\nrelease_type=${releaseType}\n`,
+    [
+      `release_type=${plan.releaseType}`,
+      `current_version=${plan.currentVersion}`,
+      `version=${plan.version}`,
+      `target_branch=${plan.targetBranch}`,
+      `create_release_branch=${plan.createReleaseBranch}`,
+      `source_branch=${plan.sourceBranch}`,
+      "",
+    ].join("\n"),
   );
 }
 
-console.log(`Prepared ${releaseType} release ${nextVersion}`);
+console.log(`Prepared ${plan.releaseType} release ${plan.version}`);

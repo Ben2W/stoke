@@ -1,0 +1,14 @@
+name: Prepare Patch Release
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  prepare:
+    uses: ./.github/workflows/prepare-release.yml
+    with:
+      release_type: patch
