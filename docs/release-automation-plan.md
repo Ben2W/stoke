@@ -82,6 +82,7 @@ Root scripts:
 
 ```bash
 pnpm release:check
+pnpm release:check-github-token
 pnpm release:preflight
 pnpm release:bump patch
 pnpm release:bump minor
@@ -181,7 +182,9 @@ Patch releases must run from the existing release branch. Minor and major
 releases must run from `main` and create the new release branch automatically.
 Each user-facing prepare workflow has one version choice, generated from the
 package version on `main`. Release preparation edits workflow files, so it uses
-`RELEASE_BOT_TOKEN` instead of the default `GITHUB_TOKEN`.
+`RELEASE_BOT_TOKEN` instead of the default `GITHUB_TOKEN`. The prepare workflow
+checks that token for repository access, contents write, workflows write, and
+pull requests write before creating branches or PRs.
 
 ## Version Rules
 

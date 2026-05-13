@@ -9,6 +9,7 @@
     "typecheck": "turbo typecheck",
     "test": "turbo test",
     "release:check": "bun scripts/release/check.ts",
+    "release:check-github-token": "bun scripts/release/check-github-token.ts",
     "release:preflight": "bun scripts/release/preflight.ts",
     "release:plan": "bun scripts/release/plan.ts",
     "release:bump": "bun scripts/release/bump.ts",

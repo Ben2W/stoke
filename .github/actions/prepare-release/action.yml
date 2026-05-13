@@ -15,6 +15,18 @@ inputs:
 runs:
   using: composite
   steps:
+    - name: Setup Bun
+      uses: oven-sh/setup-bun@v2
+      with:
+        bun-version: latest
+
+    - name: Check release bot token permissions
+      shell: bash
+      env:
+        RELEASE_BOT_TOKEN: ${{ inputs.github-token }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
+      run: bun scripts/release/check-github-token.ts
+
     - name: Configure release bot token
       shell: bash
       env:
@@ -27,11 +39,6 @@ runs:
         fi
 
         git remote set-url origin "https://x-access-token:${RELEASE_BOT_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-
-    - name: Setup Bun
-      uses: oven-sh/setup-bun@v2
-      with:
-        bun-version: latest
 
     - name: Setup Node
       uses: actions/setup-node@v6

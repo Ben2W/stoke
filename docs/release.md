@@ -77,8 +77,9 @@ The workflow:
 `pnpm release:bump` updates the one-option workflow inputs for the next release.
 Because that edits `.github/workflows/*`, prepare workflows use
 `RELEASE_BOT_TOKEN` instead of the default `GITHUB_TOKEN`. The token must be
-allowed to push workflow-file changes. `pnpm release:check` fails on `main` if
-those workflow inputs are stale.
+allowed to read the repo, push contents and workflow-file changes, and open PRs.
+The prepare workflow checks those token permissions before creating branches or
+PRs. `pnpm release:check` fails on `main` if those workflow inputs are stale.
 
 Merging that release PR runs `tag-release.yml`, which creates and pushes the
 matching `v*` tag. The tag triggers:
@@ -92,6 +93,7 @@ Useful release scripts:
 
 ```bash
 pnpm release:check
+pnpm release:check-github-token
 pnpm release:preflight
 pnpm release:plan -- --release-type patch
 pnpm release:update-workflows
@@ -102,6 +104,10 @@ pnpm release:bump 0.2.0
 pnpm release:pack
 pnpm release:publish -- --dry-run
 ```
+
+`release:check-github-token` requires `RELEASE_BOT_TOKEN` and
+`GITHUB_REPOSITORY`. In GitHub Actions, the prepare workflows provide both.
+Locally, use it only when validating a candidate release bot token.
 
 The package list lives in `scripts/release/config.ts`. Add new public packages
 there. `pnpm release:check` fails if a public package under `packages/*` is not
