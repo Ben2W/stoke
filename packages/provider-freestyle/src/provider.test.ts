@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { ExecOptions, ExecOutputChunk, ExecResult } from "@rigkit/sdk";
+import { Freestyle } from "freestyle";
 import type {
   BaseDevMachineProvider,
   ProviderRuntimeContext,
@@ -114,6 +115,7 @@ const sshConnection: SshConnection = {
 
 class StreamingProvider implements BaseDevMachineProvider {
   readonly providerId = "freestyle";
+  readonly client = new Freestyle({ apiKey: "test-key" });
 
   async createVm(): Promise<VmHandle> {
     return { vmId: "vm-stream" };

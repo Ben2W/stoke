@@ -405,29 +405,29 @@ async function runInit(invocation: CliInvocation, options: InitOptions): Promise
 async function resolveInitAnswers(
   options: InitOptions,
   jsonMode: boolean,
-): Promise<{ name: string; apiKey: string; packageManager: PackageManager }> {
-  if (jsonMode && (options.name === undefined || !options.apiKey?.trim())) {
-    throw new Error(`rig init --json requires --name and --api-key`);
+): Promise<{ name: string; apiKey?: string; packageManager: PackageManager }> {
+  if (jsonMode && options.name === undefined) {
+    throw new Error(`rig init --json requires --name`);
   }
 
   if (jsonMode && options.packageManager && options.packageManager !== "skip") {
     throw new Error(`rig init --json only supports --package-manager skip`);
   }
 
-  if (options.name === undefined || !options.apiKey) {
+  if (options.name === undefined) {
     assertInteractiveInit();
   }
 
   if (!jsonMode) {
     console.log(chalk.bold("Initialize Rigkit"));
-    console.log(chalk.dim("This creates a project folder with rig.config.ts, .env, package.json, and local ignore rules."));
+    console.log(chalk.dim("This creates a project folder with rig.config.ts, package.json, and local ignore rules."));
     console.log("");
   }
 
   const name = options.name !== undefined
     ? normalizeMachineName(options.name)
     : await promptName();
-  const apiKey = options.apiKey?.trim() || await promptRequiredSecret("Freestyle API key");
+  const apiKey = options.apiKey?.trim();
   const packageManager = options.packageManager ?? (jsonMode || !canPrompt() ? "skip" : await promptPackageManager("skip"));
 
   return {
@@ -439,7 +439,7 @@ async function resolveInitAnswers(
 
 function assertInteractiveInit(): void {
   if (canPrompt()) return;
-  throw new Error(`rig init needs --name and --api-key when not running in an interactive terminal`);
+  throw new Error(`rig init needs --name when not running in an interactive terminal`);
 }
 
 function canPrompt(): boolean {
@@ -478,14 +478,6 @@ async function promptName(): Promise<string> {
   return answers.name;
 }
 
-async function promptRequiredSecret(label: string): Promise<string> {
-  for (;;) {
-    const value = (await promptSecret(label)).trim();
-    if (value) return value;
-    console.log(chalk.red(`${label} is required.`));
-  }
-}
-
 async function promptPackageManager(defaultValue: PackageManager): Promise<PackageManager> {
   const choices: Array<{ value: PackageManager; label: string; hint: string }> = [
     { value: "npm", label: "npm", hint: "npm install" },
@@ -505,16 +497,6 @@ async function promptPackageManager(defaultValue: PackageManager): Promise<Packa
     })),
   }]);
   return answers.packageManager;
-}
-
-async function promptSecret(label: string): Promise<string> {
-  const answers = await inquirer.prompt<{ value: string }>([{
-    type: "password",
-    name: "value",
-    message: `${label}:`,
-    mask: "*",
-  }]);
-  return answers.value;
 }
 
 async function runPackageManagerInstall(

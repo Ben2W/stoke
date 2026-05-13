@@ -4,6 +4,11 @@ import { pathToFileURL } from "node:url";
 import { isRigkitConfig, isProviderDefinition, isWorkflowNode } from "./authoring.ts";
 import { loadDotEnv } from "./env-file.ts";
 import { hash } from "./hash.ts";
+import {
+  createFileProviderHostStorage,
+  defaultProviderHostStorageDir,
+  type ProviderHostStorageFactory,
+} from "./host-storage.ts";
 import { RESERVED_WORKFLOW_OPERATION_IDS } from "./types.ts";
 import type {
   BaseProviderPlugin,
@@ -51,6 +56,8 @@ export type CreateDevMachineEngineOptions = {
   providers?: BaseProviderPlugin[];
   providerFactory?: ProviderFactory;
   stateFactory?: StateServiceFactory;
+  hostStorageDir?: string;
+  hostStorageFactory?: ProviderHostStorageFactory;
   interaction?: {
     present?: InteractionPresenter;
   };
@@ -189,6 +196,9 @@ export class DevMachineEngine {
   private providers: BaseProviderPlugin[];
   private readonly providerFactory: ProviderFactory;
   private readonly stateFactory: StateServiceFactory;
+  private readonly hostStorageDir: string;
+  private readonly hostStorageFactory: ProviderHostStorageFactory;
+  private readonly providerHostStorage = new Map<string, ReturnType<ProviderHostStorageFactory>>();
   private readonly interactionPresenter: InteractionPresenter;
   private readonly local: LocalWorkspaceRuntime;
   private readonly handlers = new Set<EventHandler>();
@@ -204,6 +214,8 @@ export class DevMachineEngine {
     this.providers = options.providers ?? [];
     this.providerFactory = options.providerFactory ?? ((input) => this.createProviderFromPlugin(input));
     this.stateFactory = options.stateFactory ?? createStateStore;
+    this.hostStorageDir = options.hostStorageDir ? resolve(options.hostStorageDir) : defaultProviderHostStorageDir();
+    this.hostStorageFactory = options.hostStorageFactory ?? createFileProviderHostStorage;
     this.interactionPresenter = options.interaction?.present ?? defaultInteractionPresenter;
     this.local = {
       open: options.local?.open ?? openLocalTarget,
@@ -1324,6 +1336,8 @@ export class DevMachineEngine {
         const controller = await this.providerFactory({
           provider,
           storage: this.getStateService().providerStorage(provider.providerId),
+          hostStorage: this.getProviderHostStorage(provider.providerId),
+          local: this.local,
         });
         return [name, controller] as const;
       }),
@@ -1340,6 +1354,18 @@ export class DevMachineEngine {
       );
     }
     return await plugin.createProvider(input);
+  }
+
+  private getProviderHostStorage(providerId: string): ReturnType<ProviderHostStorageFactory> {
+    let storage = this.providerHostStorage.get(providerId);
+    if (!storage) {
+      storage = this.hostStorageFactory({
+        providerId,
+        rootDir: this.hostStorageDir,
+      });
+      this.providerHostStorage.set(providerId, storage);
+    }
+    return storage;
   }
 
   private async resolveWorkflow(root: WorkflowNodeDefinition<any, any, any>): Promise<LoadedWorkflow> {

@@ -20,4 +20,4 @@ pnpm rig:fork
 pnpm rig:open
 ```
 
-The Freestyle API key is read from `FREESTYLE_API_KEY`.
+Freestyle auth is handled by the provider. By default Rigkit opens the Freestyle browser login.

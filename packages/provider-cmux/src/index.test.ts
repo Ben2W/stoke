@@ -513,6 +513,8 @@ describe("cmux sdk", () => {
     const controller = await cmuxProviderPlugin.createProvider({
       provider: { providerId: "cmux", config: {} },
       storage: memoryProviderStorage("cmux"),
+      hostStorage: memoryProviderStorage("cmux"),
+      local: { open: async () => {} },
     });
     const requests: Array<{ capability: string; params: unknown }> = [];
     const runtime = await controller.runtime({
@@ -554,6 +556,8 @@ describe("cmux sdk", () => {
     const controller = await cmuxProviderPlugin.createProvider({
       provider: { providerId: "cmux", config: {} },
       storage: memoryProviderStorage("cmux"),
+      hostStorage: memoryProviderStorage("cmux"),
+      local: { open: async () => {} },
     });
     let resolveClosed!: () => void;
     const runtime = await controller.runtime({

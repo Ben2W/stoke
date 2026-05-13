@@ -7,7 +7,7 @@ export type InitProjectInput = {
   projectDir: string;
   configPath: string;
   name: string;
-  apiKey: string;
+  apiKey?: string;
   force?: boolean;
 };
 
@@ -47,11 +47,14 @@ export function initProject(input: InitProjectInput): InitProjectResult {
     writeFileSync(input.configPath, starterConfig(name));
   }
 
+  const apiKey = input.apiKey?.trim();
   const envPath = join(input.projectDir, ".env");
-  const env = writeEnvFile(envPath, input.apiKey);
+  const env = apiKey
+    ? writeEnvFile(envPath, apiKey)
+    : { created: false, updated: false };
 
   const envExamplePath = join(input.projectDir, ".env.example");
-  const wroteEnvExample = !existsSync(envExamplePath);
+  const wroteEnvExample = Boolean(apiKey) && !existsSync(envExamplePath);
   if (wroteEnvExample) {
     writeFileSync(envExamplePath, "FREESTYLE_API_KEY=\n");
   }
@@ -94,11 +97,10 @@ export function normalizeMachineName(value: string): string {
 export function starterConfig(name: string): string {
   const workflowName = JSON.stringify(normalizeMachineName(name));
 
-  return `import { defineConfig, env, sequence } from "@rigkit/sdk";
+  return `import { defineConfig, sequence } from "@rigkit/sdk";
 import { freestyle } from "@rigkit/provider-freestyle";
 
 const freestyleProvider = freestyle.provider({
-  apiKey: () => env.secret("FREESTYLE_API_KEY"),
   image: "node-22",
 });
 

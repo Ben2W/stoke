@@ -82,6 +82,8 @@ export interface WorkflowProviderController<Runtime = unknown> {
 export type ProviderFactoryInput = {
   provider: LoadedProviderDefinition;
   storage: ProviderStorage;
+  hostStorage: ProviderStorage;
+  local: LocalWorkspaceRuntime;
 };
 
 export type ProviderFactory = (

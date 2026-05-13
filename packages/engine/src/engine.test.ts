@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createDevMachineEngine, type InteractionPresentationRequest } from "./engine.ts";
@@ -531,6 +531,73 @@ describe("DevMachineEngine workflow runtime", () => {
     expect(metadata["state.schemaVersion"]).toBe(RIGKIT_STATE_SCHEMA_VERSION);
     expect(metadata["project.dir"]).toBe(projectDir);
     expect(metadata["config.path"]).toBe(join(projectDir, "rig.config.ts"));
+  });
+
+  test("stores provider host JSON state outside project state", async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-"));
+    const hostStorageDir = join(projectDir, ".host-storage");
+    const opened: string[] = [];
+    const plugin: BaseProviderPlugin = {
+      providerId: "test",
+      async createProvider({ storage, hostStorage, local }) {
+        storage.set("project", { value: "state" });
+        hostStorage.set("token", { value: "secret" });
+        await local.open("rigkit://provider-auth");
+        return new FakeWorkflowProvider();
+      },
+    };
+
+    writeFileSync(
+      join(projectDir, "rig.config.ts"),
+      `
+        import { defineProvider, workflow } from "${import.meta.dir}/index.ts";
+
+        const app = workflow("provider-host-storage", {
+          providers: {
+            test: defineProvider("test", {}),
+          },
+        });
+
+        export default app.sequence("root").task("ready", async () => ({ ready: true }));
+      `,
+    );
+
+    const engine = await createDevMachineEngine({
+      projectDir,
+      hostStorageDir,
+      providers: [plugin],
+      local: {
+        open: async (target) => {
+          opened.push(target);
+        },
+      },
+    });
+
+    await engine.load();
+    await engine.plan();
+
+    expect(opened).toEqual(["rigkit://provider-auth"]);
+
+    const files = readdirSync(hostStorageDir);
+    expect(files).toHaveLength(1);
+    const hostState = JSON.parse(readFileSync(join(hostStorageDir, files[0]!), "utf8"));
+    expect(hostState.records.token.value.value).toBe("secret");
+
+    const main = new Database(engine.getProjectInfo().statePath);
+    const projectRow = main
+      .query<{ value_json: string }, []>(
+        "select value_json from provider_state where provider_id = 'test' and key = 'project'",
+      )
+      .get();
+    const leakedHostRow = main
+      .query<{ value_json: string }, []>(
+        "select value_json from provider_state where provider_id = 'test' and key = 'token'",
+      )
+      .get();
+    main.close();
+
+    expect(projectRow ? JSON.parse(projectRow.value_json).value : undefined).toBe("state");
+    expect(leakedHostRow).toBeNull();
   });
 
   test("rejects task outputs that are not JSON serializable", async () => {

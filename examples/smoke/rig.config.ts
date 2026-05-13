@@ -1,8 +1,7 @@
-import { defineConfig, env, sequence } from "@rigkit/sdk";
+import { defineConfig, sequence } from "@rigkit/sdk";
 import { freestyle } from "@rigkit/provider-freestyle";
 
 const freestyleProvider = freestyle.provider({
-  apiKey: env.secret("FREESTYLE_API_KEY"),
   image: "ubuntu-24.04",
 });
 

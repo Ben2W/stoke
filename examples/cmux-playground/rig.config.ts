@@ -1,11 +1,10 @@
 import { cmux } from "@rigkit/provider-cmux";
 import { freestyle } from "@rigkit/provider-freestyle";
-import { env, workflow } from "@rigkit/sdk";
+import { workflow } from "@rigkit/sdk";
 
 const app = workflow("cmux-playground", {
   providers: {
     freestyle: freestyle.provider({
-      apiKey: env("FREESTYLE_API_KEY"),
       image: "ubuntu-24.04",
     }),
     cmux: cmux.provider(),

@@ -56,6 +56,7 @@ export type FreestyleVscodeUrlOptions = SshOptions & {
 };
 
 export type FreestyleRuntime = {
+  readonly client: Freestyle;
   vms: {
     create(): Promise<FreestyleVmRuntime>;
     fromSnapshot(ref: FreestyleVmSnapshotRef): Promise<FreestyleVmRuntime>;
@@ -88,16 +89,16 @@ export type FreestyleTerminalRuntime = {
 };
 
 export function createFreestyleProvider(input: {
-  apiKey: string;
+  client: Freestyle;
   identityId: FreestyleIdentityId;
   token: FreestyleToken;
   vm: FreestyleVmConfig;
-}): BaseDevMachineProvider {
-  return new FreestyleProvider(input.apiKey, input.identityId, input.token, input.vm);
+}): FreestyleDevMachineProvider {
+  return new FreestyleProvider(input.client, input.identityId, input.token, input.vm);
 }
 
 export function createFreestyleWorkflowProvider(input: {
-  apiKey: string;
+  client: Freestyle;
   identityId: FreestyleIdentityId;
   token: FreestyleToken;
   vm: FreestyleVmConfig;
@@ -105,8 +106,12 @@ export function createFreestyleWorkflowProvider(input: {
   return createFreestyleWorkflowController(createFreestyleProvider(input));
 }
 
+export type FreestyleDevMachineProvider = BaseDevMachineProvider & {
+  readonly client: Freestyle;
+};
+
 export function createFreestyleWorkflowController(
-  provider: BaseDevMachineProvider,
+  provider: FreestyleDevMachineProvider,
 ): WorkflowProviderController<FreestyleRuntime> {
   return {
     providerId: FREESTYLE_PROVIDER_ID,
@@ -143,13 +148,13 @@ export function createFreestyleTerminalController(): WorkflowProviderController<
 
 class FreestyleProvider implements BaseDevMachineProvider {
   readonly providerId = FREESTYLE_PROVIDER_ID;
-  private readonly client: Freestyle;
+  readonly client: Freestyle;
   private readonly identityId: FreestyleIdentityId;
   private readonly token: FreestyleToken;
   private readonly vmConfig: FreestyleVmConfig;
 
-  constructor(apiKey: string, identityId: FreestyleIdentityId, token: FreestyleToken, vmConfig: FreestyleVmConfig) {
-    this.client = new Freestyle({ apiKey });
+  constructor(client: Freestyle, identityId: FreestyleIdentityId, token: FreestyleToken, vmConfig: FreestyleVmConfig) {
+    this.client = client;
     this.identityId = identityId;
     this.token = token;
     this.vmConfig = vmConfig;
@@ -277,7 +282,7 @@ class FreestyleProvider implements BaseDevMachineProvider {
 }
 
 function createFreestyleRuntime(
-  provider: BaseDevMachineProvider,
+  provider: FreestyleDevMachineProvider,
   context: ProviderRuntimeContext,
 ): FreestyleRuntime {
   const fromHandle = (vm: VmHandle): FreestyleVmRuntime => createVmRuntime(provider, vm, context);
@@ -318,6 +323,7 @@ function createFreestyleRuntime(
   };
 
   return {
+    client: provider.client,
     vms,
     cmux: {
       createSshOptions: async (target, options) => {

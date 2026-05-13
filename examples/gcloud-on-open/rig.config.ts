@@ -1,4 +1,4 @@
-import { env, workflow } from "@rigkit/sdk";
+import { workflow } from "@rigkit/sdk";
 import { freestyle } from "@rigkit/provider-freestyle";
 import {
   copyGcloudConfig,
@@ -14,7 +14,6 @@ type VmContext = {
 const app = workflow("gcloud-on-open", {
   providers: {
     freestyle: freestyle.provider({
-      apiKey: env("FREESTYLE_API_KEY"),
       image: "ubuntu-24.04",
       memory: "16GB",
       cpu: 4,

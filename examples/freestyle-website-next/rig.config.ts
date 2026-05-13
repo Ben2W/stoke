@@ -5,7 +5,7 @@ import type {
   FreestyleVmRuntime,
   FreestyleVmSnapshotRef,
 } from "@rigkit/provider-freestyle";
-import { env, workflow } from "@rigkit/sdk";
+import { workflow } from "@rigkit/sdk";
 
 const repo = "freestyle-sh/freestyle-website-next";
 const repoUrl = `https://github.com/${repo}.git`;
@@ -52,7 +52,6 @@ type VmContext = {
 const app = workflow("freestyle-website-next", {
   providers: {
     freestyle: freestyle.provider({
-      apiKey: env("FREESTYLE_API_KEY"),
       image: vmImage,
     }),
     terminal: freestyle.terminal(),
