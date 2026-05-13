@@ -1,0 +1,1 @@
+export const RIGKIT_PROVIDER_FREESTYLE_VERSION = "0.1.8";

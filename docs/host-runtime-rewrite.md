@@ -12,8 +12,8 @@ project-local daemon. Remote/team projects use an authenticated remote runtime.
 
 ```text
 project dependency = authoring API + project-local runtime in one package
-project runtime = local daemon for one fdev project, or remote hosted runtime
-global fdev binary = full terminal CLI host + bootstrap UX
+project runtime = local daemon for one Rigkit project, or remote hosted runtime
+global rig binary = full terminal CLI host + bootstrap UX
 other hosts = VS Code, cmux, web UI, prettier CLIs
 runtime manager = shared local lifecycle client used by local hosts
 remote runtime client = authenticated HTTP client for hosted/remote runtimes
@@ -29,7 +29,7 @@ locally.
 
 ## Problem
 
-Today the global CLI loads `fdev.config.ts` and brings its own engine version.
+Today the global CLI loads `rig.config.ts` and brings its own engine version.
 The config imports project-local SDK and provider packages. That leaves the
 compatibility boundary unclear:
 
@@ -57,7 +57,7 @@ runs project behavior.
   runtime protocol.
 - Expose discoverable operations and schemas so hosts can render commands,
   forms, tree views, tab completion, and workspace actions generically.
-- Make project behavior run through `fdev run <operation>`. `apply`, `plan`,
+- Make project behavior run through `rig <operation>`. `apply`, `plan`,
   `fork`, `ssh`, and any future project behavior should exist because the
   runtime exposes that operation, not because the CLI hardcodes it.
 - Keep host interactions small: messages, prompts, external opens, explicit
@@ -76,11 +76,11 @@ runs project behavior.
 - Use Effect CLI for the terminal CLI instead of Commander-style command
   plumbing.
 - Use Drizzle for runtime-owned state schema, queries, and migrations.
-- Keep fdev state schema and Drizzle migrations owned by fdev runtime/engine
+- Keep Rigkit state schema and Drizzle migrations owned by Rigkit runtime/engine
   code. Provider packages can return durable JSON and may manage their own
-  external service state, but they must not contribute fdev database migrations.
-- Keep provider/plugin packages such as `fdev-provider-freestyle` and
-  `fdev-cmux` out of the Effect rewrite unless they independently benefit from
+  external service state, but they must not contribute rigkit database migrations.
+- Keep provider/plugin packages such as `provider-freestyle` and
+  `provider-cmux` out of the Effect rewrite unless they independently benefit from
   it later.
 
 ## Non-Goals
@@ -103,7 +103,7 @@ runs project behavior.
 - Do not add fallback paths to older boundaries. Missing runtime binaries,
   unsupported host methods, or incompatible runtime APIs should fail clearly.
 - Do not make hosts read or write engine SQLite state directly.
-- Do not let provider packages create or register fdev Drizzle migrations.
+- Do not let provider packages create or register rigkit Drizzle migrations.
 - Do not send SQLite databases, SQLite hashes, or state diffs over normal
   command requests.
 - Do not build Cloudflare Workers, Durable Objects, D1, hosted auth, or remote
@@ -115,14 +115,14 @@ runs project behavior.
 Recommended package shape:
 
 ```text
-@freestyle-sh/fdev
+@rigkit/sdk
   Public project dependency.
-  Exports the authoring API used by fdev.config.ts.
+  Exports the authoring API used by rig.config.ts.
   Provides the project-local runtime binary.
   Depends on or includes the engine implementation.
   Owns the project behavior version boundary.
 
-@freestyle-sh/fdev-engine
+@rigkit/engine
   Programmatic engine library.
   Loads config, builds the operation registry, executes config-defined
   operations, manages state.
@@ -130,13 +130,13 @@ Recommended package shape:
   host capability requests.
   Uses Effect internally for engine/runtime boundaries and typed failure modes.
 
-@freestyle-sh/fdev-runtime-client
+@rigkit/runtime-client
   Shared daemon manager/client.
   Computes project ids, reads handle files, uses lock files, health checks
   existing daemons, starts project-local daemons, and returns typed clients.
   Used by CLI, VS Code, cmux, and any other host.
 
-@freestyle-sh/fdev-cli
+@rigkit/cli
   Separately shipped full CLI binary.
   Discovers projects, asks the runtime client for a daemon, calls the runtime
   control API, renders terminal UX, handles bootstrap commands such as
@@ -144,34 +144,34 @@ Recommended package shape:
   Uses Effect CLI for bootstrap command definition, parsing, help, and command
   programs, then dynamically renders project operations exposed by the runtime.
 
-@freestyle-sh/fdev-provider-*
+@rigkit/sdk-provider-*
   Provider packages.
   Integrate with the project-local runtime/engine APIs.
   Do not speak host HTTP directly.
   Do not need to be rewritten to Effect as part of this architecture rewrite.
 
-@freestyle-sh/fdev-cmux
+@rigkit/provider-cmux
   First-party integration package.
   Exposes a config/runtime provider facade such as `providers.cmux.open(...)`.
   May also expose a local host capability handler, for example
-  `@freestyle-sh/fdev-cmux/host`, that registers `cmux.open` with trusted local
+  `@rigkit/provider-cmux/host`, that registers `cmux.open` with trusted local
   hosts.
   Remote runtimes can request `cmux.open`, but they cannot ship or install the
   local handler. The host decides whether that capability is available.
 ```
 
-The rewrite should combine today's `@freestyle-sh/fdev-sdk` and
-`@freestyle-sh/fdev-runtime` packages into `@freestyle-sh/fdev`. Do not keep SDK
+The rewrite should combine today's `@rigkit/sdk` and
+`@rigkit/runtime` packages into `@rigkit/sdk`. Do not keep SDK
 and runtime as separate public project dependencies. The config authoring API
 and the runtime that executes that config should come from the same installed
 project package.
 
 That package can still have internal modules and can still depend on
-`@freestyle-sh/fdev-engine`, but users should install and import one project
+`@rigkit/engine`, but users should install and import one project
 package:
 
 ```ts
-import { defineConfig, operation } from "@freestyle-sh/fdev";
+import { defineConfig, operation } from "@rigkit/sdk";
 ```
 
 The ownership should not:
@@ -218,11 +218,11 @@ Rules:
 
 - Project commands have one path: host -> runtime protocol -> engine.
 - Local project commands require the project-local runtime binary provided by
-  `@freestyle-sh/fdev`.
+  `@rigkit/sdk`.
 - If the project-local runtime binary is missing, fail and tell the user to
   install project dependencies.
 - Hosts do not fall back to importing the engine directly.
-- Hosts do not fall back to reading `.fdev/state.sqlite`.
+- Hosts do not fall back to reading `.rigkit/state.sqlite`.
 - Hosts do not fall back to bundled runtime code from the global CLI.
 - Unknown host methods or host capabilities fail at the call site.
 - Unsupported HTTP API versions fail at connection time.
@@ -272,10 +272,10 @@ Freestyle provider should be a thin adapter over the Freestyle SDK; it should
 not become a second Freestyle workflow DSL. The provider can wrap SDK calls in
 Effect internally, but normal configs should call promise-based provider APIs.
 
-Operation inputs should use fdev config helpers such as
+Operation inputs should use Rigkit config helpers such as
 `workflow.workspaceInput(...)` for common workspace-oriented cases. Those
 helpers should lower to runtime schemas, completion metadata, and manifest
-entries. Custom structured inputs can use fdev input helpers later, but the
+entries. Custom structured inputs can use rigkit input helpers later, but the
 happy path should not require users to write Effect Schema.
 
 Drizzle should own the database shape inside the runtime boundary. For the
@@ -285,11 +285,11 @@ that fits that deployment. Where Drizzle has Effect-native integration, use it.
 Where it does not, wrap the driver at the `StateService` layer rather than
 leaking database details into hosts.
 
-Providers should not care about fdev state by default. A provider can return
-durable JSON from `create` or an operation, and fdev persists that data in its
+Providers should not care about Rigkit state by default. A provider can return
+durable JSON from `create` or an operation, and rigkit persists that data in its
 own workspace/run tables. A provider can also manage state in its own external
 service if that service requires it. But provider packages must not create,
-register, or run fdev Drizzle migrations. The fdev runtime/engine owns fdev
+register, or run rigkit Drizzle migrations. The Rigkit runtime/engine owns Rigkit
 state schema, migrations, and compatibility.
 
 Do not Effect-rewrite provider/plugin packages as part of this work. The engine
@@ -307,7 +307,7 @@ OperationRegistry   config-defined operations and input validation
 RunService          run records, event emission, host request correlation
 RunSessionService   WebSocket run/session bridge, cancel, heartbeat
 EngineService       load config, normalize async callbacks, and run operations
-StateService        fdev-owned state reads/writes/migrations
+StateService        Rigkit-owned state reads/writes/migrations
 HostService         messages, prompts, open.external, host.command.run, capability requests
 HostCapabilityRegistry typed host capability declarations and runtime requests
 AuthService         local bearer token now, real auth later
@@ -321,7 +321,7 @@ protocol unless a remote runtime needs it in production.
 Package shape with Effect:
 
 ```text
-packages/fdev
+packages/sdk
   src/index.ts            public config authoring API
   src/config/sequence.ts  typed sequence/parallel/step/create/operation builders
   src/config/input.ts     workspaceInput and other public input helpers
@@ -336,23 +336,23 @@ packages/fdev
   src/runtime/protocol.ts Effect schemas/constants for external protocol
   src/runtime/state.ts    Drizzle-backed StateService
 
-packages/fdev-runtime-client
+packages/runtime-client
   src/manager.ts          RuntimeManager Effect program
   src/client.ts           RuntimeHttpClient
   src/session.ts          run session WebSocket client
   src/schemas.ts          handle/health/metadata schemas
 
-packages/fdev-cli
+packages/cli
   src/cli.ts              Effect CLI app definition
   src/commands.ts         bootstrap commands and dynamic operation dispatch
   src/host.ts             HostService implementation for terminal
   src/capabilities.ts     local host capability registry and trust policy
   src/render.ts           terminal rendering helpers
 
-packages/fdev-provider-*
+packages/sdk-provider-*
   no required Effect rewrite; keep provider integration APIs ergonomic
 
-packages/fdev-cmux
+packages/provider-cmux
   src/index.ts            config/runtime provider facade
   src/host.ts             local `cmux.open` host capability handler
 ```
@@ -397,7 +397,7 @@ For a normal local project operation, assuming the runtime exposes an `apply`
 operation:
 
 ```text
-fdev run apply
+rig apply
   -> CLI discovers project/config
   -> CLI calls getOrStartRuntime(project)
   -> runtime manager reuses or starts the project daemon
@@ -419,11 +419,11 @@ runtime client.
 Some bootstrap commands can still run inside the CLI without a daemon:
 
 ```text
-fdev init
-fdev help
-fdev version
-fdev doctor --cli
-fdev run
+rig init
+rig help
+rig version
+rig doctor --cli
+rig
 ```
 
 ## Project Discovery
@@ -434,19 +434,19 @@ Project discovery:
 
 1. `--config <file>` wins.
 2. `-C/--project <dir>` wins.
-3. Otherwise search upward from `cwd` for the nearest `fdev.config.ts`.
+3. Otherwise search upward from `cwd` for the nearest `rig.config.ts`.
 4. If none is found, fail clearly.
 
-Default project operations such as `fdev run apply` should not search downward
+Default project operations such as `rig apply` should not search downward
 and run every config below cwd. That is surprising and risky because configs
 are executable code.
 
 Downward discovery should be explicit:
 
 ```bash
-fdev projects
-fdev run <operation> --all
-fdev run <operation> --discover
+rig projects
+rig <operation> --all
+rig <operation> --discover
 ```
 
 If multiple configs are found, the host should show candidates and require
@@ -479,7 +479,7 @@ SDK helper or project-specific code.
 Responsibilities:
 
 - Compute a stable project id.
-- Resolve the project-local runtime binary from `@freestyle-sh/fdev`.
+- Resolve the project-local runtime binary from `@rigkit/sdk`.
 - Fail if the project-local runtime binary is missing. Do not fall back to a
   global CLI runtime, bundled SDK runtime, or direct SQLite reads.
 - Read the daemon handle file.
@@ -498,7 +498,7 @@ runtime manager. The host connects to it with an authenticated HTTP client:
 
 ```ts
 const runtime = connectRemoteRuntime({
-  url: "https://fdev.example.com/projects/acme",
+  url: "https://rigkit.example.com/projects/acme",
   token,
 });
 ```
@@ -514,7 +514,7 @@ The daemon is one project runtime process for one project id.
 Startup:
 
 ```text
-runtime manager starts the @freestyle-sh/fdev project-local runtime binary
+runtime manager starts the @rigkit/sdk project-local runtime binary
 runtime binds 127.0.0.1:0
 OS assigns a free port
 runtime creates a random bearer token
@@ -528,10 +528,10 @@ Handle file:
 {
   "projectId": "sha256:...",
   "projectDir": "/repo",
-  "configPath": "/repo/fdev.config.ts",
+  "configPath": "/repo/rig.config.ts",
   "pid": 12345,
   "url": "http://127.0.0.1:49321",
-  "tokenPath": "/Users/ben/.fdev/runtimes/sha256....token",
+  "tokenPath": "/Users/ben/.rigkit/runtimes/sha256....token",
   "engineVersion": "0.8.0",
   "runtimeVersion": "0.8.0",
   "startedAt": "2026-05-07T18:00:00.000Z",
@@ -542,15 +542,15 @@ Handle file:
 Handle location:
 
 ```text
-~/.fdev/runtimes/<project-id>.json
-~/.fdev/runtimes/<project-id>.token
-~/.fdev/runtimes/<project-id>.lock
+~/.rigkit/runtimes/<project-id>.json
+~/.rigkit/runtimes/<project-id>.token
+~/.rigkit/runtimes/<project-id>.lock
 ```
 
 Rules:
 
 - The daemon must be started from the runtime binary installed by
-  `@freestyle-sh/fdev`.
+  `@rigkit/sdk`.
 - If the project-local runtime is missing, fail and ask the user to install
   project dependencies.
 - Never use fixed ports. Always bind `127.0.0.1:0`.
@@ -577,7 +577,7 @@ Example response:
   "ok": true,
   "projectId": "sha256:...",
   "projectDir": "/repo",
-  "configPath": "/repo/fdev.config.ts",
+  "configPath": "/repo/rig.config.ts",
   "engineVersion": "0.8.0",
   "runtimeVersion": "0.8.0",
   "expiresAt": "2026-05-07T18:30:00.000Z"
@@ -587,7 +587,7 @@ Example response:
 ## Runtime Protocol
 
 Use Effect HTTP/OpenAPI for the control plane and a WebSocket run session for
-active runs because fdev is moving toward long-lived, multi-host workflows:
+active runs because rigkit is moving toward long-lived, multi-host workflows:
 
 - CLI commands
 - shell completion
@@ -645,7 +645,7 @@ registry, validates operation inputs, and executes the callbacks. Host-side
 validation is only UX.
 
 The CLI must not hardcode project behavior such as `apply`, `plan`, `fork`,
-`open`, `delete`, or `ssh`. Core operations can be derived by fdev from
+`open`, `delete`, or `ssh`. Core operations can be derived by rigkit from
 workflow steps and `.create(...)` definitions, but they still go through the
 same operation manifest and `POST /runs` path as custom operations.
 
@@ -657,9 +657,9 @@ create     turns final ctx into persisted workspace data
 operation  acts on persisted workspace data or other runtime inputs
 ```
 
-`create` is not provider-owned. fdev owns the workspace record and persistence.
+`create` is not provider-owned. rigkit owns the workspace record and persistence.
 The provider owns low-level resources such as Freestyle VMs. A create callback
-returns durable JSON data; fdev stores that data in SQLite as the workspace's
+returns durable JSON data; rigkit stores that data in SQLite as the workspace's
 payload. Later operations select a workspace and receive that persisted data.
 
 Conceptual config shape:
@@ -710,7 +710,7 @@ const website = sequence("website")
 
 The exact authoring API can change. The boundary should not: project behavior
 is registered by config, exposed by the runtime manifest, executed by the
-runtime, and invoked by hosts through `fdev run <operation>`.
+runtime, and invoked by hosts through `rig <operation>`.
 
 ## Expected Config Example
 
@@ -718,9 +718,9 @@ This is the target authoring shape for the current Freestyle website example.
 It is async TypeScript, not Effect-authored config.
 
 ```ts
-import { defineConfig, env, sequence } from "@freestyle-sh/fdev";
-import { cmux } from "@freestyle-sh/fdev-cmux";
-import { freestyle } from "@freestyle-sh/fdev-provider-freestyle";
+import { defineConfig, env, sequence } from "@rigkit/sdk";
+import { cmux } from "@rigkit/provider-cmux";
+import { freestyle } from "@rigkit/provider-freestyle";
 import { VmSpec } from "freestyle";
 
 const repo = "freestyle-sh/freestyle-website-next";
@@ -730,7 +730,7 @@ const devPort = 4321;
 const devCommand = `pnpm dev -- --host 0.0.0.0 --port ${devPort}`;
 
 const vmSpec = new VmSpec().additionalFiles({
-  "/tmp/fdev-ready.txt": { content: "ready" },
+  "/tmp/rigkit-ready.txt": { content: "ready" },
 });
 
 const website = sequence("website")
@@ -940,17 +940,17 @@ In this model:
 .operation(...) acts on persisted workspace.data
 ```
 
-fdev persists the return value from `create` and from custom operations marked
-with `createsWorkspace: true`. The Freestyle provider does not own fdev
+rigkit persists the return value from `create` and from custom operations marked
+with `createsWorkspace: true`. The Freestyle provider does not own Rigkit
 workspace lifecycle; it only exposes Freestyle VM SDK operations.
-It also does not own fdev database shape. Provider output is durable JSON at
-the fdev boundary; fdev runtime/engine code owns how that JSON is stored,
+It also does not own rigkit database shape. Provider output is durable JSON at
+the rigkit boundary; Rigkit runtime/engine code owns how that JSON is stored,
 indexed, migrated, and exposed through runtime APIs.
 
 `providers.cmux.open(...)` is also not engine magic. It is a runtime/provider
 facade that requests the typed `cmux.open` host capability over the active run
 session. A local CLI host can satisfy that request by registering the
-`@freestyle-sh/fdev-cmux/host` handler. VS Code can reject it, implement its
+`@rigkit/provider-cmux/host` handler. VS Code can reject it, implement its
 own equivalent, or render a clear unsupported-capability error. A remote
 runtime may request `cmux.open`, but it cannot install executable cmux host code
 on the user's machine.
@@ -958,11 +958,11 @@ on the user's machine.
 Expected CLI shape:
 
 ```bash
-fdev run apply --workflow website
-fdev run create --workflow website --name ben-test
-fdev run open ben-test
-fdev run delete ben-test
-fdev run fork ben-test ben-copy
+rig apply --workflow website
+rig create --workflow website --name ben-test
+rig open ben-test
+rig delete ben-test
+rig fork ben-test ben-copy
 ```
 
 Example `GET /operations` response:
@@ -1080,7 +1080,7 @@ Example `GET /operations` response:
           "workspace": {
             "type": "string",
             "description": "Workspace to open",
-            "x-fdev-input": {
+            "x-rigkit-input": {
               "kind": "workspace",
               "workflow": "website",
               "resolve": "data"
@@ -1111,7 +1111,7 @@ Example `GET /operations` response:
           "workspace": {
             "type": "string",
             "description": "Workspace to delete",
-            "x-fdev-input": {
+            "x-rigkit-input": {
               "kind": "workspace",
               "workflow": "website",
               "resolve": "data"
@@ -1147,7 +1147,7 @@ Example `GET /operations` response:
           "from": {
             "type": "string",
             "description": "Workspace to fork",
-            "x-fdev-input": {
+            "x-rigkit-input": {
               "kind": "workspace",
               "workflow": "website",
               "resolve": "data"
@@ -1166,7 +1166,7 @@ Example `GET /operations` response:
 ```
 
 `inputSchema` is runtime validation and generic form metadata. `cli` is
-host-specific parse metadata projected by fdev from input helpers such as
+host-specific parse metadata projected by rigkit from input helpers such as
 `position`. Keep them separate so non-CLI hosts do not need to understand CLI
 argument parsing.
 
@@ -1223,7 +1223,7 @@ Response:
 
 Hosts can use the same operations differently:
 
-- CLI renders runtime operations under `fdev run <operation>`.
+- CLI renders runtime operations under `rig <operation>`.
 - VS Code renders config-defined operations as buttons/forms.
 - cmux renders config-defined operations in its workspace UI.
 - Shell completion calls `GET /workspaces` or `GET /operations`.
@@ -1245,7 +1245,7 @@ run
 Project behavior lives under `run`:
 
 ```text
-fdev run <operation> [...args]
+rig <operation> [...args]
 ```
 
 Dispatch flow:
@@ -1265,7 +1265,7 @@ Dispatch flow:
 If the runtime does not expose the requested operation, fail clearly:
 
 ```text
-This project does not define an fdev operation named "fork".
+This project does not define an Rigkit operation named "fork".
 ```
 
 This keeps the CLI generic. It can still provide good help, validation, and tab
@@ -1276,20 +1276,20 @@ registered, fail before starting the run when possible:
 
 ```text
 Operation "open" requires host capability "cmux.open".
-Install or enable @freestyle-sh/fdev-cmux locally to use it from this host.
+Install or enable @rigkit/provider-cmux locally to use it from this host.
 ```
 
 `apply` and `plan` should not be top-level CLI commands. They are core
 operation ids exposed by the runtime and invoked through:
 
 ```bash
-fdev run plan
-fdev run apply
+rig plan
+rig apply
 ```
 
 The SDK should reserve names that would collide with host-level commands. If a
 config defines an operation named `init`, `doctor`, `projects`, `run`, `help`,
-or `version`, it should fail at authoring/type-check time. If fdev later adds a
+or `version`, it should fail at authoring/type-check time. If rigkit later adds a
 new reserved host command, configs using that name should surface a type error
 after the project package is upgraded.
 
@@ -1332,7 +1332,7 @@ GET /snapshots
 This supports:
 
 - CLI tab completion for config-defined operations such as
-  `fdev run open <tab>` when the config exposes `open`.
+  `rig open <tab>` when the config exposes `open`.
 - VS Code tree views.
 - cmux workspace pickers.
 - Future browser dashboards.
@@ -1356,7 +1356,7 @@ capabilities:
   "type": "hello",
   "transportVersion": 1,
   "host": {
-    "name": "fdev-cli",
+    "name": "rigkit-cli",
     "version": "0.8.0"
   },
   "hostMethods": [
@@ -1505,7 +1505,7 @@ If a host cannot handle a request:
   "id": "cap_req_123",
   "error": {
     "code": "UNSUPPORTED_CAPABILITY",
-    "message": "Operation \"open\" requires host capability \"cmux.open\". Install or enable @freestyle-sh/fdev-cmux locally to use it from this host."
+    "message": "Operation \"open\" requires host capability \"cmux.open\". Install or enable @rigkit/provider-cmux locally to use it from this host."
   }
 }
 ```
@@ -1535,7 +1535,7 @@ Default v1 policy:
 means the operation is intentionally tied to a host-owned local resource. The
 runtime should keep the run session attached so the host can report close,
 cancel, errors, and cleanup. That is the right tradeoff for foreground commands
-like `fdev run open`.
+like `rig open`.
 
 For hosted runtimes on Workers, accept that active sessions may be long-lived
 and design the hosted implementation around that. Use a Durable Object session
@@ -1721,7 +1721,7 @@ the session. A headless check such as `gh auth status` can use
 Default host behavior should be to warn and ask:
 
 ```text
-This fdev config is asking to run a command on this machine.
+This Rigkit config is asking to run a command on this machine.
 Command: ssh -p 49222 root@127.0.0.1
 Reason: Open an SSH session to workspace ben-demo
 Allow? [y/N]
@@ -1780,8 +1780,8 @@ out of the project config.
 The package can expose two sides:
 
 ```text
-@freestyle-sh/fdev-cmux       config/runtime provider facade
-@freestyle-sh/fdev-cmux/host  local host capability handler
+@rigkit/provider-cmux       config/runtime provider facade
+@rigkit/provider-cmux/host  local host capability handler
 ```
 
 Local hosts can register first-party capability handlers automatically when the
@@ -1791,7 +1791,7 @@ they can only request capabilities that the local host already supports.
 Conceptual host registration:
 
 ```ts
-import { defineHostCapabilities } from "@freestyle-sh/fdev/host";
+import { defineHostCapabilities } from "@rigkit/sdk/host";
 import { Schema } from "effect";
 import { connectToLocalCmux } from "cmux";
 
@@ -1827,7 +1827,7 @@ export const cmuxHostCapabilities = defineHostCapabilities({
 The terminal CLI can bundle/register that handler:
 
 ```ts
-import { cmuxHostCapabilities } from "@freestyle-sh/fdev-cmux/host";
+import { cmuxHostCapabilities } from "@rigkit/provider-cmux/host";
 
 const host = createCliHost({
   capabilities: [cmuxHostCapabilities],
@@ -1918,7 +1918,7 @@ Rules:
 The engine should still be usable directly in-process:
 
 ```ts
-const engine = await createFdevEngine({
+const engine = await createRigkitEngine({
   projectDir,
   configPath,
   state: stateService,
@@ -1946,7 +1946,7 @@ Engine constraints:
 - No terminal formatting.
 - No `process.exit`.
 - No global CLI version assumptions.
-- No hardcoded `.fdev/state.sqlite`.
+- No hardcoded `.rigkit/state.sqlite`.
 - No VS Code, cmux, HTTP server, or host-specific behavior.
 
 The runtime wraps this library API with Effect `HttpApi`. The terminal CLI
@@ -1970,7 +1970,7 @@ Local runtime:
 ```text
 runtime process runs on the user's machine
 state lives on the user's machine
-default state = <project>/.fdev/state.sqlite
+default state = <project>/.rigkit/state.sqlite
 optional override = host passes statePath when starting local runtime
 ```
 
@@ -1986,7 +1986,7 @@ host observes state through HTTP APIs
 For local runtimes, state location should be configurable at the runtime layer:
 
 ```ts
-createLocalFdevRuntime({
+createLocalRigkitRuntime({
   projectDir,
   configPath,
   statePath,
@@ -1996,14 +1996,14 @@ createLocalFdevRuntime({
 Default local project state can remain:
 
 ```text
-<project>/.fdev/state.sqlite
+<project>/.rigkit/state.sqlite
 ```
 
 Managed local cache projects, such as downloaded GitHub tarballs, should live
 outside the checkout:
 
 ```text
-~/.fdev/projects/<stable-project-id>/state.sqlite
+~/.rigkit/projects/<stable-project-id>/state.sqlite
 ```
 
 The stable project id should include:
@@ -2052,13 +2052,13 @@ The host does not see Drizzle. The engine should talk to state through the
 runtime's state service. The runtime can choose the concrete Drizzle driver or
 hosted storage implementation for its deployment.
 
-Fdev runtime/engine code should own state schema and state semantics. The
+Rigkit runtime/engine code should own state schema and state semantics. The
 runtime should own where that state is stored for its deployment. Hosts should
 only choose state location when they are starting a local runtime. Providers
-should not define fdev tables or migrations. If provider-specific data needs to
-be persisted in fdev state, the provider should return JSON through a
-fdev-owned workflow or operation boundary, and fdev should store it in
-fdev-owned tables.
+should not define rigkit tables or migrations. If provider-specific data needs to
+be persisted in Rigkit state, the provider should return JSON through a
+Rigkit-owned workflow or operation boundary, and rigkit should store it in
+Rigkit-owned tables.
 
 ## Remote And Hosted Runtimes
 
@@ -2069,8 +2069,8 @@ In the remote shape:
 ```text
 CLI / VS Code / cmux
   -> HTTPS + auth
-  -> remote fdev runtime
-      -> loads protected fdev.config.ts
+  -> remote Rigkit runtime
+      -> loads protected rig.config.ts
       -> owns secrets
       -> owns state
       -> runs engine
@@ -2079,7 +2079,7 @@ CLI / VS Code / cmux
 ```
 
 This supports team workflows where employees do not need direct access to
-`fdev.config.ts`, provider credentials, or deployment secrets. The remote
+`rig.config.ts`, provider credentials, or deployment secrets. The remote
 runtime becomes the security boundary.
 
 Rules:
@@ -2095,7 +2095,7 @@ Rules:
 This also creates a natural hosted product boundary:
 
 ```text
-hosted fdev = remote runtime + auth/RBAC + protected config + managed state
+hosted rigkit = remote runtime + auth/RBAC + protected config + managed state
 ```
 
 ## Cloudflare Workers Runtime Opportunity
@@ -2105,7 +2105,7 @@ A Workers deployment is an interesting future remote runtime target.
 Conceptually:
 
 ```text
-fdev Worker runtime
+rigkit Worker runtime
   -> config bundled/deployed as an artifact
   -> secrets provided by Workers secrets
   -> auth handled at the runtime HTTP boundary
@@ -2116,7 +2116,7 @@ fdev Worker runtime
 The deployment artifact would likely include:
 
 ```text
-fdev.config.ts
+rig.config.ts
 provider/runtime code
 operation manifest
 HTTP runtime adapter
@@ -2140,43 +2140,43 @@ Remote repo support should use the same architecture.
 Example:
 
 ```bash
-fdev run <operation> github:owner/repo
+rig <operation> github:owner/repo
 ```
 
 Flow:
 
 1. Resolve `owner/repo` and optional ref to a commit SHA.
-2. Download a tarball/zipball into an fdev cache directory.
+2. Download a tarball/zipball into an rigkit cache directory.
 3. Materialize it as a project directory.
 4. Install dependencies if needed.
 5. Start or reuse that cached project's runtime daemon.
-6. Store state in `~/.fdev/projects/<stable-project-id>/state.sqlite`.
+6. Store state in `~/.rigkit/projects/<stable-project-id>/state.sqlite`.
 7. Run the requested operation only if the remote config exposes it.
 
 This is "without cloning" from the user's perspective, but the repo still must
 be materialized somewhere so TypeScript imports and package resolution work.
 
-Security note: loading a remote `fdev.config.ts` executes code from that repo on
+Security note: loading a remote `rig.config.ts` executes code from that repo on
 the user's machine. The CLI should make that explicit before running untrusted
 remote configs.
 
 ## Diagnostics
 
-`fdev doctor` should make the split obvious:
+`rig doctor` should make the split obvious:
 
 ```text
-cli:              ~/.fdev/bin/fdev 0.4.0
+cli:              ~/.rigkit/bin/rig 0.4.0
 project:          /repo
-config:           /repo/fdev.config.ts
-runtime bin:      /repo/node_modules/.bin/fdev-project-runtime
+config:           /repo/rig.config.ts
+runtime bin:      /repo/node_modules/.bin/rigkit-project-runtime
 daemon:           http://127.0.0.1:49321
 daemon pid:       12345
-project package:  @freestyle-sh/fdev 0.8.0
-engine:           @freestyle-sh/fdev-engine 0.8.0
+project package:  @rigkit/sdk 0.8.0
+engine:           @rigkit/engine 0.8.0
 api version:      1
 cli protocol:     sha256:host-known-protocol
 runtime protocol: sha256:runtime-known-protocol
-state:            /repo/.fdev/state.sqlite
+state:            /repo/.rigkit/state.sqlite
 expires:          2026-05-07T18:30:00.000Z
 ```
 
@@ -2207,7 +2207,7 @@ This should be treated as a rewrite, not an incremental compatibility project.
 - Define `host.command.run` policy and consent behavior.
 - Add protocol hash metadata for diagnostics.
 - Define local vs remote runtime connection shapes.
-- Define how `fdev.config.ts` contributes operations, operation input schemas,
+- Define how `rig.config.ts` contributes operations, operation input schemas,
   titles, descriptions, and workspace actions.
 - Define the no-fallback policy in runtime/client behavior.
 
@@ -2229,19 +2229,19 @@ This should be treated as a rewrite, not an incremental compatibility project.
 - Add public config input helpers such as `workflow.workspaceInput(...)` that
   lower to runtime schemas, completion metadata, and OpenAPI/JSON Schema.
 - Use Drizzle for runtime-owned state schema, queries, and migrations.
-- Do not require `fdev-provider-freestyle`, `fdev-cmux`, or other providers to
+- Do not require `provider-freestyle`, `provider-cmux`, or other providers to
   be rewritten to Effect.
 
 ### Phase 3: Combine Project Package
 
-- Rename or replace `@freestyle-sh/fdev-sdk` with `@freestyle-sh/fdev`.
-- Move the project-local runtime entrypoint into `@freestyle-sh/fdev`.
-- Remove `@freestyle-sh/fdev-runtime` as a separate public project dependency.
+- Rename or replace `@rigkit/sdk` with `@rigkit/sdk`.
+- Move the project-local runtime entrypoint into `@rigkit/sdk`.
+- Remove `@rigkit/runtime` as a separate public project dependency.
 - Export the config authoring API and runtime binary from the same project
   package.
 - Update examples, providers, docs, release config, and tests to import
-  `@freestyle-sh/fdev`.
-- Keep `@freestyle-sh/fdev-cli` separate.
+  `@rigkit/sdk`.
+- Keep `@rigkit/cli` separate.
 
 ### Phase 4: Build Local Runtime Manager
 
@@ -2249,14 +2249,14 @@ This should be treated as a rewrite, not an incremental compatibility project.
 - Implement handle files, token files, and lock files.
 - Implement get-or-start daemon logic.
 - Implement health checks and stale handle cleanup.
-- Require the project-local runtime binary from `@freestyle-sh/fdev`; do not
+- Require the project-local runtime binary from `@rigkit/sdk`; do not
   fall back to global CLI or bundled runtime code.
 - Make CLI, VS Code, and cmux use this shared client rather than duplicating
   lifecycle code.
 
 ### Phase 5: Build Project-Local Daemon
 
-- Add the project-local runtime daemon entrypoint inside `@freestyle-sh/fdev`.
+- Add the project-local runtime daemon entrypoint inside `@rigkit/sdk`.
 - Bind `127.0.0.1:0`.
 - Serve the Effect HTTP control API and WebSocket run sessions.
 - Load config and run the engine inside the daemon.
@@ -2275,8 +2275,8 @@ This should be treated as a rewrite, not an incremental compatibility project.
 - Make the engine depend on `StateService`, not a raw SQLite path.
 - Move state reads/writes/migrations behind a Drizzle-backed runtime
   `StateService`.
-- Keep fdev Drizzle migrations in fdev runtime/engine packages only. Providers
-  may return durable JSON but must not register fdev migrations.
+- Keep rigkit Drizzle migrations in Rigkit runtime/engine packages only. Providers
+  may return durable JSON but must not register rigkit migrations.
 - Persist workspace data returned by `.create(...)` and by operations marked
   `createsWorkspace: true`.
 - Keep state schema and state semantics inside engine/runtime code.
@@ -2288,7 +2288,7 @@ This should be treated as a rewrite, not an incremental compatibility project.
 - Build command parsing/help/execution with Effect CLI.
 - Discover projects/configs.
 - Use the runtime manager for all project commands.
-- Render runtime operations under `fdev run <operation>`.
+- Render runtime operations under `rig <operation>`.
 - Treat `apply`, `plan`, `create`, `open`, `delete`, `fork`, and similar verbs as runtime
   operation ids from `/operations`, not static CLI subcommands.
 - Remove hardcoded project commands such as built-in `apply`, `plan`, `create`,
@@ -2345,9 +2345,9 @@ This should be treated as a rewrite, not an incremental compatibility project.
 
 ## Open Questions
 
-- What should the project-local runtime binary inside `@freestyle-sh/fdev` be
-  named? It should probably avoid colliding with the global `fdev` host binary.
-- Should `@freestyle-sh/fdev` include `@freestyle-sh/fdev-engine`, or should it
+- What should the project-local runtime binary inside `@rigkit/sdk` be
+  named? It should probably avoid colliding with the global `rig` host binary.
+- Should `@rigkit/sdk` include `@rigkit/engine`, or should it
   depend on it as a separate package?
 - Which bootstrap commands can run without a daemon?
 - Should workflow authors be allowed to call prompts directly, or should
@@ -2383,7 +2383,7 @@ This should be treated as a rewrite, not an incremental compatibility project.
 
 Use the runtime protocol as the only project command path. For local projects, that
 means a daemon-managed runtime binary from the project's installed
-`@freestyle-sh/fdev` package. For remote/team projects, that means an
+`@rigkit/sdk` package. For remote/team projects, that means an
 authenticated remote runtime. Ship the full CLI binary separately from the
 project package. Make that binary a host, not the source of workflow behavior.
 Put the config authoring API, config loading, runtime behavior, provider
@@ -2412,7 +2412,7 @@ Use Effect HTTP/OpenAPI plus WebSocket for the runtime protocol:
 HTTP/OpenAPI control plane for workflows/workspaces/snapshots/runs
 WebSocket run sessions for active runs
 config-defined operations with schemas for commands and actions
-CLI project behavior through fdev run <operation>
+CLI project behavior through rig <operation>
 run events, prompts, external opens, host capabilities, cancellation, heartbeat
 long-lived sessions are acceptable for operations awaiting host-owned resources
 hello/hello.ack negotiates host methods, command modes, and capability schemas
@@ -2458,13 +2458,13 @@ public input helpers for config-defined operation inputs
 OpenAPI/JSON Schema for external hosts and tooling
 runtime owns state
 engine owns state semantics
-providers do not create fdev database migrations
+providers do not create rigkit database migrations
 host owns presentation
 ```
 
 Do not turn provider/plugin packages into an Effect migration project. The
 runtime and engine can be Effect-structured internally while
-`fdev-provider-freestyle`, `fdev-cmux`, and future provider packages keep a
+`provider-freestyle`, `provider-cmux`, and future provider packages keep a
 simple integration surface.
 
 The remote/hosted opportunity should build on the same boundary. A hosted

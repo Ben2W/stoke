@@ -1,24 +1,24 @@
 {
-  "name": "@freestyle-sh/fdev-example-gcloud-on-open",
+  "name": "@rigkit/example-gcloud-on-open",
   "version": "0.0.0",
   "private": true,
   "type": "module",
   "scripts": {
-    "fdev:plan": "fdev run plan",
-    "fdev:apply": "fdev run apply",
-    "fdev:fork": "fdev run create --name gcloud-workspace",
-    "fdev:ssh": "fdev run ssh gcloud-workspace --print",
-    "fdev:rm": "fdev run delete gcloud-workspace -y",
+    "rig:plan": "rig plan",
+    "rig:apply": "rig apply",
+    "rig:fork": "rig create --name gcloud-workspace",
+    "rig:ssh": "rig ssh gcloud-workspace --print",
+    "rig:rm": "rig delete gcloud-workspace -y",
     "typecheck": "tsc --noEmit",
     "test": "echo no gcloud on-open example tests yet"
   },
   "dependencies": {
-    "@freestyle-sh/fdev-provider-freestyle": "workspace:*",
-    "@freestyle-sh/fdev-provider-gcloud": "workspace:*",
-    "@freestyle-sh/fdev": "workspace:*"
+    "@rigkit/provider-freestyle": "workspace:*",
+    "@rigkit/provider-gcloud-cli": "workspace:*",
+    "@rigkit/sdk": "workspace:*"
   },
   "devDependencies": {
-    "@freestyle-sh/fdev-cli": "workspace:*",
+    "@rigkit/cli": "workspace:*",
     "@types/bun": "latest",
     "typescript": "latest"
   }

@@ -1,0 +1,36 @@
+{
+  "name": "@rigkit/provider-freestyle",
+  "version": "0.1.8",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/freestyle-sh/rigkit.git",
+    "directory": "packages/provider-freestyle"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc --noEmit",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@rigkit/sdk": "workspace:*",
+    "@rigkit/engine": "workspace:*",
+    "freestyle": "latest",
+    "zod": "^4"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "latest"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

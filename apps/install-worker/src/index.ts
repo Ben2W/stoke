@@ -27,7 +27,7 @@ type DownloadInfo = {
 };
 
 type LatestMetadata = {
-  name: "fdev";
+  name: "rigkit";
   repo: string;
   version: string;
   tag: string;
@@ -43,7 +43,7 @@ type LatestMetadata = {
 };
 
 const TARGETS: Target[] = ["darwin-arm64", "darwin-x64", "linux-arm64", "linux-x64"];
-const DEFAULT_REPO = "freestyle-sh/fdev";
+const DEFAULT_REPO = "freestyle-sh/rigkit";
 const DEFAULT_CACHE_TTL_SECONDS = 300;
 
 export default {
@@ -149,7 +149,7 @@ async function buildMetadata(request: Request, env: Env, release: GithubRelease)
   ) as Record<Target, DownloadInfo>;
 
   return {
-    name: "fdev",
+    name: "rigkit",
     repo: repo(env),
     version,
     tag: release.tag_name,
@@ -189,7 +189,7 @@ async function fetchGithubRelease(env: Env, path: "latest" | `tags/${string}`): 
 function githubApiHeaders(env: Env): Headers {
   const headers = new Headers({
     "Accept": "application/vnd.github+json",
-    "User-Agent": "freestyle-sh-fdev-install-worker",
+    "User-Agent": "rigkit-install-worker",
     "X-GitHub-Api-Version": "2022-11-28",
   });
 
@@ -207,7 +207,7 @@ function githubToken(env: Env): string | undefined {
 async function fetchChecksums(url: string): Promise<Record<string, string>> {
   const response = await fetch(url, {
     headers: {
-      "User-Agent": "freestyle-sh-fdev-install-worker",
+      "User-Agent": "rigkit-install-worker",
     },
   });
 
@@ -232,7 +232,7 @@ function findAsset(release: GithubRelease, name: string): GithubAsset {
 
 function normalizeTarget(value: string): Target {
   const normalized = value
-    .replace(/^fdev-/, "")
+    .replace(/^rig-/, "")
     .replace(/\.tar\.gz$/, "");
   if (TARGETS.includes(normalized as Target)) return normalized as Target;
   throw new HttpError(400, `Unknown target ${value}. Expected ${TARGETS.join(", ")}.`);
@@ -243,7 +243,7 @@ function normalizeVersion(value: string): string {
 }
 
 function assetNameForTarget(target: Target): string {
-  return `fdev-${target}.tar.gz`;
+  return `rig-${target}.tar.gz`;
 }
 
 function repo(env: Env): string {
@@ -303,7 +303,7 @@ function text(value: string, options: { status?: number; contentType: string; ca
 
 function renderIndex(baseUrl: string): string {
   return [
-    "fdev distribution worker",
+    "rigkit distribution worker",
     "",
     `Install: curl -fsSL ${baseUrl}/install | sh`,
     "",
@@ -321,10 +321,10 @@ function renderInstallScript(baseUrl: string): string {
   return `#!/usr/bin/env sh
 set -eu
 
-base_url="\${FDEV_BASE_URL:-${baseUrl}}"
-version="\${FDEV_VERSION:-latest}"
-fdev_home="\${FDEV_HOME:-$HOME/.fdev}"
-install_dir="\${FDEV_INSTALL_DIR:-$fdev_home/bin}"
+base_url="\${RIGKIT_BASE_URL:-${baseUrl}}"
+version="\${RIGKIT_VERSION:-latest}"
+rigkit_home="\${RIGKIT_HOME:-$HOME/.rigkit}"
+install_dir="\${RIGKIT_INSTALL_DIR:-$rigkit_home/bin}"
 
 os="$(uname -s)"
 arch="$(uname -m)"
@@ -343,7 +343,7 @@ case "$arch" in
 esac
 
 target="\${os_name}-\${arch_name}"
-asset="fdev-\${target}.tar.gz"
+asset="rig-\${target}.tar.gz"
 
 if [ "$version" = "latest" ]; then
   download_url="\${base_url}/download/latest/\${target}"
@@ -362,7 +362,7 @@ update_path() {
     *":$install_dir:"*) return ;;
   esac
 
-  if [ "\${FDEV_NO_MODIFY_PATH:-}" = "1" ]; then
+  if [ "\${RIGKIT_NO_MODIFY_PATH:-}" = "1" ]; then
     print_path_instructions
     return
   fi
@@ -378,7 +378,7 @@ update_path() {
 
   if grep -F "$install_dir" "$profile" >/dev/null 2>&1; then
     echo ""
-    echo "fdev install directory is already referenced in $profile"
+    echo "rig install directory is already referenced in $profile"
     print_current_shell_instructions
     return
   fi
@@ -387,7 +387,7 @@ update_path() {
     *.fish)
       {
         echo ""
-        echo "# fdev"
+        echo "# rigkit"
         echo "fish_add_path \\"$install_dir\\""
         echo "$(completion_profile_line)"
       } >> "$profile"
@@ -395,7 +395,7 @@ update_path() {
     *)
       {
         echo ""
-        echo "# fdev"
+        echo "# rigkit"
         echo "export PATH=\\"$install_dir:\\$PATH\\""
         echo "$(completion_profile_line)"
       } >> "$profile"
@@ -403,13 +403,13 @@ update_path() {
   esac
 
   echo ""
-  echo "Added fdev to PATH and enabled shell completion in $profile"
+  echo "Added rig to PATH and enabled shell completion in $profile"
   print_current_shell_instructions
 }
 
 detect_profile() {
-  if [ -n "\${FDEV_PROFILE:-}" ]; then
-    echo "$FDEV_PROFILE"
+  if [ -n "\${RIGKIT_PROFILE:-}" ]; then
+    echo "$RIGKIT_PROFILE"
     return
   fi
 
@@ -475,9 +475,9 @@ print_current_shell_instructions() {
 
 completion_profile_line() {
   case "$shell_name" in
-    fish) echo "fdev completion fish | source" ;;
-    bash) echo "eval \\"\\$(fdev completion bash)\\"" ;;
-    *) echo "eval \\"\\$(fdev completion zsh)\\"" ;;
+    fish) echo "rig completion fish | source" ;;
+    bash) echo "eval \\"\\$(rig completion bash)\\"" ;;
+    *) echo "eval \\"\\$(rig completion zsh)\\"" ;;
   esac
 }
 
@@ -510,14 +510,14 @@ fi
 
 tar -xzf "$tmp_dir/$asset" -C "$tmp_dir"
 mkdir -p "$install_dir"
-mv "$tmp_dir/fdev-\${target}" "$install_dir/fdev"
-chmod +x "$install_dir/fdev"
+mv "$tmp_dir/rig-\${target}" "$install_dir/rig"
+chmod +x "$install_dir/rig"
 
-echo "Installed fdev to $install_dir/fdev"
+echo "Installed rig to $install_dir/rig"
 
 update_path
 
-"$install_dir/fdev" --version
+"$install_dir/rig" --version
 `;
 }
 

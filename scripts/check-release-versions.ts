@@ -4,52 +4,52 @@ import { join } from "node:path";
 const root = join(import.meta.dir, "..");
 const packages = [
   {
-    name: "@freestyle-sh/fdev-engine",
-    dir: "packages/fdev-engine",
-    versionFile: "packages/fdev-engine/src/version.ts",
-    constant: "FDEV_ENGINE_VERSION",
+    name: "@rigkit/engine",
+    dir: "packages/engine",
+    versionFile: "packages/engine/src/version.ts",
+    constant: "RIGKIT_ENGINE_VERSION",
   },
   {
-    name: "@freestyle-sh/fdev-runtime-client",
-    dir: "packages/fdev-runtime-client",
-    versionFile: "packages/fdev-runtime-client/src/version.ts",
-    constant: "FDEV_RUNTIME_CLIENT_VERSION",
+    name: "@rigkit/runtime-client",
+    dir: "packages/runtime-client",
+    versionFile: "packages/runtime-client/src/version.ts",
+    constant: "RIGKIT_RUNTIME_CLIENT_VERSION",
   },
   {
-    name: "@freestyle-sh/fdev",
-    dir: "packages/fdev",
-    versionFile: "packages/fdev/src/version.ts",
-    constant: "FDEV_VERSION",
+    name: "@rigkit/sdk",
+    dir: "packages/sdk",
+    versionFile: "packages/sdk/src/version.ts",
+    constant: "RIGKIT_SDK_VERSION",
   },
   {
-    name: "@freestyle-sh/fdev-provider-freestyle",
-    dir: "packages/fdev-provider-freestyle",
-    versionFile: "packages/fdev-provider-freestyle/src/version.ts",
-    constant: "FDEV_PROVIDER_FREESTYLE_VERSION",
+    name: "@rigkit/provider-freestyle",
+    dir: "packages/provider-freestyle",
+    versionFile: "packages/provider-freestyle/src/version.ts",
+    constant: "RIGKIT_PROVIDER_FREESTYLE_VERSION",
   },
   {
-    name: "@freestyle-sh/fdev-provider-gcloud",
-    dir: "packages/fdev-provider-gcloud",
-    versionFile: "packages/fdev-provider-gcloud/src/version.ts",
-    constant: "FDEV_PROVIDER_GCLOUD_VERSION",
+    name: "@rigkit/provider-gcloud-cli",
+    dir: "packages/provider-gcloud-cli",
+    versionFile: "packages/provider-gcloud-cli/src/version.ts",
+    constant: "RIGKIT_PROVIDER_GCLOUD_CLI_VERSION",
   },
   {
-    name: "@freestyle-sh/fdev-cmux",
-    dir: "packages/fdev-cmux",
-    versionFile: "packages/fdev-cmux/src/version.ts",
-    constant: "FDEV_CMUX_VERSION",
+    name: "@rigkit/provider-cmux",
+    dir: "packages/provider-cmux",
+    versionFile: "packages/provider-cmux/src/version.ts",
+    constant: "RIGKIT_PROVIDER_CMUX_VERSION",
   },
   {
-    name: "@freestyle-sh/fdev-vscode",
-    dir: "packages/fdev-vscode",
-    versionFile: "packages/fdev-vscode/src/version.ts",
-    constant: "FDEV_VSCODE_VERSION",
+    name: "@rigkit/provider-vscode",
+    dir: "packages/provider-vscode",
+    versionFile: "packages/provider-vscode/src/version.ts",
+    constant: "RIGKIT_PROVIDER_VSCODE_VERSION",
   },
   {
-    name: "@freestyle-sh/fdev-cli",
-    dir: "packages/fdev-cli",
-    versionFile: "packages/fdev-cli/src/version.ts",
-    constant: "FDEV_CLI_VERSION",
+    name: "@rigkit/cli",
+    dir: "packages/cli",
+    versionFile: "packages/cli/src/version.ts",
+    constant: "RIGKIT_CLI_VERSION",
   },
 ];
 
@@ -65,10 +65,10 @@ const versions = packages.map((pkg) => {
     throw new Error(`${pkg.versionFile} must contain ${expectedLine}`);
   }
 
-  if (pkg.name === "@freestyle-sh/fdev") {
-    const runtimeVersionFile = "packages/fdev/src/runtime/version.ts";
+  if (pkg.name === "@rigkit/sdk") {
+    const runtimeVersionFile = "packages/sdk/src/runtime/version.ts";
     const runtimeSource = readFileSync(join(root, runtimeVersionFile), "utf8");
-    const expectedRuntimeLine = `export const FDEV_RUNTIME_VERSION = "${packageJson.version}";`;
+    const expectedRuntimeLine = `export const RIGKIT_RUNTIME_VERSION = "${packageJson.version}";`;
     if (!runtimeSource.includes(expectedRuntimeLine)) {
       throw new Error(`${runtimeVersionFile} must contain ${expectedRuntimeLine}`);
     }
@@ -79,7 +79,7 @@ const versions = packages.map((pkg) => {
 
 const uniqueVersions = new Set(versions);
 if (uniqueVersions.size !== 1) {
-  throw new Error(`fdev package versions must match exactly: ${versions.join(", ")}`);
+  throw new Error(`Rigkit package versions must match exactly: ${versions.join(", ")}`);
 }
 
 const version = versions[0]!;
@@ -88,7 +88,7 @@ if (tag?.startsWith("v") && tag.slice(1) !== version) {
   throw new Error(`release tag ${tag} does not match package version ${version}`);
 }
 
-console.log(`fdev release version ${version}`);
+console.log(`rigkit release version ${version}`);
 
 function readJson(path: string): unknown {
   return JSON.parse(readFileSync(path, "utf8"));

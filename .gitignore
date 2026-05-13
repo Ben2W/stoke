@@ -2,6 +2,6 @@
 .dev.vars
 node_modules/
 dist/
-.fdev/
+.rigkit/
 .turbo/
 .wrangler/

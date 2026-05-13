@@ -1,0 +1,41 @@
+{
+  "name": "@rigkit/sdk",
+  "version": "0.1.8",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/freestyle-sh/rigkit.git",
+    "directory": "packages/sdk"
+  },
+  "bin": {
+    "rigkit-project-runtime": "./src/cli.ts"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./host": "./src/host.ts",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc --noEmit",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@effect/platform": "0.96.1",
+    "@effect/platform-bun": "0.89.0",
+    "@rigkit/engine": "workspace:*",
+    "@rigkit/runtime-client": "workspace:*",
+    "effect": "^3.21.2"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "latest"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

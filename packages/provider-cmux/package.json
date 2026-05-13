@@ -1,0 +1,35 @@
+{
+  "name": "@rigkit/provider-cmux",
+  "version": "0.1.8",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/freestyle-sh/rigkit.git",
+    "directory": "packages/provider-cmux"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./host": "./src/host.ts",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc --noEmit",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@rigkit/sdk": "workspace:*",
+    "@rigkit/engine": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "latest"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

@@ -2,7 +2,7 @@
 
 Status: design note, not implemented.
 
-This redesign makes `fdev` a generic workflow runner instead of a VM-specific
+This redesign makes `rig` a generic workflow runner instead of a VM-specific
 step runner. The current Freestyle VM flow should become one provider-backed
 workflow shape, not the core abstraction.
 
@@ -161,7 +161,7 @@ There is no `uses` or `requiredProviders` option in the default API. The workflo
 owns provider names, and tasks can destructure the providers they need.
 
 For v1, cache can conservatively treat every task as depending on the workflow's
-provider fingerprint. Later, fdev can optimize this with explicit provider
+provider fingerprint. Later, rigkit can optimize this with explicit provider
 scoping or runtime provider access tracking if unnecessary reruns become a real
 problem.
 
@@ -324,7 +324,7 @@ Provider helpers can hide provider-specific details:
 - Daytona workspaces.
 - terminal/browser interactions.
 
-Core fdev should not know what a VM, snapshot, branch, or terminal is. It should
+Core Rigkit should not know what a VM, snapshot, branch, or terminal is. It should
 only know that task runs can produce provider-owned artifact references.
 
 For example, a Freestyle helper sequence may present a handler with an ergonomic
@@ -366,11 +366,11 @@ await engine.interaction.present({
 });
 ```
 
-The exact shape can change, but the important boundary is that fdev owns the
+The exact shape can change, but the important boundary is that rigkit owns the
 hosted interaction lifecycle while providers own the interaction content and
 protocol. The Freestyle terminal provider can use this to serve a browser
 terminal, connect it to a VM shell, and wait for a "finished" event. Daytona,
-Docker, or other providers can expose their own interaction UX without core fdev
+Docker, or other providers can expose their own interaction UX without core Rigkit
 knowing terminal semantics.
 
 ## Cache Model
@@ -425,7 +425,7 @@ install-deps      -> snapshot E, depends on clone-repo run
 If `github-auth` is invalidated and reruns, it produces a new run and snapshot.
 `clone-repo` and `install-deps` are no longer reusable because their cached runs
 depended on the old `github-auth` run. This preserves the current Freestyle
-chain behavior without baking linear suffix invalidation into core fdev.
+chain behavior without baking linear suffix invalidation into core Rigkit.
 
 Because snapshot refs are explicit outputs, a workflow can branch and keep
 multiple VM lineages:
@@ -478,7 +478,7 @@ base VM snapshot
 ```
 
 There is no generic way to merge two independently mutated VM snapshots. A
-provider should be able to declare mutable lineage constraints so fdev can
+provider should be able to declare mutable lineage constraints so rigkit can
 serialize unsafe branches or raise a clear error unless the provider supports
 merging.
 
@@ -495,7 +495,7 @@ merging.
 - What is the exact low-level provider artifact API: `addArtifact`,
   `validateArtifact`, `cleanupArtifact`, `restoreArtifact`, or something more
   specific?
-- What is the exact interaction API between providers and core fdev for
+- What is the exact interaction API between providers and core Rigkit for
   presenting HTML, receiving browser events, and resuming task execution?
 
 ## Design Principle

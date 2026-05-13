@@ -16,9 +16,9 @@ The workflow:
 Run from this directory:
 
 ```bash
-pnpm fdev:plan
-pnpm fdev:apply
-pnpm fdev:fork
+pnpm rig:plan
+pnpm rig:apply
+pnpm rig:fork
 ```
 
 The Freestyle API key is read from `FREESTYLE_API_KEY`.

@@ -1,5 +1,5 @@
 {
-  "name": "@freestyle-sh/fdev-app",
+  "name": "@rigkit/app",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -10,7 +10,7 @@
     "test": "echo no app tests yet"
   },
   "dependencies": {
-    "@freestyle-sh/fdev-engine": "workspace:*"
+    "@rigkit/engine": "workspace:*"
   },
   "devDependencies": {
     "@types/bun": "latest",

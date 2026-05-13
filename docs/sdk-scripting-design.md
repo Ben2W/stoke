@@ -27,8 +27,8 @@ There is no separate package spec layer and no `step.assert` helper. A step runs
 ## Step Example
 
 ```ts
-import { defineDevMachine, defineStep, env } from "@freestyle-sh/fdev";
-import { defineFreestyleProvider } from "@freestyle-sh/fdev-provider-freestyle";
+import { defineDevMachine, defineStep, env } from "@rigkit/sdk";
+import { defineFreestyleProvider } from "@rigkit/provider-freestyle";
 
 const gcloudStep = defineStep("install gcloud cli", async ({ vm }) => {
   await vm.exec("sudo apt-get update && sudo apt-get install -y google-cloud-cli", {
@@ -84,7 +84,7 @@ export default defineDevMachine({
   workspace: {
     onCreated: async ({ vm, workspace, ctx, local }) => {
       const cwd = "/workspace/platform";
-      await vm.exec(`cd ${cwd} && git switch -c fdev/${workspace.name}`);
+      await vm.exec(`cd ${cwd} && git switch -c rigkit/${workspace.name}`);
       local.open(
         `vscode://vscode-remote/ssh-remote+${encodeURIComponent(ctx.provider.vscodeAuthority)}${cwd}?windowId=_blank`,
       );
@@ -134,12 +134,12 @@ Dependent steps read prior values through `ctx.steps`.
 
 ## Workspace Hooks
 
-Machines can define a workspace hook that runs after `fdev run create` creates a workspace VM from the resolved snapshot:
+Machines can define a workspace hook that runs after `rig create` creates a workspace VM from the resolved snapshot:
 
 ```ts
 workspace: {
   onCreated: async ({ vm, workspace, ctx, local }) => {
-    await vm.exec(`cd ${ctx.steps.repoPath} && git switch -c fdev/${workspace.name}`);
+    await vm.exec(`cd ${ctx.steps.repoPath} && git switch -c rigkit/${workspace.name}`);
     local.open(
       `vscode://vscode-remote/ssh-remote+${encodeURIComponent(ctx.provider.vscodeAuthority)}${ctx.steps.repoPath}?windowId=_blank`,
     );
@@ -161,16 +161,16 @@ When applying a machine, the engine finds the latest cached prefix and only runs
 
 ## Provider Boundary
 
-`provider` authenticates and configures the backing VM provider. The Freestyle provider package implements the base fdev contract: create, snapshot, exec, SSH, file read/write, and delete. Provider credentials are not automatically copied into the remote VM. If a credential should exist inside the machine, a step must explicitly place it there.
+`provider` authenticates and configures the backing VM provider. The Freestyle provider package implements the base rigkit contract: create, snapshot, exec, SSH, file read/write, and delete. Provider credentials are not automatically copied into the remote VM. If a credential should exist inside the machine, a step must explicitly place it there.
 
 ## CLI
 
-The CLI loads `fdev.config.ts`, validates the step chain, prints plans, applies missing steps, snapshots results, and forks workspaces from the latest resolved snapshot.
+The CLI loads `rig.config.ts`, validates the step chain, prints plans, applies missing steps, snapshots results, and forks workspaces from the latest resolved snapshot.
 
 ```bash
-fdev run plan
-fdev run apply
-fdev run create --name my-workspace
-fdev projects
-fdev run ssh my-workspace
+rig plan
+rig apply
+rig create --name my-workspace
+rig projects
+rig ssh my-workspace
 ```

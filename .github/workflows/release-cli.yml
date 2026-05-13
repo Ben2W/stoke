@@ -46,8 +46,8 @@ jobs:
 
       - name: Smoke test Linux binary
         run: |
-          ./dist/release/fdev-linux-x64 --version
-          ./dist/release/fdev-linux-x64 help
+          ./dist/release/rig-linux-x64 --version
+          ./dist/release/rig-linux-x64 help
 
       - name: Create GitHub release
         env:

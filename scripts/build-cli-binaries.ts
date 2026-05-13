@@ -4,13 +4,13 @@ import { $ } from "bun";
 
 const root = join(import.meta.dir, "..");
 const outDir = join(root, "dist", "release");
-const entrypoint = join(root, "packages", "fdev-cli", "src", "cli.ts");
+const entrypoint = join(root, "packages", "cli", "src", "cli.ts");
 
 const targets = [
-  { target: "bun-darwin-arm64", name: "fdev-darwin-arm64" },
-  { target: "bun-darwin-x64", name: "fdev-darwin-x64" },
-  { target: "bun-linux-arm64", name: "fdev-linux-arm64" },
-  { target: "bun-linux-x64-baseline", name: "fdev-linux-x64" },
+  { target: "bun-darwin-arm64", name: "rig-darwin-arm64" },
+  { target: "bun-darwin-x64", name: "rig-darwin-x64" },
+  { target: "bun-linux-arm64", name: "rig-linux-arm64" },
+  { target: "bun-linux-x64-baseline", name: "rig-linux-x64" },
 ];
 
 rmSync(outDir, { recursive: true, force: true });
@@ -24,4 +24,4 @@ for (const item of targets) {
 }
 
 await $`sh -c "cd ${outDir} && shasum -a 256 *.tar.gz > checksums.txt"`;
-console.log(`built fdev CLI binaries in ${outDir}`);
+console.log(`built Rigkit CLI binaries in ${outDir}`);

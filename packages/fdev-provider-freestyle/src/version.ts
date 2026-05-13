@@ -1,1 +1,0 @@
-export const FDEV_PROVIDER_FREESTYLE_VERSION = "0.1.7";

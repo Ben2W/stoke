@@ -1,1 +1,0 @@
-export const FDEV_PROVIDER_GCLOUD_VERSION = "0.1.7";

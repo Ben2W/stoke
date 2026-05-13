@@ -75,14 +75,14 @@ jobs:
         run: |
           version="${GITHUB_REF_NAME#v}"
           packages=(
-            @freestyle-sh/fdev-engine
-            @freestyle-sh/fdev-runtime-client
-            @freestyle-sh/fdev
-            @freestyle-sh/fdev-provider-freestyle
-            @freestyle-sh/fdev-provider-gcloud
-            @freestyle-sh/fdev-cmux
-            @freestyle-sh/fdev-vscode
-            @freestyle-sh/fdev-cli
+            @rigkit/engine
+            @rigkit/runtime-client
+            @rigkit/sdk
+            @rigkit/provider-freestyle
+            @rigkit/provider-gcloud-cli
+            @rigkit/provider-cmux
+            @rigkit/provider-vscode
+            @rigkit/cli
           )
           for pkg in "${packages[@]}"; do
             if npm view "${pkg}@${version}" version >/dev/null 2>&1; then
@@ -96,35 +96,35 @@ jobs:
       - name: Pack packages
         run: |
           mkdir -p dist/npm
-          pnpm -C packages/fdev-engine pack --pack-destination ../../dist/npm
-          pnpm -C packages/fdev-runtime-client pack --pack-destination ../../dist/npm
-          pnpm -C packages/fdev pack --pack-destination ../../dist/npm
-          pnpm -C packages/fdev-provider-freestyle pack --pack-destination ../../dist/npm
-          pnpm -C packages/fdev-provider-gcloud pack --pack-destination ../../dist/npm
-          pnpm -C packages/fdev-cmux pack --pack-destination ../../dist/npm
-          pnpm -C packages/fdev-vscode pack --pack-destination ../../dist/npm
-          pnpm -C packages/fdev-cli pack --pack-destination ../../dist/npm
+          pnpm -C packages/engine pack --pack-destination ../../dist/npm
+          pnpm -C packages/runtime-client pack --pack-destination ../../dist/npm
+          pnpm -C packages/sdk pack --pack-destination ../../dist/npm
+          pnpm -C packages/provider-freestyle pack --pack-destination ../../dist/npm
+          pnpm -C packages/provider-gcloud-cli pack --pack-destination ../../dist/npm
+          pnpm -C packages/provider-cmux pack --pack-destination ../../dist/npm
+          pnpm -C packages/provider-vscode pack --pack-destination ../../dist/npm
+          pnpm -C packages/cli pack --pack-destination ../../dist/npm
 
       - name: Dry run package publish
         run: |
-          version="$(bun -p 'require("./packages/fdev/package.json").version')"
-          npx npm@latest publish dist/npm/freestyle-sh-fdev-engine-*.tgz --access public --dry-run
-          npx npm@latest publish dist/npm/freestyle-sh-fdev-runtime-client-*.tgz --access public --dry-run
-          npx npm@latest publish "dist/npm/freestyle-sh-fdev-${version}.tgz" --access public --dry-run
-          npx npm@latest publish dist/npm/freestyle-sh-fdev-provider-freestyle-*.tgz --access public --dry-run
-          npx npm@latest publish dist/npm/freestyle-sh-fdev-provider-gcloud-*.tgz --access public --dry-run
-          npx npm@latest publish dist/npm/freestyle-sh-fdev-cmux-*.tgz --access public --dry-run
-          npx npm@latest publish dist/npm/freestyle-sh-fdev-vscode-*.tgz --access public --dry-run
-          npx npm@latest publish dist/npm/freestyle-sh-fdev-cli-*.tgz --access public --dry-run
+          version="$(bun -p 'require("./packages/sdk/package.json").version')"
+          npx npm@latest publish dist/npm/rigkit-engine-*.tgz --access public --dry-run
+          npx npm@latest publish dist/npm/rigkit-runtime-client-*.tgz --access public --dry-run
+          npx npm@latest publish "dist/npm/rigkit-sdk-${version}.tgz" --access public --dry-run
+          npx npm@latest publish dist/npm/rigkit-provider-freestyle-*.tgz --access public --dry-run
+          npx npm@latest publish dist/npm/rigkit-provider-gcloud-cli-*.tgz --access public --dry-run
+          npx npm@latest publish dist/npm/rigkit-provider-cmux-*.tgz --access public --dry-run
+          npx npm@latest publish dist/npm/rigkit-provider-vscode-*.tgz --access public --dry-run
+          npx npm@latest publish dist/npm/rigkit-cli-*.tgz --access public --dry-run
 
       - name: Publish packages
         run: |
-          version="$(bun -p 'require("./packages/fdev/package.json").version')"
-          npx npm@latest publish dist/npm/freestyle-sh-fdev-engine-*.tgz --access public
-          npx npm@latest publish dist/npm/freestyle-sh-fdev-runtime-client-*.tgz --access public
-          npx npm@latest publish "dist/npm/freestyle-sh-fdev-${version}.tgz" --access public
-          npx npm@latest publish dist/npm/freestyle-sh-fdev-provider-freestyle-*.tgz --access public
-          npx npm@latest publish dist/npm/freestyle-sh-fdev-provider-gcloud-*.tgz --access public
-          npx npm@latest publish dist/npm/freestyle-sh-fdev-cmux-*.tgz --access public
-          npx npm@latest publish dist/npm/freestyle-sh-fdev-vscode-*.tgz --access public
-          npx npm@latest publish dist/npm/freestyle-sh-fdev-cli-*.tgz --access public
+          version="$(bun -p 'require("./packages/sdk/package.json").version')"
+          npx npm@latest publish dist/npm/rigkit-engine-*.tgz --access public
+          npx npm@latest publish dist/npm/rigkit-runtime-client-*.tgz --access public
+          npx npm@latest publish "dist/npm/rigkit-sdk-${version}.tgz" --access public
+          npx npm@latest publish dist/npm/rigkit-provider-freestyle-*.tgz --access public
+          npx npm@latest publish dist/npm/rigkit-provider-gcloud-cli-*.tgz --access public
+          npx npm@latest publish dist/npm/rigkit-provider-cmux-*.tgz --access public
+          npx npm@latest publish dist/npm/rigkit-provider-vscode-*.tgz --access public
+          npx npm@latest publish dist/npm/rigkit-cli-*.tgz --access public

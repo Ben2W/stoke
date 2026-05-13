@@ -20,9 +20,9 @@ importers:
 
   apps/app:
     dependencies:
-      '@freestyle-sh/fdev-engine':
+      '@rigkit/engine':
         specifier: workspace:*
-        version: link:../../packages/fdev-engine
+        version: link:../../packages/engine
     devDependencies:
       '@types/bun':
         specifier: latest
@@ -35,7 +35,7 @@ importers:
     devDependencies:
       '@cloudflare/workers-types':
         specifier: latest
-        version: 4.20260510.1
+        version: 4.20260511.1
       '@types/bun':
         specifier: latest
         version: 1.3.13
@@ -44,23 +44,23 @@ importers:
         version: 6.0.3
       wrangler:
         specifier: latest
-        version: 4.90.0(@cloudflare/workers-types@4.20260510.1)
+        version: 4.90.1(@cloudflare/workers-types@4.20260511.1)
 
   examples/cmux-playground:
     dependencies:
-      '@freestyle-sh/fdev':
+      '@rigkit/provider-cmux':
         specifier: workspace:*
-        version: link:../../packages/fdev
-      '@freestyle-sh/fdev-cmux':
+        version: link:../../packages/provider-cmux
+      '@rigkit/provider-freestyle':
         specifier: workspace:*
-        version: link:../../packages/fdev-cmux
-      '@freestyle-sh/fdev-provider-freestyle':
+        version: link:../../packages/provider-freestyle
+      '@rigkit/sdk':
         specifier: workspace:*
-        version: link:../../packages/fdev-provider-freestyle
+        version: link:../../packages/sdk
     devDependencies:
-      '@freestyle-sh/fdev-cli':
+      '@rigkit/cli':
         specifier: workspace:*
-        version: link:../../packages/fdev-cli
+        version: link:../../packages/cli
       '@types/bun':
         specifier: latest
         version: 1.3.13
@@ -70,19 +70,19 @@ importers:
 
   examples/freestyle-website-next:
     dependencies:
-      '@freestyle-sh/fdev':
+      '@rigkit/provider-cmux':
         specifier: workspace:*
-        version: link:../../packages/fdev
-      '@freestyle-sh/fdev-cmux':
+        version: link:../../packages/provider-cmux
+      '@rigkit/provider-freestyle':
         specifier: workspace:*
-        version: link:../../packages/fdev-cmux
-      '@freestyle-sh/fdev-provider-freestyle':
+        version: link:../../packages/provider-freestyle
+      '@rigkit/sdk':
         specifier: workspace:*
-        version: link:../../packages/fdev-provider-freestyle
+        version: link:../../packages/sdk
     devDependencies:
-      '@freestyle-sh/fdev-cli':
+      '@rigkit/cli':
         specifier: workspace:*
-        version: link:../../packages/fdev-cli
+        version: link:../../packages/cli
       '@types/bun':
         specifier: latest
         version: 1.3.13
@@ -92,19 +92,19 @@ importers:
 
   examples/gcloud-on-open:
     dependencies:
-      '@freestyle-sh/fdev':
+      '@rigkit/provider-freestyle':
         specifier: workspace:*
-        version: link:../../packages/fdev
-      '@freestyle-sh/fdev-provider-freestyle':
+        version: link:../../packages/provider-freestyle
+      '@rigkit/provider-gcloud-cli':
         specifier: workspace:*
-        version: link:../../packages/fdev-provider-freestyle
-      '@freestyle-sh/fdev-provider-gcloud':
+        version: link:../../packages/provider-gcloud-cli
+      '@rigkit/sdk':
         specifier: workspace:*
-        version: link:../../packages/fdev-provider-gcloud
+        version: link:../../packages/sdk
     devDependencies:
-      '@freestyle-sh/fdev-cli':
+      '@rigkit/cli':
         specifier: workspace:*
-        version: link:../../packages/fdev-cli
+        version: link:../../packages/cli
       '@types/bun':
         specifier: latest
         version: 1.3.13
@@ -114,16 +114,16 @@ importers:
 
   examples/smoke:
     dependencies:
-      '@freestyle-sh/fdev':
+      '@rigkit/provider-freestyle':
         specifier: workspace:*
-        version: link:../../packages/fdev
-      '@freestyle-sh/fdev-provider-freestyle':
+        version: link:../../packages/provider-freestyle
+      '@rigkit/sdk':
         specifier: workspace:*
-        version: link:../../packages/fdev-provider-freestyle
+        version: link:../../packages/sdk
     devDependencies:
-      '@freestyle-sh/fdev-cli':
+      '@rigkit/cli':
         specifier: workspace:*
-        version: link:../../packages/fdev-cli
+        version: link:../../packages/cli
       '@types/bun':
         specifier: latest
         version: 1.3.13
@@ -131,42 +131,17 @@ importers:
         specifier: latest
         version: 6.0.3
 
-  packages/fdev:
+  packages/cli:
     dependencies:
-      '@effect/platform':
-        specifier: 0.96.1
-        version: 0.96.1(effect@3.21.2)
-      '@effect/platform-bun':
-        specifier: 0.89.0
-        version: 0.89.0(@effect/cluster@0.58.2(@effect/platform@0.96.1(effect@3.21.2))(@effect/rpc@0.75.1(@effect/platform@0.96.1(effect@3.21.2))(effect@3.21.2))(@effect/sql@0.51.1(@effect/experimental@0.60.0(@effect/platform@0.96.1(effect@3.21.2))(effect@3.21.2))(@effect/platform@0.96.1(effect@3.21.2))(effect@3.21.2))(@effect/workflow@0.18.1(@effect/experimental@0.60.0(@effect/platform@0.96.1(effect@3.21.2))(effect@3.21.2))(@effect/platform@0.96.1(effect@3.21.2))(@effect/rpc@0.75.1(@effect/platform@0.96.1(effect@3.21.2))(effect@3.21.2))(effect@3.21.2))(effect@3.21.2))(@effect/platform@0.96.1(effect@3.21.2))(@effect/rpc@0.75.1(@effect/platform@0.96.1(effect@3.21.2))(effect@3.21.2))(@effect/sql@0.51.1(@effect/experimental@0.60.0(@effect/platform@0.96.1(effect@3.21.2))(effect@3.21.2))(@effect/platform@0.96.1(effect@3.21.2))(effect@3.21.2))(effect@3.21.2)
-      '@freestyle-sh/fdev-engine':
+      '@rigkit/engine':
         specifier: workspace:*
-        version: link:../fdev-engine
-      '@freestyle-sh/fdev-runtime-client':
+        version: link:../engine
+      '@rigkit/provider-cmux':
         specifier: workspace:*
-        version: link:../fdev-runtime-client
-      effect:
-        specifier: ^3.21.2
-        version: 3.21.2
-    devDependencies:
-      '@types/bun':
-        specifier: latest
-        version: 1.3.13
-      typescript:
-        specifier: latest
-        version: 6.0.3
-
-  packages/fdev-cli:
-    dependencies:
-      '@freestyle-sh/fdev-cmux':
+        version: link:../provider-cmux
+      '@rigkit/runtime-client':
         specifier: workspace:*
-        version: link:../fdev-cmux
-      '@freestyle-sh/fdev-engine':
-        specifier: workspace:*
-        version: link:../fdev-engine
-      '@freestyle-sh/fdev-runtime-client':
-        specifier: workspace:*
-        version: link:../fdev-runtime-client
+        version: link:../runtime-client
       chalk:
         specifier: ^5.6.2
         version: 5.6.2
@@ -193,30 +168,14 @@ importers:
         specifier: latest
         version: 6.0.3
 
-  packages/fdev-cmux:
-    dependencies:
-      '@freestyle-sh/fdev':
-        specifier: workspace:*
-        version: link:../fdev
-      '@freestyle-sh/fdev-engine':
-        specifier: workspace:*
-        version: link:../fdev-engine
-    devDependencies:
-      '@types/bun':
-        specifier: latest
-        version: 1.3.13
-      typescript:
-        specifier: latest
-        version: 6.0.3
-
-  packages/fdev-engine:
+  packages/engine:
     dependencies:
       drizzle-kit:
         specifier: ^0.31.10
         version: 0.31.10
       drizzle-orm:
         specifier: ^0.45.2
-        version: 0.45.2(@cloudflare/workers-types@4.20260510.1)(bun-types@1.3.13)
+        version: 0.45.2(@cloudflare/workers-types@4.20260511.1)(bun-types@1.3.13)
     devDependencies:
       '@types/bun':
         specifier: latest
@@ -225,14 +184,30 @@ importers:
         specifier: latest
         version: 6.0.3
 
-  packages/fdev-provider-freestyle:
+  packages/provider-cmux:
     dependencies:
-      '@freestyle-sh/fdev':
+      '@rigkit/engine':
         specifier: workspace:*
-        version: link:../fdev
-      '@freestyle-sh/fdev-engine':
+        version: link:../engine
+      '@rigkit/sdk':
         specifier: workspace:*
-        version: link:../fdev-engine
+        version: link:../sdk
+    devDependencies:
+      '@types/bun':
+        specifier: latest
+        version: 1.3.13
+      typescript:
+        specifier: latest
+        version: 6.0.3
+
+  packages/provider-freestyle:
+    dependencies:
+      '@rigkit/engine':
+        specifier: workspace:*
+        version: link:../engine
+      '@rigkit/sdk':
+        specifier: workspace:*
+        version: link:../sdk
       freestyle:
         specifier: latest
         version: 0.1.51
@@ -247,14 +222,14 @@ importers:
         specifier: latest
         version: 6.0.3
 
-  packages/fdev-provider-gcloud:
+  packages/provider-gcloud-cli:
     dependencies:
-      '@freestyle-sh/fdev':
+      '@rigkit/engine':
         specifier: workspace:*
-        version: link:../fdev
-      '@freestyle-sh/fdev-engine':
+        version: link:../engine
+      '@rigkit/sdk':
         specifier: workspace:*
-        version: link:../fdev-engine
+        version: link:../sdk
       zod:
         specifier: ^4
         version: 4.4.3
@@ -266,7 +241,20 @@ importers:
         specifier: latest
         version: 6.0.3
 
-  packages/fdev-runtime-client:
+  packages/provider-vscode:
+    dependencies:
+      '@rigkit/runtime-client':
+        specifier: workspace:*
+        version: link:../runtime-client
+    devDependencies:
+      '@types/bun':
+        specifier: latest
+        version: 1.3.13
+      typescript:
+        specifier: latest
+        version: 6.0.3
+
+  packages/runtime-client:
     dependencies:
       '@effect/platform':
         specifier: 0.96.1
@@ -285,11 +273,23 @@ importers:
         specifier: latest
         version: 6.0.3
 
-  packages/fdev-vscode:
+  packages/sdk:
     dependencies:
-      '@freestyle-sh/fdev-runtime-client':
+      '@effect/platform':
+        specifier: 0.96.1
+        version: 0.96.1(effect@3.21.2)
+      '@effect/platform-bun':
+        specifier: 0.89.0
+        version: 0.89.0(@effect/cluster@0.58.2(@effect/platform@0.96.1(effect@3.21.2))(@effect/rpc@0.75.1(@effect/platform@0.96.1(effect@3.21.2))(effect@3.21.2))(@effect/sql@0.51.1(@effect/experimental@0.60.0(@effect/platform@0.96.1(effect@3.21.2))(effect@3.21.2))(@effect/platform@0.96.1(effect@3.21.2))(effect@3.21.2))(@effect/workflow@0.18.1(@effect/experimental@0.60.0(@effect/platform@0.96.1(effect@3.21.2))(effect@3.21.2))(@effect/platform@0.96.1(effect@3.21.2))(@effect/rpc@0.75.1(@effect/platform@0.96.1(effect@3.21.2))(effect@3.21.2))(effect@3.21.2))(effect@3.21.2))(@effect/platform@0.96.1(effect@3.21.2))(@effect/rpc@0.75.1(@effect/platform@0.96.1(effect@3.21.2))(effect@3.21.2))(@effect/sql@0.51.1(@effect/experimental@0.60.0(@effect/platform@0.96.1(effect@3.21.2))(effect@3.21.2))(@effect/platform@0.96.1(effect@3.21.2))(effect@3.21.2))(effect@3.21.2)
+      '@rigkit/engine':
         specifier: workspace:*
-        version: link:../fdev-runtime-client
+        version: link:../engine
+      '@rigkit/runtime-client':
+        specifier: workspace:*
+        version: link:../runtime-client
+      effect:
+        specifier: ^3.21.2
+        version: 3.21.2
     devDependencies:
       '@types/bun':
         specifier: latest
@@ -313,38 +313,38 @@ packages:
       workerd:
         optional: true
 
-  '@cloudflare/workerd-darwin-64@1.20260507.1':
-    resolution: {integrity: sha512-S85aMwcaPJUjKWDiG6iMMnioKWtPLACa6m0j/EhHR1GYfVpnxb974cBc6d25L+sf7jHWHJI2u5hGp0UTJ7MtXQ==}
+  '@cloudflare/workerd-darwin-64@1.20260508.1':
+    resolution: {integrity: sha512-IT3r6VgiSwIesL4AJbxjgxvIxwWZqM7BKkhYAzOKHl4GF2M0TxeOahUIXd+CYXVZgHX8ceEg+MXbEehPelJyNg==}
     engines: {node: '>=16'}
     cpu: [x64]
     os: [darwin]
 
-  '@cloudflare/workerd-darwin-arm64@1.20260507.1':
-    resolution: {integrity: sha512-GMEBu8Zp9Q97HLnf7bWJN4KjWpN5MxpeqdvHjBGWNl8UYprJI0k+Jkp89+Wh5S8vIon+HoVbDfOzPa7VwgL6Eg==}
+  '@cloudflare/workerd-darwin-arm64@1.20260508.1':
+    resolution: {integrity: sha512-JTVsisOJPcNKw0qovPjqyBWYahfdhUh7/9NICiG5wxaEQ45PYKdoqNq0hOAAIqvqoxsKZBvTgcPTJREPqk7avA==}
     engines: {node: '>=16'}
     cpu: [arm64]
     os: [darwin]
 
-  '@cloudflare/workerd-linux-64@1.20260507.1':
-    resolution: {integrity: sha512-QlrKEBdgA3uVc0Ok0Q3+0/CW0CTjgj5ySir1i1YY5FXVv0X6GpwtnB5umjunjF2MFprss+L+iFGZzxcSvMC1nA==}
+  '@cloudflare/workerd-linux-64@1.20260508.1':
+    resolution: {integrity: sha512-zO38pCc27YlsZiPYcaZnosy0/t7abXrRU3VEO1oKfUvnaCpHgphDG+VsrmHL+kntda6hrtNwg2jLeMAqqIjnjw==}
     engines: {node: '>=16'}
     cpu: [x64]
     os: [linux]
 
-  '@cloudflare/workerd-linux-arm64@1.20260507.1':
-    resolution: {integrity: sha512-eGbbupEtK2nh9V9Dhcx3vv3GTKeXqSVNgAEYVCCN0NGS9tl9HbMoHRX/4JL181FKXROMigWBCQVL//qPhsAzBQ==}
+  '@cloudflare/workerd-linux-arm64@1.20260508.1':
+    resolution: {integrity: sha512-XhJa780Ia6MNIrtxn/ruZHS79b9pu5EKPfRNReaUqxy8erPT2fs93axMfFoS9kIkcaRRj/1TOUKcTeAMoywY7w==}
     engines: {node: '>=16'}
     cpu: [arm64]
     os: [linux]
 
-  '@cloudflare/workerd-windows-64@1.20260507.1':
-    resolution: {integrity: sha512-dmClJ/E0BAcuDetQIZFqbeAXejWrG5pysGRMQ6T83Y0IW/7IAamY2zFEkAJ10I5xwZsdHuYsZtzlOxpEXpJs7A==}
+  '@cloudflare/workerd-windows-64@1.20260508.1':
+    resolution: {integrity: sha512-QdDOK3B/Ul1s3QmIwDrFyx9230to6LsNmWcVR8w+TYjNZuRPzqQBgusp78LO7MlqCoEl9dvIcN00jkJnLtBSfw==}
     engines: {node: '>=16'}
     cpu: [x64]
     os: [win32]
 
-  '@cloudflare/workers-types@4.20260510.1':
-    resolution: {integrity: sha512-Wcmb56nJMHw1BLpArV3RSmWb/z0Zx3S8OJ5mVUTb+AVTbyopU9iJzZrFGlYX18Ju9hXxqak2mhFMq6sCaFssag==}
+  '@cloudflare/workers-types@4.20260511.1':
+    resolution: {integrity: sha512-FA+si7cOq9i/gtCHhIc0XJL0l1F/ApF+m00752Aj7WZFJrj3ZulT2T8/+rT3BabMT0QEnqFEGIqCgrmqhgEfMg==}
 
   '@cspotcode/source-map-support@0.8.1':
     resolution: {integrity: sha512-IchNf6dN4tHoMFIn/7OE8LWZ19Y6q/67Bmf6vnGREv8RSbBVb9LPJxEcnwrcwX6ixSvaiGoomAUvu4YSxXrVgw==}
@@ -1619,8 +1619,8 @@ packages:
     resolution: {integrity: sha512-VP79XUPxV2CigYP3jWwAUFSku2aKqBH7uTAapFWCBqutsbmDo96KY5o8uh6U+/YSIn5OxJnXp73beVkpqMIGhA==}
     engines: {node: '>=18'}
 
-  miniflare@4.20260507.1:
-    resolution: {integrity: sha512-PSXBiLExTdZ4UGO/raKCHQauUpYL7F880ZRB7j0+78Rv8h7TsdN2E/iEDK9sK2Y+SPQ5wJSeAa+rDeVKoZZoEw==}
+  miniflare@4.20260508.0:
+    resolution: {integrity: sha512-h3aG+PA8jEH76V4ZtBAbs3g7kjMfHJUF8hPvxeeajLTKwir+G+dqfBODg5yF9MT29LqrZKCRQRqzfHPWX4kCIg==}
     engines: {node: '>=22.0.0'}
     hasBin: true
 
@@ -1780,17 +1780,17 @@ packages:
     resolution: {integrity: sha512-vIYxrBCC/N/K+Js3qSN88go7kIfNPssr/hHCesKCQNAjmgvYS2oqr69kIufEG+O4+PfezOH4EbIeHCfFov8ZgQ==}
     hasBin: true
 
-  workerd@1.20260507.1:
-    resolution: {integrity: sha512-z7JhsFSe6+X1b5fUHaVpo15VM1IRMJiLofEkq8iKdCo+Veqc+FUg5lIsuz8NwePxuSKrXtO4ZQpGkQLbPVXFhg==}
+  workerd@1.20260508.1:
+    resolution: {integrity: sha512-VlnjyH3AjVddpSK7J54nsCVgf8i2733pl8GjKttfNi7vN/hEjjAk20d2b1nDToOLKvRQpTewRnVkqaaeGHCaAw==}
     engines: {node: '>=16'}
     hasBin: true
 
-  wrangler@4.90.0:
-    resolution: {integrity: sha512-bmNIykl59TfCUn5xQgU7IWylSsPx3LQaPLMSAq2VQHt89CBrcj9qXQ0eYfjBCWA5XTBVgten391evt7xxtXwcA==}
+  wrangler@4.90.1:
+    resolution: {integrity: sha512-u2KrieKSMfRM0toTst/CfDtcRraeoVjmcExcMWgILM/ytq3qcDhuOAULoZSyPHzma43lfLJy1BC544drFyqe1A==}
     engines: {node: '>=22.0.0'}
     hasBin: true
     peerDependencies:
-      '@cloudflare/workers-types': ^4.20260507.1
+      '@cloudflare/workers-types': ^4.20260508.1
     peerDependenciesMeta:
       '@cloudflare/workers-types':
         optional: true
@@ -1856,28 +1856,28 @@ snapshots:
 
   '@cloudflare/kv-asset-handler@0.5.0': {}
 
-  '@cloudflare/unenv-preset@2.16.1(unenv@2.0.0-rc.24)(workerd@1.20260507.1)':
+  '@cloudflare/unenv-preset@2.16.1(unenv@2.0.0-rc.24)(workerd@1.20260508.1)':
     dependencies:
       unenv: 2.0.0-rc.24
     optionalDependencies:
-      workerd: 1.20260507.1
+      workerd: 1.20260508.1
 
-  '@cloudflare/workerd-darwin-64@1.20260507.1':
+  '@cloudflare/workerd-darwin-64@1.20260508.1':
     optional: true
 
-  '@cloudflare/workerd-darwin-arm64@1.20260507.1':
+  '@cloudflare/workerd-darwin-arm64@1.20260508.1':
     optional: true
 
-  '@cloudflare/workerd-linux-64@1.20260507.1':
+  '@cloudflare/workerd-linux-64@1.20260508.1':
     optional: true
 
-  '@cloudflare/workerd-linux-arm64@1.20260507.1':
+  '@cloudflare/workerd-linux-arm64@1.20260508.1':
     optional: true
 
-  '@cloudflare/workerd-windows-64@1.20260507.1':
+  '@cloudflare/workerd-windows-64@1.20260508.1':
     optional: true
 
-  '@cloudflare/workers-types@4.20260510.1': {}
+  '@cloudflare/workers-types@4.20260511.1': {}
 
   '@cspotcode/source-map-support@0.8.1':
     dependencies:
@@ -2596,9 +2596,9 @@ snapshots:
       esbuild: 0.25.12
       tsx: 4.21.0
 
-  drizzle-orm@0.45.2(@cloudflare/workers-types@4.20260510.1)(bun-types@1.3.13):
+  drizzle-orm@0.45.2(@cloudflare/workers-types@4.20260511.1)(bun-types@1.3.13):
     optionalDependencies:
-      '@cloudflare/workers-types': 4.20260510.1
+      '@cloudflare/workers-types': 4.20260511.1
       bun-types: 1.3.13
 
   effect@3.21.2:
@@ -2796,12 +2796,12 @@ snapshots:
 
   mimic-function@5.0.1: {}
 
-  miniflare@4.20260507.1:
+  miniflare@4.20260508.0:
     dependencies:
       '@cspotcode/source-map-support': 0.8.1
       sharp: 0.34.5
       undici: 7.24.8
-      workerd: 1.20260507.1
+      workerd: 1.20260508.1
       ws: 8.18.0
       youch: 4.1.0-beta.10
     transitivePeerDependencies:
@@ -2992,26 +2992,26 @@ snapshots:
 
   uuid@11.1.1: {}
 
-  workerd@1.20260507.1:
+  workerd@1.20260508.1:
     optionalDependencies:
-      '@cloudflare/workerd-darwin-64': 1.20260507.1
-      '@cloudflare/workerd-darwin-arm64': 1.20260507.1
-      '@cloudflare/workerd-linux-64': 1.20260507.1
-      '@cloudflare/workerd-linux-arm64': 1.20260507.1
-      '@cloudflare/workerd-windows-64': 1.20260507.1
+      '@cloudflare/workerd-darwin-64': 1.20260508.1
+      '@cloudflare/workerd-darwin-arm64': 1.20260508.1
+      '@cloudflare/workerd-linux-64': 1.20260508.1
+      '@cloudflare/workerd-linux-arm64': 1.20260508.1
+      '@cloudflare/workerd-windows-64': 1.20260508.1
 
-  wrangler@4.90.0(@cloudflare/workers-types@4.20260510.1):
+  wrangler@4.90.1(@cloudflare/workers-types@4.20260511.1):
     dependencies:
       '@cloudflare/kv-asset-handler': 0.5.0
-      '@cloudflare/unenv-preset': 2.16.1(unenv@2.0.0-rc.24)(workerd@1.20260507.1)
+      '@cloudflare/unenv-preset': 2.16.1(unenv@2.0.0-rc.24)(workerd@1.20260508.1)
       blake3-wasm: 2.1.5
       esbuild: 0.27.3
-      miniflare: 4.20260507.1
+      miniflare: 4.20260508.0
       path-to-regexp: 6.3.0
       unenv: 2.0.0-rc.24
-      workerd: 1.20260507.1
+      workerd: 1.20260508.1
     optionalDependencies:
-      '@cloudflare/workers-types': 4.20260510.1
+      '@cloudflare/workers-types': 4.20260511.1
       fsevents: 2.3.3
     transitivePeerDependencies:
       - bufferutil

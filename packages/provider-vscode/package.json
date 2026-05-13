@@ -1,0 +1,75 @@
+{
+  "name": "@rigkit/provider-vscode",
+  "version": "0.1.8",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/freestyle-sh/rigkit.git",
+    "directory": "packages/provider-vscode"
+  },
+  "main": "./dist/extension.cjs",
+  "engines": {
+    "vscode": "^1.95.0"
+  },
+  "activationEvents": [
+    "workspaceContains:rig.config.ts",
+    "onView:rigkitOperations",
+    "onView:rigkitWorkspaces",
+    "onCommand:rigkit.refresh",
+    "onCommand:rigkit.runOperation",
+    "onCommand:rigkit.openWorkspace"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "rigkit.refresh",
+        "title": "rigkit: Refresh"
+      },
+      {
+        "command": "rigkit.runOperation",
+        "title": "rigkit: Run Operation"
+      },
+      {
+        "command": "rigkit.openWorkspace",
+        "title": "rigkit: Run Workspace Action"
+      }
+    ],
+    "views": {
+      "explorer": [
+        {
+          "id": "rigkitOperations",
+          "name": "rigkit Operations"
+        },
+        {
+          "id": "rigkitWorkspaces",
+          "name": "rigkit Workspaces"
+        }
+      ]
+    }
+  },
+  "exports": {
+    ".": "./dist/extension.cjs",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "src",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "bun build src/extension.ts --target=node --format=cjs --external vscode --outfile dist/extension.cjs",
+    "prepack": "bun run build",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@rigkit/runtime-client": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "latest"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
