@@ -124,7 +124,7 @@ const dev = sequence(${workflowName})
         throw new Error(\`Expected Node.js v22, got: \${result.stdout}\${result.stderr}\`);
       }
       const snapshot = await vm.snapshot();
-      return { snapshotId: snapshot.snapshotId };
+      return { ctx: { snapshotId: snapshot.snapshotId } };
     } finally {
       await providers.freestyle.client.vms.delete({ vmId });
     }

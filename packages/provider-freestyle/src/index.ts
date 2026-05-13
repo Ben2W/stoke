@@ -110,7 +110,7 @@ export {
 export { createFreestyleStore } from "./store.ts";
 export { createFreestyleTerminalSession } from "./terminal-session.ts";
 export { RIGKIT_PROVIDER_FREESTYLE_VERSION } from "./version.ts";
-export { Freestyle, VmBaseImage, VmSpec } from "freestyle";
+export { Freestyle, VmBaseImage, VmSpec, VmWith, VmWithInstance } from "freestyle";
 export type { CreateVmOptions } from "freestyle";
 export type {
   FreestyleCmuxSshOptions,

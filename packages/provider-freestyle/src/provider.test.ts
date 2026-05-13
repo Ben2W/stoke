@@ -1,8 +1,12 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { Freestyle } from "freestyle";
-import type { ProviderRuntimeContext } from "@rigkit/engine";
+import type { ProviderInteractionSession, ProviderRuntimeContext } from "@rigkit/engine";
 import { freestyleIdentityId, freestyleToken } from "./auth.ts";
-import { createFreestyleWorkflowController } from "./provider.ts";
+import {
+  buildInteractiveSshCommand,
+  createFreestyleTerminalController,
+  createFreestyleWorkflowController,
+} from "./provider.ts";
 
 const previousFetch = globalThis.fetch;
 
@@ -27,9 +31,9 @@ describe("Freestyle provider host adapters", () => {
     await expect(runtime.createSSHOptions({ vmId: "vm-stream" })).resolves.toEqual({
       kind: "ssh",
       host: "vm-ssh.freestyle.sh",
-      username: "vm-stream",
+      username: "vm-stream+root",
       auth: { type: "token", token: "token" },
-      command: "ssh vm-stream:token@vm-ssh.freestyle.sh",
+      command: "ssh vm-stream+root:token@vm-ssh.freestyle.sh",
     });
     expect(requests).toContain("POST https://api.freestyle.sh/identity/v1/identities/identity-stream/permissions/vm/vm-stream");
   });
@@ -51,7 +55,7 @@ describe("Freestyle provider host adapters", () => {
 
     expect(ssh).toEqual({
       kind: "ssh",
-      destination: "vm-stream,token@vm-ssh.freestyle.sh",
+      destination: "vm-stream+root,token@vm-ssh.freestyle.sh",
       skipDaemonBootstrap: true,
       sshOptions: [
         "StrictHostKeyChecking=no",
@@ -77,8 +81,72 @@ describe("Freestyle provider host adapters", () => {
     const url = await runtime.vscode.createUrl({ vmId: "vm-stream", cwd: "/workspace/site" });
 
     expect(url).toBe(
-      "vscode://vscode-remote/ssh-remote+vm-stream%3Atoken%40vm-ssh.freestyle.sh/workspace/site?windowId=_blank",
+      "vscode://vscode-remote/ssh-remote+vm-stream%2Broot%3Atoken%40vm-ssh.freestyle.sh/workspace/site?windowId=_blank",
     );
+  });
+
+  test("honors explicit SSH users", async () => {
+    globalThis.fetch = (async () => Response.json({})) as unknown as typeof fetch;
+
+    const runtime = await createFreestyleWorkflowController({
+      client: new Freestyle({ apiKey: "test-key" }),
+      identityId: freestyleIdentityId("identity-stream"),
+      token: freestyleToken("token"),
+    }).runtime(providerContext());
+
+    await expect(runtime.createSSHOptions({ vmId: "vm-stream", user: "ubuntu" })).resolves.toMatchObject({
+      username: "vm-stream+ubuntu",
+      command: "ssh vm-stream+ubuntu:token@vm-ssh.freestyle.sh",
+    });
+  });
+
+  test("runs terminal commands as SSH remote commands instead of typed startup input", async () => {
+    let html = "";
+    const runtime = await createFreestyleTerminalController().runtime({
+      ...providerContext(),
+      interaction: {
+        present: async <Result>(session: ProviderInteractionSession<Result>) => {
+          const response = await fetch(session.url);
+          html = await response.text();
+          session.stop();
+          return { finished: true } as Result;
+        },
+      },
+    });
+
+    await expect(runtime.open("GitHub auth", {
+      ssh: {
+        kind: "ssh",
+        host: "vm-ssh.freestyle.sh",
+        username: "vm-stream+root",
+        auth: { type: "token", token: "token" },
+        command: "ssh vm-stream+root:token@vm-ssh.freestyle.sh",
+      },
+      command: "gh auth login --hostname github.com",
+    })).resolves.toEqual({ finished: true });
+
+    expect(html).toContain("gh auth login --hostname github.com");
+    expect(html).toContain("const startupInput = null;");
+    expect(html).toContain("const canFinishWhileRunning = false;");
+  });
+
+  test("can keep an SSH terminal open after a successful remote command", () => {
+    const command = buildInteractiveSshCommand(
+      {
+        kind: "ssh",
+        host: "vm-ssh.freestyle.sh",
+        username: "vm-stream+root",
+        auth: { type: "token", token: "token" },
+        command: "ssh vm-stream+root:token@vm-ssh.freestyle.sh",
+      },
+      "gh auth status -h github.com",
+      { keepOpenAfterCommand: true },
+    );
+
+    expect(command).toContain("gh auth status -h github.com");
+    expect(command).toContain("status=$?");
+    expect(command).toContain('if [ "$status" -ne 0 ]; then exit "$status"; fi');
+    expect(command).toContain('exec "${SHELL:-/bin/bash}" -l');
   });
 });
 

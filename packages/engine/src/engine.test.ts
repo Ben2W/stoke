@@ -32,29 +32,29 @@ describe("DevMachineEngine workflow runtime", () => {
           const vm = await test.createVm();
           await vm.exec("touch /tmp/first", { name: "touch first" });
           if (!(await vm.exists("/tmp/first"))) throw new Error("first was not created");
-          return { first: true, vm: await vm.snapshotRef() };
+          return { ctx: { first: true, vm: await vm.snapshotRef() } };
         });
 
-        const left = app.sequence("left").task("second", async ({ ctx, test }) => {
-          if (!ctx.first) throw new Error("missing first context");
-          const vm = await test.fromSnapshot(ctx.vm);
+        const left = app.sequence("left").task("second", async ({ step, test }) => {
+          if (!step.ctx.first) throw new Error("missing first context");
+          const vm = await test.fromSnapshot(step.ctx.vm);
           await vm.exec("touch /tmp/second", { name: "touch second" });
-          return { second: true, vm: await vm.snapshotRef() };
+          return { ctx: { second: true, vm: await vm.snapshotRef() } };
         });
 
-        const right = app.sequence("right").task("data", async ({ ctx }) => {
-          if (!ctx.first) throw new Error("missing first context");
-          return { data: "right-ready" };
+        const right = app.sequence("right").task("data", async ({ step }) => {
+          if (!step.ctx.first) throw new Error("missing first context");
+          return { ctx: { data: "right-ready" } };
         });
 
         export default app
           .sequence("root")
           .add(base)
           .parallel({ left, right })
-          .task("join", async ({ ctx }) => {
-            if (!ctx.left.second) throw new Error("missing left context");
-            if (ctx.right.data !== "right-ready") throw new Error("missing right context");
-            return { vm: ctx.left.vm, summary: ctx.right.data };
+          .task("join", async ({ step }) => {
+            if (!step.ctx.left.second) throw new Error("missing left context");
+            if (step.ctx.right.data !== "right-ready") throw new Error("missing right context");
+            return { ctx: { vm: step.ctx.left.vm, summary: step.ctx.right.data } };
           })
           .workspace({
             create: async ({ providers, workflow, workspace, local }) => {
@@ -189,8 +189,10 @@ describe("DevMachineEngine workflow runtime", () => {
             const vm = await providers.test.createVm();
             await vm.exec("touch /tmp/template", { name: "prepare template" });
             return {
-              vm: await vm.snapshotRef(),
-              repoPath: "/workspace/repo",
+              ctx: {
+                vm: await vm.snapshotRef(),
+                repoPath: "/workspace/repo",
+              },
             };
           })
           .workspace({
@@ -279,8 +281,8 @@ describe("DevMachineEngine workflow runtime", () => {
       `
         import { defineConfig, sequence } from "${import.meta.dir}/index.ts";
 
-        const api = sequence("api").step("ready", async () => ({ api: true }));
-        const web = sequence("web").step("ready", async () => ({ web: true }));
+        const api = sequence("api").step("ready", async () => ({ ctx: { api: true } }));
+        const web = sequence("web").step("ready", async () => ({ ctx: { web: true } }));
 
         export default defineConfig({
           providers: {},
@@ -310,7 +312,7 @@ describe("DevMachineEngine workflow runtime", () => {
       `
         import { defineConfig, sequence } from "${import.meta.dir}/index.ts";
 
-        const root = sequence("factory-test").step("ready", async () => ({ ready: true }));
+        const root = sequence("factory-test").step("ready", async () => ({ ctx: { ready: true } }));
 
         export default defineConfig({
           providers: {},
@@ -432,7 +434,7 @@ describe("DevMachineEngine workflow runtime", () => {
           const app = workflow("handler-cache", { providers: {} });
 
           export default app.sequence("root").task("value", async () => {
-            return { value: "${value}" };
+            return { ctx: { value: "${value}" } };
           });
         `,
       );
@@ -490,7 +492,7 @@ describe("DevMachineEngine workflow runtime", () => {
           },
         });
 
-        export default app.sequence("root").task("ready", async () => ({ ready: true }));
+        export default app.sequence("root").task("ready", async () => ({ ctx: { ready: true } }));
       `,
     );
 
@@ -558,7 +560,7 @@ describe("DevMachineEngine workflow runtime", () => {
           },
         });
 
-        export default app.sequence("root").task("ready", async () => ({ ready: true }));
+        export default app.sequence("root").task("ready", async () => ({ ctx: { ready: true } }));
       `,
     );
 
@@ -614,7 +616,7 @@ describe("DevMachineEngine workflow runtime", () => {
         });
 
         export default app.sequence("bad").task("returns-function", async () => {
-          return { fn: () => "nope" };
+          return { ctx: { fn: () => "nope" } };
         });
       `,
     );
@@ -643,7 +645,7 @@ describe("DevMachineEngine workflow runtime", () => {
 
         export default app.sequence("auth").task("login", async ({ test }) => {
           const result = await test.openTerminal("GitHub auth", "gh auth login");
-          return { finished: result.finished };
+          return { ctx: { finished: result.finished } };
         });
       `,
     );
@@ -689,7 +691,7 @@ describe("DevMachineEngine workflow runtime", () => {
 
         export default app.sequence("auth").task("login", async ({ test }) => {
           const result = await test.openTerminal("GitHub auth", "gh auth login");
-          return { finished: result.finished };
+          return { ctx: { finished: result.finished } };
         });
       `,
     );
@@ -743,7 +745,7 @@ describe("DevMachineEngine workflow runtime", () => {
         export default app.sequence("setup").task("touch", async ({ test }) => {
           const vm = await test.createVm();
           await vm.exec("touch /tmp/setup", { name: "touch setup" });
-          return { vm: await vm.snapshotRef() };
+          return { ctx: { vm: await vm.snapshotRef() } };
         });
       `,
     );
@@ -801,8 +803,8 @@ describe("DevMachineEngine workflow runtime", () => {
 
         export default app.sequence("schema").task("value", { output: schema }, async () => {
           return process.env.RIGKIT_SCHEMA_MODE === "next"
-            ? { value: "ok", next: true }
-            : { value: "ok" };
+            ? { ctx: { value: "ok", next: true } }
+            : { ctx: { value: "ok" } };
         });
       `,
     );
@@ -832,6 +834,94 @@ describe("DevMachineEngine workflow runtime", () => {
       } else {
         process.env.RIGKIT_SCHEMA_MODE = previousMode;
       }
+    }
+  });
+
+  test("expires task cache when cacheTTL has elapsed", async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-cache-ttl-"));
+    writeFileSync(
+      join(projectDir, "rig.config.ts"),
+      `
+        import { sequence } from "${import.meta.dir}/index.ts";
+
+        export default sequence("ttl").task("daily-check", { cacheTTL: "1d" }, async () => {
+          return { ctx: { checked: true } };
+        });
+      `,
+    );
+
+    const engine = await createDevMachineEngine({ projectDir });
+    await engine.load();
+    await engine.apply();
+    expect((await engine.plan()).cachedNodeCount).toBe(1);
+
+    const db = new Database(engine.getProjectInfo().statePath);
+    db.run("update workflow_node_runs set created_at = ?", [
+      new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
+    ]);
+    db.close();
+
+    const expired = await engine.plan();
+    expect(expired.cachedNodeCount).toBe(0);
+    expect(expired.nodes[0]?.status).toBe("pending");
+  });
+
+  test("step.invalidate invalidates a previous task and replays from that point", async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-invalidate-"));
+    const previous = {
+      authCount: process.env.RIGKIT_AUTH_COUNT,
+      checkCount: process.env.RIGKIT_CHECK_COUNT,
+      forceReauth: process.env.RIGKIT_FORCE_REAUTH,
+    };
+    process.env.RIGKIT_AUTH_COUNT = "0";
+    process.env.RIGKIT_CHECK_COUNT = "0";
+    process.env.RIGKIT_FORCE_REAUTH = "0";
+
+    writeFileSync(
+      join(projectDir, "rig.config.ts"),
+      `
+        import { sequence } from "${import.meta.dir}/index.ts";
+
+        export default sequence("reauth")
+          .task("prepare", async () => ({ ctx: { prepared: true } }))
+          .task("github-auth", async () => {
+            const count = Number(process.env.RIGKIT_AUTH_COUNT ?? "0") + 1;
+            process.env.RIGKIT_AUTH_COUNT = String(count);
+            return { ctx: { token: "token-" + count } };
+          })
+          .task("check-auth", { cacheTTL: 0 }, async ({ step }) => {
+            const count = Number(process.env.RIGKIT_CHECK_COUNT ?? "0") + 1;
+            process.env.RIGKIT_CHECK_COUNT = String(count);
+            if (process.env.RIGKIT_FORCE_REAUTH === "1") {
+              process.env.RIGKIT_FORCE_REAUTH = "0";
+              return step.invalidate("github-auth");
+            }
+            return { ctx: step.ctx };
+          });
+      `,
+    );
+
+    try {
+      const engine = await createDevMachineEngine({ projectDir });
+      await engine.load();
+
+      const first = await engine.apply();
+      expect(first.context.token).toBe("token-1");
+      expect(process.env.RIGKIT_AUTH_COUNT).toBe("1");
+      expect(process.env.RIGKIT_CHECK_COUNT).toBe("1");
+
+      process.env.RIGKIT_FORCE_REAUTH = "1";
+      const second = await engine.apply();
+      expect(second.context.token).toBe("token-2");
+      expect(process.env.RIGKIT_AUTH_COUNT).toBe("2");
+      expect(process.env.RIGKIT_CHECK_COUNT).toBe("3");
+
+      const validRuns = engine.listNodeRuns().filter((run) => !run.invalidated);
+      expect(validRuns.map((run) => run.nodePath).sort()).toEqual(["check-auth", "github-auth", "prepare"]);
+    } finally {
+      restoreEnv("RIGKIT_AUTH_COUNT", previous.authCount);
+      restoreEnv("RIGKIT_CHECK_COUNT", previous.checkCount);
+      restoreEnv("RIGKIT_FORCE_REAUTH", previous.forceReauth);
     }
   });
 });
@@ -944,6 +1034,14 @@ class FakeWorkflowProvider implements WorkflowProviderController<FakeRuntime> {
 
 function result(ok: boolean): ExecResult {
   return { stdout: "", stderr: "", exitCode: ok ? 0 : 1, ok };
+}
+
+function restoreEnv(name: string, value: string | undefined): void {
+  if (value === undefined) {
+    delete process.env[name];
+  } else {
+    process.env[name] = value;
+  }
 }
 
 function isFakeSnapshotRef(value: unknown): value is FakeSnapshotRef {

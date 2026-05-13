@@ -1,7 +1,6 @@
 import { cmux } from "@rigkit/provider-cmux";
 import {
   freestyle,
-  VmBaseImage,
   VmSpec,
   type FreestyleSdkVm,
 } from "@rigkit/provider-freestyle";
@@ -13,45 +12,32 @@ const repoPath = "/workspace/freestyle-website-next";
 const devPort = 4321;
 const devCommand = `bun run dev -- --host 0.0.0.0 --port ${devPort}`;
 const vmIdleTimeoutSeconds = 3600;
+const vmHome = "/root";
 
-const vmBaseImage = new VmBaseImage("FROM ubuntu:24.04")
-  .appendDockerfile(`
-ENV DEBIAN_FRONTEND=noninteractive
-ENV BUN_INSTALL=/opt/bun
-ENV PATH="/opt/bun/bin:$PATH"
-`)
-  .runCommands(`
+const vmSpec = new VmSpec()
+  .runCommands(
+    `
 set -e
+export DEBIAN_FRONTEND=noninteractive
+
 apt-get update -qq
 apt-get install -y -qq ca-certificates curl gnupg
 mkdir -p /etc/apt/keyrings
+
 curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /etc/apt/keyrings/githubcli-archive-keyring.gpg
 chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg
 printf 'deb [arch=%s signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main\\n' "$(dpkg --print-architecture)" > /etc/apt/sources.list.d/github-cli.list
-curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
-rm -rf /var/lib/apt/lists/*
-`);
 
-const vmSpec = new VmSpec()
-  .baseImage(vmBaseImage)
-  .aptDeps(
-    "build-essential",
-    "ca-certificates",
-    "curl",
-    "gh",
-    "git",
-    "gnupg",
-    "nodejs",
-    "pkg-config",
-    "python3",
-    "unzip",
-    "xz-utils",
-  )
-  .runCommands(
-    "corepack enable",
-    "curl -fsSL https://bun.sh/install | HOME=/root BUN_INSTALL=/opt/bun bash",
-    "ln -sf /opt/bun/bin/bun /usr/local/bin/bun",
-    "git config --system init.defaultBranch main",
+curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
+apt-get install -y -qq build-essential ca-certificates curl gh git gnupg nodejs pkg-config python3 unzip xz-utils
+
+corepack enable
+curl -fsSL https://bun.sh/install | HOME=/root BUN_INSTALL=/opt/bun bash
+ln -sf /opt/bun/bin/bun /usr/local/bin/bun
+git config --system init.defaultBranch main
+
+rm -rf /var/lib/apt/lists/*
+`,
   )
   .memSizeGb(16)
   .vcpuCount(4)
@@ -75,49 +61,64 @@ const websiteSetup = app
     });
     try {
       const snapshot = await vm.snapshot();
-      return { snapshotId: snapshot.snapshotId };
+      return { ctx: { snapshotId: snapshot.snapshotId } };
     } finally {
       await freestyle.client.vms.delete({ vmId });
     }
   })
-  .task("github-auth", async ({ ctx, freestyle, terminal, step }) => {
-    const { vm, vmId } = await freestyle.client.vms.create({
-      snapshotId: ctx.snapshotId,
-      idleTimeoutSeconds: vmIdleTimeoutSeconds,
-      logger: step.log,
-    });
-    try {
-      const authenticated = await vm.exec("gh auth status -h github.com >/dev/null 2>&1");
-      if ((authenticated.statusCode ?? 0) !== 0) {
-        await terminal.open("Log in to GitHub", {
-          ssh: await freestyle.createSSHOptions({ vmId }),
-          command:
-            "gh auth login --hostname github.com --git-protocol https --web",
-          instructions:
-            "Complete the GitHub device/browser login in this terminal. Click Finished after gh reports that authentication succeeded.",
-        });
+  .task(
+    "github-auth",
+    { version: "github-auth-root-v4" },
+    async ({ step, freestyle, terminal }) => {
+      const created = await freestyle.client.vms.create({
+        snapshotId: step.ctx.snapshotId,
+        idleTimeoutSeconds: vmIdleTimeoutSeconds,
+        logger: step.log,
+      });
+      const { vmId } = created;
+      const { vm } = created;
+      try {
+        const authenticated = await vm.exec(
+          withVmHome("gh auth status -h github.com >/dev/null 2>&1"),
+        );
+        if ((authenticated.statusCode ?? 0) !== 0) {
+          await terminal.open("Log in to GitHub", {
+            ssh: await freestyle.createSSHOptions({ vmId }),
+            command:
+              "gh auth login --hostname github.com --git-protocol https --web",
+            keepOpenAfterCommand: true,
+            instructions:
+              "Complete the GitHub device/browser login in this terminal. After gh succeeds, inspect the shell if needed, then type exit.",
+          });
 
-        const verified = await vm.exec("gh auth status -h github.com >/dev/null 2>&1");
-        if ((verified.statusCode ?? 0) !== 0) {
-          const status = await vm.exec("gh auth status -h github.com 2>&1");
-          throw new Error(
-            `GitHub CLI is not authenticated:\n${status.stdout || status.stderr}`.trim(),
+          const verified = await vm.exec(
+            withVmHome("gh auth status -h github.com >/dev/null 2>&1"),
           );
+          if ((verified.statusCode ?? 0) !== 0) {
+            const status = await vm.exec(
+              withVmHome("gh auth status -h github.com 2>&1"),
+            );
+            throw new Error(
+              `GitHub CLI is not authenticated:\n${status.stdout || status.stderr}`.trim(),
+            );
+          }
         }
-      }
 
-      const snapshot = await vm.snapshot();
-      return { snapshotId: snapshot.snapshotId };
-    } finally {
-      await freestyle.client.vms.delete({ vmId });
-    }
-  })
-  .task("clone-and-install", async ({ ctx, freestyle, step }) => {
-    const { vm, vmId } = await freestyle.client.vms.create({
-      snapshotId: ctx.snapshotId,
+        const snapshot = await vm.snapshot();
+        return { ctx: { snapshotId: snapshot.snapshotId } };
+      } finally {
+        await freestyle.client.vms.delete({ vmId });
+      }
+    },
+  )
+  .task("clone-and-install", async ({ step, freestyle }) => {
+    const created = await freestyle.client.vms.create({
+      snapshotId: step.ctx.snapshotId,
       idleTimeoutSeconds: vmIdleTimeoutSeconds,
       logger: step.log,
     });
+    const { vmId } = created;
+    const { vm } = created;
     try {
       const cloned = await vm.exec(`test -d ${shellQuote(repoPath + "/.git")}`);
 
@@ -126,13 +127,16 @@ const websiteSetup = app
         const clone = await vm.exec({
           command: [
             "set -e",
+            `export HOME=${shellQuote(vmHome)}`,
             `mkdir -p ${shellQuote(dirname(repoPath))}`,
             `gh repo clone ${shellQuote(repo)} ${shellQuote(repoPath)}`,
           ].join("\n"),
           timeoutMs: 5 * 60 * 1000,
         });
         if ((clone.statusCode ?? 0) !== 0) {
-          throw new Error(`website repo clone failed:\n${clone.stdout ?? ""}${clone.stderr ?? ""}`.trim());
+          throw new Error(
+            `website repo clone failed:\n${clone.stdout ?? ""}${clone.stderr ?? ""}`.trim(),
+          );
         }
       }
 
@@ -140,6 +144,7 @@ const websiteSetup = app
       const install = await vm.exec({
         command: [
           "set -e",
+          `export HOME=${shellQuote(vmHome)}`,
           `cd ${shellQuote(repoPath)}`,
           `git remote set-url origin ${shellQuote(repoUrl)}`,
           "git fetch --prune origin",
@@ -149,16 +154,20 @@ const websiteSetup = app
         timeoutMs: 10 * 60 * 1000,
       });
       if ((install.statusCode ?? 0) !== 0) {
-        throw new Error(`website dependency install failed:\n${install.stdout ?? ""}${install.stderr ?? ""}`.trim());
+        throw new Error(
+          `website dependency install failed:\n${install.stdout ?? ""}${install.stderr ?? ""}`.trim(),
+        );
       }
 
       const snapshot = await vm.snapshot();
       return {
-        snapshotId: snapshot.snapshotId,
-        repoPath,
-        repo,
-        devCommand,
-        devPort,
+        ctx: {
+          snapshotId: snapshot.snapshotId,
+          repoPath,
+          repo,
+          devCommand,
+          devPort,
+        },
       };
     } finally {
       await freestyle.client.vms.delete({ vmId });
@@ -170,20 +179,26 @@ export default app
   .add(websiteSetup)
   .workspace({
     create: async ({ workflow, providers, workspace, step }) => {
-      const { vm, vmId } = await providers.freestyle.client.vms.create({
+      const created = await providers.freestyle.client.vms.create({
         snapshotId: workflow.ctx.snapshotId,
         idleTimeoutSeconds: vmIdleTimeoutSeconds,
         logger: step.log,
       });
+      const { vmId } = created;
+      const { vm } = created;
       try {
         const branch = `rigkit/${workspace.name.replaceAll(/[^A-Za-z0-9._/-]/g, "-")}`;
-        const result = await vm.exec([
-          "set -e",
-          `cd ${shellQuote(workflow.ctx.repoPath)}`,
-          `git switch -C ${shellQuote(branch)}`,
-        ].join("\n"));
+        const result = await vm.exec(
+          [
+            "set -e",
+            `cd ${shellQuote(workflow.ctx.repoPath)}`,
+            `git switch -C ${shellQuote(branch)}`,
+          ].join("\n"),
+        );
         if ((result.statusCode ?? 0) !== 0) {
-          throw new Error(`workspace branch creation failed:\n${result.stdout ?? ""}${result.stderr ?? ""}`.trim());
+          throw new Error(
+            `workspace branch creation failed:\n${result.stdout ?? ""}${result.stderr ?? ""}`.trim(),
+          );
         }
         return {
           vmId,
@@ -205,7 +220,9 @@ export default app
     title: "Open cmux",
     description: "Open the website workspace in cmux",
     run: async ({ providers, workspace }) => {
-      const vm = providers.freestyle.client.vms.ref({ vmId: workspace.ctx.vmId });
+      const vm = providers.freestyle.client.vms.ref({
+        vmId: workspace.ctx.vmId,
+      });
       await providers.cmux.open({
         name: workspace.name,
         ssh: await providers.freestyle.cmux.createSshOptions({
@@ -227,6 +244,11 @@ export default app
 function dirname(path: string): string {
   const index = path.lastIndexOf("/");
   return index <= 0 ? "/" : path.slice(0, index);
+}
+
+// vm.exec does not have its home directory set to the root user's home, so we need to set HOME explicitly for commands that expect it.
+function withVmHome(command: string): string {
+  return `HOME=${shellQuote(vmHome)} ${command}`;
 }
 
 async function waitForLocalhost(

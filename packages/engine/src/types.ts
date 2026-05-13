@@ -133,25 +133,47 @@ export type WorkflowRuntimeHelpers = {
   log(data: string, options?: { stream?: WorkflowLogStream; label?: string }): void;
 };
 
-export type WorkflowStepRuntime = WorkflowRuntimeHelpers;
+export const STEP_INVALIDATION_KIND = "rigkit.step.invalidate" as const;
+
+export type WorkflowStepInvalidation<Target extends string = string> = {
+  readonly kind: typeof STEP_INVALIDATION_KIND;
+  readonly target: Target;
+  readonly targetNodePath: string;
+};
+
+export type WorkflowStepRuntime<
+  Context extends JsonObject = JsonObject,
+  PreviousTaskIds extends string = string,
+> = WorkflowRuntimeHelpers & {
+  readonly ctx: Readonly<Context>;
+  invalidate<const Target extends PreviousTaskIds>(target: Target): WorkflowStepInvalidation<Target>;
+};
+
+export type WorkflowTaskContextResult<Context extends JsonObject = JsonObject> = {
+  readonly ctx: Context;
+};
 
 export type WorkflowTaskRuntime<
   Providers extends WorkflowProviderMap,
   Context extends JsonObject,
+  PreviousTaskIds extends string = string,
 > = ProviderRuntimeMap<Providers> & {
   readonly providers: ProviderRuntimeMap<Providers>;
-  readonly ctx: Readonly<Context>;
-  readonly runtime: WorkflowRuntimeHelpers;
-  readonly step: WorkflowStepRuntime;
+  readonly step: WorkflowStepRuntime<Context, PreviousTaskIds>;
 };
 
-export type WorkflowTaskResult = void | undefined | JsonObject;
+export type WorkflowTaskResult =
+  | void
+  | undefined
+  | WorkflowTaskContextResult<JsonObject>
+  | WorkflowStepInvalidation<string>;
 
 export type WorkflowTaskHandler<
   Providers extends WorkflowProviderMap,
   Context extends JsonObject,
+  PreviousTaskIds extends string = string,
   Result extends WorkflowTaskResult = WorkflowTaskResult,
-> = (context: WorkflowTaskRuntime<Providers, Context>) => MaybePromise<Result>;
+> = (context: WorkflowTaskRuntime<Providers, Context, PreviousTaskIds>) => MaybePromise<Result>;
 
 export type WorkflowInputFieldKind = "workspace" | "string" | "boolean" | "number";
 
@@ -379,7 +401,18 @@ export type OutputSchemaValue<Schema> =
 export type WorkflowTaskOptions<Output extends JsonObject = JsonObject> = {
   output?: OutputSchema<Output>;
   version?: string;
+  cacheTTL?: WorkflowTaskCacheTTL;
 };
+
+export type WorkflowTaskCacheTTL =
+  | number
+  | string
+  | {
+      seconds?: number;
+      minutes?: number;
+      hours?: number;
+      days?: number;
+    };
 
 export type WorkflowNodeKind = "task" | "sequence" | "parallel";
 
@@ -394,29 +427,39 @@ export type WorkflowDefinition<
   sequence<InputContext extends JsonObject = {}>(name: string): WorkflowSequenceBuilder<
     Providers,
     InputContext,
-    InputContext
+    InputContext,
+    JsonObject,
+    never,
+    never,
+    never
   >;
 
   task<Result extends WorkflowTaskResult>(
     name: string,
-    handler: WorkflowTaskHandler<Providers, {}, Result>,
+    handler: WorkflowTaskHandler<Providers, {}, never, Result>,
   ): WorkflowTaskNode<Providers, {}, TaskReturnContext<Result>>;
 
-  task<Schema extends OutputSchema<JsonObject>, Result extends MaybePromise<OutputSchemaValue<Schema> | void>>(
+  task<
+    Schema extends OutputSchema<JsonObject>,
+    Result extends MaybePromise<WorkflowTaskContextResult<OutputSchemaValue<Schema>> | WorkflowStepInvalidation<string> | void>,
+  >(
     name: string,
     options: WorkflowTaskOptions<OutputSchemaValue<Schema>>,
-    handler: WorkflowTaskHandler<Providers, {}, Awaited<Result> & WorkflowTaskResult>,
+    handler: WorkflowTaskHandler<Providers, {}, never, Awaited<Result> & WorkflowTaskResult>,
   ): WorkflowTaskNode<Providers, {}, TaskReturnContext<Result>>;
 
   step<Result extends WorkflowTaskResult>(
     name: string,
-    handler: WorkflowTaskHandler<Providers, {}, Result>,
+    handler: WorkflowTaskHandler<Providers, {}, never, Result>,
   ): WorkflowTaskNode<Providers, {}, TaskReturnContext<Result>>;
 
-  step<Schema extends OutputSchema<JsonObject>, Result extends MaybePromise<OutputSchemaValue<Schema> | void>>(
+  step<
+    Schema extends OutputSchema<JsonObject>,
+    Result extends MaybePromise<WorkflowTaskContextResult<OutputSchemaValue<Schema>> | WorkflowStepInvalidation<string> | void>,
+  >(
     name: string,
     options: WorkflowTaskOptions<OutputSchemaValue<Schema>>,
-    handler: WorkflowTaskHandler<Providers, {}, Awaited<Result> & WorkflowTaskResult>,
+    handler: WorkflowTaskHandler<Providers, {}, never, Awaited<Result> & WorkflowTaskResult>,
   ): WorkflowTaskNode<Providers, {}, TaskReturnContext<Result>>;
 };
 
@@ -453,7 +496,7 @@ export type WorkflowTaskNode<
 > = WorkflowNodeDefinition<Providers, InputContext, OutputContext> & {
   readonly nodeKind: "task";
   readonly options?: WorkflowTaskOptions;
-  readonly handler: WorkflowTaskHandler<Providers, InputContext, any>;
+  readonly handler: WorkflowTaskHandler<Providers, InputContext, string, any>;
 };
 
 export type WorkflowSequenceBuilder<
@@ -463,58 +506,71 @@ export type WorkflowSequenceBuilder<
   WorkspaceData extends object = JsonObject,
   OperationIds extends string = never,
   WorkspaceOperationIds extends string = never,
+  PreviousTaskIds extends string = never,
 > = WorkflowNodeDefinition<Providers, InputContext, OutputContext> & {
   readonly nodeKind: "sequence";
   readonly children: readonly WorkflowNodeDefinition<Providers, any, any>[];
 
-  task<Result extends WorkflowTaskResult>(
-    name: string,
-    handler: WorkflowTaskHandler<Providers, OutputContext, Result>,
+  task<const Id extends string, Result extends WorkflowTaskResult>(
+    name: Id & WorkflowTaskIdConstraint<Id, PreviousTaskIds>,
+    handler: WorkflowTaskHandler<Providers, OutputContext, PreviousTaskIds, Result>,
   ): WorkflowSequenceBuilder<
     Providers,
     InputContext,
-    Merge<OutputContext, TaskReturnContext<Result>>,
+    TaskReturnContext<Result>,
     WorkspaceData,
     OperationIds,
-    WorkspaceOperationIds
+    WorkspaceOperationIds,
+    PreviousTaskIds | Id
   >;
 
-  task<Schema extends OutputSchema<JsonObject>, Result extends MaybePromise<OutputSchemaValue<Schema> | void>>(
-    name: string,
+  task<
+    const Id extends string,
+    Schema extends OutputSchema<JsonObject>,
+    Result extends MaybePromise<WorkflowTaskContextResult<OutputSchemaValue<Schema>> | WorkflowStepInvalidation<string> | void>,
+  >(
+    name: Id & WorkflowTaskIdConstraint<Id, PreviousTaskIds>,
     options: WorkflowTaskOptions<OutputSchemaValue<Schema>>,
-    handler: WorkflowTaskHandler<Providers, OutputContext, Awaited<Result> & WorkflowTaskResult>,
+    handler: WorkflowTaskHandler<Providers, OutputContext, PreviousTaskIds, Awaited<Result> & WorkflowTaskResult>,
   ): WorkflowSequenceBuilder<
     Providers,
     InputContext,
-    Merge<OutputContext, TaskReturnContext<Result>>,
+    TaskReturnContext<Result>,
     WorkspaceData,
     OperationIds,
-    WorkspaceOperationIds
+    WorkspaceOperationIds,
+    PreviousTaskIds | Id
   >;
 
-  step<Result extends WorkflowTaskResult>(
-    name: string,
-    handler: WorkflowTaskHandler<Providers, OutputContext, Result>,
+  step<const Id extends string, Result extends WorkflowTaskResult>(
+    name: Id & WorkflowTaskIdConstraint<Id, PreviousTaskIds>,
+    handler: WorkflowTaskHandler<Providers, OutputContext, PreviousTaskIds, Result>,
   ): WorkflowSequenceBuilder<
     Providers,
     InputContext,
-    Merge<OutputContext, TaskReturnContext<Result>>,
+    TaskReturnContext<Result>,
     WorkspaceData,
     OperationIds,
-    WorkspaceOperationIds
+    WorkspaceOperationIds,
+    PreviousTaskIds | Id
   >;
 
-  step<Schema extends OutputSchema<JsonObject>, Result extends MaybePromise<OutputSchemaValue<Schema> | void>>(
-    name: string,
+  step<
+    const Id extends string,
+    Schema extends OutputSchema<JsonObject>,
+    Result extends MaybePromise<WorkflowTaskContextResult<OutputSchemaValue<Schema>> | WorkflowStepInvalidation<string> | void>,
+  >(
+    name: Id & WorkflowTaskIdConstraint<Id, PreviousTaskIds>,
     options: WorkflowTaskOptions<OutputSchemaValue<Schema>>,
-    handler: WorkflowTaskHandler<Providers, OutputContext, Awaited<Result> & WorkflowTaskResult>,
+    handler: WorkflowTaskHandler<Providers, OutputContext, PreviousTaskIds, Awaited<Result> & WorkflowTaskResult>,
   ): WorkflowSequenceBuilder<
     Providers,
     InputContext,
-    Merge<OutputContext, TaskReturnContext<Result>>,
+    TaskReturnContext<Result>,
     WorkspaceData,
     OperationIds,
-    WorkspaceOperationIds
+    WorkspaceOperationIds,
+    PreviousTaskIds | Id
   >;
 
   add<Node extends WorkflowNodeDefinition<Providers, any, any>>(
@@ -522,10 +578,11 @@ export type WorkflowSequenceBuilder<
   ): WorkflowSequenceBuilder<
     Providers,
     InputContext,
-    Merge<OutputContext, WorkflowNodeOutput<Node>>,
+    WorkflowNodeOutput<Node>,
     WorkspaceData,
     OperationIds,
-    WorkspaceOperationIds
+    WorkspaceOperationIds,
+    PreviousTaskIds
   >;
 
   parallel<const Branches extends Record<string, WorkflowNodeDefinition<Providers, any, any>>>(
@@ -540,7 +597,8 @@ export type WorkflowSequenceBuilder<
     Merge<OutputContext, ParallelOutput<Branches>>,
     WorkspaceData,
     OperationIds,
-    WorkspaceOperationIds
+    WorkspaceOperationIds,
+    PreviousTaskIds
   >;
 
   workspace<Data extends JsonObject>(
@@ -551,7 +609,8 @@ export type WorkflowSequenceBuilder<
     OutputContext,
     ReadonlyWorkspaceContext<Data>,
     OperationIds,
-    WorkspaceOperationIds
+    WorkspaceOperationIds,
+    PreviousTaskIds
   >;
 
   operation<const Id extends string, Input extends object = {}>(
@@ -563,7 +622,8 @@ export type WorkflowSequenceBuilder<
     OutputContext,
     WorkspaceData,
     OperationIds | Id,
-    WorkspaceOperationIds
+    WorkspaceOperationIds,
+    PreviousTaskIds
   >;
 
   workspaceOperation<const Id extends string, Input extends object = {}>(
@@ -575,7 +635,8 @@ export type WorkflowSequenceBuilder<
     OutputContext,
     WorkspaceData,
     OperationIds,
-    WorkspaceOperationIds | Id
+    WorkspaceOperationIds | Id,
+    PreviousTaskIds
   >;
 };
 
@@ -614,6 +675,21 @@ export type WorkflowOperationIdConstraint<
         ? WorkflowOperationIdError<`Operation id "${Id}" cannot contain "/"`>
         : unknown;
 
+type WorkflowTaskIdError<Message extends string> = {
+  readonly __rigkitTaskIdError: Message;
+};
+
+export type WorkflowTaskIdConstraint<
+  Id extends string,
+  Existing extends string,
+> = string extends Id
+  ? unknown
+  : Id extends Existing
+    ? WorkflowTaskIdError<`Task id "${Id}" is already defined`>
+    : Id extends ""
+      ? WorkflowTaskIdError<"Task ids must be non-empty">
+      : unknown;
+
 export type WorkflowNodeInput<Node> =
   Node extends WorkflowNodeDefinition<any, infer Input extends JsonObject, any>
     ? Input
@@ -628,13 +704,14 @@ export type ParallelOutput<Branches extends Record<string, WorkflowNodeDefinitio
   [Key in keyof Branches & string]: WorkflowNodeOutput<Branches[Key]>;
 };
 
-export type TaskReturnContext<Return> = Exclude<Awaited<Return>, void | undefined> extends infer Context
-  ? [Context] extends [never]
-    ? {}
-    : Context extends JsonObject
-      ? Context
-      : never
-  : {};
+export type TaskReturnContext<Return> =
+  Exclude<Awaited<Return>, void | undefined | WorkflowStepInvalidation<string>> extends infer Result
+    ? [Result] extends [never]
+      ? {}
+      : Result extends { ctx: infer Context extends JsonObject }
+        ? Simplify<Context>
+        : never
+    : {};
 
 export type Merge<Left extends JsonObject, Right extends JsonObject> =
   Simplify<Omit<Left, keyof Right> & Right>;

@@ -45,6 +45,7 @@ export type FreestyleTerminalRuntime = {
     options: {
       ssh: SshConnection;
       command?: string;
+      keepOpenAfterCommand?: boolean;
       instructions?: string;
     },
   ): Promise<{ finished: true }>;
@@ -77,11 +78,13 @@ export function createFreestyleTerminalController(): WorkflowProviderController<
     runtime(context) {
       return {
         open: async (title, options) => {
-          const command = buildInteractiveSshCommand(options.ssh, options.command);
+          const command = buildInteractiveSshCommand(options.ssh, options.command, {
+            keepOpenAfterCommand: options.keepOpenAfterCommand,
+          });
           const session = createFreestyleTerminalSession({
             title,
             command,
-            remoteCommand: options.command,
+            displayCommand: options.command,
             instructions: options.instructions,
             nodePath: context.nodePath,
           });
@@ -133,8 +136,10 @@ function createFreestyleRuntime(input: {
   return runtime;
 }
 
+const defaultFreestyleVmUser = "root";
+
 function freestyleSshConnection(vmId: string, token: FreestyleToken, user: string | undefined): SshConnection {
-  const userPart = user ? `+${user}` : "";
+  const userPart = `+${user ?? defaultFreestyleVmUser}`;
   const username = `${vmId}${userPart}`;
   return {
     kind: "ssh",
@@ -195,17 +200,35 @@ function freestyleVscodeUrl(connection: SshConnection, options: { cwd?: string }
   return `vscode://vscode-remote/ssh-remote+${encodeURIComponent(vscodeAuthorityForSsh(connection))}${options.cwd ?? ""}?windowId=_blank`;
 }
 
-function buildInteractiveSshCommand(connection: SshConnection, remoteCommand: string | undefined): string {
+export function buildInteractiveSshCommand(
+  connection: SshConnection,
+  remoteCommand: string | undefined,
+  options: { keepOpenAfterCommand?: boolean } = {},
+): string {
   if (connection.auth.type === "privateKey") {
     return connection.command;
   }
 
+  const command = remoteCommand && options.keepOpenAfterCommand
+    ? keepOpenAfterCommand(remoteCommand)
+    : remoteCommand;
   const destination = `${connection.username}:${connection.auth.token}@${connection.host}`;
   const args = ["ssh"];
-  if (remoteCommand) args.push("-tt", "-q");
+  if (command) args.push("-tt", "-q");
   if (connection.port !== undefined) args.push("-p", String(connection.port));
   args.push(destination);
+  if (command) args.push(command);
   return args.map((arg) => arg === "ssh" || arg.startsWith("-") ? arg : shellQuote(arg)).join(" ");
+}
+
+function keepOpenAfterCommand(command: string): string {
+  return [
+    command,
+    "status=$?",
+    'if [ "$status" -ne 0 ]; then exit "$status"; fi',
+    `printf '\\nCommand completed. Type exit to continue.\\n'`,
+    'exec "${SHELL:-/bin/bash}" -l',
+  ].join("\n");
 }
 
 function shellQuote(value: string): string {

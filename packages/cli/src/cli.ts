@@ -1742,13 +1742,33 @@ function printWorkspaces(
   }
 
   printTable(
-    ["name", "workflow", "created"],
+    ["name", "workflow", "created", "age"],
     workspaces.map((workspace) => [
       workspace.name,
       workspace.workflow,
       workspace.createdAt,
+      formatWorkspaceAge(workspace.createdAt),
     ]),
   );
+}
+
+function formatWorkspaceAge(createdAt: string): string {
+  const createdTime = Date.parse(createdAt);
+  if (Number.isNaN(createdTime)) return chalk.dim("unknown");
+
+  const ageMs = Math.max(0, Date.now() - createdTime);
+  const minute = 60 * 1000;
+  const hour = 60 * minute;
+  const day = 24 * hour;
+  const label = ageMs < hour
+    ? `${Math.max(1, Math.floor(ageMs / minute))}m`
+    : ageMs < day
+      ? `${Math.floor(ageMs / hour)}h`
+      : `${Math.floor(ageMs / day)}d`;
+
+  if (ageMs < day) return chalk.green(label);
+  if (ageMs <= 3 * day) return chalk.yellow(label);
+  return chalk.red(label);
 }
 
 function printSnapshots(snapshots: SnapshotRecord[]): void {

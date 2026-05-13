@@ -416,7 +416,7 @@ describe("runtime HTTP app", () => {
       `
         import { defineConfig, sequence } from "${import.meta.dir}/../../../engine/src/index.ts";
 
-        const root = sequence("session-test").step("noop", async () => ({ ok: true }));
+        const root = sequence("session-test").step("noop", async () => ({ ctx: { ok: true } }));
 
         export default defineConfig({
           providers: {},
@@ -473,7 +473,7 @@ describe("runtime HTTP app", () => {
         import { defineConfig, sequence } from "${import.meta.dir}/../../../engine/src/index.ts";
 
         const root = sequence("workspace-ctx")
-          .step("prepare", async () => ({ repoPath: "/workspace/repo" }))
+          .step("prepare", async () => ({ ctx: { repoPath: "/workspace/repo" } }))
           .workspace({
             create: async ({ workflow, workspace }) => ({
               name: workspace.name,
@@ -536,7 +536,7 @@ describe("runtime HTTP app", () => {
         import { defineConfig, sequence } from "${import.meta.dir}/../../../engine/src/index.ts";
 
         const root = sequence("validation")
-          .step("prepare", async () => ({ ok: true }))
+          .step("prepare", async () => ({ ctx: { ok: true } }))
           .workspace({
             create: async ({ workspace }) => ({ name: workspace.name, vmId: "vm-" + workspace.name }),
             remove: async () => {},
@@ -806,7 +806,7 @@ function writeNoopConfig(projectDir: string): void {
     `
       import { defineConfig, sequence } from "${import.meta.dir}/../../../engine/src/index.ts";
 
-      const root = sequence("noop").step("ready", async () => ({ ready: true }));
+      const root = sequence("noop").step("ready", async () => ({ ctx: { ready: true } }));
 
       export default defineConfig({
         providers: {},

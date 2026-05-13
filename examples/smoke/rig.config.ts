@@ -22,14 +22,14 @@ const smoke = sequence("smoke")
     });
     try {
       const snapshot = await vm.snapshot();
-      return { snapshotId: snapshot.snapshotId };
+      return { ctx: { snapshotId: snapshot.snapshotId } };
     } finally {
       await providers.freestyle.client.vms.delete({ vmId });
     }
   })
-  .step("install-gcloud-cli", async ({ ctx, providers, step }) => {
+  .step("install-gcloud-cli", async ({ step, providers }) => {
     const { vm, vmId } = await providers.freestyle.client.vms.create({
-      snapshotId: ctx.snapshotId,
+      snapshotId: step.ctx.snapshotId,
       idleTimeoutSeconds: vmIdleTimeoutSeconds,
       logger: step.log,
     });
@@ -58,14 +58,14 @@ const smoke = sequence("smoke")
       }
 
       const snapshot = await vm.snapshot();
-      return { snapshotId: snapshot.snapshotId };
+      return { ctx: { snapshotId: snapshot.snapshotId } };
     } finally {
       await providers.freestyle.client.vms.delete({ vmId });
     }
   })
-  .step("gcloud-login", async ({ ctx, providers, step }) => {
+  .step("gcloud-login", async ({ step, providers }) => {
     const { vm, vmId } = await providers.freestyle.client.vms.create({
-      snapshotId: ctx.snapshotId,
+      snapshotId: step.ctx.snapshotId,
       idleTimeoutSeconds: vmIdleTimeoutSeconds,
       logger: step.log,
     });
@@ -87,7 +87,7 @@ const smoke = sequence("smoke")
       }
 
       const snapshot = await vm.snapshot();
-      return { snapshotId: snapshot.snapshotId };
+      return { ctx: { snapshotId: snapshot.snapshotId } };
     } finally {
       await providers.freestyle.client.vms.delete({ vmId });
     }

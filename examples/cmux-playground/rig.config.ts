@@ -23,7 +23,7 @@ export default app
 
     try {
       const snapshot = await vm.snapshot();
-      return { snapshotId: snapshot.snapshotId };
+      return { ctx: { snapshotId: snapshot.snapshotId } };
     } finally {
       await freestyle.client.vms.delete({ vmId });
     }

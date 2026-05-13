@@ -39,14 +39,14 @@ const baseVm = app
     });
     try {
       const snapshot = await vm.snapshot();
-      return { snapshotId: snapshot.snapshotId };
+      return { ctx: { snapshotId: snapshot.snapshotId } };
     } finally {
       await freestyle.client.vms.delete({ vmId });
     }
   })
-  .task("install-gcloud-cli", async ({ ctx, freestyle, step }) => {
+  .task("install-gcloud-cli", async ({ step, freestyle }) => {
     const { vm, vmId } = await freestyle.client.vms.create({
-      snapshotId: ctx.snapshotId,
+      snapshotId: step.ctx.snapshotId,
       idleTimeoutSeconds: vmIdleTimeoutSeconds,
       logger: step.log,
     });
@@ -60,7 +60,7 @@ const baseVm = app
         throw new Error(`gcloud cli install failed:\n${result.stdout ?? ""}${result.stderr ?? ""}`.trim());
       }
       const snapshot = await vm.snapshot();
-      return { snapshotId: snapshot.snapshotId };
+      return { ctx: { snapshotId: snapshot.snapshotId } };
     } finally {
       await freestyle.client.vms.delete({ vmId });
     }
@@ -69,11 +69,13 @@ const baseVm = app
 export default app
   .sequence("gcloud-workspace")
   .add(baseVm)
-  .task("marker", async ({ ctx }) => {
+  .task("marker", async ({ step }) => {
     return {
-      snapshotId: ctx.snapshotId,
-      workspaceNote:
-        "local gcloud config files are copied by the inject-gcloud workspace operation",
+      ctx: {
+        snapshotId: step.ctx.snapshotId,
+        workspaceNote:
+          "local gcloud config files are copied by the inject-gcloud workspace operation",
+      },
     };
   })
   .workspace({
