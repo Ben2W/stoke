@@ -80,6 +80,8 @@ Because that edits `.github/workflows/*`, prepare workflows use
 allowed to read the repo, push contents and workflow-file changes, and open PRs.
 The prepare workflow checks those token permissions before creating branches or
 PRs. `pnpm release:check` fails on `main` if those workflow inputs are stale.
+`check-release-bot-token.yml` also validates the token on relevant main/release
+pushes and can be run manually without preparing a release.
 
 Merging that release PR runs `tag-release.yml`, which creates and pushes the
 matching `v*` tag. The tag triggers:

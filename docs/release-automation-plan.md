@@ -184,7 +184,8 @@ Each user-facing prepare workflow has one version choice, generated from the
 package version on `main`. Release preparation edits workflow files, so it uses
 `RELEASE_BOT_TOKEN` instead of the default `GITHUB_TOKEN`. The prepare workflow
 checks that token for repository access, contents write, workflows write, and
-pull requests write before creating branches or PRs.
+pull requests write before creating branches or PRs. `Check Release Bot Token`
+also validates the secret on relevant main/release pushes and manual runs.
 
 ## Version Rules
 
