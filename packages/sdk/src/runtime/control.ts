@@ -34,6 +34,7 @@ export function runtimeHealth(context: RuntimeContext) {
   return {
     ok: true,
     projectId: context.projectId,
+    runtimeFingerprint: context.runtimeFingerprint,
     projectDir: context.projectDir,
     configPath: context.configPath,
     statePath: context.statePath,

@@ -89,6 +89,12 @@ matching `v*` tag. The tag triggers:
 - `.github/workflows/publish-npm.yml`
 - `.github/workflows/release-cli.yml`
 
+After both tag workflows succeed, `sync-latest-release.yml` opens a PR from the
+release branch back to `main` only when that release branch is the newest
+released line. For example, `release/0.2` syncs back after `v0.2.1` while
+`0.2` is the newest released line. If `release/0.3` has already published,
+later `release/0.2` patches do not sync back automatically.
+
 ## Local Release Checks
 
 Useful release scripts:
@@ -105,6 +111,7 @@ pnpm release:bump major
 pnpm release:bump 0.2.0
 pnpm release:pack
 pnpm release:publish -- --dry-run
+pnpm release:sync-latest -- --tag v0.2.1
 ```
 
 `release:check-github-token` requires `RELEASE_BOT_TOKEN` and

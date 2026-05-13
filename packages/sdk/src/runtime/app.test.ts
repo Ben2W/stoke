@@ -111,6 +111,7 @@ describe("runtime HTTP app", () => {
     let closed: Promise<void> | undefined;
 
     try {
+      writeNoopConfig(root);
       await Effect.runPromise(Effect.scoped(
         Effect.flatMap(
           serveRuntimeEffect({
@@ -146,6 +147,7 @@ describe("runtime HTTP app", () => {
     const root = mkdtempSync(join(tmpdir(), "rigkit-runtime-shutdown-"));
 
     try {
+      writeNoopConfig(root);
       const server = await serveRuntime({
         projectId: "test-project",
         projectDir: root,
@@ -162,6 +164,26 @@ describe("runtime HTTP app", () => {
 
       expect(response.status).toBe(200);
       await server.closed;
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("loads config before reporting runtime readiness", async () => {
+    const root = mkdtempSync(join(tmpdir(), "rigkit-runtime-startup-config-"));
+    const configPath = join(root, "rig.config.ts");
+    writeFileSync(configPath, "throw new Error('startup config failed');\n");
+
+    try {
+      await expect(serveRuntime({
+        projectId: "test-project",
+        projectDir: root,
+        configPath,
+        handlePath: join(root, "runtime.json"),
+        tokenPath: join(root, "runtime.token"),
+        token: "test-token",
+        idleMs: 60_000,
+      })).rejects.toThrow("startup config failed");
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -805,6 +827,22 @@ describe("runtime HTTP app", () => {
     }
   });
 });
+
+function writeNoopConfig(projectDir: string): void {
+  writeFileSync(
+    join(projectDir, "rig.config.ts"),
+    `
+      import { defineConfig, sequence } from "${import.meta.dir}/../../../engine/src/index.ts";
+
+      const root = sequence("noop").step("ready", async () => ({ ready: true }));
+
+      export default defineConfig({
+        providers: {},
+        workflows: { root },
+      });
+    `,
+  );
+}
 
 async function serveRuntimeFixture(prefix: string, configBody: string) {
   const projectDir = mkdtempSync(join(tmpdir(), prefix));

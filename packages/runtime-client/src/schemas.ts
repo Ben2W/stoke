@@ -38,6 +38,7 @@ function runtimeClientSchema<T, I>(schema: Schema.Schema<T, I, never>): RuntimeC
 
 export const RuntimeHandleEffectSchema = Schema.Struct({
   projectId: Schema.String,
+  runtimeFingerprint: Schema.optional(Schema.String),
   projectDir: Schema.String,
   configPath: Schema.String,
   statePath: Schema.optional(Schema.String),
@@ -59,6 +60,7 @@ export const RuntimeReadyEffectSchema = Schema.Struct({
 export const RuntimeHealthEffectSchema = Schema.Struct({
   ok: Schema.Boolean,
   projectId: Schema.String,
+  runtimeFingerprint: Schema.optional(Schema.String),
   projectDir: Schema.optional(Schema.String),
   configPath: Schema.optional(Schema.String),
   statePath: Schema.optional(Schema.String),

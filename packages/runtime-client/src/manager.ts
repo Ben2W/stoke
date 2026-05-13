@@ -1,4 +1,4 @@
-import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { spawn, type ChildProcessByStdio } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
@@ -93,13 +93,19 @@ async function getOrStartRuntimeUnsafe(options: GetOrStartRuntimeOptions): Promi
     statePath,
     source: options.source,
   });
+  const runtimeFingerprint = runtimeFingerprintFor({
+    projectDir,
+    configPath,
+    statePath,
+    source: options.source,
+  });
   const paths = runtimePaths(projectId, options.rigkitHome);
 
-  const existing = await tryExistingRuntime(paths, projectId);
+  const existing = await tryExistingRuntime(paths, projectId, runtimeFingerprint);
   if (existing) return existing;
 
   await withRuntimeLock(paths.lockPath, async () => {
-    const secondCheck = await tryExistingRuntime(paths, projectId);
+    const secondCheck = await tryExistingRuntime(paths, projectId, runtimeFingerprint);
     if (secondCheck) return;
     await startRuntime({
       ...options,
@@ -107,11 +113,12 @@ async function getOrStartRuntimeUnsafe(options: GetOrStartRuntimeOptions): Promi
       configPath,
       statePath,
       projectId,
+      runtimeFingerprint,
       paths,
     });
   });
 
-  const started = await tryExistingRuntime(paths, projectId);
+  const started = await tryExistingRuntime(paths, projectId, runtimeFingerprint);
   if (!started) {
     throw new RuntimeStartupError({
       reason: "unhealthy-after-start",
@@ -128,11 +135,34 @@ export function projectIdFor(options: RuntimeProjectOptions): string {
   hash.update(JSON.stringify({
     projectDir: resolve(options.projectDir),
     configPath,
-    configHash: configHashFor(configPath),
     statePath: options.statePath ? resolve(options.statePath) : null,
     source: options.source ?? null,
   }));
   return `sha256-${hash.digest("hex").slice(0, 32)}`;
+}
+
+export function runtimeFingerprintFor(options: RuntimeProjectOptions): string {
+  const projectDir = resolve(options.projectDir);
+  const configPath = resolve(options.configPath);
+  const statePath = options.statePath ? resolve(options.statePath) : null;
+  const hash = createHash("sha256");
+
+  hash.update("project\0");
+  hash.update(projectDir);
+  hash.update("\0config\0");
+  hash.update(configPath);
+  hash.update("\0state\0");
+  hash.update(statePath ?? "");
+  hash.update("\0source\0");
+  hash.update(JSON.stringify(options.source ?? null));
+
+  updateFileFingerprint(hash, "config", configPath);
+  for (const file of dotenvFilesFor(projectDir)) updateFileFingerprint(hash, "dotenv", file);
+  for (const file of projectFingerprintFiles(projectDir)) updateFileFingerprint(hash, "project-file", file);
+  updateProjectSurfaceFingerprint(hash, projectDir);
+  updateRigkitPackageFingerprint(hash, join(projectDir, "node_modules", "@rigkit"));
+
+  return `sha256-${hash.digest("hex")}`;
 }
 
 export function runtimePaths(projectId: string, rigkitHome = defaultRigkitHome()): RuntimePaths {
@@ -149,11 +179,24 @@ export function defaultRigkitHome(): string {
   return process.env.RIGKIT_HOME ? resolve(process.env.RIGKIT_HOME) : join(homedir(), ".rigkit");
 }
 
-async function tryExistingRuntime(paths: RuntimePaths, projectId: string): Promise<RuntimeClient | undefined> {
+async function tryExistingRuntime(
+  paths: RuntimePaths,
+  projectId: string,
+  runtimeFingerprint: string,
+): Promise<RuntimeClient | undefined> {
   const handle = readHandle(paths.handlePath);
   if (!handle || handle.projectId !== projectId) return undefined;
   const token = readToken(handle.tokenPath);
-  if (!token) return undefined;
+  if (!token) {
+    removeStale(paths);
+    return undefined;
+  }
+
+  if (handle.runtimeFingerprint !== runtimeFingerprint) {
+    await shutdownRuntime(handle, token);
+    removeStale(paths);
+    return undefined;
+  }
 
   try {
     const body = await createRuntimeHttpClient({ baseUrl: handle.url, token }).health();
@@ -162,6 +205,13 @@ async function tryExistingRuntime(paths: RuntimePaths, projectId: string): Promi
         method: "GET",
         path: "/health",
         message: `runtime project mismatch`,
+      });
+    }
+    if (body.runtimeFingerprint !== runtimeFingerprint) {
+      throw new RuntimeConnectionError({
+        method: "GET",
+        path: "/health",
+        message: `runtime fingerprint mismatch`,
       });
     }
     return createClient(handle, paths, token);
@@ -174,6 +224,7 @@ async function tryExistingRuntime(paths: RuntimePaths, projectId: string): Promi
 
 async function startRuntime(input: GetOrStartRuntimeOptions & {
   projectId: string;
+  runtimeFingerprint: string;
   paths: RuntimePaths;
 }): Promise<void> {
   mkdirSync(input.paths.root, { recursive: true });
@@ -183,6 +234,8 @@ async function startRuntime(input: GetOrStartRuntimeOptions & {
     "serve",
     "--project-id",
     input.projectId,
+    "--runtime-fingerprint",
+    input.runtimeFingerprint,
     "--project-dir",
     input.projectDir,
     "--config",
@@ -355,7 +408,7 @@ function readReadyLine(proc: ChildProcessByStdio<null, Readable, null>, paths: R
         reason: "startup-timeout",
         projectDir,
         message: `Timed out waiting for Rigkit runtime to start`,
-      }));
+      }), { kill: true });
     }, 15_000);
 
     const cleanup = () => {
@@ -374,10 +427,12 @@ function readReadyLine(proc: ChildProcessByStdio<null, Readable, null>, paths: R
       resolvePromise(line);
     };
 
-    function fail(error: unknown) {
+    function fail(error: unknown, options: { kill?: boolean } = {}) {
       if (settled) return;
       settled = true;
       cleanup();
+      if (options.kill) killRuntimeProcess(proc);
+      removeStale(paths);
       rejectPromise(error);
     }
 
@@ -414,15 +469,117 @@ function readReadyLine(proc: ChildProcessByStdio<null, Readable, null>, paths: R
   });
 }
 
+function killRuntimeProcess(proc: ChildProcessByStdio<null, Readable, null>): void {
+  if (!proc.pid) return;
+  try {
+    proc.kill("SIGTERM");
+  } catch {
+    // Best effort. The startup path will discard the stale handle either way.
+  }
+}
+
 function removeStale(paths: RuntimePaths): void {
   rmSync(paths.handlePath, { force: true });
 }
 
-function configHashFor(configPath: string): string | null {
-  if (!existsSync(configPath)) return null;
-  const hash = createHash("sha256");
-  hash.update(readFileSync(configPath));
-  return hash.digest("hex");
+async function shutdownRuntime(handle: RuntimeHandle, token: string): Promise<void> {
+  try {
+    await createRuntimeHttpClient({ baseUrl: handle.url, token }).shutdown();
+  } catch {
+    if (handle.pid !== process.pid) {
+      try {
+        process.kill(handle.pid);
+      } catch {
+        // Best effort. The stale handle is still removed below.
+      }
+    }
+  }
+}
+
+function updateFileFingerprint(hash: ReturnType<typeof createHash>, label: string, path: string): void {
+  hash.update(`\0${label}\0${path}\0`);
+  if (!existsSync(path)) {
+    hash.update("missing");
+    return;
+  }
+
+  const stat = statSync(path);
+  if (!stat.isFile()) {
+    hash.update(`not-file:${stat.mode}`);
+    return;
+  }
+
+  hash.update(readFileSync(path));
+}
+
+function projectFingerprintFiles(projectDir: string): string[] {
+  return [
+    "package.json",
+    "bun.lock",
+    "bun.lockb",
+    "pnpm-lock.yaml",
+    "package-lock.json",
+    "yarn.lock",
+  ].map((file) => join(projectDir, file));
+}
+
+function updateProjectSurfaceFingerprint(hash: ReturnType<typeof createHash>, projectDir: string): void {
+  if (!existsSync(projectDir)) return;
+  const ignored = new Set([".git", ".rigkit", "node_modules", "dist", "build", ".next", ".astro"]);
+  const entries = readdirSync(projectDir, { withFileTypes: true })
+    .filter((entry) => !ignored.has(entry.name))
+    .map((entry) => `${entry.name}:${entry.isDirectory() ? "dir" : entry.isFile() ? "file" : "other"}`)
+    .sort();
+  hash.update("\0project-surface\0");
+  hash.update(entries.join("\n"));
+}
+
+function updateRigkitPackageFingerprint(hash: ReturnType<typeof createHash>, scopeDir: string): void {
+  if (!existsSync(scopeDir)) return;
+  const packageDirs = readdirSync(scopeDir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() || entry.isSymbolicLink())
+    .map((entry) => join(scopeDir, entry.name))
+    .sort();
+
+  for (const packageDir of packageDirs) {
+    updateFileFingerprint(hash, "rigkit-package", join(packageDir, "package.json"));
+    for (const file of collectFiles(join(packageDir, "src"))) {
+      updateFileFingerprint(hash, "rigkit-source", file);
+    }
+  }
+}
+
+function collectFiles(root: string): string[] {
+  if (!existsSync(root)) return [];
+  const out: string[] = [];
+  const visit = (dir: string) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const path = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        visit(path);
+      } else if (entry.isFile()) {
+        out.push(path);
+      }
+    }
+  };
+  visit(root);
+  return out.sort();
+}
+
+function dotenvFilesFor(projectDir: string): string[] {
+  const files: string[] = [];
+  let current = projectDir;
+
+  while (true) {
+    const candidate = join(current, ".env");
+    if (existsSync(candidate)) files.unshift(candidate);
+
+    const parent = dirname(current);
+    if (parent === current) break;
+    current = parent;
+  }
+
+  return files;
 }
 
 function isFileExistsError(error: unknown): boolean {

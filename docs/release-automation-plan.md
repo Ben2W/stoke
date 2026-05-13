@@ -226,6 +226,11 @@ Tag push then triggers:
 - npm package publishing
 - CLI binary build and GitHub Release asset publishing
 
+After both tag workflows succeed, a sync workflow should open a PR from the
+release branch back to `main` only when that release branch is the latest
+released line. Older maintained release lines should not sync back
+automatically.
+
 ## npm Publish Workflow
 
 Rewrite `publish-npm.yml` to be script-driven:
@@ -255,6 +260,27 @@ Rewrite `release-cli.yml` to be script-driven:
 5. Create the GitHub Release and upload assets.
 
 It should only run for `v*` tags whose commits are reachable from `release/*`.
+
+## Sync Latest Release Back To Main
+
+Manual or workflow-triggered GitHub Action:
+
+```text
+Sync Latest Release To Main
+inputs:
+  tag: v0.2.1
+```
+
+Behavior:
+
+1. Wait until both `Publish npm Packages` and `Release CLI` have succeeded for
+   the tag.
+2. Compute the tag's release line, for example `v0.2.1 -> release/0.2`.
+3. Compare all stable release tags and only continue if that line is the newest
+   released line.
+4. Skip if `main` already contains that release branch.
+5. Open or update `automation/sync-release-0.2-to-main` as a PR into `main`
+   with `release:none`.
 
 ## Bootstrap Workflow
 

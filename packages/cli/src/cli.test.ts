@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { projectIdFor, runtimePaths, SUPPORTED_RUNTIME_API_VERSION } from "@rigkit/runtime-client";
+import { projectIdFor, runtimeFingerprintFor, runtimePaths, SUPPORTED_RUNTIME_API_VERSION } from "@rigkit/runtime-client";
 import { RIGKIT_CLI_VERSION } from "./version.ts";
 
 const cliPath = join(import.meta.dir, "cli.ts");
@@ -177,6 +177,7 @@ async function withWorkspaceRuntime(
   mkdirSync(input.projectDir, { recursive: true });
   writeFileSync(configPath, "export default {}\n");
   const projectId = projectIdFor({ projectDir: input.projectDir, configPath });
+  const runtimeFingerprint = runtimeFingerprintFor({ projectDir: input.projectDir, configPath });
   const paths = runtimePaths(projectId, rigkitHome);
   mkdirSync(paths.root, { recursive: true });
   writeFileSync(paths.tokenPath, `${token}\n`);
@@ -195,6 +196,7 @@ async function withWorkspaceRuntime(
         return runtimeJson({
           ok: true,
           projectId,
+          runtimeFingerprint,
           projectDir: input.projectDir,
           configPath,
           statePath: join(input.projectDir, ".rigkit", "state.sqlite"),
@@ -229,6 +231,7 @@ async function withWorkspaceRuntime(
     paths.handlePath,
     `${JSON.stringify({
       projectId,
+      runtimeFingerprint,
       projectDir: input.projectDir,
       configPath,
       pid: process.pid,

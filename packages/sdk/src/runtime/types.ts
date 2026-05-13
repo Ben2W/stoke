@@ -2,6 +2,7 @@ import type { JsonValue } from "@rigkit/engine";
 
 export type ServeRuntimeOptions = {
   projectId: string;
+  runtimeFingerprint?: string;
   projectDir: string;
   configPath: string;
   statePath?: string;
@@ -23,6 +24,7 @@ export type RuntimeServer = {
 
 export type RuntimeContext = {
   readonly projectId: string;
+  readonly runtimeFingerprint?: string;
   readonly projectDir: string;
   readonly configPath: string;
   readonly statePath?: string;

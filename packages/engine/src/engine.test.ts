@@ -408,6 +408,56 @@ describe("DevMachineEngine workflow runtime", () => {
     });
   });
 
+  test("invalidates task cache when handler source changes", async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-handler-cache-"));
+    const statePath = join(projectDir, ".rigkit", "state.sqlite");
+    mkdirSync(join(projectDir, ".rigkit"));
+    const writeConfig = (configPath: string, value: string) =>
+      writeFileSync(
+        configPath,
+        `
+          import { workflow } from "${import.meta.dir}/index.ts";
+
+          const app = workflow("handler-cache", { providers: {} });
+
+          export default app.sequence("root").task("value", async () => {
+            return { value: "${value}" };
+          });
+        `,
+      );
+
+    const firstConfigPath = join(projectDir, "rig.one.config.ts");
+    const secondConfigPath = join(projectDir, "rig.two.config.ts");
+    writeConfig(firstConfigPath, "one");
+    writeConfig(secondConfigPath, "two");
+
+    const first = await createDevMachineEngine({
+      projectDir,
+      configPath: firstConfigPath,
+      statePath,
+    });
+    await first.load();
+    const applied = await first.apply();
+    expect(applied.context.value).toBe("one");
+
+    const cached = await first.plan();
+    expect(cached.cachedNodeCount).toBe(1);
+
+    const second = await createDevMachineEngine({
+      projectDir,
+      configPath: secondConfigPath,
+      statePath,
+    });
+    await second.load();
+    const changed = await second.plan();
+    expect(changed.cachedNodeCount).toBe(0);
+    expect(changed.nodes[0]?.status).toBe("pending");
+
+    const reapplied = await second.apply();
+    expect(reapplied.context.value).toBe("two");
+    expect(second.listNodeRuns()).toHaveLength(2);
+  });
+
   test("stores provider JSON state in Rigkit-owned provider storage", async () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-"));
     const plugin: BaseProviderPlugin = {
