@@ -317,7 +317,7 @@ Canary releases must never publish to `latest`.
 - `.github/workflows/prepare-patch-release.yml`
 - `.github/workflows/prepare-minor-release.yml`
 - `.github/workflows/prepare-major-release.yml`
-- `.github/workflows/prepare-release.yml`
+- `.github/actions/prepare-release/action.yml`
 - `.github/workflows/tag-release.yml`
 - `.github/workflows/publish-npm.yml`
 - `.github/workflows/release-cli.yml`
