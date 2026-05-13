@@ -3,6 +3,7 @@ export {
   getOrStartRuntime,
   connectRemoteRuntime,
   projectIdFor,
+  runtimeFingerprintFor,
   runtimePaths,
   getOrStartRuntimeEffect,
   type GetOrStartRuntimeOptions,

@@ -1,11 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   connectRemoteRuntime,
   getOrStartRuntime,
   projectIdFor,
+  runtimeFingerprintFor,
   runtimePaths,
   SUPPORTED_RUNTIME_API_VERSION,
 } from "./manager.ts";
@@ -42,7 +43,7 @@ describe("runtime manager", () => {
     expect(differentSource).not.toBe(first);
   });
 
-  test("includes config contents in local runtime ids", () => {
+  test("keeps project ids stable while config fingerprints change", () => {
     const root = mkdtempSync(join(tmpdir(), "rigkit-runtime-client-id-"));
     try {
       const projectDir = join(root, "project");
@@ -52,12 +53,58 @@ describe("runtime manager", () => {
 
       const first = projectIdFor({ projectDir, configPath });
       const second = projectIdFor({ projectDir, configPath });
+      const firstFingerprint = runtimeFingerprintFor({ projectDir, configPath });
       writeFileSync(configPath, "export default { name: 'two' }\n");
       const changed = projectIdFor({ projectDir, configPath });
+      const changedFingerprint = runtimeFingerprintFor({ projectDir, configPath });
 
       expect(second).toBe(first);
-      expect(changed).not.toBe(first);
+      expect(changed).toBe(first);
+      expect(changedFingerprint).not.toBe(firstFingerprint);
     } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("restarts local runtimes when the runtime fingerprint changes", async () => {
+    const root = mkdtempSync(join(tmpdir(), "rigkit-runtime-client-restart-"));
+    let first: Awaited<ReturnType<typeof getOrStartRuntime>> | undefined;
+    let second: Awaited<ReturnType<typeof getOrStartRuntime>> | undefined;
+
+    try {
+      const projectDir = join(root, "project");
+      const rigkitHome = join(root, "home");
+      const configPath = join(projectDir, "rig.config.ts");
+      mkdirSync(projectDir, { recursive: true });
+      writeFileSync(configPath, "export default { name: 'one' }\n");
+      writeFakeRuntimeBin(projectDir);
+
+      first = await getOrStartRuntime({
+        projectDir,
+        configPath,
+        rigkitHome,
+        idleMs: 60_000,
+      });
+      const firstHealth = await first.control.health();
+
+      writeFileSync(configPath, "export default { name: 'two' }\n");
+      second = await getOrStartRuntime({
+        projectDir,
+        configPath,
+        rigkitHome,
+        idleMs: 60_000,
+      });
+      const secondHealth = await second.control.health();
+
+      expect(second.handle.projectId).toBe(first.handle.projectId);
+      expect(second.paths.handlePath).toBe(first.paths.handlePath);
+      expect(second.handle.runtimeFingerprint).not.toBe(first.handle.runtimeFingerprint);
+      expect(second.handle.pid).not.toBe(first.handle.pid);
+      expect(secondHealth.runtimeFingerprint).toBe(second.handle.runtimeFingerprint);
+      expect(firstHealth.projectId).toBe(secondHealth.projectId);
+    } finally {
+      await second?.control.shutdown().catch(() => {});
+      await first?.control.shutdown().catch(() => {});
       rmSync(root, { recursive: true, force: true });
     }
   });
@@ -229,3 +276,72 @@ describe("runtime manager", () => {
     }
   });
 });
+
+function writeFakeRuntimeBin(projectDir: string): void {
+  const binDir = join(projectDir, "node_modules", ".bin");
+  mkdirSync(binDir, { recursive: true });
+  const binPath = join(binDir, process.platform === "win32" ? "rigkit-project-runtime.cmd" : "rigkit-project-runtime");
+  writeFileSync(
+    binPath,
+    `#!/usr/bin/env bun
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+
+const args = process.argv.slice(2);
+const options = {};
+for (let i = 1; i < args.length; i += 2) {
+  options[args[i].replace(/^--/, "")] = args[i + 1];
+}
+
+const token = readFileSync(options.token, "utf8").trim();
+let server;
+server = Bun.serve({
+  hostname: "127.0.0.1",
+  port: 0,
+  fetch(request) {
+    const url = new URL(request.url);
+    if (request.headers.get("authorization") !== \`Bearer \${token}\`) {
+      return Response.json({ error: { message: "Unauthorized" } }, { status: 401 });
+    }
+    if (url.pathname === "/health") {
+      return Response.json({
+        ok: true,
+        projectId: options["project-id"],
+        runtimeFingerprint: options["runtime-fingerprint"],
+        projectDir: resolve(options["project-dir"]),
+        configPath: resolve(options.config),
+        statePath: options.state ? resolve(options.state) : undefined,
+        engineVersion: "engine-test",
+        runtimeVersion: "runtime-test",
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      }, { headers: { "x-rigkit-api-version": "${SUPPORTED_RUNTIME_API_VERSION}" } });
+    }
+    if (url.pathname === "/shutdown") {
+      setTimeout(() => {
+        server.stop(true);
+        process.exit(0);
+      }, 0);
+      return Response.json({ ok: true }, { headers: { "x-rigkit-api-version": "${SUPPORTED_RUNTIME_API_VERSION}" } });
+    }
+    return Response.json({ error: { message: "Not found" } }, { status: 404 });
+  },
+});
+
+const handle = {
+  projectId: options["project-id"],
+  runtimeFingerprint: options["runtime-fingerprint"],
+  projectDir: resolve(options["project-dir"]),
+  configPath: resolve(options.config),
+  statePath: options.state ? resolve(options.state) : undefined,
+  pid: process.pid,
+  url: \`http://127.0.0.1:\${server.port}\`,
+  tokenPath: resolve(options.token),
+};
+mkdirSync(dirname(options.handle), { recursive: true });
+writeFileSync(options.handle, JSON.stringify(handle));
+console.log(JSON.stringify({ type: "ready", url: handle.url, token }));
+await new Promise(() => {});
+`,
+  );
+  chmodSync(binPath, 0o755);
+}

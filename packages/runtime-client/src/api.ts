@@ -14,6 +14,7 @@ const OptionalString = Schema.optional(Schema.String);
 export const RuntimeControlHealthEffectSchema = Schema.Struct({
   ok: Schema.Boolean,
   projectId: Schema.String,
+  runtimeFingerprint: OptionalString,
   projectDir: Schema.String,
   configPath: Schema.String,
   statePath: OptionalString,

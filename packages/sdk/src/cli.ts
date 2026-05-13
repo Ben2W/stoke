@@ -4,6 +4,7 @@ import { serveRuntime } from "./runtime/server.ts";
 
 type ServeArgs = {
   projectId?: string;
+  runtimeFingerprint?: string;
   projectDir?: string;
   configPath?: string;
   statePath?: string;
@@ -37,6 +38,7 @@ if (missing.length > 0) {
 
 const runtime = await serveRuntime({
   projectId: options.projectId!,
+  runtimeFingerprint: options.runtimeFingerprint,
   projectDir: resolve(options.projectDir!),
   configPath: resolve(options.configPath!),
   statePath: options.statePath ? resolve(options.statePath) : undefined,
@@ -78,6 +80,9 @@ function parseServeArgs(args: string[]): ServeArgs {
     switch (arg) {
       case "--project-id":
         parsed.projectId = readValue();
+        break;
+      case "--runtime-fingerprint":
+        parsed.runtimeFingerprint = readValue();
         break;
       case "--project-dir":
       case "--project":

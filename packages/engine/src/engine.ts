@@ -179,6 +179,8 @@ type RuntimeOperationEntry = {
   readonly run: (input: { workflow?: string; input?: unknown }) => Promise<unknown>;
 };
 
+let configImportCounter = 0;
+
 export class DevMachineEngine {
   private readonly projectDir: string;
   private readonly configPath: string;
@@ -226,7 +228,7 @@ export class DevMachineEngine {
     }
 
     const moduleUrl = pathToFileURL(this.configPath);
-    moduleUrl.searchParams.set("t", String(Date.now()));
+    moduleUrl.searchParams.set("t", `${Date.now()}-${configImportCounter++}`);
     const mod = await import(moduleUrl.href);
     const roots = normalizeDefinitions(mod.default ?? mod.workflow);
     const loaded = await Promise.all(roots.map((root) => this.resolveWorkflow(root)));
@@ -898,10 +900,13 @@ export class DevMachineEngine {
     const nodePath = [...input.prefix, input.node.name].join(".");
     const upstreamRunIds = [...input.state.upstreamRunIds];
     const nodeKey = hash({
+      cache: "task-v2",
       kind: "task",
       path: nodePath,
       name: input.node.name,
       version: input.node.options?.version ?? null,
+      handler: functionFingerprintFor(input.node.handler),
+      output: input.node.options?.output ?? null,
     });
     const planIndex = input.index.value++;
 
@@ -1673,16 +1678,34 @@ function collectNodePaths(root: WorkflowNodeDefinition<any, any, any>): string[]
 
 function providerFingerprintFor(workflow: LoadedWorkflow): string {
   return hash({
+    cache: "provider-v2",
     providers: Object.fromEntries(
       Object.entries(workflow.providers).map(([name, provider]) => [
         name,
         {
           providerId: provider.providerId,
           config: provider.config,
+          plugin: providerPluginFingerprint(provider.plugin),
         },
       ]),
     ),
   });
+}
+
+function providerPluginFingerprint(plugin: unknown): unknown {
+  if (!isBaseProviderPlugin(plugin)) return null;
+  return {
+    providerId: plugin.providerId,
+    createProvider: functionFingerprintFor(plugin.createProvider),
+  };
+}
+
+function functionFingerprintFor(fn: Function): { name: string; length: number; source: string } {
+  return {
+    name: fn.name,
+    length: fn.length,
+    source: Function.prototype.toString.call(fn),
+  };
 }
 
 function sequenceChildren(node: WorkflowNodeDefinition<any, any, any>): readonly WorkflowNodeDefinition<any, any, any>[] {

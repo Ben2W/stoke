@@ -60,6 +60,7 @@ export async function serveRuntime(options: ServeRuntimeOptions): Promise<Runtim
       options.handlePath,
       `${JSON.stringify({
         projectId: options.projectId,
+        runtimeFingerprint: options.runtimeFingerprint,
         projectDir,
         configPath,
         statePath,
@@ -76,6 +77,7 @@ export async function serveRuntime(options: ServeRuntimeOptions): Promise<Runtim
 
   const context: RuntimeContext = {
     projectId: options.projectId,
+    runtimeFingerprint: options.runtimeFingerprint,
     projectDir,
     configPath,
     statePath,
