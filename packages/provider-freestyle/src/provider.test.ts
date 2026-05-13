@@ -69,6 +69,36 @@ describe("Freestyle provider host adapters", () => {
     });
   });
 
+  test("treats existing VM permissions as idempotent for cmux ssh options", async () => {
+    const calls: string[] = [];
+    const runtime = await createFreestyleWorkflowController({
+      client: {
+        identities: {
+          ref: () => ({
+            permissions: {
+              vms: {
+                grant: async () => {
+                  calls.push("grant");
+                  throw new Error("PERMISSION_ALREADY_EXISTS: Permission already exists");
+                },
+                update: async () => {
+                  calls.push("update");
+                },
+              },
+            },
+          }),
+        },
+      } as unknown as Freestyle,
+      identityId: freestyleIdentityId("identity-stream"),
+      token: freestyleToken("token"),
+    }).runtime(providerContext());
+
+    await expect(runtime.cmux.createSshOptions({ vmId: "vm-stream" })).resolves.toMatchObject({
+      destination: "vm-stream+root,token@vm-ssh.freestyle.sh",
+    });
+    expect(calls).toEqual(["grant", "update"]);
+  });
+
   test("creates VS Code URLs using the Freestyle ssh authority", async () => {
     globalThis.fetch = (async () => Response.json({})) as unknown as typeof fetch;
 
@@ -147,6 +177,35 @@ describe("Freestyle provider host adapters", () => {
     expect(command).toContain("status=$?");
     expect(command).toContain('if [ "$status" -ne 0 ]; then exit "$status"; fi');
     expect(command).toContain('exec "${SHELL:-/bin/bash}" -l');
+  });
+
+  test("allows finishing while a keep-open SSH command is running", async () => {
+    let html = "";
+    const runtime = await createFreestyleTerminalController().runtime({
+      ...providerContext(),
+      interaction: {
+        present: async <Result>(session: ProviderInteractionSession<Result>) => {
+          const response = await fetch(session.url);
+          html = await response.text();
+          session.stop();
+          return { finished: true } as Result;
+        },
+      },
+    });
+
+    await runtime.open("GitHub auth", {
+      ssh: {
+        kind: "ssh",
+        host: "vm-ssh.freestyle.sh",
+        username: "vm-stream+root",
+        auth: { type: "token", token: "token" },
+        command: "ssh vm-stream+root:token@vm-ssh.freestyle.sh",
+      },
+      command: "gh auth login --hostname github.com",
+      keepOpenAfterCommand: true,
+    });
+
+    expect(html).toContain("const canFinishWhileRunning = true;");
   });
 });
 

@@ -7,6 +7,7 @@ export type FreestyleTerminalSessionRequest = {
   displayCommand?: string;
   startupInput?: string;
   remoteCommand?: string;
+  canFinishWhileRunning?: boolean;
   instructions?: string;
   nodePath?: string;
 };
@@ -49,7 +50,7 @@ export function createFreestyleTerminalSession(
   const startupCommand = request.startupInput ?? request.remoteCommand;
   const startupInput = startupCommand ? ensureTrailingNewline(startupCommand) : undefined;
   const displayCommand = request.displayCommand ?? request.remoteCommand ?? request.command;
-  const canFinishWhileRunning = !request.displayCommand && !startupInput;
+  const canFinishWhileRunning = canFinishWhileProcessRuns(request, startupInput);
 
   const completed = new Promise<FreestyleTerminalSessionResult>((resolve, reject) => {
     complete = resolve;
@@ -132,7 +133,7 @@ export function createFreestyleTerminalSession(
     broadcast({
       type: "status",
       status: "Connected",
-      canFinish: false,
+      canFinish: canFinishWhileRunning,
     });
 
     proc = Bun.spawn(["sh", "-lc", `exec ${request.command}`], {
@@ -333,7 +334,7 @@ function renderInteractionPage(
   const commandLit = javaScriptLiteral(command);
   const nodeLit = javaScriptLiteral(node);
   const startupInputLiteral = javaScriptLiteral(options.startupInput ?? null);
-  const canFinishWhileRunningLiteral = javaScriptLiteral(!request.displayCommand && !options.startupInput);
+  const canFinishWhileRunningLiteral = javaScriptLiteral(canFinishWhileProcessRuns(request, options.startupInput));
   const initialCompletedLiteral = completed ? "true" : "false";
 
   return `<!doctype html>
@@ -1295,6 +1296,13 @@ function javaScriptLiteral(value: string | boolean | null): string {
     .replaceAll("&", "\\u0026")
     .replaceAll(" ", "\\u2028")
     .replaceAll(" ", "\\u2029");
+}
+
+function canFinishWhileProcessRuns(
+  request: FreestyleTerminalSessionRequest,
+  startupInput: string | undefined,
+): boolean {
+  return request.canFinishWhileRunning ?? (!request.displayCommand && !startupInput);
 }
 
 function escapeHtml(value: string): string {

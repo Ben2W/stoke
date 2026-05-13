@@ -85,6 +85,7 @@ export function createFreestyleTerminalController(): WorkflowProviderController<
             title,
             command,
             displayCommand: options.command,
+            canFinishWhileRunning: options.keepOpenAfterCommand,
             instructions: options.instructions,
             nodePath: context.nodePath,
           });
@@ -151,12 +152,28 @@ function freestyleSshConnection(vmId: string, token: FreestyleToken, user: strin
 }
 
 function isPermissionAlreadyExistsError(error: unknown): boolean {
-  return Boolean(
-    error &&
-      typeof error === "object" &&
-      "error" in error &&
-      (error as { error?: unknown }).error === "PermissionAlreadyExists",
+  return errorStrings(error).some((value) =>
+    normalizeErrorCode(value).includes("PERMISSIONALREADYEXISTS"),
   );
+}
+
+function errorStrings(error: unknown): string[] {
+  if (typeof error === "string") return [error];
+  if (!error || typeof error !== "object") return [];
+
+  const record = error as Record<string, unknown>;
+  const values: string[] = [];
+  for (const key of ["error", "code", "name", "message", "reason"]) {
+    const value = record[key];
+    if (typeof value === "string") values.push(value);
+    else values.push(...errorStrings(value));
+  }
+  values.push(...errorStrings(record.cause));
+  return values;
+}
+
+function normalizeErrorCode(value: string): string {
+  return value.replaceAll(/[^a-zA-Z]/g, "").toUpperCase();
 }
 
 const freestyleCmuxTokenSshOptions = [

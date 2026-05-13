@@ -102,6 +102,46 @@ describe("Freestyle terminal session", () => {
     }
   });
 
+  test("can allow finishing while the terminal process is still running", async () => {
+    const session = createFreestyleTerminalSession({
+      nodePath: "login",
+      title: "Keep-open command",
+      command: "sleep 5",
+      displayCommand: "sleep 5",
+      canFinishWhileRunning: true,
+    });
+
+    let resolved = false;
+    session.completed.then(() => {
+      resolved = true;
+    });
+
+    try {
+      const messages: unknown[] = [];
+      const socketUrl = new URL(session.url.replace("/?", "/terminal?"));
+      socketUrl.protocol = "ws:";
+      const socket = new WebSocket(socketUrl);
+      socket.addEventListener("message", (event) => {
+        messages.push(JSON.parse(String(event.data)));
+      });
+
+      await waitForSocketOpen(socket);
+      await waitFor(() =>
+        messages.some((message) =>
+          isMessage(message, "status") && Boolean(message.canFinish)
+        ),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      expect(resolved).toBe(false);
+
+      socket.send(JSON.stringify({ type: "finish" }));
+      await expect(session.completed).resolves.toEqual({ finished: true });
+      socket.close();
+    } finally {
+      session.stop();
+    }
+  });
+
   test("answers cursor position reports for terminal UI prompts", async () => {
     const session = createFreestyleTerminalSession({
       nodePath: "prompt",
