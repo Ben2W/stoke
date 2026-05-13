@@ -13,6 +13,7 @@ import { RIGKIT_RUNTIME_VERSION } from "./version.ts";
 import { runtimeJsonError, sessionRunIdFor } from "./app.ts";
 import { createRuntimeControlApiHandler } from "./api-handlers.ts";
 import type { RuntimeAppState } from "./control.ts";
+import { loadEngine } from "./operations.ts";
 import { runSessionSocketEffect } from "./sessions.ts";
 import { DEFAULT_IDLE_MS } from "./protocol.ts";
 import { createRunStore } from "./runs.ts";
@@ -92,6 +93,8 @@ export async function serveRuntime(options: ServeRuntimeOptions): Promise<Runtim
     stop: () => stopServer(),
   };
   const state: RuntimeAppState = { context, store };
+  await loadEngine(context);
+
   const controlApi = createRuntimeControlApiHandler(context, store);
   const app = createRuntimeHttpApp(state, controlApi);
   const scope = Effect.runSync(Scope.make());

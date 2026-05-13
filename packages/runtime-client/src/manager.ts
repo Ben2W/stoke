@@ -408,7 +408,7 @@ function readReadyLine(proc: ChildProcessByStdio<null, Readable, null>, paths: R
         reason: "startup-timeout",
         projectDir,
         message: `Timed out waiting for Rigkit runtime to start`,
-      }));
+      }), { kill: true });
     }, 15_000);
 
     const cleanup = () => {
@@ -427,10 +427,12 @@ function readReadyLine(proc: ChildProcessByStdio<null, Readable, null>, paths: R
       resolvePromise(line);
     };
 
-    function fail(error: unknown) {
+    function fail(error: unknown, options: { kill?: boolean } = {}) {
       if (settled) return;
       settled = true;
       cleanup();
+      if (options.kill) killRuntimeProcess(proc);
+      removeStale(paths);
       rejectPromise(error);
     }
 
@@ -465,6 +467,15 @@ function readReadyLine(proc: ChildProcessByStdio<null, Readable, null>, paths: R
     proc.once("error", fail);
     proc.once("exit", onExit);
   });
+}
+
+function killRuntimeProcess(proc: ChildProcessByStdio<null, Readable, null>): void {
+  if (!proc.pid) return;
+  try {
+    proc.kill("SIGTERM");
+  } catch {
+    // Best effort. The startup path will discard the stale handle either way.
+  }
 }
 
 function removeStale(paths: RuntimePaths): void {
