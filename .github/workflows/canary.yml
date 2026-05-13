@@ -1,0 +1,140 @@
+name: Canary npm Packages
+
+on:
+  issue_comment:
+    types:
+      - created
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: canary-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  canary:
+    if: ${{ github.event.issue.pull_request && contains(github.event.comment.body, '/rigkit canary') }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Verify command permissions
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ACTOR: ${{ github.actor }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          permission="$(gh api "repos/${REPOSITORY}/collaborators/${ACTOR}/permission" --jq .permission)"
+          case "$permission" in
+            admin|maintain|write)
+              ;;
+            *)
+              echo "${ACTOR} must have write access to publish canaries" >&2
+              exit 1
+              ;;
+          esac
+
+      - name: Read PR metadata
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          pr_json="$(gh pr view "$PR_NUMBER" --json headRefOid,headRefName,headRepositoryOwner,headRepository)"
+          sha="$(printf '%s' "$pr_json" | jq -r '.headRefOid')"
+          ref_name="$(printf '%s' "$pr_json" | jq -r '.headRefName')"
+          owner="$(printf '%s' "$pr_json" | jq -r '.headRepositoryOwner.login')"
+          repo="$(printf '%s' "$pr_json" | jq -r '.headRepository.name')"
+
+          if [ "${owner}/${repo}" != "$REPOSITORY" ]; then
+            echo "Canary publishing is only allowed for branches in ${REPOSITORY}" >&2
+            exit 1
+          fi
+
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "ref_name=$ref_name" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout PR head
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ steps.pr.outputs.sha }}
+          fetch-depth: 0
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Setup pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@9.15.9 --activate
+
+      - name: Setup npm auth
+        run: |
+          if [ -z "${NPM_CANARY_TOKEN:-}" ]; then
+            echo "Missing NPM_CANARY_TOKEN secret" >&2
+            exit 1
+          fi
+          npmrc="${NPM_CONFIG_USERCONFIG:-$HOME/.npmrc}"
+          mkdir -p "$(dirname "$npmrc")"
+          {
+            echo "registry=https://registry.npmjs.org/"
+            echo "//registry.npmjs.org/:_authToken=${NPM_CANARY_TOKEN}"
+          } > "$npmrc"
+        env:
+          NPM_CANARY_TOKEN: ${{ secrets.NPM_CANARY_TOKEN }}
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Compute canary version
+        id: canary
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          pnpm release:canary-version -- \
+            --pr "${{ github.event.issue.number }}" \
+            --sha "${{ steps.pr.outputs.sha }}"
+
+      - name: Apply canary version
+        run: pnpm release:bump -- "${{ steps.canary.outputs.version }}"
+
+      - name: Canary preflight
+        run: pnpm release:preflight -- --skip-release-branch
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Test
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build
+
+      - name: Pack packages
+        run: pnpm release:pack
+
+      - name: Dry run canary publish
+        run: pnpm release:publish -- --dry-run --tag "pr-${{ github.event.issue.number }}"
+
+      - name: Publish canary packages
+        run: pnpm release:publish -- --tag "pr-${{ github.event.issue.number }}"
+
+      - name: Comment with canary version
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+          VERSION: ${{ steps.canary.outputs.version }}
+        run: |
+          gh pr comment "$PR_NUMBER" --body "Published Rigkit canary packages at version ${VERSION} with npm dist-tag pr-${PR_NUMBER}."

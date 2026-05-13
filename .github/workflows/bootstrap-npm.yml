@@ -4,11 +4,15 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag to publish, for example v0.1.4"
+        description: "Release tag to publish, for example v0.1.10"
         required: true
 
 permissions:
   contents: read
+
+concurrency:
+  group: bootstrap-npm-${{ inputs.tag }}
+  cancel-in-progress: false
 
 jobs:
   bootstrap-npm:
@@ -19,6 +23,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           ref: ${{ inputs.tag }}
+          fetch-depth: 0
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -57,10 +62,8 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Check release versions
-        env:
-          GITHUB_REF_NAME: ${{ inputs.tag }}
-        run: pnpm release:check
+      - name: Release preflight
+        run: pnpm release:preflight -- --tag "${{ inputs.tag }}" --allow-unpublished
 
       - name: Typecheck
         run: pnpm typecheck
@@ -71,60 +74,15 @@ jobs:
       - name: Build
         run: pnpm build
 
-      - name: Verify packages are not already published
-        run: |
-          version="${GITHUB_REF_NAME#v}"
-          packages=(
-            @rigkit/engine
-            @rigkit/runtime-client
-            @rigkit/sdk
-            @rigkit/provider-freestyle
-            @rigkit/provider-gcloud-cli
-            @rigkit/provider-cmux
-            @rigkit/provider-vscode
-            @rigkit/cli
-          )
-          for pkg in "${packages[@]}"; do
-            if npm view "${pkg}@${version}" version >/dev/null 2>&1; then
-              echo "${pkg}@${version} is already published" >&2
-              exit 1
-            fi
-          done
-        env:
-          GITHUB_REF_NAME: ${{ inputs.tag }}
-
       - name: Pack packages
-        run: |
-          mkdir -p dist/npm
-          pnpm -C packages/engine pack --pack-destination ../../dist/npm
-          pnpm -C packages/runtime-client pack --pack-destination ../../dist/npm
-          pnpm -C packages/sdk pack --pack-destination ../../dist/npm
-          pnpm -C packages/provider-freestyle pack --pack-destination ../../dist/npm
-          pnpm -C packages/provider-gcloud-cli pack --pack-destination ../../dist/npm
-          pnpm -C packages/provider-cmux pack --pack-destination ../../dist/npm
-          pnpm -C packages/provider-vscode pack --pack-destination ../../dist/npm
-          pnpm -C packages/cli pack --pack-destination ../../dist/npm
+        run: pnpm release:pack
 
       - name: Dry run package publish
-        run: |
-          version="$(bun -p 'require("./packages/sdk/package.json").version')"
-          npx npm@latest publish dist/npm/rigkit-engine-*.tgz --access public --dry-run
-          npx npm@latest publish dist/npm/rigkit-runtime-client-*.tgz --access public --dry-run
-          npx npm@latest publish "dist/npm/rigkit-sdk-${version}.tgz" --access public --dry-run
-          npx npm@latest publish dist/npm/rigkit-provider-freestyle-*.tgz --access public --dry-run
-          npx npm@latest publish dist/npm/rigkit-provider-gcloud-cli-*.tgz --access public --dry-run
-          npx npm@latest publish dist/npm/rigkit-provider-cmux-*.tgz --access public --dry-run
-          npx npm@latest publish dist/npm/rigkit-provider-vscode-*.tgz --access public --dry-run
-          npx npm@latest publish dist/npm/rigkit-cli-*.tgz --access public --dry-run
+        run: pnpm release:publish -- --dry-run
 
       - name: Publish packages
-        run: |
-          version="$(bun -p 'require("./packages/sdk/package.json").version')"
-          npx npm@latest publish dist/npm/rigkit-engine-*.tgz --access public
-          npx npm@latest publish dist/npm/rigkit-runtime-client-*.tgz --access public
-          npx npm@latest publish "dist/npm/rigkit-sdk-${version}.tgz" --access public
-          npx npm@latest publish dist/npm/rigkit-provider-freestyle-*.tgz --access public
-          npx npm@latest publish dist/npm/rigkit-provider-gcloud-cli-*.tgz --access public
-          npx npm@latest publish dist/npm/rigkit-provider-cmux-*.tgz --access public
-          npx npm@latest publish dist/npm/rigkit-provider-vscode-*.tgz --access public
-          npx npm@latest publish dist/npm/rigkit-cli-*.tgz --access public
+        run: pnpm release:publish
+
+      - name: Print trusted publishing commands
+        if: always()
+        run: pnpm release:trust-commands

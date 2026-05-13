@@ -8,6 +8,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: release-cli-${{ github.ref_name }}
+  cancel-in-progress: false
+
 jobs:
   release-cli:
     runs-on: ubuntu-latest
@@ -15,11 +19,18 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
 
       - name: Setup pnpm
         run: |
@@ -29,8 +40,8 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Check release versions
-        run: pnpm release:check
+      - name: Release preflight
+        run: pnpm release:preflight -- --skip-npm
 
       - name: Typecheck
         run: pnpm typecheck

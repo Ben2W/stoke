@@ -1,0 +1,44 @@
+name: Create Release Line
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_line:
+        description: "Major/minor line to create, for example 0.2 or 1.0"
+        required: true
+      source_ref:
+        description: "Branch, tag, or SHA to branch from"
+        required: true
+        default: main
+
+permissions:
+  contents: write
+
+jobs:
+  create-release-line:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source ref
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.source_ref }}
+          fetch-depth: 0
+
+      - name: Create release branch
+        env:
+          VERSION_LINE: ${{ inputs.version_line }}
+        run: |
+          if ! printf '%s' "$VERSION_LINE" | grep -Eq '^[0-9]+\.[0-9]+$'; then
+            echo "version_line must look like 0.2 or 1.0" >&2
+            exit 1
+          fi
+
+          branch="release/${VERSION_LINE}"
+          if git ls-remote --exit-code origin "refs/heads/${branch}" >/dev/null 2>&1; then
+            echo "${branch} already exists" >&2
+            exit 1
+          fi
+
+          git switch -c "$branch"
+          git push origin "$branch"

@@ -1,0 +1,45 @@
+name: Check Release Label
+
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - labeled
+      - unlabeled
+      - ready_for_review
+
+permissions:
+  pull-requests: read
+
+jobs:
+  check-release-label:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check release label
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          labels="$(gh pr view "$PR_NUMBER" --json labels --jq '.labels[].name' | grep '^release:' || true)"
+          count="$(printf '%s\n' "$labels" | sed '/^$/d' | wc -l | tr -d ' ')"
+
+          if [ "$count" != "1" ]; then
+            echo "PRs into main must have exactly one release label: release:none, release:patch, release:minor, or release:major" >&2
+            printf 'Found release labels:\n%s\n' "${labels:-<none>}" >&2
+            exit 1
+          fi
+
+          case "$labels" in
+            release:none|release:patch|release:minor|release:major)
+              ;;
+            *)
+              echo "Unsupported release label: $labels" >&2
+              exit 1
+              ;;
+          esac

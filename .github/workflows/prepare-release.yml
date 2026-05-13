@@ -1,0 +1,123 @@
+name: Prepare Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_branch:
+        description: "Release branch to prepare, for example release/0.2"
+        required: true
+      release_type:
+        description: "Release type"
+        required: true
+        default: auto
+        type: choice
+        options:
+          - auto
+          - patch
+          - minor
+          - major
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: prepare-release-${{ inputs.target_branch }}
+  cancel-in-progress: false
+
+jobs:
+  prepare-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout target branch
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.target_branch }}
+          fetch-depth: 0
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Setup pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@9.15.9 --activate
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Create automation branch
+        id: branch
+        run: |
+          safe_target="$(printf '%s' "${{ inputs.target_branch }}" | tr '/' '-')"
+          branch="automation/release-${safe_target}-${GITHUB_RUN_ID}"
+          git switch -c "$branch"
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+
+      - name: Prepare version bump
+        id: prepare
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          pnpm release:prepare -- \
+            --target-branch "${{ inputs.target_branch }}" \
+            --release-type "${{ inputs.release_type }}"
+
+      - name: Validate release branch
+        run: pnpm release:preflight
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Test
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build
+
+      - name: Commit version bump
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          if git diff --quiet; then
+            echo "No release changes were generated" >&2
+            exit 1
+          fi
+
+          git add .
+          git commit -m "Prepare Rigkit v${{ steps.prepare.outputs.version }}"
+          git push --set-upstream origin "${{ steps.branch.outputs.branch }}"
+
+      - name: Open release PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_BRANCH: ${{ inputs.target_branch }}
+          HEAD_BRANCH: ${{ steps.branch.outputs.branch }}
+          VERSION: ${{ steps.prepare.outputs.version }}
+          RELEASE_TYPE: ${{ steps.prepare.outputs.release_type }}
+        run: |
+          body="$RUNNER_TEMP/release-pr.md"
+          {
+            echo "Prepares Rigkit v${VERSION}."
+            echo ""
+            echo "- Target branch: ${TARGET_BRANCH}"
+            echo "- Release type: ${RELEASE_TYPE}"
+            echo ""
+            echo "Merging this PR will create tag v${VERSION}. The tag will trigger npm publishing and the CLI release."
+          } > "$body"
+
+          gh pr create \
+            --base "$TARGET_BRANCH" \
+            --head "$HEAD_BRANCH" \
+            --title "Release Rigkit v${VERSION}" \
+            --body-file "$body"
