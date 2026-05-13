@@ -12,6 +12,7 @@ on:
       - ".github/workflows/prepare-major-release.yml"
       - ".github/workflows/prepare-minor-release.yml"
       - ".github/workflows/prepare-patch-release.yml"
+      - ".github/workflows/tag-release.yml"
       - "scripts/release/check-github-token.ts"
       - "package.json"
 

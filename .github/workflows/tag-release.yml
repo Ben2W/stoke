@@ -50,8 +50,17 @@ jobs:
       - name: Release preflight
         run: pnpm release:preflight
 
+      - name: Check release bot token permissions
+        env:
+          RELEASE_BOT_TOKEN: ${{ secrets.RELEASE_BOT_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: bun scripts/release/check-github-token.ts
+
       - name: Create release tag
         id: tag
+        env:
+          RELEASE_BOT_TOKEN: ${{ secrets.RELEASE_BOT_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
           version="$(pnpm --silent release:version)"
           tag="v${version}"
@@ -61,15 +70,23 @@ jobs:
             exit 1
           fi
 
+          if [ -z "$RELEASE_BOT_TOKEN" ]; then
+            echo "Missing RELEASE_BOT_TOKEN secret" >&2
+            exit 1
+          fi
+
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git tag -a "$tag" -m "Release $tag"
+          git config --local --unset-all http.https://github.com/.extraheader || true
+          git remote set-url origin "https://x-access-token:${RELEASE_BOT_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           git push origin "$tag"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
       - name: Comment on release PR
+        continue-on-error: true
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.RELEASE_BOT_TOKEN }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           TAG: ${{ steps.tag.outputs.tag }}
         run: gh pr comment "$PR_NUMBER" --body "Created release tag ${TAG}. npm publishing and CLI release workflows are now running."
