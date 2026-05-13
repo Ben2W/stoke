@@ -46,21 +46,31 @@ export default app
     return {
       vm: ctx.vm,
       workspaceNote:
-        "local gcloud config files are copied from workspace.onOpen",
+        "local gcloud config files are copied by the inject-gcloud workspace operation",
     };
   })
   .workspace({
-    source: (ctx) => ctx.vm,
-    onCreated: async ({ ctx, providers, workspace }) => {
+    create: async ({ ctx, providers, resources }) => {
       const vm = await providers.freestyle.vms.fromSnapshot(ctx.vm);
-      workspace.setResource("vm", {
+      resources.set("vm", {
         providerId: "freestyle",
         resourceId: vm.vmId,
         kind: "vm",
         sourceRef: ctx.vm,
       });
+      return {
+        vmId: vm.vmId,
+      };
     },
-    onOpen: async ({ providers, workspace }) => {
+    remove: async ({ providers, workspace }) => {
+      const vmResource = workspace.resources.vm;
+      if (vmResource) await providers.freestyle.vms.delete(vmResource.resourceId);
+    },
+  })
+  .workspaceOperation("inject-gcloud", {
+    title: "Inject gcloud",
+    description: "Copy local gcloud config files into the workspace VM",
+    run: async ({ providers, workspace }) => {
       const vmResource = workspace.resources.vm;
       if (!vmResource) throw new Error(`Workspace ${workspace.name} does not have a Freestyle VM resource`);
       const vm = providers.freestyle.vms.fromId(vmResource.resourceId);

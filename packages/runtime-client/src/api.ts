@@ -95,6 +95,7 @@ export const RuntimeControlOperationsManifestEffectSchema = Schema.Struct({
     requiredByOperations: Schema.Record({ key: Schema.String, value: Schema.Array(Schema.String) }),
   }),
   operations: Schema.Array(RuntimeControlOperationEffectSchema),
+  workspaceOperations: Schema.Array(RuntimeControlOperationEffectSchema),
 }).annotations({ identifier: "OperationsManifest" });
 
 export const RuntimeControlWorkflowsResponseEffectSchema = Schema.Struct({
@@ -110,6 +111,8 @@ export const RuntimeControlWorkspaceEffectSchema = Schema.Struct({
   snapshotId: OptionalString,
   sourceRef: Schema.Unknown,
   context: UnknownRecord,
+  resources: UnknownRecord,
+  kv: UnknownRecord,
   metadata: UnknownRecord,
   data: UnknownRecord,
   createdAt: Schema.String,

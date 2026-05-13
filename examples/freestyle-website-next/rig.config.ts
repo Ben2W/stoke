@@ -162,15 +162,15 @@ export default app
     repo: repoSetup,
   })
   .workspace({
-    onCreated: async ({ ctx, providers, workspace }) => {
+    create: async ({ ctx, providers, resources, name }) => {
       const vm = await providers.freestyle.vms.fromSnapshot(ctx.repo.vm);
-      workspace.setResource("vm", {
+      resources.set("vm", {
         providerId: "freestyle",
         resourceId: vm.vmId,
         kind: "vm",
         sourceRef: ctx.repo.vm,
       });
-      const branch = `rigkit/${workspace.name.replaceAll(/[^A-Za-z0-9._/-]/g, "-")}`;
+      const branch = `rigkit/${name.replaceAll(/[^A-Za-z0-9._/-]/g, "-")}`;
       await vm.exec(
         [
           "set -e",
@@ -181,26 +181,34 @@ export default app
           name: "create workspace branch",
         },
       );
-
-      await openInCmux({
-        name: workspace.name,
-        vm,
+      return {
         repoPath: ctx.repo.repoPath,
-        cmux: providers.cmux,
-      });
-
-      await waitForLocalhost(vm, devPort);
+        repo: ctx.repo.repo,
+        branch,
+        devPort,
+      };
     },
-    onOpen: async ({ ctx, providers, workspace }) => {
+    remove: async ({ providers, workspace }) => {
+      const vmResource = workspace.resources.vm;
+      if (vmResource) await providers.freestyle.vms.delete(vmResource.resourceId);
+    },
+  })
+  .workspaceOperation("open-cmux", {
+    title: "Open cmux",
+    description: "Open the website workspace in cmux",
+    run: async ({ providers, workspace }) => {
       const vmResource = workspace.resources.vm;
       if (!vmResource) throw new Error(`Workspace ${workspace.name} does not have a Freestyle VM resource`);
       const vm = providers.freestyle.vms.fromId(vmResource.resourceId);
+      const repoPath = workspace.data.repoPath;
+      if (typeof repoPath !== "string") throw new Error(`Workspace ${workspace.name} is missing repoPath`);
       await openInCmux({
         name: workspace.name,
         vm,
-        repoPath: ctx.repo.repoPath,
+        repoPath,
         cmux: providers.cmux,
       });
+      await waitForLocalhost(vm, devPort);
     },
   });
 

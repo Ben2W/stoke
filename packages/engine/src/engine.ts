@@ -4,6 +4,7 @@ import { pathToFileURL } from "node:url";
 import { isRigkitConfig, isProviderDefinition, isWorkflowNode } from "./authoring.ts";
 import { loadDotEnv } from "./env-file.ts";
 import { hash } from "./hash.ts";
+import { RESERVED_WORKFLOW_OPERATION_IDS } from "./types.ts";
 import type {
   BaseProviderPlugin,
   InteractionPresenter,
@@ -30,7 +31,6 @@ import type {
   LocalWorkspaceRuntime,
   OutputSchema,
   ProviderRuntimeMap,
-  ProviderWorkspaceContext,
   WorkflowInputFieldDefinition,
   WorkflowDefinition,
   WorkflowEvent,
@@ -42,10 +42,13 @@ import type {
   WorkflowPlanNode,
   WorkflowProviderMap,
   WorkflowTaskNode,
-  MutableWorkspaceRuntimeRecord,
   WorkspaceRecord,
+  WorkspaceKvRuntime,
   WorkspaceResourceInput,
   WorkspaceResourceRecord,
+  WorkspaceResourceWriter,
+  WorkspaceRuntimeRecord,
+  WorkflowWorkspaceOperationDefinition,
 } from "./types.ts";
 
 export type CreateDevMachineEngineOptions = {
@@ -181,6 +184,11 @@ type RuntimeOperationEntry = {
   readonly run: (input: { workflow?: string; input?: unknown }) => Promise<unknown>;
 };
 
+type RuntimeWorkspaceOperationEntry = {
+  readonly summary: EngineOperationSummary;
+  readonly run: (input: { workspace: string; workflow?: string; input?: unknown }) => Promise<unknown>;
+};
+
 let configImportCounter = 0;
 
 export class DevMachineEngine {
@@ -308,6 +316,10 @@ export class DevMachineEngine {
     return this.listRuntimeOperationEntries().map((entry) => entry.summary);
   }
 
+  listRuntimeWorkspaceOperations(): EngineOperationSummary[] {
+    return this.listRuntimeWorkspaceOperationEntries().map((entry) => entry.summary);
+  }
+
   private listRuntimeOperationEntries(): RuntimeOperationEntry[] {
     const configOperations = this.listConfigOperationEntries();
     const configOperationIds = new Set(configOperations.map((entry) => entry.summary.id));
@@ -317,6 +329,16 @@ export class DevMachineEngine {
         !configOperationIds.has(entry.summary.id) &&
         !entry.summary.aliases?.some((alias) => configOperationIds.has(alias))
       ),
+      ...configOperations,
+    ];
+  }
+
+  private listRuntimeWorkspaceOperationEntries(): RuntimeWorkspaceOperationEntry[] {
+    const configOperations = this.listConfigWorkspaceOperationEntries();
+    const configOperationIds = new Set(configOperations.map((entry) => entry.summary.id));
+    const coreOperations = this.listCoreWorkspaceOperationEntries();
+    return [
+      ...coreOperations.filter((entry) => !configOperationIds.has(entry.summary.id)),
       ...configOperations,
     ];
   }
@@ -343,7 +365,6 @@ export class DevMachineEngine {
           source: "config" as const,
           title: operation.title,
           description: operation.description,
-          createsWorkspace: operation.createsWorkspace,
           requiredHostMethods: operation.requiredHostMethods,
           requiredHostCapabilities: operation.requiredHostCapabilities,
           inputFields: operation.input?.fields ?? [],
@@ -352,9 +373,61 @@ export class DevMachineEngine {
     );
   }
 
+  private listConfigWorkspaceOperationEntries(): RuntimeWorkspaceOperationEntry[] {
+    return this.listWorkflows().flatMap((workflow) =>
+      workflow.workspaceOperations.map((operation) => ({
+        summary: this.workspaceOperationSummary(workflow, operation),
+        run: async (input) => {
+          const workspace = this.getStateService().getWorkspace(input.workspace);
+          if (!workspace) throw new Error(`Unknown workspace ${input.workspace}`);
+          if (workspace.workflow !== workflow.name) {
+            throw new EngineOperationValidationError({
+              operation: operation.id,
+              message: `Workspace ${workspace.name} belongs to workflow ${workspace.workflow}, not ${workflow.name}`,
+            });
+          }
+          const providers = await this.createProviders(workflow);
+          return await this.runConfigWorkspaceOperation({
+            workflow,
+            providers,
+            workspace,
+            operation,
+            rawInput: input.input,
+          });
+        },
+      }))
+    );
+  }
+
+  private listConfigWorkspaceOperationSummaries(): EngineOperationSummary[] {
+    return this.listWorkflows().flatMap((workflow) =>
+      workflow.workspaceOperations.map((operation) => {
+        assertAllowedConfigOperationId(operation.id);
+        return this.workspaceOperationSummary(workflow, operation);
+      }),
+    );
+  }
+
+  private workspaceOperationSummary(
+    workflow: LoadedWorkflow,
+    operation: WorkflowWorkspaceOperationDefinition<any, any, any, any>,
+  ): EngineOperationSummary {
+    return {
+      workflow: workflow.name,
+      id: operation.id,
+      source: "config" as const,
+      kind: "workspace-action" as const,
+      title: operation.title,
+      description: operation.description,
+      requiredHostMethods: operation.requiredHostMethods,
+      requiredHostCapabilities: operation.requiredHostCapabilities,
+      inputFields: operation.input?.fields ?? [],
+    };
+  }
+
   private listCoreOperationEntries(): RuntimeOperationEntry[] {
     const workflows = this.listWorkflows();
-    const hasWorkspaceCreator = workflows.some((workflow) => workflow.create || workflow.workspace);
+    const hasWorkspaceCreator = workflows.some((workflow) => workflow.workspace);
     const workflowField = stringField({
       name: "workflow",
       required: false,
@@ -423,7 +496,7 @@ export class DevMachineEngine {
               source: "core",
               kind: "command",
               title: "Create",
-              description: "Create a workspace from the resolved workflow artifact",
+              description: "Create a workspace",
               createsWorkspace: true,
               inputFields: [
                 workflowField,
@@ -438,7 +511,7 @@ export class DevMachineEngine {
             },
             async (input) => {
               const parsed = parseCoreOperationInput("create", input.input);
-              return await this.fork({
+              return await this.createWorkspace({
                 workflow: optionalStringInput("create", parsed, "workflow"),
                 name: requiredStringInput("create", parsed, "name"),
               });
@@ -527,36 +600,40 @@ export class DevMachineEngine {
           });
         },
       ),
+    ];
+  }
+
+  private listCoreWorkspaceOperationEntries(): RuntimeWorkspaceOperationEntry[] {
+    const workflows = this.listWorkflows().filter((workflow) => workflow.workspace);
+    if (workflows.length === 0) return [];
+    const coreOperation = (
+      summary: EngineOperationSummary,
+      run: RuntimeWorkspaceOperationEntry["run"],
+    ): RuntimeWorkspaceOperationEntry => ({ summary, run });
+
+    return workflows.map((workflow) =>
       coreOperation(
         {
-          workflow: "",
-          id: "delete",
-          aliases: ["rm"],
+          workflow: workflow.name,
+          id: "remove",
           source: "core",
-          kind: "command",
-          title: "Delete",
-          description: "Delete a workspace VM and remove it from state",
-          inputFields: [
-            workflowField,
-            stringField({ name: "workspace", position: 0, required: true }),
-          ],
+          kind: "workspace-action",
+          title: "Remove",
+          description: "Remove a workspace",
+          inputFields: [],
           cli: {
-            positionals: [{ name: "workspace", index: 0 }],
             options: [
-              { name: "workflow", flag: "--workflow" },
-              { name: "yes", flag: "--yes", aliases: ["-y"], required: true, type: "boolean", runtime: false },
+              { name: "yes", flag: "--yes", aliases: ["-y"], type: "boolean", runtime: false },
             ],
           },
         },
-        async (input) => {
-          const parsed = parseCoreOperationInput("delete", input.input);
-          return await this.deleteWorkspace({
-            workflow: optionalStringInput("delete", parsed, "workflow"),
-            workspace: requiredStringInput("delete", parsed, "workspace"),
-          });
-        },
-      ),
-    ];
+        async (input) =>
+          await this.removeWorkspace({
+            workflow: input.workflow,
+            workspace: input.workspace,
+          }),
+      )
+    );
   }
 
   listNodeRuns(): WorkflowNodeRunRecord[] {
@@ -568,6 +645,15 @@ export class DevMachineEngine {
   }
 
   async runRuntimeOperation(input: { operation: string; workflow?: string; input?: unknown }): Promise<unknown> {
+    const workspaceTarget = parseWorkspaceOperationId(input.operation);
+    if (workspaceTarget) {
+      return await this.runWorkspaceOperation({
+        workspace: workspaceTarget.workspace,
+        operation: workspaceTarget.operation,
+        workflow: input.workflow,
+        input: input.input,
+      });
+    }
     const operation = this.findRuntimeOperationEntry(input.operation);
     if (!operation) throw new EngineOperationNotFoundError(input.operation);
     return await operation.run({ workflow: input.workflow, input: input.input });
@@ -592,8 +678,42 @@ export class DevMachineEngine {
       workflow: workflow.name,
     });
     if (result !== undefined) assertJsonValue(result, `Operation ${operation.id} result`);
-    if (operation.createsWorkspace) return this.saveOperationWorkspace(workflow, operation, input.input, result);
     return result ?? null;
+  }
+
+  async runWorkspaceOperation(input: {
+    workspace: string;
+    operation: string;
+    workflow?: string;
+    input?: unknown;
+  }): Promise<unknown> {
+    const workspace = this.getStateService().getWorkspace(input.workspace);
+    if (!workspace) throw new Error(`Unknown workspace ${input.workspace}`);
+    const workflow = this.getWorkflow(input.workflow ?? workspace.workflow);
+    if (workspace.workflow !== workflow.name) {
+      throw new EngineOperationValidationError({
+        operation: input.operation,
+        message: `Workspace ${workspace.name} belongs to workflow ${workspace.workflow}, not ${workflow.name}`,
+      });
+    }
+
+    const core = this.listCoreWorkspaceOperationEntries().find((entry) =>
+      entry.summary.workflow === workflow.name && entry.summary.id === input.operation
+    );
+    if (core) {
+      return await core.run({ workspace: workspace.name, workflow: workflow.name, input: input.input });
+    }
+
+    const operation = workflow.workspaceOperations.find((item) => item.id === input.operation);
+    if (!operation) throw new EngineOperationNotFoundError(`${workspace.name}/${input.operation}`);
+    const providers = await this.createProviders(workflow);
+    return await this.runConfigWorkspaceOperation({
+      workflow,
+      providers,
+      workspace,
+      operation,
+      rawInput: input.input,
+    });
   }
 
   async plan(input: { workflow?: string; machine?: string } = {}): Promise<WorkflowPlan> {
@@ -628,56 +748,59 @@ export class DevMachineEngine {
       providers,
       mode: "apply",
     });
-    const workspaceSource = this.resolveWorkspaceSource(workflow, result.context, providers, { required: false });
 
     return {
       context: result.context,
-      snapshotId: snapshotIdOf(workspaceSource),
-      workspaceSource,
       plan: result.plan,
     };
   }
 
   async fork(input: { workflow?: string; machine?: string; name: string }): Promise<WorkspaceRecord> {
-    if (!input.name) throw new Error(`fork requires a workspace name`);
+    return await this.createWorkspace(input);
+  }
+
+  async createWorkspace(input: { workflow?: string; machine?: string; name: string }): Promise<WorkspaceRecord> {
+    if (!input.name) throw new Error(`create requires a workspace name`);
+    if (this.getStateService().getWorkspace(input.name)) {
+      throw new Error(`Workspace ${input.name} already exists`);
+    }
 
     const applied = await this.apply({ workflow: input.workflow ?? input.machine });
     const workflow = this.getWorkflow(input.workflow ?? input.machine);
     const providers = await this.createProviders(workflow);
-    if (workflow.create) {
-      return await this.createWorkspaceFromCallback({
-        workflow,
-        providers,
-        context: applied.context,
-        name: input.name,
-      });
+    if (!workflow.workspace) {
+      throw new Error(`Workflow ${workflow.name} does not define a workspace`);
     }
 
-    const sourceRef = applied.workspaceSource ?? null;
     const now = new Date().toISOString();
-
     const workspace: WorkspaceRecord = {
       id: crypto.randomUUID(),
       name: input.name,
       providerId: "rigkit",
       workflow: workflow.name,
       resourceId: input.name,
-      snapshotId: applied.snapshotId,
-      sourceRef,
+      sourceRef: null,
       context: { ...applied.context },
       resources: {},
+      kv: {},
       createdAt: now,
       updatedAt: now,
       metadata: {},
     };
 
     this.getStateService().saveWorkspace(workspace);
-    await this.runWorkspaceCreatedHook({
-      workflow,
-      providers,
-      workspace,
-      context: applied.context,
-    });
+    try {
+      await this.runWorkspaceCreate({
+        workflow,
+        providers,
+        workspace,
+        context: applied.context,
+        name: input.name,
+      });
+    } catch (error) {
+      this.getStateService().deleteWorkspace(workspace.name);
+      throw error;
+    }
     const ready = this.getStateService().getWorkspace(input.name) ?? workspace;
 
     this.emit({
@@ -701,16 +824,7 @@ export class DevMachineEngine {
     const workspace = this.getStateService().findWorkspace(input.workspaceOrVmId);
     const workflow = this.getWorkflow(input.workflow ?? input.machine ?? workspace?.workflow);
     const providers = await this.createProviders(workflow);
-    if (workspace) {
-      await this.runWorkspaceOpenHook({
-        workflow,
-        providers,
-        workspace,
-        context: workspace.context,
-      });
-    }
-    const refreshedWorkspace = workspace ? (this.getStateService().getWorkspace(workspace.name) ?? workspace) : undefined;
-    const terminalResource = refreshedWorkspace ? this.primaryWorkspaceResource(refreshedWorkspace) : undefined;
+    const terminalResource = workspace ? this.primaryWorkspaceResource(workspace) : undefined;
     const workspaceProvider = terminalResource
       ? this.workspaceProviderById(providers, terminalResource.providerId)
       : this.singleWorkspaceProvider(providers);
@@ -729,18 +843,45 @@ export class DevMachineEngine {
   }
 
   async deleteWorkspace(input: { workspace: string; workflow?: string; machine?: string }): Promise<WorkspaceRecord> {
+    return await this.removeWorkspace(input);
+  }
+
+  async removeWorkspace(input: { workspace: string; workflow?: string; machine?: string }): Promise<WorkspaceRecord> {
     const workspace = this.getStateService().getWorkspace(input.workspace);
     if (!workspace) throw new Error(`Unknown workspace ${input.workspace}`);
 
     const workflow = this.getWorkflow(input.workflow ?? input.machine ?? workspace.workflow);
-    const providers = await this.createProviders(workflow);
-    for (const resource of this.workspaceResources(workspace)) {
-      const workspaceProvider = this.workspaceProviderById(providers, resource.providerId);
-      await workspaceProvider.deleteWorkspace(workspaceWithResource(workspace, resource));
+    if (workspace.workflow !== workflow.name) {
+      throw new EngineOperationValidationError({
+        operation: "remove",
+        message: `Workspace ${workspace.name} belongs to workflow ${workspace.workflow}, not ${workflow.name}`,
+      });
     }
+    if (!workflow.workspace) {
+      throw new Error(`Workflow ${workflow.name} does not define a workspace`);
+    }
+    const providers = await this.createProviders(workflow);
+    const metadata: JsonObject = {};
+    const runtime = await this.createTaskRuntime({
+      workflow,
+      providers,
+      nodePath: `workspace.${workspace.name}.remove`,
+      metadata,
+    });
+    const draft = cloneWorkspace(workspace);
+    const workspaceRuntime = this.createWorkspaceRuntime(workflow, draft);
+
+    await workflow.workspace.remove({
+      ...runtime,
+      ctx: Object.freeze({ ...workspace.context }),
+      workspace: workspaceRuntime,
+      providers: runtime,
+      kv: workspaceRuntime.kv,
+      local: this.local,
+      workflow: workflow.name,
+    });
 
     this.getStateService().deleteWorkspace(input.workspace);
-
     return workspace;
   }
 
@@ -1138,113 +1279,136 @@ export class DevMachineEngine {
     return Object.fromEntries(entries) as ProviderRuntimeMap<WorkflowProviderMap>;
   }
 
-  private async runWorkspaceCreatedHook(input: {
+  private async runWorkspaceCreate(input: {
     workflow: LoadedWorkflow;
     providers: ProviderControllers;
     workspace: WorkspaceRecord;
     context: Record<string, JsonValue>;
+    name: string;
   }): Promise<void> {
-    await this.runWorkspaceHook("created", input.workflow.workspace?.onCreated, input);
-  }
-
-  private async runWorkspaceOpenHook(input: {
-    workflow: LoadedWorkflow;
-    providers: ProviderControllers;
-    workspace: WorkspaceRecord;
-    context: Record<string, JsonValue>;
-  }): Promise<void> {
-    await this.runWorkspaceHook("open", input.workflow.workspace?.onOpen, input);
-  }
-
-  private async runWorkspaceHook(
-    lifecycle: "created" | "open",
-    hook: ((context: {
-      workspace: MutableWorkspaceRuntimeRecord;
-      ctx: Readonly<Record<string, JsonValue>>;
-      providers: ProviderRuntimeMap<WorkflowProviderMap>;
-      providerContext: ProviderWorkspaceContext;
-      local: LocalWorkspaceRuntime;
-    }) => Promise<void | JsonObject> | void | JsonObject) | undefined,
-    input: {
-      workflow: LoadedWorkflow;
-      providers: ProviderControllers;
-      workspace: WorkspaceRecord;
-      context: Record<string, JsonValue>;
-    },
-  ): Promise<void> {
-    if (!hook) return;
-
-    const providerContext = await this.workspaceProviderContext(input.providers, input.workspace);
-    const draft: WorkspaceRecord = {
-      ...input.workspace,
-      resources: { ...input.workspace.resources },
-      metadata: { ...input.workspace.metadata },
-    };
-    const workspace = this.createMutableWorkspaceRuntime(input.workflow, input.context, draft);
+    if (!input.workflow.workspace) {
+      throw new Error(`Workflow ${input.workflow.name} does not define a workspace`);
+    }
+    const draft = cloneWorkspace(input.workspace);
     const metadata: JsonObject = {};
     const providers = await this.createTaskRuntime({
       workflow: input.workflow,
       providers: input.providers,
-      nodePath: `workspace.${input.workspace.name}.${lifecycle}`,
+      nodePath: `workspace.${input.name}.create`,
       metadata,
     });
+    const resources = this.createWorkspaceResourceWriter(draft);
+    const kv = this.createWorkspaceKvRuntime(draft);
 
     try {
-      const result = await hook({
-        workspace,
+      const data = await input.workflow.workspace.create({
+        ...providers,
         ctx: Object.freeze({ ...input.context }),
+        name: input.name,
         providers,
-        providerContext: normalizeProviderWorkspaceContext(providerContext),
+        resources,
+        kv,
         local: this.local,
+        workflow: input.workflow.name,
       });
-      Object.assign(draft.metadata, metadata);
-      if (result !== undefined) {
-        assertJsonValue(result, `Workflow ${input.workflow.name} workspace ${lifecycle} result`);
-        if (!isPlainObject(result)) {
-          throw new Error(`Workflow ${input.workflow.name} workspace ${lifecycle} result must be an object`);
-        }
-        Object.assign(draft.metadata, result);
+      assertJsonValue(data, `Workflow ${input.workflow.name} workspace create result`);
+      if (!isPlainObject(data)) {
+        throw new Error(`Workflow ${input.workflow.name} workspace create result must be an object`);
       }
+      draft.metadata = { ...data, ...metadata };
     } finally {
       draft.updatedAt = new Date().toISOString();
       this.getStateService().saveWorkspace(draft);
     }
   }
 
-  private createMutableWorkspaceRuntime(
+  private async runConfigWorkspaceOperation(input: {
+    workflow: LoadedWorkflow;
+    providers: ProviderControllers;
+    workspace: WorkspaceRecord;
+    operation: WorkflowWorkspaceOperationDefinition<any, any, any, any>;
+    rawInput: unknown;
+  }): Promise<unknown> {
+    const metadata: JsonObject = {};
+    const providers = await this.createTaskRuntime({
+      workflow: input.workflow,
+      providers: input.providers,
+      nodePath: `workspace.${input.workspace.name}.${input.operation.id}`,
+      metadata,
+    });
+    const draft = cloneWorkspace(input.workspace);
+    const workspace = this.createWorkspaceRuntime(input.workflow, draft);
+    const operationInput = this.resolveOperationInput(input.workflow, input.operation, input.rawInput ?? {});
+
+    try {
+      const result = await input.operation.run({
+        ...providers,
+        ctx: Object.freeze({ ...input.workspace.context }),
+        input: Object.freeze(operationInput),
+        workspace,
+        providers,
+        kv: workspace.kv,
+        local: this.local,
+        workflow: input.workflow.name,
+      });
+      Object.assign(draft.metadata, metadata);
+      if (result !== undefined) assertJsonValue(result, `Workspace operation ${input.operation.id} result`);
+      return result ?? null;
+    } finally {
+      draft.updatedAt = new Date().toISOString();
+      this.getStateService().saveWorkspace(draft);
+    }
+  }
+
+  private createWorkspaceRuntime<Data extends JsonObject>(
     workflow: LoadedWorkflow,
-    context: Record<string, JsonValue>,
     draft: WorkspaceRecord,
-  ): MutableWorkspaceRuntimeRecord {
-    return {
+  ): WorkspaceRuntimeRecord<Data> {
+    return Object.freeze({
       ...draft,
-      resources: draft.resources,
-      metadata: draft.metadata,
-      data: draft.metadata,
-      cwd: resolveWorkspaceCwd(workflow, context),
-      setMetadata: (metadata) => {
-        assertJsonValue(metadata, `Workspace ${draft.name} metadata`);
-        Object.assign(draft.metadata, metadata);
-      },
-      setResource: (name, resource) => {
+      context: Object.freeze({ ...draft.context }),
+      resources: freezeWorkspaceResources(draft.resources),
+      metadata: Object.freeze({ ...draft.metadata }) as Readonly<Data>,
+      data: Object.freeze({ ...draft.metadata }) as Readonly<Data>,
+      kv: this.createWorkspaceKvRuntime(draft),
+      cwd: resolveWorkspaceCwd(workflow, draft.context),
+    }) as WorkspaceRuntimeRecord<Data>;
+  }
+
+  private createWorkspaceResourceWriter(draft: WorkspaceRecord): WorkspaceResourceWriter {
+    return {
+      set: (name, resource) => {
         const normalized = name.trim();
         if (!normalized) throw new Error(`Workspace resource name must be non-empty`);
         draft.resources[normalized] = normalizeWorkspaceResource(resource, `Workspace ${draft.name} resource ${normalized}`);
+        draft.updatedAt = new Date().toISOString();
+        this.getStateService().saveWorkspace(draft);
       },
-      removeResource: (name) => {
+      delete: (name) => {
         delete draft.resources[name];
+        draft.updatedAt = new Date().toISOString();
+        this.getStateService().saveWorkspace(draft);
       },
+      entries: () => ({ ...draft.resources }),
     };
   }
 
-  private async workspaceProviderContext(
-    providers: ProviderControllers,
-    workspace: WorkspaceRecord,
-  ): Promise<ProviderWorkspaceContext> {
-    const resource = this.optionalPrimaryWorkspaceResource(workspace);
-    if (!resource) return {};
-    const workspaceProvider = this.workspaceProviderByIdOrUndefined(providers, resource.providerId);
-    return await workspaceProvider?.workspaceContext?.(workspaceWithResource(workspace, resource)) ?? {};
+  private createWorkspaceKvRuntime(draft: WorkspaceRecord): WorkspaceKvRuntime {
+    return {
+      get: <Value extends JsonValue = JsonValue>(key: string) => draft.kv[key] as Value | undefined,
+      set: (key, value) => {
+        assertJsonValue(value, `Workspace ${draft.name} kv ${key}`);
+        draft.kv[key] = value;
+        draft.updatedAt = new Date().toISOString();
+        this.getStateService().saveWorkspace(draft);
+      },
+      delete: (key) => {
+        delete draft.kv[key];
+        draft.updatedAt = new Date().toISOString();
+        this.getStateService().saveWorkspace(draft);
+      },
+      entries: () => ({ ...draft.kv }),
+    };
   }
 
   private workspaceResources(workspace: WorkspaceRecord): WorkspaceResourceRecord[] {
@@ -1321,7 +1485,7 @@ export class DevMachineEngine {
 
   private resolveOperationInput(
     workflow: LoadedWorkflow,
-    operation: WorkflowOperationDefinition<any, any>,
+    operation: { id: string; input?: { fields: readonly WorkflowInputFieldDefinition[] } },
     value: unknown,
   ): Record<string, unknown> {
     const raw = isPlainObject(value) ? value : {};
@@ -1361,11 +1525,7 @@ export class DevMachineEngine {
             message: `Workspace ${workspace.name} belongs to workflow ${workspace.workflow}, not ${workflow.name}`,
           });
         }
-        resolved[field.name] = {
-          ...workspace,
-          cwd: resolveWorkspaceCwd(workflow, workspace.context),
-          data: workspace.metadata,
-        };
+        resolved[field.name] = this.createWorkspaceRuntime(workflow, cloneWorkspace(workspace));
         continue;
       }
 
@@ -1403,119 +1563,6 @@ export class DevMachineEngine {
     }
 
     return resolved;
-  }
-
-  private saveOperationWorkspace(
-    workflow: LoadedWorkflow,
-    operation: WorkflowOperationDefinition<any, any>,
-    rawInput: unknown,
-    result: unknown,
-  ): WorkspaceRecord {
-    if (!isPlainObject(result)) {
-      throw new Error(`Operation ${operation.id} must return an object when createsWorkspace is true`);
-    }
-    const data = result as Record<string, JsonValue>;
-    const raw = isPlainObject(rawInput) ? rawInput : {};
-    const name = typeof data.name === "string"
-      ? data.name
-      : typeof raw.name === "string"
-        ? raw.name
-        : undefined;
-    if (!name) throw new Error(`Operation ${operation.id} must return or receive a workspace name`);
-    const resourceId = typeof data.resourceId === "string"
-      ? data.resourceId
-      : typeof data.vmId === "string"
-        ? data.vmId
-        : name;
-    const providerId = typeof data.providerId === "string" ? data.providerId : "config";
-    const now = new Date().toISOString();
-    const workspace: WorkspaceRecord = {
-      id: crypto.randomUUID(),
-      name,
-      providerId,
-      workflow: workflow.name,
-      resourceId,
-      snapshotId: typeof data.snapshotId === "string" ? data.snapshotId : undefined,
-      sourceRef: isJsonValue(data.sourceRef) ? data.sourceRef : data,
-      context: {},
-      resources: workspaceResourcesFromData(data, providerId, resourceId),
-      createdAt: now,
-      updatedAt: now,
-      metadata: data,
-    };
-    this.getStateService().saveWorkspace(workspace);
-    this.emit({
-      type: "workspace.ready",
-      workspaceId: workspace.name,
-      providerId: workspace.providerId,
-      resourceId: workspace.resourceId,
-      snapshotId: workspace.snapshotId,
-    });
-    return workspace;
-  }
-
-  private async createWorkspaceFromCallback(input: {
-    workflow: LoadedWorkflow;
-    providers: ProviderControllers;
-    context: Record<string, JsonValue>;
-    name: string;
-  }): Promise<WorkspaceRecord> {
-    if (!input.workflow.create) {
-      throw new Error(`Workflow ${input.workflow.name} does not define a create callback`);
-    }
-    const metadata: JsonObject = {};
-    const runtime = await this.createTaskRuntime({
-      workflow: input.workflow,
-      providers: input.providers,
-      nodePath: `create.${input.name}`,
-      metadata,
-    });
-    const result = await input.workflow.create.handler({
-      ...runtime,
-      ctx: Object.freeze({ ...input.context }),
-      name: input.name,
-      providers: runtime,
-      local: this.local,
-      workflow: input.workflow.name,
-    });
-    assertJsonValue(result, `Workflow ${input.workflow.name} create result`);
-    if (!isPlainObject(result)) {
-      throw new Error(`Workflow ${input.workflow.name} create result must be an object`);
-    }
-
-    const data = result as Record<string, JsonValue>;
-    const name = typeof data.name === "string" ? data.name : input.name;
-    const resourceId = typeof data.resourceId === "string"
-      ? data.resourceId
-      : typeof data.vmId === "string"
-        ? data.vmId
-        : name;
-    const providerId = typeof data.providerId === "string" ? data.providerId : "config";
-    const now = new Date().toISOString();
-    const workspace: WorkspaceRecord = {
-      id: crypto.randomUUID(),
-      name,
-      providerId,
-      workflow: input.workflow.name,
-      resourceId,
-      snapshotId: typeof data.snapshotId === "string" ? data.snapshotId : undefined,
-      sourceRef: isJsonValue(data.sourceRef) ? data.sourceRef : data,
-      context: { ...input.context },
-      resources: workspaceResourcesFromData(data, providerId, resourceId),
-      createdAt: now,
-      updatedAt: now,
-      metadata: data,
-    };
-
-    this.getStateService().saveWorkspace(workspace);
-    this.emit({
-      type: "workspace.ready",
-      workspaceId: workspace.name,
-      providerId: workspace.providerId,
-      resourceId: workspace.resourceId,
-      snapshotId: workspace.snapshotId,
-    });
-    return workspace;
   }
 
   private getStateService(): StateService {
@@ -1563,33 +1610,9 @@ export class DevMachineEngine {
       providers,
       root,
       workspace: root.workspaceDefinition,
-      create: root.createDefinition,
       operations: root.operations ?? [],
+      workspaceOperations: root.workspaceOperations ?? [],
     };
-  }
-
-  private resolveWorkspaceSource(
-    workflow: LoadedWorkflow,
-    context: Record<string, JsonValue>,
-    providers: ProviderControllers,
-    options: { required: boolean },
-  ): JsonValue | undefined {
-    const source = workflow.workspace?.source?.(context);
-    if (source !== undefined) {
-      assertJsonValue(source, `Workflow ${workflow.name} workspace source`);
-      return source;
-    }
-
-    const candidates = collectArtifacts(context).filter((artifact) =>
-      Object.values(providers).some((provider) => provider.workspace?.canUse(artifact)),
-    );
-
-    if (candidates.length === 1) return candidates[0];
-    if (!options.required && candidates.length === 0) return undefined;
-    if (candidates.length === 0) {
-      throw new Error(`Workflow ${workflow.name} did not produce a provider artifact that can be forked`);
-    }
-    throw new Error(`Workflow ${workflow.name} produced multiple forkable artifacts; configure workspace.source`);
   }
 
   private workspaceProviderById(
@@ -1646,6 +1669,35 @@ function workspaceWithResource(
   };
 }
 
+function cloneWorkspace(workspace: WorkspaceRecord): WorkspaceRecord {
+  return {
+    ...workspace,
+    context: { ...workspace.context },
+    resources: { ...workspace.resources },
+    kv: { ...workspace.kv },
+    metadata: { ...workspace.metadata },
+  };
+}
+
+function freezeWorkspaceResources(
+  resources: Record<string, WorkspaceResourceRecord>,
+): Readonly<Record<string, Readonly<WorkspaceResourceRecord>>> {
+  return Object.freeze(
+    Object.fromEntries(
+      Object.entries(resources).map(([name, resource]) => [name, Object.freeze({ ...resource })]),
+    ),
+  );
+}
+
+function parseWorkspaceOperationId(value: string): { workspace: string; operation: string } | undefined {
+  const slash = value.indexOf("/");
+  if (slash <= 0 || slash === value.length - 1) return undefined;
+  return {
+    workspace: value.slice(0, slash),
+    operation: value.slice(slash + 1),
+  };
+}
+
 function normalizeWorkspaceResource(
   resource: WorkspaceResourceInput,
   label: string,
@@ -1670,33 +1722,6 @@ function normalizeWorkspaceResource(
     ...(resource.sourceRef !== undefined ? { sourceRef: resource.sourceRef } : {}),
     ...(isPlainObject(resource.metadata) ? { metadata: resource.metadata as JsonObject } : {}),
   };
-}
-
-function workspaceResourcesFromData(
-  data: Record<string, JsonValue>,
-  providerId: string,
-  resourceId: string,
-): Record<string, WorkspaceResourceRecord> {
-  const resources = data.resources;
-  if (isPlainObject(resources)) {
-    return Object.fromEntries(
-      Object.entries(resources).map(([name, resource]) => [
-        name,
-        normalizeWorkspaceResource(resource as WorkspaceResourceInput, `Workspace resource ${name}`),
-      ]),
-    );
-  }
-  if (providerId !== "config" && providerId !== "rigkit") {
-    return {
-      default: {
-        providerId,
-        resourceId,
-        ...(typeof data.snapshotId === "string" ? { snapshotId: data.snapshotId } : {}),
-        ...(isJsonValue(data.sourceRef) ? { sourceRef: data.sourceRef } : {}),
-      },
-    };
-  }
-  return {};
 }
 
 async function resolveProviderDefinition(
@@ -1797,7 +1822,7 @@ function summarizeWorkflow(workflow: LoadedWorkflow): WorkflowSummary {
     providers: Object.entries(workflow.providers).map(([name, provider]) => `${name}:${provider.providerId}`),
     nodes: collectNodePaths(workflow.root),
     operations: workflow.operations.map((operation) => operation.id),
-    createsWorkspace: Boolean(workflow.create || workflow.workspace),
+    createsWorkspace: Boolean(workflow.workspace),
     workspace: workflow.workspace,
   };
 }
@@ -1933,21 +1958,9 @@ function kindOf(value: unknown): string | undefined {
   return isPlainObject(value) && typeof value.kind === "string" ? value.kind : undefined;
 }
 
-function snapshotIdOf(value: unknown): string | undefined {
-  return isPlainObject(value) && typeof value.snapshotId === "string" ? value.snapshotId : undefined;
-}
-
 function resolveWorkspaceCwd(workflow: LoadedWorkflow, context: Record<string, JsonValue>): string | undefined {
   const cwd = workflow.workspace?.cwd;
   return typeof cwd === "function" ? cwd(context) : cwd;
-}
-
-function normalizeProviderWorkspaceContext(value: unknown): ProviderWorkspaceContext {
-  if (value === undefined) return {};
-  if (!isPlainObject(value)) {
-    throw new Error(`Provider workspace context must be an object`);
-  }
-  return value as ProviderWorkspaceContext;
 }
 
 function assertJsonValue(value: unknown, label: string): asserts value is JsonValue {
@@ -1984,15 +1997,7 @@ function isJsonValue(value: unknown): value is JsonValue {
   }
 }
 
-const RESERVED_HOST_OPERATION_IDS = new Set([
-  "completion",
-  "doctor",
-  "help",
-  "init",
-  "projects",
-  "run",
-  "version",
-]);
+const RESERVED_HOST_OPERATION_IDS = new Set<string>(RESERVED_WORKFLOW_OPERATION_IDS);
 
 const CORE_OPERATION_INPUT_FIELDS: Record<string, readonly string[]> = {
   plan: ["workflow"],
@@ -2000,7 +2005,6 @@ const CORE_OPERATION_INPUT_FIELDS: Record<string, readonly string[]> = {
   create: ["workflow", "name"],
   ssh: ["workflow", "workspaceOrVmId", "user", "print"],
   snapshot: ["workflow", "workspace", "label"],
-  delete: ["workflow", "workspace"],
 };
 
 function assertAllowedConfigOperationId(operationId: string): void {

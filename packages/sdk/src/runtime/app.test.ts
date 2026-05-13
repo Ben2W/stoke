@@ -242,6 +242,7 @@ describe("runtime HTTP app", () => {
       "hostMethods",
       "hostCapabilities",
       "operations",
+      "workspaceOperations",
     ]);
   });
 
@@ -299,9 +300,7 @@ describe("runtime HTTP app", () => {
           source: "config",
           title: "Open",
           description: "Open a workspace",
-          createsWorkspace: false,
           requiredHostMethods: [{ id: "host.command.run", modes: ["interactive"] }],
-          requiredHostCapabilities: [{ id: "cmux.open", schemaHash: "sha256:cmux-open-schema" }],
           inputFields: [
             {
               kind: "workspace",
@@ -320,18 +319,41 @@ describe("runtime HTTP app", () => {
           ],
         },
         {
-          workflow: "test",
-          id: "fork",
-          source: "config",
+          workflow: "",
+          id: "create",
+          source: "core",
+          kind: "command",
           createsWorkspace: true,
+          inputFields: [{ kind: "string", name: "name", required: true }],
+        },
+      ],
+      listRuntimeWorkspaceOperations: () => [
+        {
+          workflow: "test",
+          id: "remove",
+          source: "core",
+          kind: "workspace-action",
+          title: "Remove",
+          description: "Remove a workspace",
+          inputFields: [],
+        },
+        {
+          workflow: "test",
+          id: "open-cmux",
+          source: "config",
+          kind: "workspace-action",
+          title: "Open cmux",
+          description: "Open a workspace in cmux",
+          requiredHostCapabilities: [{ id: "cmux.open", schemaHash: "sha256:cmux-open-schema" }],
           inputFields: [],
         },
       ],
     } as any);
 
     const operation = manifest.operations.find((item) => item.id === "open");
-    const forkOperation = manifest.operations.find((item) => item.id === "fork");
+    const createOperation = manifest.operations.find((item) => item.id === "create");
     const sshOperation = manifest.operations.find((item) => item.id === "ssh");
+    const cmuxOperation = manifest.workspaceOperations.find((item) => item.id === "open-cmux");
     const inputSchema = operation?.inputSchema as any;
     const sshInputSchema = sshOperation?.inputSchema as any;
 
@@ -340,7 +362,8 @@ describe("runtime HTTP app", () => {
     expect(operation?.requiredHostMethods).toEqual([
       { id: "host.command.run", modes: ["interactive"] },
     ]);
-    expect(operation?.requiredHostCapabilities).toEqual([
+    expect(operation?.requiredHostCapabilities).toBeUndefined();
+    expect(cmuxOperation?.requiredHostCapabilities).toEqual([
       { id: "cmux.open", schemaHash: "sha256:cmux-open-schema" },
     ]);
     expect(manifest.hostCapabilities.optional).toEqual([
@@ -361,9 +384,9 @@ describe("runtime HTTP app", () => {
       default: false,
       description: "Rebuild before opening",
     });
-    expect(forkOperation?.source).toBe("config");
-    expect(forkOperation?.createsWorkspace).toBe(true);
-    expect(manifest.operations.some((item) => item.id === "create")).toBe(false);
+    expect(createOperation?.source).toBe("core");
+    expect(createOperation?.createsWorkspace).toBe(true);
+    expect(manifest.workspaceOperations.map((item) => item.id)).toEqual(["remove", "open-cmux"]);
     expect(sshOperation?.cli?.options?.find((item) => item.name === "print")).toEqual({
       name: "print",
       flag: "--print",
@@ -467,11 +490,14 @@ describe("runtime HTTP app", () => {
 
         const root = sequence("workspace-data")
           .step("prepare", async () => ({ repoPath: "/workspace/repo" }))
-          .create(async ({ ctx, name }) => ({
-            name,
-            resourceId: "resource-" + name,
-            repoPath: ctx.repoPath,
-          }));
+          .workspace({
+            create: async ({ ctx, name }) => ({
+              name,
+              resourceId: "resource-" + name,
+              repoPath: ctx.repoPath,
+            }),
+            remove: async () => {},
+          });
 
         export default defineConfig({
           providers: {},
@@ -528,7 +554,10 @@ describe("runtime HTTP app", () => {
 
         const root = sequence("validation")
           .step("prepare", async () => ({ ok: true }))
-          .create(async ({ name }) => ({ name, resourceId: "resource-" + name }));
+          .workspace({
+            create: async ({ name }) => ({ name, resourceId: "resource-" + name }),
+            remove: async () => {},
+          });
 
         export default defineConfig({
           providers: {},

@@ -2,7 +2,7 @@ import { Schema } from "effect";
 import type { WorkflowEvent } from "@rigkit/engine";
 
 export const RUNTIME_API_VERSION = 1;
-export const RUNTIME_PROTOCOL_HASH = "sha256:6dc28b06c95c98d310db445f1b19aef478cd828f11287467fe261483dfde4f81";
+export const RUNTIME_PROTOCOL_HASH = "sha256:ac8d4a503b56c15b333ea51f57ab1f6fca776bea93f498120b10ab601cc0960a";
 export const DEFAULT_IDLE_MS = 30 * 60 * 1000;
 
 export class RuntimeProtocolSchemaError extends Error {
@@ -181,6 +181,7 @@ export type RuntimeOperationsManifest = {
     requiredByOperations: Record<string, string[]>;
   };
   operations: RuntimeOperation[];
+  workspaceOperations: RuntimeOperation[];
 };
 
 export function objectSchema(properties: Record<string, unknown>, required: string[] = []): JsonSchema {

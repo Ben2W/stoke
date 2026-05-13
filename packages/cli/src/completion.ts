@@ -17,6 +17,7 @@ type CompleteRigInput = {
 const COMMANDS: CompletionItem[] = [
   { value: "help", description: "show CLI help" },
   { value: "init", description: "initialize a Rigkit project" },
+  { value: "run", description: "run a project operation" },
   { value: "ls", description: "list project workspaces" },
   { value: "projects", description: "discover Rigkit projects" },
   { value: "doctor", description: "show runtime diagnostics" },
@@ -77,6 +78,7 @@ const OPTIONS_WITH_VALUES = new Set([
 
 type RuntimeOperationManifest = {
   operations: RuntimeOperationDefinition[];
+  workspaceOperations?: RuntimeOperationDefinition[];
 };
 
 type RuntimeOperationDefinition = {
@@ -121,7 +123,12 @@ export async function completeRig(input: CompleteRigInput): Promise<CompletionIt
       }
       return [];
     }
-    return filterItems(current.startsWith("-") ? GLOBAL_OPTIONS : [...COMMANDS, ...await safeOperationTargets(resolveProjectDir(words, cwd)), ...GLOBAL_OPTIONS], current);
+    return filterItems(
+      current.startsWith("-")
+        ? GLOBAL_OPTIONS
+        : [...COMMANDS, ...await safeOperationTargets(resolveProjectDir(words, cwd), current), ...GLOBAL_OPTIONS],
+      current,
+    );
   }
 
   if (current.startsWith("-")) {
@@ -147,7 +154,7 @@ export async function completeRig(input: CompleteRigInput): Promise<CompletionIt
   if (command === "run") {
     const run = parseRunCommand(before);
     if (!run.operation) {
-      return filterItems(await safeOperationTargets(resolveProjectDir(words, cwd)), current);
+      return filterItems(await safeOperationTargets(resolveProjectDir(words, cwd), current), current);
     }
     const operation = await safeResolveRuntimeOperation(resolveProjectDir(words, cwd), run.operation);
     const operationPositionalCount = countRunOperationPositionals(run.args);
@@ -387,27 +394,60 @@ async function readWorkspaces(paths: { projectDir: string; configPath: string })
 }
 
 function workspaceDisplayResourceId(
-  workspace: { resourceId?: string; resources?: Record<string, { resourceId: string }> },
+  workspace: { resourceId?: string; resources?: unknown },
 ): string | undefined {
-  const resources = workspace.resources ?? {};
-  const resource = resources.default ?? resources.vm;
-  if (resource) return resource.resourceId;
-  const values = Object.values(resources);
-  if (values.length === 1) return values[0]?.resourceId;
+  const resources = isRecord(workspace.resources) ? workspace.resources : {};
+  const defaultResource = workspaceResourceId(resources.default);
+  if (defaultResource) return defaultResource;
+  const vmResource = workspaceResourceId(resources.vm);
+  if (vmResource) return vmResource;
+  const values = Object.values(resources).map((resource) => workspaceResourceId(resource)).filter((value): value is string => Boolean(value));
+  if (values.length === 1) return values[0];
   return workspace.resourceId;
 }
 
-async function operationTargets(paths: { projectDir: string; configPath: string }): Promise<CompletionItem[]> {
+function workspaceResourceId(value: unknown): string | undefined {
+  return isRecord(value) && typeof value.resourceId === "string" ? value.resourceId : undefined;
+}
+
+async function operationTargets(
+  paths: { projectDir: string; configPath: string },
+  current: string,
+): Promise<CompletionItem[]> {
   const manifest = await readOperations(paths);
+  if (current.includes("/")) {
+    return workspaceOperationTargets(manifest, current);
+  }
+  const workspaces = await readWorkspaces(paths).catch(() => []);
   return manifest.operations.flatMap((operation) => [
     { value: operation.id, description: operation.description },
     ...(operation.aliases ?? []).map((alias) => ({ value: alias, description: operation.description })),
+  ]).concat(workspaces.map((workspace) => ({
+    value: `${workspace.name}/`,
+    description: workspace.resourceId ? `workspace ${workspace.resourceId}` : "workspace",
+  })));
+}
+
+function workspaceOperationTargets(manifest: RuntimeOperationManifest, current: string): CompletionItem[] {
+  const slash = current.indexOf("/");
+  if (slash < 0) return [];
+  const workspace = current.slice(0, slash);
+  if (!workspace) return [];
+  return (manifest.workspaceOperations ?? []).flatMap((operation) => [
+    { value: `${workspace}/${operation.id}`, description: operation.description ?? "workspace operation" },
+    ...(operation.aliases ?? []).map((alias) => ({
+      value: `${workspace}/${alias}`,
+      description: operation.description ?? "workspace operation",
+    })),
   ]);
 }
 
-async function safeOperationTargets(paths: { projectDir: string; configPath: string }): Promise<CompletionItem[]> {
+async function safeOperationTargets(
+  paths: { projectDir: string; configPath: string },
+  current: string,
+): Promise<CompletionItem[]> {
   try {
-    return await operationTargets(paths);
+    return await operationTargets(paths, current);
   } catch {
     return [];
   }
@@ -418,6 +458,12 @@ async function resolveRuntimeOperation(
   operationId: string,
 ): Promise<RuntimeOperationDefinition | undefined> {
   const manifest = await readOperations(paths);
+  const workspaceOperation = parseWorkspaceOperationId(operationId);
+  if (workspaceOperation) {
+    return (manifest.workspaceOperations ?? []).find((operation) =>
+      operation.id === workspaceOperation.operation || operation.aliases?.includes(workspaceOperation.operation)
+    );
+  }
   return manifest.operations.find((operation) =>
     operation.id === operationId || operation.aliases?.includes(operationId)
   );
@@ -439,6 +485,15 @@ async function readOperations(paths: { projectDir: string; configPath: string })
   return await runtime.control.operations() as unknown as RuntimeOperationManifest;
 }
 
+function parseWorkspaceOperationId(value: string): { workspace: string; operation: string } | undefined {
+  const slash = value.indexOf("/");
+  if (slash <= 0 || slash === value.length - 1) return undefined;
+  return {
+    workspace: value.slice(0, slash),
+    operation: value.slice(slash + 1),
+  };
+}
+
 function filterItems(items: CompletionItem[], current: string): CompletionItem[] {
   return dedupeItems(items).filter((item) => item.value.startsWith(current));
 }
@@ -452,4 +507,8 @@ function dedupeItems(items: CompletionItem[]): CompletionItem[] {
     deduped.push(item);
   }
   return deduped;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }

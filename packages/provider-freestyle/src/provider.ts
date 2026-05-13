@@ -56,6 +56,7 @@ export type FreestyleRuntime = {
     fromSnapshot(ref: FreestyleVmSnapshotRef): Promise<FreestyleVmRuntime>;
     fromId(vmId: string): FreestyleVmRuntime;
     fromWorkspace(workspace: Pick<WorkspaceRecord, "resourceId">): FreestyleVmRuntime;
+    delete(vmId: string): Promise<void>;
   };
   openWorkspace(target: FreestyleVmRuntime | FreestyleVmSnapshotRef, options?: { cwd?: string }): Promise<void>;
 };
@@ -318,6 +319,9 @@ function createFreestyleRuntime(
       },
       fromId: (vmId) => fromHandle({ vmId }),
       fromWorkspace: (workspace) => fromHandle({ vmId: workspace.resourceId }),
+      delete: async (vmId) => {
+        await provider.deleteVm({ vmId });
+      },
     },
     openWorkspace: async (target, options) => {
       const vm = isFreestyleVmSnapshotRef(target)
@@ -333,6 +337,7 @@ function createFreestyleRuntime(
           sourceRef: null,
           context: {},
           resources: {},
+          kv: {},
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
           metadata: {},

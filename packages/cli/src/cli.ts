@@ -103,6 +103,7 @@ type RuntimeOperationManifest = {
     requiredByOperations?: Record<string, string[]>;
   };
   operations: RuntimeOperationDefinition[];
+  workspaceOperations?: RuntimeOperationDefinition[];
 };
 
 type RuntimeOperationDefinition = {
@@ -801,10 +802,11 @@ async function executeRuntimeOperation(
   result: unknown;
 }> {
   const manifest = await readRuntimeOperations(runtime);
-  const operation = findRuntimeOperation(manifest.operations, requestedOperation);
-  if (!operation) {
+  const resolved = findRuntimeOperation(manifest, requestedOperation);
+  if (!resolved) {
     throw new Error(`This project does not define a Rigkit operation named "${requestedOperation}".`);
   }
+  const { operation, runOperation } = resolved;
 
   preflightHostSupport(operation);
   const parsed = parseOperationArgs(operation, args);
@@ -812,7 +814,7 @@ async function executeRuntimeOperation(
 
   const result = await runRuntimeOperation<unknown>(
     runtime,
-    operation.id,
+    runOperation,
     parsed.input,
     { renderEvents: !wantsJson(invocation) },
   );
@@ -821,12 +823,28 @@ async function executeRuntimeOperation(
 }
 
 function findRuntimeOperation(
-  operations: RuntimeOperationDefinition[],
+  manifest: RuntimeOperationManifest,
   requestedOperation: string,
-): RuntimeOperationDefinition | undefined {
-  return operations.find((operation) =>
+): { operation: RuntimeOperationDefinition; runOperation: string } | undefined {
+  const workspaceOperation = parseWorkspaceOperationId(requestedOperation);
+  if (workspaceOperation) {
+    const operation = (manifest.workspaceOperations ?? []).find((item) => item.id === workspaceOperation.operation);
+    return operation ? { operation, runOperation: requestedOperation } : undefined;
+  }
+
+  const operation = manifest.operations.find((operation) =>
     operation.id === requestedOperation || operation.aliases?.includes(requestedOperation)
   );
+  return operation ? { operation, runOperation: operation.id } : undefined;
+}
+
+function parseWorkspaceOperationId(value: string): { workspace: string; operation: string } | undefined {
+  const slash = value.indexOf("/");
+  if (slash <= 0 || slash === value.length - 1) return undefined;
+  return {
+    workspace: value.slice(0, slash),
+    operation: value.slice(slash + 1),
+  };
 }
 
 function preflightHostSupport(operation: RuntimeOperationDefinition): void {
@@ -1791,7 +1809,7 @@ function printPlan(plan: WorkflowPlan): void {
 }
 
 function printWorkspaces(
-  workspaces: ReadonlyArray<Pick<WorkspaceRecord, "name" | "workflow" | "snapshotId" | "createdAt"> & { resourceId?: string; resources?: WorkspaceRecord["resources"] }>,
+  workspaces: ReadonlyArray<Pick<WorkspaceRecord, "name" | "workflow" | "snapshotId" | "createdAt"> & { resourceId?: string; resources?: unknown }>,
 ): void {
   if (workspaces.length === 0) {
     console.log("No workspaces.");
@@ -1811,14 +1829,20 @@ function printWorkspaces(
 }
 
 function workspaceDisplayResourceId(
-  workspace: { resourceId?: string; resources?: WorkspaceRecord["resources"] },
+  workspace: { resourceId?: string; resources?: unknown },
 ): string {
-  const resources = workspace.resources ?? {};
-  const resource = resources.default ?? resources.vm;
-  if (resource) return resource.resourceId;
-  const values = Object.values(resources);
-  if (values.length === 1) return values[0]?.resourceId ?? "";
+  const resources = isRecord(workspace.resources) ? workspace.resources : {};
+  const defaultResource = workspaceResourceId(resources.default);
+  if (defaultResource) return defaultResource;
+  const vmResource = workspaceResourceId(resources.vm);
+  if (vmResource) return vmResource;
+  const values = Object.values(resources).map((resource) => workspaceResourceId(resource)).filter((value): value is string => Boolean(value));
+  if (values.length === 1) return values[0]!;
   return workspace.resourceId ?? "";
+}
+
+function workspaceResourceId(value: unknown): string | undefined {
+  return isRecord(value) && typeof value.resourceId === "string" ? value.resourceId : undefined;
 }
 
 function printSnapshots(snapshots: SnapshotRecord[]): void {

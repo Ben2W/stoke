@@ -47,6 +47,26 @@ describe("CLI completion", () => {
     });
   });
 
+  test("completes workspace operation targets", async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-completion-"));
+    await withWorkspaceRuntime({ projectDir }, async () => {
+      const roots = await completeRig({
+        cwd: projectDir,
+        words: ["rig", "run", ""],
+        currentIndex: 2,
+      });
+      expect(roots.map((item) => item.value)).toContain("api/");
+      expect(roots.map((item) => item.value)).toContain("ssh");
+
+      const operations = await completeRig({
+        cwd: projectDir,
+        words: ["rig", "run", "api/"],
+        currentIndex: 2,
+      });
+      expect(operations.map((item) => item.value)).toEqual(["api/remove", "api/open-cmux"]);
+    });
+  });
+
   test("formats shell completion items", () => {
     const items = [{ value: "api", description: "vm-api" }];
 
@@ -116,6 +136,7 @@ async function withWorkspaceRuntime(
               sourceRef: null,
               context: {},
               resources: {},
+              kv: {},
               metadata: {},
               data: {},
               createdAt: now,
@@ -130,6 +151,7 @@ async function withWorkspaceRuntime(
               sourceRef: null,
               context: {},
               resources: {},
+              kv: {},
               metadata: {},
               data: {},
               createdAt: now,
@@ -165,6 +187,35 @@ async function withWorkspaceRuntime(
                 properties: {
                   workspaceOrVmId: { type: "string" },
                 },
+              },
+            },
+          ],
+          workspaceOperations: [
+            {
+              id: "remove",
+              kind: "workspace-action",
+              source: "core",
+              title: "Remove",
+              description: "remove workspace",
+              cli: {
+                options: [{ name: "yes", flag: "--yes", aliases: ["-y"], type: "boolean", runtime: false }],
+              },
+              inputSchema: {
+                type: "object",
+                additionalProperties: false,
+                properties: {},
+              },
+            },
+            {
+              id: "open-cmux",
+              kind: "workspace-action",
+              source: "config",
+              title: "Open cmux",
+              description: "open cmux",
+              inputSchema: {
+                type: "object",
+                additionalProperties: false,
+                properties: {},
               },
             },
           ],

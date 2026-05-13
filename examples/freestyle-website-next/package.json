@@ -7,8 +7,9 @@
     "rig:plan": "rig plan",
     "rig:apply": "rig apply",
     "rig:fork": "rig create --name website-workspace",
+    "rig:open": "rig website-workspace/open-cmux",
     "rig:ssh": "rig ssh website-workspace",
-    "rig:rm": "rig delete website-workspace -y",
+    "rig:rm": "rig website-workspace/remove -y",
     "typecheck": "tsc --noEmit",
     "test": "echo no freestyle website example tests yet"
   },

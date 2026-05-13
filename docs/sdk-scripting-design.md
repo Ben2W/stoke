@@ -82,12 +82,16 @@ export default defineDevMachine({
   }),
   steps: [gcloudStep, verifyNode],
   workspace: {
-    onCreated: async ({ vm, workspace, ctx, local }) => {
+    create: async ({ ctx, name, providers, resources }) => {
+      const vm = await providers.freestyle.vms.fromSnapshot(ctx.vm);
       const cwd = "/workspace/platform";
-      await vm.exec(`cd ${cwd} && git switch -c rigkit/${workspace.name}`);
-      local.open(
-        `vscode://vscode-remote/ssh-remote+${encodeURIComponent(ctx.provider.vscodeAuthority)}${cwd}?windowId=_blank`,
-      );
+      await vm.exec(`cd ${cwd} && git switch -c rigkit/${name}`);
+      resources.set("vm", { providerId: "freestyle", resourceId: vm.vmId });
+      return { cwd };
+    },
+    remove: async ({ workspace, providers }) => {
+      const vm = workspace.resources.vm;
+      if (vm) await providers.freestyle.vms.delete(vm.resourceId);
     },
   },
 });
@@ -132,22 +136,35 @@ return { nodeVersion: "v24.0.0" };
 
 Dependent steps read prior values through `ctx.steps`.
 
-## Workspace Hooks
+## Workspace Operations
 
-Machines can define a workspace hook that runs after `rig create` creates a workspace VM from the resolved snapshot:
+Machines can define workspace `create` and `remove` handlers plus named workspace operations:
 
 ```ts
-workspace: {
-  onCreated: async ({ vm, workspace, ctx, local }) => {
-    await vm.exec(`cd ${ctx.steps.repoPath} && git switch -c rigkit/${workspace.name}`);
-    local.open(
-      `vscode://vscode-remote/ssh-remote+${encodeURIComponent(ctx.provider.vscodeAuthority)}${ctx.steps.repoPath}?windowId=_blank`,
-    );
+sequence("platform")
+  .workspace({
+    create: async ({ ctx, name, providers, resources }) => {
+      const vm = await providers.freestyle.vms.fromSnapshot(ctx.vm);
+      resources.set("vm", { providerId: "freestyle", resourceId: vm.vmId });
+      return { repoPath: ctx.repoPath };
+    },
+    remove: async ({ workspace, providers }) => {
+      const vm = workspace.resources.vm;
+      if (vm) await providers.freestyle.vms.delete(vm.resourceId);
+    },
+  })
+  .workspaceOperation("open", {
+    run: async ({ workspace, providers }) => {
+      const vm = workspace.resources.vm;
+      if (!vm) throw new Error("missing VM resource");
+      await providers.freestyle.openWorkspace(providers.freestyle.vms.fromId(vm.resourceId), {
+        cwd: workspace.data.repoPath,
+      });
+    },
   },
-}
 ```
 
-`ctx.steps` is the persisted context returned by completed steps. `ctx.provider` is provider-specific, computed fresh for the workspace VM, and should not be persisted by the engine because it may contain connection details or tokens.
+`create` returns JSON-serializable workspace data. Workspace operations read that data and can use `workspace.kv` for mutable operational state.
 
 ## Caching
 

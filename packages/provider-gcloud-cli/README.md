@@ -18,7 +18,7 @@ const app = workflow("example", {
   },
 });
 
-// Inside workspace.onOpen:
+// Inside a workspace operation:
 const gcloudConfigFiles = await providers.gcloudConfig.configFiles();
 for (const step of gcloudConfigCopyInjectionSteps(gcloudConfigFiles)) {
   await vm.exec(step.command, { name: step.name, env: step.env });

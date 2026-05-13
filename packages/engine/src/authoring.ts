@@ -1,3 +1,4 @@
+import { RESERVED_WORKFLOW_OPERATION_IDS } from "./types.ts";
 import type {
   EnvResolver,
   RigkitConfigDefinition,
@@ -5,14 +6,14 @@ import type {
   OutputSchema,
   OutputSchemaValue,
   WorkflowDefinition,
-  WorkflowCreateDefinition,
-  WorkflowCreateHandler,
   WorkflowInputFieldDefinition,
   WorkflowInputShape,
   WorkflowOperationDefinition,
   WorkflowOperationInputBuilder,
   WorkflowOperationInputHelpers,
   WorkflowOperationOptions,
+  WorkflowWorkspaceOperationDefinition,
+  WorkflowWorkspaceOperationOptions,
   WorkflowNodeDefinition,
   WorkflowProviderDefinition,
   WorkflowProviderMap,
@@ -25,7 +26,7 @@ import type {
 } from "./types.ts";
 
 const reservedTaskContextKeys = new Set(["ctx", "runtime", "providers"]);
-const reservedHostOperationIds = new Set(["init", "doctor", "projects", "run", "ls", "help", "version", "completion"]);
+const reservedHostOperationIds = new Set<string>(RESERVED_WORKFLOW_OPERATION_IDS);
 
 const readEnv = (name: string, fallback?: string): string => {
   const value = process.env[name];
@@ -120,14 +121,28 @@ export function isProviderDefinition(value: unknown): value is WorkflowProviderD
   return Boolean(value && typeof value === "object" && getKind(value) === "rigkit.provider");
 }
 
-function createSequence<Providers extends WorkflowProviderMap, InputContext extends JsonObject, OutputContext extends JsonObject>(
+function createSequence<
+  Providers extends WorkflowProviderMap,
+  InputContext extends JsonObject,
+  OutputContext extends JsonObject,
+  WorkspaceData extends JsonObject = JsonObject,
+  OperationIds extends string = never,
+  WorkspaceOperationIds extends string = never,
+>(
   app: WorkflowDefinition<string, Providers>,
   name: string,
   children: readonly WorkflowNodeDefinition<Providers, any, any>[],
-  workspace?: WorkflowWorkspaceDefinition<Providers, OutputContext>,
-  create?: WorkflowCreateDefinition<Providers, OutputContext>,
+  workspace?: WorkflowWorkspaceDefinition<Providers, OutputContext, WorkspaceData>,
   operations: readonly WorkflowOperationDefinition<Providers, any>[] = [],
-): WorkflowSequenceBuilder<Providers, InputContext, OutputContext> {
+  workspaceOperations: readonly WorkflowWorkspaceOperationDefinition<Providers, OutputContext, WorkspaceData, any>[] = [],
+): WorkflowSequenceBuilder<
+  Providers,
+  InputContext,
+  OutputContext,
+  WorkspaceData,
+  OperationIds,
+  WorkspaceOperationIds
+> {
   const node = {
     kind: "rigkit.workflow-node" as const,
     nodeKind: "sequence" as const,
@@ -135,15 +150,15 @@ function createSequence<Providers extends WorkflowProviderMap, InputContext exte
     workflow: app,
     children,
     workspaceDefinition: workspace,
-    createDefinition: create,
     operations,
+    workspaceOperations,
     task: (
       taskName: string,
       optionsOrHandler: WorkflowTaskOptions | WorkflowTaskHandler<Providers, OutputContext, any>,
       maybeHandler?: WorkflowTaskHandler<Providers, OutputContext, any>,
     ) => {
       const task = createTask(app, taskName, optionsOrHandler as any, maybeHandler as any);
-      return createSequence(app, name, [...children, task], workspace, create, operations);
+      return createSequence(app, name, [...children, task], workspace, operations, workspaceOperations);
     },
     step: (
       taskName: string,
@@ -151,11 +166,11 @@ function createSequence<Providers extends WorkflowProviderMap, InputContext exte
       maybeHandler?: WorkflowTaskHandler<Providers, OutputContext, any>,
     ) => {
       const task = createTask(app, taskName, optionsOrHandler as any, maybeHandler as any);
-      return createSequence(app, name, [...children, task], workspace, create, operations);
+      return createSequence(app, name, [...children, task], workspace, operations, workspaceOperations);
     },
     add: (child: WorkflowNodeDefinition<Providers, any, any>) => {
       assertSameWorkflow(app, child);
-      return createSequence(app, name, [...children, child], workspace, create, operations);
+      return createSequence(app, name, [...children, child], workspace, operations, workspaceOperations);
     },
     parallel: (branches: Record<string, WorkflowNodeDefinition<Providers, any, any>>) => {
       for (const [branchName, branch] of Object.entries(branches)) {
@@ -173,17 +188,39 @@ function createSequence<Providers extends WorkflowProviderMap, InputContext exte
         workflow: app,
         branches,
       };
-      return createSequence(app, name, [...children, parallelNode], workspace, create, operations);
+      return createSequence(app, name, [...children, parallelNode], workspace, operations, workspaceOperations);
     },
-    workspace: (definition: WorkflowWorkspaceDefinition<Providers, OutputContext>) =>
-      createSequence(app, name, children, definition, create, operations),
-    create: (handler: WorkflowCreateHandler<Providers, OutputContext, any>) =>
-      createSequence(app, name, children, workspace, { handler }, operations),
-    operation: (id: string, options: WorkflowOperationOptions<Providers, any>) =>
-      createSequence(app, name, children, workspace, create, [...operations, createOperation(id, options)]),
+    workspace: (definition: WorkflowWorkspaceDefinition<Providers, OutputContext, any>) =>
+      createSequence(app, name, children, definition, operations, workspaceOperations),
+    operation: (id: string, options: WorkflowOperationOptions<Providers, any>) => {
+      const operation = createOperation(id, options);
+      assertUniqueOperationId(operations, operation.id, "Operation");
+      return createSequence(app, name, children, workspace, [...operations, operation], workspaceOperations);
+    },
+    workspaceOperation: (id: string, options: WorkflowWorkspaceOperationOptions<Providers, OutputContext, any, any>) => {
+      const operation = createWorkspaceOperation(id, options);
+      assertUniqueOperationId(workspaceOperations, operation.id, "Workspace operation");
+      return createSequence(app, name, children, workspace, operations, [...workspaceOperations, operation]);
+    },
   };
 
-  return node as unknown as WorkflowSequenceBuilder<Providers, InputContext, OutputContext>;
+  return node as unknown as WorkflowSequenceBuilder<
+    Providers,
+    InputContext,
+    OutputContext,
+    WorkspaceData,
+    OperationIds,
+    WorkspaceOperationIds
+  >;
+}
+
+function assertUniqueOperationId(
+  operations: readonly { id: string }[],
+  id: string,
+  label: string,
+): void {
+  if (!operations.some((operation) => operation.id === id)) return;
+  throw new Error(`${label} id ${id} is already defined`);
 }
 
 function createOperation<Providers extends WorkflowProviderMap, Input extends object>(
@@ -199,7 +236,34 @@ function createOperation<Providers extends WorkflowProviderMap, Input extends ob
     id: normalized,
     title: options.title,
     description: options.description,
-    createsWorkspace: options.createsWorkspace,
+    requiredHostMethods: normalizeHostMethodRequirements(options.requiredHostMethods),
+    requiredHostCapabilities: normalizeHostCapabilityRequirements(options.requiredHostCapabilities),
+    input: typeof options.input === "function"
+      ? options.input(createOperationInputHelpers())
+      : options.input,
+    run: options.run,
+  };
+}
+
+function createWorkspaceOperation<
+  Providers extends WorkflowProviderMap,
+  Context extends JsonObject,
+  Data extends JsonObject,
+  Input extends object,
+>(
+  id: string,
+  options: WorkflowWorkspaceOperationOptions<Providers, Context, Data, Input>,
+): WorkflowWorkspaceOperationDefinition<Providers, Context, Data, Input> {
+  const normalized = id.trim();
+  if (!normalized) throw new Error(`Workspace operation ids must be non-empty`);
+  if (normalized.includes("/")) throw new Error(`Workspace operation ids cannot contain "/"`);
+  if (reservedHostOperationIds.has(normalized)) {
+    throw new Error(`Workspace operation id ${normalized} is reserved by the Rigkit host`);
+  }
+  return {
+    id: normalized,
+    title: options.title,
+    description: options.description,
     requiredHostMethods: normalizeHostMethodRequirements(options.requiredHostMethods),
     requiredHostCapabilities: normalizeHostCapabilityRequirements(options.requiredHostCapabilities),
     input: typeof options.input === "function"

@@ -217,6 +217,7 @@ async function withWorkspaceRuntime(
             sourceRef: null,
             context: {},
             resources: {},
+            kv: {},
             metadata: {},
             data: {},
             createdAt: now,

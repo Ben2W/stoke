@@ -76,6 +76,8 @@ function workspaceRecord(name: string): RuntimeControlWorkspace {
     resourceId: `resource-${name}`,
     sourceRef: null,
     context: {},
+    resources: {},
+    kv: {},
     metadata: {},
     data: {},
     createdAt: "2026-05-10T00:00:00.000Z",
