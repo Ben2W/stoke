@@ -19,7 +19,9 @@ const app = workflow("gcloud-on-open", {
       memory: "16GB",
       cpu: 4,
     }),
-    gcloudConfig: copyGcloudConfig.provider(),
+    gcloudConfig: copyGcloudConfig.provider({
+      requireAuth: true,
+    }),
   },
 });
 
@@ -50,31 +52,11 @@ export default app
     };
   })
   .workspace({
-    create: async ({ ctx, providers, resources }) => {
-      const vm = await providers.freestyle.vms.fromSnapshot(ctx.vm);
-      resources.set("vm", {
-        providerId: "freestyle",
-        resourceId: vm.vmId,
-        kind: "vm",
-        sourceRef: ctx.vm,
-      });
-      return {
-        vmId: vm.vmId,
-      };
-    },
-    remove: async ({ providers, workspace }) => {
-      const vmResource = workspace.resources.vm;
-      if (vmResource) await providers.freestyle.vms.delete(vmResource.resourceId);
-    },
-  })
-  .workspaceOperation("inject-gcloud", {
-    title: "Inject gcloud",
-    description: "Copy local gcloud config files into the workspace VM",
-    run: async ({ providers, workspace }) => {
-      const vmResource = workspace.resources.vm;
-      if (!vmResource) throw new Error(`Workspace ${workspace.name} does not have a Freestyle VM resource`);
-      const vm = providers.freestyle.vms.fromId(vmResource.resourceId);
+    create: async ({ workflow, providers }) => {
       const gcloudConfigFiles = await providers.gcloudConfig.configFiles();
+
+      const vm = await providers.freestyle.vms.fromSnapshot(workflow.ctx.vm);
+
       for (const step of gcloudConfigCopyInjectionSteps(gcloudConfigFiles)) {
         await vm.exec(step.command, {
           name: step.name,
@@ -97,6 +79,40 @@ export default app
           "Verify inside the VM with: gcloud auth list",
         ].join("\n"),
       );
+
+      return {
+        vmId: vm.vmId,
+      };
+    },
+    remove: async ({ providers, workspace }) => {
+      await providers.freestyle.vms.delete(workspace.ctx.vmId);
+    },
+  })
+  .workspaceOperation("ssh", {
+    title: "SSH",
+    description: "Open an SSH session to the workspace VM",
+    run: async ({ providers, workspace, local }) => {
+      if (!local.command) {
+        throw new Error("This host does not support interactive commands");
+      }
+
+      const vm = providers.freestyle.vms.fromId(workspace.ctx.vmId);
+      const ssh = await vm.ssh();
+
+      const commandResult = await local.command({
+        argv: ["sh", "-lc", ssh.command],
+        mode: "interactive",
+        reason: `Open SSH session to ${workspace.name}`,
+        presentation: {
+          visible: true,
+          label: `SSH ${workspace.name}`,
+        },
+      });
+
+      return {
+        command: ssh.command,
+        commandResult,
+      };
     },
   });
 

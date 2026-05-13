@@ -362,52 +362,25 @@ function projectPaths(projectDir: string): { projectDir: string; configPath: str
 
 async function workspaceTargets(
   paths: { projectDir: string; configPath: string },
-  current: string,
-  includeVmIds: boolean,
+  _current: string,
+  _includeVmIds: boolean,
 ): Promise<CompletionItem[]> {
   const workspaces = await readWorkspaces(paths);
   const items = workspaces.map((workspace) => ({
     value: workspace.name,
-    description: workspace.resourceId,
+    description: workspace.workflow,
   }));
-
-  if (includeVmIds && current.length > 0) {
-    for (const workspace of workspaces) {
-      if (!workspace.resourceId) continue;
-      items.push({
-        value: workspace.resourceId,
-        description: workspace.name,
-      });
-    }
-  }
 
   return dedupeItems(items);
 }
 
-async function readWorkspaces(paths: { projectDir: string; configPath: string }): Promise<Array<{ name: string; resourceId?: string }>> {
+async function readWorkspaces(paths: { projectDir: string; configPath: string }): Promise<Array<{ name: string; workflow: string }>> {
   const runtime = await getOrStartRuntime(paths);
   const { workspaces } = await runtime.control.workspaces();
   return workspaces.map((workspace) => ({
     name: workspace.name,
-    resourceId: workspaceDisplayResourceId(workspace),
+    workflow: workspace.workflow,
   }));
-}
-
-function workspaceDisplayResourceId(
-  workspace: { resourceId?: string; resources?: unknown },
-): string | undefined {
-  const resources = isRecord(workspace.resources) ? workspace.resources : {};
-  const defaultResource = workspaceResourceId(resources.default);
-  if (defaultResource) return defaultResource;
-  const vmResource = workspaceResourceId(resources.vm);
-  if (vmResource) return vmResource;
-  const values = Object.values(resources).map((resource) => workspaceResourceId(resource)).filter((value): value is string => Boolean(value));
-  if (values.length === 1) return values[0];
-  return workspace.resourceId;
-}
-
-function workspaceResourceId(value: unknown): string | undefined {
-  return isRecord(value) && typeof value.resourceId === "string" ? value.resourceId : undefined;
 }
 
 async function operationTargets(
@@ -424,7 +397,7 @@ async function operationTargets(
     ...(operation.aliases ?? []).map((alias) => ({ value: alias, description: operation.description })),
   ]).concat(workspaces.map((workspace) => ({
     value: `${workspace.name}/`,
-    description: workspace.resourceId ? `workspace ${workspace.resourceId}` : "workspace",
+    description: `workspace ${workspace.workflow}`,
   })));
 }
 
@@ -507,8 +480,4 @@ function dedupeItems(items: CompletionItem[]): CompletionItem[] {
     deduped.push(item);
   }
   return deduped;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }

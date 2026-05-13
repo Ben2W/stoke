@@ -46,16 +46,6 @@ export const RuntimeControlProjectInfoEffectSchema = Schema.Struct({
   workflows: Schema.Array(RuntimeControlWorkflowSummaryEffectSchema),
 }).annotations({ identifier: "ProjectInfo" });
 
-export const RuntimeControlHostMethodRequirementEffectSchema = Schema.Struct({
-  id: Schema.String,
-  modes: Schema.optional(Schema.Array(Schema.String)),
-}).annotations({ identifier: "HostMethodRequirement" });
-
-export const RuntimeControlHostCapabilityRequirementEffectSchema = Schema.Struct({
-  id: Schema.String,
-  schemaHash: OptionalString,
-}).annotations({ identifier: "HostCapabilityRequirement" });
-
 export const RuntimeControlOperationCliEffectSchema = Schema.Struct({
   positionals: Schema.optional(Schema.Array(Schema.Struct({
     name: Schema.String,
@@ -79,21 +69,11 @@ export const RuntimeControlOperationEffectSchema = Schema.Struct({
   title: Schema.String,
   description: Schema.String,
   createsWorkspace: Schema.optional(Schema.Boolean),
-  requiredHostMethods: Schema.optional(Schema.Array(RuntimeControlHostMethodRequirementEffectSchema)),
-  requiredHostCapabilities: Schema.optional(Schema.Array(RuntimeControlHostCapabilityRequirementEffectSchema)),
   cli: Schema.optional(RuntimeControlOperationCliEffectSchema),
   inputSchema: UnknownRecord,
 }).annotations({ identifier: "RuntimeOperation" });
 
 export const RuntimeControlOperationsManifestEffectSchema = Schema.Struct({
-  hostMethods: Schema.Struct({
-    known: Schema.Array(RuntimeControlHostMethodRequirementEffectSchema),
-    requiredByOperations: Schema.Record({ key: Schema.String, value: Schema.Array(Schema.String) }),
-  }),
-  hostCapabilities: Schema.Struct({
-    optional: Schema.Array(RuntimeControlHostCapabilityRequirementEffectSchema),
-    requiredByOperations: Schema.Record({ key: Schema.String, value: Schema.Array(Schema.String) }),
-  }),
   operations: Schema.Array(RuntimeControlOperationEffectSchema),
   workspaceOperations: Schema.Array(RuntimeControlOperationEffectSchema),
 }).annotations({ identifier: "OperationsManifest" });
@@ -105,16 +85,8 @@ export const RuntimeControlWorkflowsResponseEffectSchema = Schema.Struct({
 export const RuntimeControlWorkspaceEffectSchema = Schema.Struct({
   id: Schema.String,
   name: Schema.String,
-  providerId: Schema.String,
   workflow: Schema.String,
-  resourceId: OptionalString,
-  snapshotId: OptionalString,
-  sourceRef: Schema.Unknown,
-  context: UnknownRecord,
-  resources: UnknownRecord,
-  kv: UnknownRecord,
-  metadata: UnknownRecord,
-  data: UnknownRecord,
+  ctx: UnknownRecord,
   createdAt: Schema.String,
   updatedAt: Schema.String,
 }).annotations({ identifier: "Workspace" });
@@ -178,8 +150,6 @@ export type RuntimeControlHealth = Schema.Schema.Type<typeof RuntimeControlHealt
 export type RuntimeControlMetadata = Schema.Schema.Type<typeof RuntimeControlMetadataEffectSchema>;
 export type RuntimeControlWorkflowSummary = Schema.Schema.Type<typeof RuntimeControlWorkflowSummaryEffectSchema>;
 export type RuntimeControlProjectInfo = Schema.Schema.Type<typeof RuntimeControlProjectInfoEffectSchema>;
-export type RuntimeControlHostMethodRequirement = Schema.Schema.Type<typeof RuntimeControlHostMethodRequirementEffectSchema>;
-export type RuntimeControlHostCapabilityRequirement = Schema.Schema.Type<typeof RuntimeControlHostCapabilityRequirementEffectSchema>;
 export type RuntimeControlOperationCli = Schema.Schema.Type<typeof RuntimeControlOperationCliEffectSchema>;
 export type RuntimeControlOperation = Schema.Schema.Type<typeof RuntimeControlOperationEffectSchema>;
 export type RuntimeControlOperationsManifest = Schema.Schema.Type<typeof RuntimeControlOperationsManifestEffectSchema>;

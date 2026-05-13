@@ -41,15 +41,6 @@ export type CmuxOpenHostOptions = {
   clientOptions?: CmuxClientOptions;
 };
 
-const freestyleTokenSshOptions = [
-  "StrictHostKeyChecking=no",
-  "UserKnownHostsFile=/dev/null",
-  "LogLevel=ERROR",
-  "IdentitiesOnly=yes",
-  "IdentityFile=/dev/null",
-  "ControlMaster=no",
-] as const;
-
 export function createCmuxOpenHostCapability(
   options: CmuxOpenHostOptions = {},
 ): CmuxHostCapabilityHandler {
@@ -171,7 +162,6 @@ function parseSshInput(value: unknown): CmuxOpenSshInput {
     ...optionalStringField(value, "host"),
     ...optionalNumberField(value, "port"),
     ...optionalStringField(value, "username"),
-    ...(value.auth !== undefined ? { auth: parseSshAuth(value.auth) } : {}),
     ...optionalStringField(value, "identity"),
     ...optionalStringArrayField(value, "sshOptions"),
     ...optionalStringArrayField(value, "remoteCommandArgs"),
@@ -180,17 +170,6 @@ function parseSshInput(value: unknown): CmuxOpenSshInput {
     ...optionalBooleanField(value, "autoConnect"),
     ...optionalBooleanField(value, "skipDaemonBootstrap"),
   };
-}
-
-function parseSshAuth(value: unknown): Exclude<Extract<CmuxOpenSshInput, object>["auth"], undefined> {
-  if (!isRecord(value)) throw new Error(`cmux.open ssh.auth must be an object`);
-  if (value.type === "token") {
-    return { type: "token", token: requiredString(value, "token") };
-  }
-  if (value.type === "privateKey") {
-    return { type: "privateKey", privateKey: requiredString(value, "privateKey") };
-  }
-  throw new Error(`cmux.open ssh.auth.type must be "token" or "privateKey"`);
 }
 
 function parseRemoteReadyOptions(value: unknown): boolean | CmuxRemoteReadyOptions {
@@ -207,15 +186,11 @@ function cmuxSshOptionsForInput(ssh: CmuxOpenSshInput): CmuxSshOptions {
   if (typeof ssh === "string") return { destination: ssh };
 
   const destination = ssh.destination ?? sshDestination(ssh);
-  const sshOptions = [
-    ...(ssh.auth?.type === "token" ? freestyleTokenSshOptions : []),
-    ...(ssh.sshOptions ?? []),
-  ];
   return {
     destination,
     ...(ssh.port !== undefined ? { port: ssh.port } : {}),
     ...(ssh.identity !== undefined ? { identity: ssh.identity } : {}),
-    ...(sshOptions.length ? { sshOptions } : {}),
+    ...(ssh.sshOptions?.length ? { sshOptions: ssh.sshOptions } : {}),
     ...(ssh.remoteCommandArgs !== undefined ? { remoteCommandArgs: ssh.remoteCommandArgs } : {}),
     ...(ssh.initialCommand !== undefined ? { initialCommand: ssh.initialCommand } : {}),
     ...(ssh.terminalStartupCommand !== undefined ? { terminalStartupCommand: ssh.terminalStartupCommand } : {}),
@@ -227,7 +202,6 @@ function cmuxSshOptionsForInput(ssh: CmuxOpenSshInput): CmuxSshOptions {
 function sshDestination(ssh: Extract<CmuxOpenSshInput, object>): string {
   if (!ssh.host) throw new Error(`cmux.open ssh.host is required when ssh.destination is omitted`);
   if (!ssh.username) throw new Error(`cmux.open ssh.username is required when ssh.destination is omitted`);
-  if (ssh.auth?.type === "token") return `${ssh.username},${ssh.auth.token}@${ssh.host}`;
   return `${ssh.username}@${ssh.host}`;
 }
 

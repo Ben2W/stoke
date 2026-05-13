@@ -25,8 +25,6 @@ export {
 } from "./client.ts";
 export {
   RuntimeControlHealthEffectSchema,
-  RuntimeControlHostCapabilityRequirementEffectSchema,
-  RuntimeControlHostMethodRequirementEffectSchema,
   RuntimeControlHostResponseEffectSchema,
   RuntimeControlMetadataEffectSchema,
   RuntimeControlOkResponseEffectSchema,
@@ -45,8 +43,6 @@ export {
   RuntimeControlWorkspacesResponseEffectSchema,
   runtimeControlApi,
   type RuntimeControlHealth,
-  type RuntimeControlHostCapabilityRequirement,
-  type RuntimeControlHostMethodRequirement,
   type RuntimeControlHostResponse,
   type RuntimeControlMetadata,
   type RuntimeControlOkResponse,

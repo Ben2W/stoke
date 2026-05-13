@@ -147,16 +147,6 @@ export type RuntimeOperationCli = {
   options?: RuntimeOperationCliOption[];
 };
 
-export type RuntimeHostMethodRequirement = {
-  id: string;
-  modes?: string[];
-};
-
-export type RuntimeHostCapabilityRequirement = {
-  id: string;
-  schemaHash?: string;
-};
-
 export type RuntimeOperation = {
   id: string;
   aliases?: string[];
@@ -165,21 +155,11 @@ export type RuntimeOperation = {
   title: string;
   description: string;
   createsWorkspace?: boolean;
-  requiredHostMethods?: RuntimeHostMethodRequirement[];
-  requiredHostCapabilities?: RuntimeHostCapabilityRequirement[];
   cli?: RuntimeOperationCli;
   inputSchema: JsonSchema;
 };
 
 export type RuntimeOperationsManifest = {
-  hostMethods: {
-    known: RuntimeHostMethodRequirement[];
-    requiredByOperations: Record<string, string[]>;
-  };
-  hostCapabilities: {
-    optional: RuntimeHostCapabilityRequirement[];
-    requiredByOperations: Record<string, string[]>;
-  };
   operations: RuntimeOperation[];
   workspaceOperations: RuntimeOperation[];
 };

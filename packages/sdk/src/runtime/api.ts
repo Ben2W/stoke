@@ -3,8 +3,6 @@ import { runtimeControlApi } from "@rigkit/runtime-client";
 
 export {
   RuntimeControlHealthEffectSchema as RuntimeHealthEffectSchema,
-  RuntimeControlHostCapabilityRequirementEffectSchema as HostCapabilityRequirementEffectSchema,
-  RuntimeControlHostMethodRequirementEffectSchema as HostMethodRequirementEffectSchema,
   RuntimeControlMetadataEffectSchema as RuntimeMetadataEffectSchema,
   RuntimeControlOkResponseEffectSchema as OkResponseEffectSchema,
   RuntimeControlOperationCliEffectSchema as RuntimeOperationCliEffectSchema,

@@ -6,7 +6,7 @@ import { projectIdFor, runtimeFingerprintFor, runtimePaths, SUPPORTED_RUNTIME_AP
 import { completeRig, formatCompletionItems, renderCompletionScript } from "./completion.ts";
 
 describe("CLI completion", () => {
-  test("completes ssh workspace targets from the runtime", async () => {
+  test("completes workspace targets from the runtime", async () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-completion-"));
     await withWorkspaceRuntime({ projectDir }, async () => {
       const items = await completeRig({
@@ -16,11 +16,11 @@ describe("CLI completion", () => {
       });
 
       expect(items.map((item) => item.value)).toEqual(["api", "web"]);
-      expect(items[0]?.description).toBe("vm-api");
+      expect(items[0]?.description).toBe("smoke");
     });
   });
 
-  test("completes ssh resource ids when the current token starts like a resource id", async () => {
+  test("does not complete provider resource ids as workspace targets", async () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-completion-"));
     await withWorkspaceRuntime({ projectDir }, async () => {
       const items = await completeRig({
@@ -29,7 +29,7 @@ describe("CLI completion", () => {
         currentIndex: 2,
       });
 
-      expect(items.map((item) => item.value)).toEqual(["vm-api", "vm-web"]);
+      expect(items).toEqual([]);
     });
   });
 
@@ -130,30 +130,16 @@ async function withWorkspaceRuntime(
             {
               id: "workspace-api",
               name: "api",
-              providerId: "freestyle",
               workflow: "smoke",
-              resourceId: "vm-api",
-              sourceRef: null,
-              context: {},
-              resources: {},
-              kv: {},
-              metadata: {},
-              data: {},
+              ctx: {},
               createdAt: now,
               updatedAt: now,
             },
             {
               id: "workspace-web",
               name: "web",
-              providerId: "freestyle",
               workflow: "smoke",
-              resourceId: "vm-web",
-              sourceRef: null,
-              context: {},
-              resources: {},
-              kv: {},
-              metadata: {},
-              data: {},
+              ctx: {},
               createdAt: now,
               updatedAt: now,
             },
@@ -162,14 +148,6 @@ async function withWorkspaceRuntime(
       }
       if (pathname === "/operations") {
         return runtimeJson({
-          hostMethods: {
-            known: [],
-            requiredByOperations: {},
-          },
-          hostCapabilities: {
-            optional: [],
-            requiredByOperations: {},
-          },
           operations: [
             {
               id: "ssh",

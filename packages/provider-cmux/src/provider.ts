@@ -5,7 +5,6 @@ import {
 } from "@rigkit/sdk";
 import type { BaseProviderPlugin, WorkflowProviderController } from "@rigkit/engine";
 import {
-  CMUX_OPEN_CAPABILITY,
   CMUX_OPEN_CAPABILITY_ID,
   type CmuxOpenInput,
   type CmuxOpenResult,
@@ -30,10 +29,6 @@ export function provider(): CmuxProviderDefinition {
 
 export const cmux = {
   provider,
-  capability: CMUX_OPEN_CAPABILITY,
-  capabilities: {
-    open: CMUX_OPEN_CAPABILITY,
-  },
 };
 
 export const cmuxProviderPlugin: BaseProviderPlugin = {
@@ -50,29 +45,34 @@ export const cmuxProviderPlugin: BaseProviderPlugin = {
 
 function createCmuxRuntime(local: LocalWorkspaceRuntime): CmuxRuntime {
   return {
-    async open(input) {
-      if (local.requestCapabilitySession) {
-        const session = await local.requestCapabilitySession<CmuxOpenResult>(CMUX_OPEN_CAPABILITY_ID, input);
-        return {
-          ...parseCmuxOpenResult(session.result),
-          closed: session.closed,
-        };
-      }
-      if (!local.requestCapability) {
-        throw new Error(`Host capability ${CMUX_OPEN_CAPABILITY_ID} is unavailable in this runtime`);
-      }
-      const result = parseCmuxOpenResult(
-        await local.requestCapability(CMUX_OPEN_CAPABILITY_ID, input),
-      );
-      return {
-        ...result,
-        closed: new Promise<void>(() => {}),
-      };
-    },
+    open: async (input) => await requestCmuxOpen(local, input),
   };
 }
 
-function parseCmuxOpenResult(value: unknown): CmuxOpenResult {
+export async function requestCmuxOpen(
+  local: LocalWorkspaceRuntime,
+  input: CmuxOpenInput,
+): Promise<CmuxOpenSession> {
+  if (local.requestCapabilitySession) {
+    const session = await local.requestCapabilitySession<CmuxOpenResult>(CMUX_OPEN_CAPABILITY_ID, input);
+    return {
+      ...parseCmuxOpenResult(session.result),
+      closed: session.closed,
+    };
+  }
+  if (!local.requestCapability) {
+    throw new Error(`Host capability ${CMUX_OPEN_CAPABILITY_ID} is unavailable in this runtime`);
+  }
+  const result = parseCmuxOpenResult(
+    await local.requestCapability(CMUX_OPEN_CAPABILITY_ID, input),
+  );
+  return {
+    ...result,
+    closed: new Promise<void>(() => {}),
+  };
+}
+
+export function parseCmuxOpenResult(value: unknown): CmuxOpenResult {
   if (!isRecord(value)) throw new Error(`cmux.open returned a non-object result`);
   const sessionId = stringField(value, "sessionId");
   if (!sessionId) throw new Error(`cmux.open result is missing sessionId`);

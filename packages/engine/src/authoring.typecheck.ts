@@ -10,12 +10,34 @@ sequence("normal-operation-ids")
   });
 
 sequence("workspace-operation-ids")
+  .step("prepare", async () => ({ snapshotId: "snap-1" }))
   .workspace({
-    create: async () => ({}),
-    remove: async () => {},
+    create: async ({ workflow, workspace }) => {
+      const snapshotId: string = workflow.ctx.snapshotId;
+      const name: string = workspace.name;
+      void snapshotId;
+      void name;
+      return { vmId: "vm-1", test: "ok" };
+    },
+    remove: async ({ workspace }) => {
+      const vmId: string = workspace.ctx.vmId;
+      const test: string = workspace.ctx.test;
+      void vmId;
+      void test;
+      // @ts-expect-error workspace context is read-only
+      workspace.ctx.vmId = "next";
+      // @ts-expect-error provider resources are not part of the workspace authoring API
+      workspace.resources;
+    },
   })
   .workspaceOperation("open-cmux" as const, {
-    run: async () => null,
+    run: async ({ workspace }) => {
+      const vmId: string = workspace.ctx.vmId;
+      void vmId;
+      // @ts-expect-error missing data properties are rejected
+      workspace.ctx.missing;
+      return null;
+    },
   })
   // @ts-expect-error duplicate workspace operation ids are rejected for literal ids
   .workspaceOperation("open-cmux" as const, {

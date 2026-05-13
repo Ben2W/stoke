@@ -71,15 +71,8 @@ function workspaceRecord(name: string): RuntimeControlWorkspace {
   return {
     id: `ws-${name}`,
     name,
-    providerId: "test",
     workflow: "test",
-    resourceId: `resource-${name}`,
-    sourceRef: null,
-    context: {},
-    resources: {},
-    kv: {},
-    metadata: {},
-    data: {},
+    ctx: {},
     createdAt: "2026-05-10T00:00:00.000Z",
     updatedAt: "2026-05-10T00:00:00.000Z",
   };

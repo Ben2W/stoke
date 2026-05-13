@@ -81,19 +81,6 @@ function openRunSession(
       const message = parseSessionMessage(value);
       if (!message) return;
       if (message.type === "hello") {
-        const unsupported = unsupportedSessionRequirements(message, run.operationDefinition);
-        if (unsupported.length > 0) {
-          failRun(
-            run,
-            new RuntimeHostRequestError({
-              message: `Host does not support required ${unsupported.join(", ")}`,
-            }),
-            state.store,
-          );
-          acknowledged = true;
-          sendBacklog();
-          return;
-        }
         acknowledged = true;
         sendHelloAck(socket, run);
         sendBacklog();
@@ -160,51 +147,8 @@ function sendHelloAck(ws: RuntimeSessionTransport, run: { operation: string; ope
     },
     operation: {
       id: run.operation,
-      requiredHostCapabilities: run.operationDefinition?.requiredHostCapabilities ?? [],
-      requiredHostMethods: run.operationDefinition?.requiredHostMethods ?? [],
     },
   }));
-}
-
-function unsupportedSessionRequirements(message: SessionMessage, operation: RuntimeOperation | undefined): string[] {
-  const unsupported: string[] = [];
-  for (const requirement of operation?.requiredHostMethods ?? []) {
-    const hostMethod = sessionItems(message.hostMethods).find((item) => item.id === requirement.id);
-    if (!hostMethod || !supportsModes(hostMethod.modes, requirement.modes)) {
-      unsupported.push(`host method ${formatRequirement(requirement.id, requirement.modes)}`);
-    }
-  }
-  for (const requirement of operation?.requiredHostCapabilities ?? []) {
-    const capability = sessionItems(message.hostCapabilities).find((item) => item.id === requirement.id);
-    if (!capability || (requirement.schemaHash && capability.schemaHash !== requirement.schemaHash)) {
-      unsupported.push(requirement.schemaHash
-        ? `host capability ${requirement.id}@${requirement.schemaHash}`
-        : `host capability ${requirement.id}`);
-    }
-  }
-  return unsupported;
-}
-
-function sessionItems(value: unknown): Array<{ id: string; modes?: string[]; schemaHash?: string }> {
-  if (!Array.isArray(value)) return [];
-  return value.flatMap((item) => {
-    if (!isRecord(item) || typeof item.id !== "string") return [];
-    return [{
-      id: item.id,
-      modes: Array.isArray(item.modes) ? item.modes.filter((mode): mode is string => typeof mode === "string") : undefined,
-      schemaHash: typeof item.schemaHash === "string" ? item.schemaHash : undefined,
-    }];
-  });
-}
-
-function supportsModes(hostModes: string[] | undefined, requiredModes: string[] | undefined): boolean {
-  if (!requiredModes?.length) return true;
-  const supported = new Set(hostModes ?? []);
-  return requiredModes.every((mode) => supported.has(mode));
-}
-
-function formatRequirement(id: string, modes: string[] | undefined): string {
-  return modes?.length ? `${id}:${modes.join("|")}` : id;
 }
 
 function sessionEvent(event: unknown): Record<string, unknown> {

@@ -82,12 +82,6 @@ class RigkitVsCodeHost {
     const selected = operation ?? await pickOperation(operations);
     if (!selected) return;
 
-    const unsupported = unsupportedRequirements(selected);
-    if (unsupported) {
-      await vscode.window.showErrorMessage(unsupported);
-      return;
-    }
-
     const workspaces = await this.listWorkspaces();
     const input = await collectOperationInput(selected, workspaces, operationPrompt(presetWorkspace));
     if (!input) return;
@@ -213,7 +207,7 @@ class WorkspacesProvider implements vscode.TreeDataProvider<RuntimeControlWorksp
   getTreeItem(workspace: RuntimeControlWorkspace): vscode.TreeItem {
     const item = new vscode.TreeItem(workspace.name, vscode.TreeItemCollapsibleState.None);
     item.description = workspace.workflow;
-    item.tooltip = workspace.resourceId || workspace.name;
+    item.tooltip = workspace.name;
     item.iconPath = new vscode.ThemeIcon("server");
     item.contextValue = "rigkitWorkspace";
     item.command = {
@@ -286,7 +280,7 @@ async function pickWorkspace(
   const items = workspaces.map((workspace) => ({
     label: workspace.name,
     description: workspace.workflow,
-    detail: workspace.resourceId,
+    detail: workspace.createdAt,
     workspace,
   }));
   const picked = await vscode.window.showQuickPick(items, { title, ignoreFocusOut: true });
@@ -379,22 +373,6 @@ async function openExternal(params: unknown): Promise<null> {
   if (!target) throw new Error("open.external requires target");
   await vscode.env.openExternal(vscode.Uri.parse(target));
   return null;
-}
-
-function unsupportedRequirements(operation: RuntimeControlOperation): string | undefined {
-  const unsupportedCapability = operation.requiredHostCapabilities?.[0];
-  if (unsupportedCapability) {
-    return `Operation "${operation.id}" requires host capability "${unsupportedCapability.id}". VS Code does not support that capability.`;
-  }
-  const unsupportedMethod = operation.requiredHostMethods?.find((method) =>
-    !VSCODE_HOST_METHODS.some((supported) =>
-      supported.id === method.id && (!method.modes?.length || method.modes.every((mode) => supported.modes?.includes(mode)))
-    )
-  );
-  if (unsupportedMethod) {
-    return `Operation "${operation.id}" requires host method "${unsupportedMethod.id}".`;
-  }
-  return undefined;
 }
 
 function isHostRequestMessage(value: unknown): value is HostRequestMessage {

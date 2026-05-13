@@ -24,6 +24,7 @@ const DEFAULT_ACCESS_TOKEN_LIFETIME_SECONDS = 55 * 60;
 
 export type GcloudConfigCopyConfig = {
   command?: string;
+  requireAuth?: boolean;
   key?: string;
   account?: string;
   scopes?: readonly string[];
@@ -111,6 +112,10 @@ export async function assertLocalGcloudReady(
       ].filter(Boolean).join("\n"),
     );
   }
+}
+
+export function requiresLocalGcloudAuth(config: GcloudConfigCopyConfig): boolean {
+  return config.requireAuth ?? true;
 }
 
 async function freshAccessToken(input: {

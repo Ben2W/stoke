@@ -170,10 +170,21 @@ function parseWorkspaceOperationId(value: string): { workspace: string; operatio
   };
 }
 
-function runtimeWorkspace(workspace: WorkspaceRecord): WorkspaceRecord & { data: WorkspaceRecord["metadata"] } {
+function runtimeWorkspace(workspace: WorkspaceRecord): {
+  id: string;
+  name: string;
+  workflow: string;
+  ctx: WorkspaceRecord["ctx"];
+  createdAt: string;
+  updatedAt: string;
+} {
   return {
-    ...workspace,
-    data: workspace.metadata,
+    id: workspace.id,
+    name: workspace.name,
+    workflow: workspace.workflow,
+    ctx: workspace.ctx,
+    createdAt: workspace.createdAt,
+    updatedAt: workspace.updatedAt,
   };
 }
 

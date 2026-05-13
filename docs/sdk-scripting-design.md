@@ -82,16 +82,14 @@ export default defineDevMachine({
   }),
   steps: [gcloudStep, verifyNode],
   workspace: {
-    create: async ({ ctx, name, providers, resources }) => {
-      const vm = await providers.freestyle.vms.fromSnapshot(ctx.vm);
+    create: async ({ workflow, workspace, providers }) => {
+      const vm = await providers.freestyle.vms.fromSnapshot(workflow.ctx.vm);
       const cwd = "/workspace/platform";
-      await vm.exec(`cd ${cwd} && git switch -c rigkit/${name}`);
-      resources.set("vm", { providerId: "freestyle", resourceId: vm.vmId });
-      return { cwd };
+      await vm.exec(`cd ${cwd} && git switch -c rigkit/${workspace.name}`);
+      return { cwd, vmId: vm.vmId };
     },
     remove: async ({ workspace, providers }) => {
-      const vm = workspace.resources.vm;
-      if (vm) await providers.freestyle.vms.delete(vm.resourceId);
+      await providers.freestyle.vms.delete(workspace.ctx.vmId);
     },
   },
 });
@@ -143,28 +141,26 @@ Machines can define workspace `create` and `remove` handlers plus named workspac
 ```ts
 sequence("platform")
   .workspace({
-    create: async ({ ctx, name, providers, resources }) => {
-      const vm = await providers.freestyle.vms.fromSnapshot(ctx.vm);
-      resources.set("vm", { providerId: "freestyle", resourceId: vm.vmId });
-      return { repoPath: ctx.repoPath };
+    create: async ({ workflow, providers }) => {
+      const vm = await providers.freestyle.vms.fromSnapshot(workflow.ctx.vm);
+      return { repoPath: workflow.ctx.repoPath, vmId: vm.vmId };
     },
     remove: async ({ workspace, providers }) => {
-      const vm = workspace.resources.vm;
-      if (vm) await providers.freestyle.vms.delete(vm.resourceId);
+      await providers.freestyle.vms.delete(workspace.ctx.vmId);
     },
   })
   .workspaceOperation("open", {
     run: async ({ workspace, providers }) => {
-      const vm = workspace.resources.vm;
-      if (!vm) throw new Error("missing VM resource");
-      await providers.freestyle.openWorkspace(providers.freestyle.vms.fromId(vm.resourceId), {
-        cwd: workspace.data.repoPath,
+      const vm = providers.freestyle.vms.fromId(workspace.ctx.vmId);
+      const url = await providers.freestyle.vscode.createUrl(vm, {
+        cwd: workspace.ctx.repoPath,
       });
+      return { url };
     },
   },
 ```
 
-`create` returns JSON-serializable workspace data. Workspace operations read that data and can use `workspace.kv` for mutable operational state.
+`create` returns JSON-serializable workspace context. `remove` and workspace operations read that same typed context through `workspace.ctx`.
 
 ## Caching
 

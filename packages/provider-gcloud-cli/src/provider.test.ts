@@ -3,10 +3,57 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createStateStore } from "@rigkit/engine";
-import { createGcloudConfigCopyController, assertLocalGcloudReady, type GcloudCommandRunner } from "./provider.ts";
+import { gcloudConfigCopyProviderPlugin } from "./index.ts";
+import {
+  GCLOUD_CONFIG_COPY_PROVIDER_ID,
+  assertLocalGcloudReady,
+  createGcloudConfigCopyController,
+  requiresLocalGcloudAuth,
+  type GcloudCommandRunner,
+} from "./provider.ts";
 import { createGcloudAuthStore } from "./store.ts";
 
 describe("local gcloud config copy provider", () => {
+  test("requires startup auth by default", async () => {
+    expect(requiresLocalGcloudAuth({})).toBe(true);
+    expect(requiresLocalGcloudAuth({ requireAuth: true })).toBe(true);
+
+    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-gcloud-"));
+    const state = createStateStore({ projectDir });
+    await state.syncSchema();
+
+    await expect(
+      gcloudConfigCopyProviderPlugin.createProvider({
+        provider: {
+          providerId: GCLOUD_CONFIG_COPY_PROVIDER_ID,
+          config: { command: join(projectDir, "missing-gcloud") },
+        },
+        storage: state.providerStorage("gcloud.config.copy"),
+      }),
+    ).rejects.toThrow("Local gcloud CLI is required");
+  });
+
+  test("can skip startup auth explicitly", async () => {
+    expect(requiresLocalGcloudAuth({ requireAuth: false })).toBe(false);
+
+    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-gcloud-"));
+    const state = createStateStore({ projectDir });
+    await state.syncSchema();
+
+    const controller = await gcloudConfigCopyProviderPlugin.createProvider({
+      provider: {
+        providerId: GCLOUD_CONFIG_COPY_PROVIDER_ID,
+        config: {
+          command: join(projectDir, "missing-gcloud"),
+          requireAuth: false,
+        },
+      },
+      storage: state.providerStorage("gcloud.config.copy"),
+    });
+
+    expect(controller.providerId).toBe(GCLOUD_CONFIG_COPY_PROVIDER_ID);
+  });
+
   test("fails startup when local gcloud is missing", async () => {
     const runner: GcloudCommandRunner = async () => ({
       stdout: "",

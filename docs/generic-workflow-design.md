@@ -103,7 +103,8 @@ export default app
   })
   .task("open-workspace", async ({ ctx, freestyle }) => {
     const vm = await freestyle.vms.fromSnapshot(ctx.repo.vm);
-    await freestyle.openWorkspace(vm, { cwd: ctx.repo.repoPath });
+    const url = await freestyle.vscode.createUrl(vm, { cwd: ctx.repo.repoPath });
+    return { url };
   });
 ```
 

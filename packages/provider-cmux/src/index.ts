@@ -487,6 +487,8 @@ export {
   cmux,
   cmuxProviderPlugin,
   provider as defineCmuxProvider,
+  parseCmuxOpenResult,
+  requestCmuxOpen,
   type CmuxProviderDefinition,
   type CmuxRuntime,
 } from "./provider.ts";

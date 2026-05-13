@@ -91,12 +91,11 @@ export function defineProvider<
   const ProviderId extends string,
   const Config extends object,
   Runtime = unknown,
-  WorkspaceContext extends object = object,
 >(
   providerId: ProviderId,
-  config: WorkflowProviderDefinition<ProviderId, Config, Runtime, WorkspaceContext>["config"],
+  config: WorkflowProviderDefinition<ProviderId, Config, Runtime>["config"],
   plugin?: unknown,
-): WorkflowProviderDefinition<ProviderId, Config, Runtime, WorkspaceContext> {
+): WorkflowProviderDefinition<ProviderId, Config, Runtime> {
   return {
     kind: "rigkit.provider",
     providerId,
@@ -125,14 +124,14 @@ function createSequence<
   Providers extends WorkflowProviderMap,
   InputContext extends JsonObject,
   OutputContext extends JsonObject,
-  WorkspaceData extends JsonObject = JsonObject,
+  WorkspaceData extends object = JsonObject,
   OperationIds extends string = never,
   WorkspaceOperationIds extends string = never,
 >(
   app: WorkflowDefinition<string, Providers>,
   name: string,
   children: readonly WorkflowNodeDefinition<Providers, any, any>[],
-  workspace?: WorkflowWorkspaceDefinition<Providers, OutputContext, WorkspaceData>,
+  workspace?: WorkflowWorkspaceDefinition<Providers, OutputContext, any>,
   operations: readonly WorkflowOperationDefinition<Providers, any>[] = [],
   workspaceOperations: readonly WorkflowWorkspaceOperationDefinition<Providers, OutputContext, WorkspaceData, any>[] = [],
 ): WorkflowSequenceBuilder<
@@ -236,8 +235,6 @@ function createOperation<Providers extends WorkflowProviderMap, Input extends ob
     id: normalized,
     title: options.title,
     description: options.description,
-    requiredHostMethods: normalizeHostMethodRequirements(options.requiredHostMethods),
-    requiredHostCapabilities: normalizeHostCapabilityRequirements(options.requiredHostCapabilities),
     input: typeof options.input === "function"
       ? options.input(createOperationInputHelpers())
       : options.input,
@@ -264,40 +261,11 @@ function createWorkspaceOperation<
     id: normalized,
     title: options.title,
     description: options.description,
-    requiredHostMethods: normalizeHostMethodRequirements(options.requiredHostMethods),
-    requiredHostCapabilities: normalizeHostCapabilityRequirements(options.requiredHostCapabilities),
     input: typeof options.input === "function"
       ? options.input(createOperationInputHelpers())
       : options.input,
     run: options.run,
   };
-}
-
-function normalizeHostMethodRequirements(
-  methods: WorkflowOperationOptions<any, any>["requiredHostMethods"],
-) {
-  return methods?.map((method) => {
-    const id = method.id.trim();
-    if (!id) throw new Error(`Host method requirements must have non-empty ids`);
-    return {
-      id,
-      ...(method.modes?.length ? { modes: [...method.modes] } : {}),
-    };
-  });
-}
-
-function normalizeHostCapabilityRequirements(
-  capabilities: WorkflowOperationOptions<any, any>["requiredHostCapabilities"],
-) {
-  return capabilities?.map((capability) => {
-    const id = capability.id.trim();
-    if (!id) throw new Error(`Host capability requirements must have non-empty ids`);
-    const schemaHash = capability.schemaHash?.trim();
-    return {
-      id,
-      ...(schemaHash ? { schemaHash } : {}),
-    };
-  });
 }
 
 function createOperationInputHelpers(): WorkflowOperationInputHelpers {

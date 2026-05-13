@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { and, asc, desc, eq, or } from "drizzle-orm";
+import { and, asc, desc, eq } from "drizzle-orm";
 import type { ProviderStorage, ProviderStorageRecord } from "./provider/types.ts";
 import type { JsonValue, WorkspaceRecord } from "./types.ts";
 import {
@@ -96,12 +96,9 @@ export class StateStore implements StateService {
     const row = this.db
       .select()
       .from(workspaces)
-      .where(or(eq(workspaces.name, nameOrResourceId), eq(workspaces.resourceId, nameOrResourceId)))
+      .where(eq(workspaces.name, nameOrResourceId))
       .get();
-    if (row) return toWorkspaceRecord(row);
-    return this.listWorkspaces().find((workspace) =>
-      Object.values(workspace.resources).some((resource) => resource.resourceId === nameOrResourceId)
-    );
+    return row ? toWorkspaceRecord(row) : undefined;
   }
 
   getWorkspace(name: string): WorkspaceRecord | undefined {
@@ -117,16 +114,10 @@ export class StateStore implements StateService {
         target: workspaces.name,
         set: {
           id: workspace.id,
-          providerId: workspace.providerId,
           workflow: workspace.workflow,
-          resourceId: workspace.resourceId,
-          snapshotId: workspace.snapshotId,
-          sourceRef: workspace.sourceRef,
-          context: workspace.context,
-          resources: workspace.resources,
-          kv: workspace.kv,
+          workflowCtx: workspace.workflowCtx,
           updatedAt: workspace.updatedAt,
-          metadata: workspace.metadata,
+          ctx: workspace.ctx,
         },
       })
       .run();
@@ -223,17 +214,11 @@ function toWorkspaceRecord(row: typeof workspaces.$inferSelect): WorkspaceRecord
   return {
     id: row.id,
     name: row.name,
-    providerId: row.providerId,
     workflow: row.workflow,
-    resourceId: row.resourceId,
-    snapshotId: row.snapshotId ?? undefined,
-    sourceRef: row.sourceRef ?? null,
-    context: row.context,
-    resources: row.resources ?? {},
-    kv: row.kv ?? {},
+    workflowCtx: row.workflowCtx,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
-    metadata: row.metadata,
+    ctx: row.ctx,
   };
 }
 

@@ -35,8 +35,6 @@ export {
   type RuntimeStateServiceOptions,
 } from "./state.ts";
 export {
-  HostCapabilityRequirementEffectSchema,
-  HostMethodRequirementEffectSchema,
   OkResponseEffectSchema,
   OperationsManifestEffectSchema,
   ProjectInfoEffectSchema,

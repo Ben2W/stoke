@@ -52,8 +52,6 @@ export type CommandOptions = ExecOptions & {
   name?: string;
 };
 
-export type ProviderWorkspaceContext = object;
-
 export type LocalWorkspaceRuntime = {
   open(target: string): MaybePromise<void>;
   command?(input: LocalCommandRequest): MaybePromise<LocalCommandResult>;
@@ -94,22 +92,19 @@ export type WorkflowProviderDefinition<
   ProviderId extends string = string,
   Config extends object = Record<string, unknown>,
   Runtime = unknown,
-  WorkspaceContext extends ProviderWorkspaceContext = ProviderWorkspaceContext,
 > = {
   readonly kind: "rigkit.provider";
   readonly providerId: ProviderId;
   readonly config: ResolvableObject<Config>;
   readonly plugin?: unknown;
   readonly __runtime?: Runtime;
-  readonly __workspaceContext?: WorkspaceContext;
 };
 
 export type DevProviderDefinition<
   ProviderId extends string = string,
   Config extends object = Record<string, unknown>,
   Runtime = unknown,
-  WorkspaceContext extends ProviderWorkspaceContext = ProviderWorkspaceContext,
-> = WorkflowProviderDefinition<ProviderId, Config, Runtime, WorkspaceContext>;
+> = WorkflowProviderDefinition<ProviderId, Config, Runtime>;
 
 export type LoadedProviderDefinition<
   ProviderId extends string = string,
@@ -120,17 +115,12 @@ export type LoadedProviderDefinition<
   plugin?: unknown;
 };
 
-export type WorkflowProviderMap = Record<string, WorkflowProviderDefinition<string, any, any, any>>;
+export type WorkflowProviderMap = Record<string, WorkflowProviderDefinition<string, any, any>>;
 
 export type ProviderRuntimeOf<Provider> =
-  Provider extends WorkflowProviderDefinition<any, any, infer Runtime, any>
+  Provider extends WorkflowProviderDefinition<any, any, infer Runtime>
     ? Runtime
     : never;
-
-export type ProviderWorkspaceContextOf<Provider> =
-  Provider extends WorkflowProviderDefinition<any, any, any, infer WorkspaceContext extends ProviderWorkspaceContext>
-    ? WorkspaceContext
-    : ProviderWorkspaceContext;
 
 export type ProviderRuntimeMap<Providers extends WorkflowProviderMap> = {
   readonly [Key in keyof Providers]: ProviderRuntimeOf<Providers[Key]>;
@@ -244,51 +234,32 @@ export type WorkflowOperationHandler<
   Result extends WorkflowOperationResult = WorkflowOperationResult,
 > = (context: WorkflowOperationRuntime<Providers, Input>) => MaybePromise<Result>;
 
-export type WorkspaceResourceRecord = {
-  providerId: string;
-  resourceId: string;
-  kind?: string;
-  snapshotId?: string;
-  sourceRef?: JsonValue;
-  metadata?: JsonObject;
+export type WorkflowRuntimeContext<Context extends JsonObject> = {
+  readonly name: string;
+  readonly ctx: Readonly<Context>;
 };
 
-export type WorkspaceResourceInput = WorkspaceResourceRecord;
-
-export type WorkspaceKvRuntime = {
-  get<Value extends JsonValue = JsonValue>(key: string): Value | undefined;
-  set(key: string, value: JsonValue): void;
-  delete(key: string): void;
-  entries(): Record<string, JsonValue>;
+export type ReadonlyWorkspaceContext<Context extends JsonObject> = {
+  readonly [Key in keyof Context]: Context[Key];
 };
 
-export type WorkspaceResourceWriter = {
-  set(name: string, resource: WorkspaceResourceInput): void;
-  delete(name: string): void;
-  entries(): Record<string, WorkspaceResourceRecord>;
+export type WorkspaceCreateRuntimeRecord = {
+  readonly name: string;
 };
 
-export type WorkspaceRuntimeRecord<Data extends JsonObject = JsonObject> =
-  Readonly<Omit<WorkspaceRecord, "context" | "metadata" | "resources" | "kv">> & {
-  readonly context: Readonly<Record<string, JsonValue>>;
-  readonly metadata: Readonly<Data>;
-  readonly cwd?: string;
-  readonly data: Readonly<Data>;
-  readonly resources: Readonly<Record<string, Readonly<WorkspaceResourceRecord>>>;
-  readonly kv: WorkspaceKvRuntime;
+export type WorkspaceRuntimeRecord<Context extends object = JsonObject> = {
+  readonly name: string;
+  readonly ctx: Context;
 };
 
 export type WorkflowWorkspaceCreateRuntime<
   Providers extends WorkflowProviderMap,
   Context extends JsonObject,
 > = ProviderRuntimeMap<Providers> & {
-  readonly ctx: Readonly<Context>;
-  readonly name: string;
+  readonly workflow: WorkflowRuntimeContext<Context>;
+  readonly workspace: WorkspaceCreateRuntimeRecord;
   readonly providers: ProviderRuntimeMap<Providers>;
-  readonly resources: WorkspaceResourceWriter;
-  readonly kv: WorkspaceKvRuntime;
   readonly local: LocalWorkspaceRuntime;
-  readonly workflow: string;
 };
 
 export type WorkflowWorkspaceCreateHandler<
@@ -302,12 +273,10 @@ export type WorkflowWorkspaceRemoveRuntime<
   Context extends JsonObject,
   Data extends JsonObject,
 > = ProviderRuntimeMap<Providers> & {
-  readonly ctx: Readonly<Context>;
-  readonly workspace: WorkspaceRuntimeRecord<Data>;
+  readonly workflow: WorkflowRuntimeContext<Context>;
+  readonly workspace: WorkspaceRuntimeRecord<ReadonlyWorkspaceContext<Data>>;
   readonly providers: ProviderRuntimeMap<Providers>;
-  readonly kv: WorkspaceKvRuntime;
   readonly local: LocalWorkspaceRuntime;
-  readonly workflow: string;
 };
 
 export type WorkflowWorkspaceRemoveHandler<
@@ -319,35 +288,23 @@ export type WorkflowWorkspaceRemoveHandler<
 export type WorkflowWorkspaceOperationRuntime<
   Providers extends WorkflowProviderMap,
   Context extends JsonObject,
-  Data extends JsonObject,
+  Data extends object,
   Input extends object,
 > = ProviderRuntimeMap<Providers> & {
-  readonly ctx: Readonly<Context>;
+  readonly workflow: WorkflowRuntimeContext<Context>;
   readonly input: Readonly<Input>;
   readonly workspace: WorkspaceRuntimeRecord<Data>;
   readonly providers: ProviderRuntimeMap<Providers>;
-  readonly kv: WorkspaceKvRuntime;
   readonly local: LocalWorkspaceRuntime;
-  readonly workflow: string;
 };
 
 export type WorkflowWorkspaceOperationHandler<
   Providers extends WorkflowProviderMap,
   Context extends JsonObject,
-  Data extends JsonObject,
+  Data extends object,
   Input extends object,
   Result extends WorkflowOperationResult = WorkflowOperationResult,
 > = (context: WorkflowWorkspaceOperationRuntime<Providers, Context, Data, Input>) => MaybePromise<Result>;
-
-export type WorkflowHostMethodRequirement = {
-  readonly id: string;
-  readonly modes?: readonly string[];
-};
-
-export type WorkflowHostCapabilityRequirement = {
-  readonly id: string;
-  readonly schemaHash?: string;
-};
 
 export type WorkflowOperationOptions<
   Providers extends WorkflowProviderMap,
@@ -355,8 +312,6 @@ export type WorkflowOperationOptions<
 > = {
   title?: string;
   description?: string;
-  requiredHostMethods?: readonly WorkflowHostMethodRequirement[];
-  requiredHostCapabilities?: readonly WorkflowHostCapabilityRequirement[];
   input?: WorkflowOperationInputBuilder<Input> | ((workflow: WorkflowOperationInputHelpers) => WorkflowOperationInputBuilder<Input>);
   run: WorkflowOperationHandler<Providers, Input>;
 };
@@ -368,8 +323,6 @@ export type WorkflowOperationDefinition<
   readonly id: string;
   readonly title?: string;
   readonly description?: string;
-  readonly requiredHostMethods?: readonly WorkflowHostMethodRequirement[];
-  readonly requiredHostCapabilities?: readonly WorkflowHostCapabilityRequirement[];
   readonly input?: WorkflowOperationInputBuilder<Input>;
   readonly run: WorkflowOperationHandler<Providers, Input>;
 };
@@ -377,13 +330,11 @@ export type WorkflowOperationDefinition<
 export type WorkflowWorkspaceOperationOptions<
   Providers extends WorkflowProviderMap,
   Context extends JsonObject,
-  Data extends JsonObject,
+  Data extends object,
   Input extends object = {},
 > = {
   title?: string;
   description?: string;
-  requiredHostMethods?: readonly WorkflowHostMethodRequirement[];
-  requiredHostCapabilities?: readonly WorkflowHostCapabilityRequirement[];
   input?: WorkflowOperationInputBuilder<Input> | ((workflow: WorkflowOperationInputHelpers) => WorkflowOperationInputBuilder<Input>);
   run: WorkflowWorkspaceOperationHandler<Providers, Context, Data, Input>;
 };
@@ -391,14 +342,12 @@ export type WorkflowWorkspaceOperationOptions<
 export type WorkflowWorkspaceOperationDefinition<
   Providers extends WorkflowProviderMap = WorkflowProviderMap,
   Context extends JsonObject = JsonObject,
-  Data extends JsonObject = JsonObject,
+  Data extends object = JsonObject,
   Input extends object = object,
 > = {
   readonly id: string;
   readonly title?: string;
   readonly description?: string;
-  readonly requiredHostMethods?: readonly WorkflowHostMethodRequirement[];
-  readonly requiredHostCapabilities?: readonly WorkflowHostCapabilityRequirement[];
   readonly input?: WorkflowOperationInputBuilder<Input>;
   readonly run: WorkflowWorkspaceOperationHandler<Providers, Context, Data, Input>;
 };
@@ -504,7 +453,7 @@ export type WorkflowSequenceBuilder<
   Providers extends WorkflowProviderMap,
   InputContext extends JsonObject,
   OutputContext extends JsonObject,
-  WorkspaceData extends JsonObject = JsonObject,
+  WorkspaceData extends object = JsonObject,
   OperationIds extends string = never,
   WorkspaceOperationIds extends string = never,
 > = WorkflowNodeDefinition<Providers, InputContext, OutputContext> & {
@@ -593,7 +542,7 @@ export type WorkflowSequenceBuilder<
     Providers,
     InputContext,
     OutputContext,
-    Data,
+    ReadonlyWorkspaceContext<Data>,
     OperationIds,
     WorkspaceOperationIds
   >;
@@ -636,8 +585,6 @@ export const RESERVED_WORKFLOW_OPERATION_IDS = [
   "projects",
   "remove",
   "run",
-  "snapshot",
-  "ssh",
   "version",
 ] as const;
 
@@ -692,7 +639,6 @@ export type WorkflowWorkspaceDefinition<
   Context extends JsonObject = JsonObject,
   Data extends JsonObject = JsonObject,
 > = {
-  cwd?: string | ((ctx: Readonly<Context>) => string | undefined);
   create: WorkflowWorkspaceCreateHandler<Providers, Context, Data>;
   remove: WorkflowWorkspaceRemoveHandler<Providers, Context, Data>;
 };
@@ -730,17 +676,11 @@ export type MachinePlan = WorkflowPlan;
 export type WorkspaceRecord = {
   id: string;
   name: string;
-  providerId: string;
   workflow: string;
-  resourceId: string;
-  snapshotId?: string;
-  sourceRef: JsonValue;
-  context: Record<string, JsonValue>;
-  resources: Record<string, WorkspaceResourceRecord>;
-  kv: Record<string, JsonValue>;
+  workflowCtx: Record<string, JsonValue>;
+  ctx: Record<string, JsonValue>;
   createdAt: string;
   updatedAt: string;
-  metadata: Record<string, JsonValue>;
 };
 
 export type WorkflowEvent =
@@ -771,7 +711,7 @@ export type WorkflowEvent =
       title: string;
     }
   | { type: "artifact.created"; nodePath: string; providerId: string; kind: string; ref: JsonValue }
-  | { type: "workspace.ready"; workspaceId: string; providerId: string; resourceId: string; snapshotId?: string };
+  | { type: "workspace.ready"; workspaceId: string };
 
 export type DevMachineEvent = WorkflowEvent;
 

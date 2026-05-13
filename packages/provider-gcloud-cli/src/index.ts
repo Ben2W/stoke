@@ -5,6 +5,7 @@ import {
   assertLocalGcloudReady,
   createGcloudConfigCopyController,
   GCLOUD_CONFIG_COPY_PROVIDER_ID,
+  requiresLocalGcloudAuth,
   type GcloudConfigCopyConfig,
   type GcloudConfigCopyRuntime,
 } from "./provider.ts";
@@ -12,6 +13,7 @@ import { createGcloudAuthStore } from "./store.ts";
 
 const gcloudConfigCopyProviderConfigSchema = z.object({
   command: z.optional(z.string()),
+  requireAuth: z.optional(z.boolean()),
   key: z.optional(z.string()),
   account: z.optional(z.string()),
   scopes: z.optional(z.array(z.string())),
@@ -42,7 +44,9 @@ export const gcloudConfigCopyProviderPlugin: BaseProviderPlugin = {
   providerId: GCLOUD_CONFIG_COPY_PROVIDER_ID,
   async createProvider({ provider, storage }) {
     const config = parseGcloudConfigCopyProviderConfig(provider.config);
-    await assertLocalGcloudReady(config);
+    if (requiresLocalGcloudAuth(config)) {
+      await assertLocalGcloudReady(config);
+    }
     return createGcloudConfigCopyController(config, createGcloudAuthStore(storage));
   },
 };
@@ -53,6 +57,7 @@ export {
   DEFAULT_GCLOUD_INSTALL_URL,
   GCLOUD_CONFIG_COPY_PROVIDER_ID,
   createGcloudConfigCopyController,
+  requiresLocalGcloudAuth,
 } from "./provider.ts";
 export {
   DEFAULT_GCLOUD_ACCESS_TOKEN_EXPIRES_AT_PATH,

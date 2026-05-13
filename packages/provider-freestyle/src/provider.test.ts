@@ -8,7 +8,6 @@ import type {
   WorkflowEvent,
 } from "@rigkit/engine";
 import { createFreestyleWorkflowController, wrapCommand } from "./provider.ts";
-import type { FreestyleWorkspaceContext } from "./provider.ts";
 
 describe("Freestyle provider command wrapper", () => {
   test("sets a root HOME fallback for exec commands", () => {
@@ -30,7 +29,7 @@ describe("Freestyle provider command wrapper", () => {
     const provider = new StreamingProvider();
     const controller = createFreestyleWorkflowController(provider);
     const runtime = await controller.runtime(providerContext(events));
-    const vm = runtime.vms.fromWorkspace({ resourceId: "vm-stream" });
+    const vm = runtime.vms.fromId("vm-stream");
 
     const result = await vm.exec("printf ready", {
       name: "stream command",
@@ -63,6 +62,46 @@ describe("Freestyle provider command wrapper", () => {
       },
     ]);
   });
+
+  test("creates cmux ssh options with Freestyle-owned ssh settings", async () => {
+    const provider = new StreamingProvider();
+    const controller = createFreestyleWorkflowController(provider);
+    const runtime = await controller.runtime(providerContext([]));
+    const vm = runtime.vms.fromId("vm-stream");
+
+    const ssh = await runtime.cmux.createSshOptions(vm, {
+      sshOptions: ["ServerAliveInterval=15"],
+      skipDaemonBootstrap: true,
+    });
+
+    expect(ssh).toEqual({
+      kind: "ssh",
+      destination: "root,token@localhost",
+      skipDaemonBootstrap: true,
+      sshOptions: [
+        "StrictHostKeyChecking=no",
+        "UserKnownHostsFile=/dev/null",
+        "LogLevel=ERROR",
+        "IdentitiesOnly=yes",
+        "IdentityFile=/dev/null",
+        "ControlMaster=no",
+        "ServerAliveInterval=15",
+      ],
+    });
+  });
+
+  test("creates VS Code URLs using the Freestyle ssh authority", async () => {
+    const provider = new StreamingProvider();
+    const controller = createFreestyleWorkflowController(provider);
+    const runtime = await controller.runtime(providerContext([]));
+    const vm = runtime.vms.fromId("vm-stream");
+
+    const url = await runtime.vscode.createUrl(vm, { cwd: "/workspace/site" });
+
+    expect(url).toBe(
+      "vscode://vscode-remote/ssh-remote+root%3Atoken%40localhost/workspace/site?windowId=_blank",
+    );
+  });
 });
 
 const sshConnection: SshConnection = {
@@ -73,7 +112,7 @@ const sshConnection: SshConnection = {
   command: "ssh vm-stream",
 };
 
-class StreamingProvider implements BaseDevMachineProvider<FreestyleWorkspaceContext> {
+class StreamingProvider implements BaseDevMachineProvider {
   readonly providerId = "freestyle";
 
   async createVm(): Promise<VmHandle> {
@@ -103,19 +142,13 @@ class StreamingProvider implements BaseDevMachineProvider<FreestyleWorkspaceCont
     return sshConnection;
   }
 
-  async workspaceContext(): Promise<FreestyleWorkspaceContext> {
-    return {
-      ssh: sshConnection,
-      host: sshConnection.host,
-      username: sshConnection.username,
-      vscodeAuthority: "root@localhost",
-    };
-  }
-
   async deleteVm(): Promise<void> {}
 }
 
-function providerContext(events: WorkflowEvent[]): ProviderRuntimeContext {
+function providerContext(
+  events: WorkflowEvent[],
+  local: Partial<ProviderRuntimeContext["local"]> = {},
+): ProviderRuntimeContext {
   return {
     workflow: "workflow",
     nodePath: "workflow.step",
@@ -129,6 +162,7 @@ function providerContext(events: WorkflowEvent[]): ProviderRuntimeContext {
     },
     local: {
       open: async () => {},
+      ...local,
     },
     metadata: () => {},
   };

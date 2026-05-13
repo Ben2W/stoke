@@ -71,19 +71,12 @@ const smoke = sequence("smoke")
     return { vm: await vm.snapshotRef() };
   })
   .workspace({
-    create: async ({ ctx, providers, resources }) => {
-      const vm = await providers.freestyle.vms.fromSnapshot(ctx.vm);
-      resources.set("vm", {
-        providerId: "freestyle",
-        resourceId: vm.vmId,
-        kind: "vm",
-        sourceRef: ctx.vm,
-      });
-      return { ready: true };
+    create: async ({ workflow, providers }) => {
+      const vm = await providers.freestyle.vms.fromSnapshot(workflow.ctx.vm);
+      return { vmId: vm.vmId, ready: true };
     },
     remove: async ({ providers, workspace }) => {
-      const vmResource = workspace.resources.vm;
-      if (vmResource) await providers.freestyle.vms.delete(vmResource.resourceId);
+      await providers.freestyle.vms.delete(workspace.ctx.vmId);
     },
   });
 

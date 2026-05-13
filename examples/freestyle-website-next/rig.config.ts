@@ -1,6 +1,7 @@
 import { cmux, type CmuxRuntime } from "@rigkit/provider-cmux";
 import { freestyle } from "@rigkit/provider-freestyle";
 import type {
+  FreestyleRuntime,
   FreestyleVmRuntime,
   FreestyleVmSnapshotRef,
 } from "@rigkit/provider-freestyle";
@@ -162,19 +163,13 @@ export default app
     repo: repoSetup,
   })
   .workspace({
-    create: async ({ ctx, providers, resources, name }) => {
-      const vm = await providers.freestyle.vms.fromSnapshot(ctx.repo.vm);
-      resources.set("vm", {
-        providerId: "freestyle",
-        resourceId: vm.vmId,
-        kind: "vm",
-        sourceRef: ctx.repo.vm,
-      });
-      const branch = `rigkit/${name.replaceAll(/[^A-Za-z0-9._/-]/g, "-")}`;
+    create: async ({ workflow, providers, workspace }) => {
+      const vm = await providers.freestyle.vms.fromSnapshot(workflow.ctx.repo.vm);
+      const branch = `rigkit/${workspace.name.replaceAll(/[^A-Za-z0-9._/-]/g, "-")}`;
       await vm.exec(
         [
           "set -e",
-          `cd ${shellQuote(ctx.repo.repoPath)}`,
+          `cd ${shellQuote(workflow.ctx.repo.repoPath)}`,
           `git switch -C ${shellQuote(branch)}`,
         ].join("\n"),
         {
@@ -182,30 +177,27 @@ export default app
         },
       );
       return {
-        repoPath: ctx.repo.repoPath,
-        repo: ctx.repo.repo,
+        vmId: vm.vmId,
+        repoPath: workflow.ctx.repo.repoPath,
+        repo: workflow.ctx.repo.repo,
         branch,
         devPort,
       };
     },
     remove: async ({ providers, workspace }) => {
-      const vmResource = workspace.resources.vm;
-      if (vmResource) await providers.freestyle.vms.delete(vmResource.resourceId);
+      await providers.freestyle.vms.delete(workspace.ctx.vmId);
     },
   })
   .workspaceOperation("open-cmux", {
     title: "Open cmux",
     description: "Open the website workspace in cmux",
     run: async ({ providers, workspace }) => {
-      const vmResource = workspace.resources.vm;
-      if (!vmResource) throw new Error(`Workspace ${workspace.name} does not have a Freestyle VM resource`);
-      const vm = providers.freestyle.vms.fromId(vmResource.resourceId);
-      const repoPath = workspace.data.repoPath;
-      if (typeof repoPath !== "string") throw new Error(`Workspace ${workspace.name} is missing repoPath`);
+      const vm = providers.freestyle.vms.fromId(workspace.ctx.vmId);
       await openInCmux({
         name: workspace.name,
         vm,
-        repoPath,
+        repoPath: workspace.ctx.repoPath,
+        freestyle: providers.freestyle,
         cmux: providers.cmux,
       });
       await waitForLocalhost(vm, devPort);
@@ -216,11 +208,13 @@ async function openInCmux(input: {
   name: string;
   vm: FreestyleVmRuntime;
   repoPath: string;
+  freestyle: Pick<FreestyleRuntime, "cmux">;
   cmux: CmuxRuntime;
 }): Promise<void> {
+  const ssh = await input.freestyle.cmux.createSshOptions(input.vm);
   await input.cmux.open({
     name: input.name,
-    ssh: await input.vm.ssh(),
+    ssh,
     cwd: input.repoPath,
     command: devCommand,
     url: `http://localhost:${devPort}`,

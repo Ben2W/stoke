@@ -94,14 +94,6 @@ type EngineProjectInfo = {
 };
 
 type RuntimeOperationManifest = {
-  hostMethods?: {
-    known?: Array<{ id: string; modes?: string[] }>;
-    requiredByOperations?: Record<string, string[]>;
-  };
-  hostCapabilities?: {
-    optional?: Array<{ id: string; schemaHash?: string }>;
-    requiredByOperations?: Record<string, string[]>;
-  };
   operations: RuntimeOperationDefinition[];
   workspaceOperations?: RuntimeOperationDefinition[];
 };
@@ -112,8 +104,6 @@ type RuntimeOperationDefinition = {
   title?: string;
   description?: string;
   createsWorkspace?: boolean;
-  requiredHostMethods?: Array<{ id: string; modes?: string[] }>;
-  requiredHostCapabilities?: Array<{ id: string; schemaHash?: string }>;
   cli?: {
     positionals?: Array<{ name: string; index: number }>;
     options?: Array<{
@@ -808,7 +798,6 @@ async function executeRuntimeOperation(
   }
   const { operation, runOperation } = resolved;
 
-  preflightHostSupport(operation);
   const parsed = parseOperationArgs(operation, args);
   enforceHostOnlyBooleanGuards(operation, parsed);
 
@@ -845,44 +834,6 @@ function parseWorkspaceOperationId(value: string): { workspace: string; operatio
     workspace: value.slice(0, slash),
     operation: value.slice(slash + 1),
   };
-}
-
-function preflightHostSupport(operation: RuntimeOperationDefinition): void {
-  const unsupportedMethod = operation.requiredHostMethods?.find((method) => {
-    const supported = CLI_HOST_METHODS.find((item) => item.id === method.id);
-    return !supported || !supportsModes(supported.modes, method.modes);
-  });
-  if (unsupportedMethod) {
-    throw new Error(
-      `Operation "${operation.id}" requires host method "${formatMethodRequirement(unsupportedMethod)}". ` +
-        `Upgrade Rigkit or use a host that supports this method.`,
-    );
-  }
-
-  const unsupportedCapability = operation.requiredHostCapabilities?.find((capability) => {
-    const supported = CLI_HOST_CAPABILITIES.find((item) => item.id === capability.id);
-    return !supported || (capability.schemaHash && supported.schemaHash !== capability.schemaHash);
-  });
-  if (unsupportedCapability) {
-    throw new Error(
-      `Operation "${operation.id}" requires host capability "${formatCapabilityRequirement(unsupportedCapability)}". ` +
-        `Install or enable a local host capability handler to use it from this host.`,
-    );
-  }
-}
-
-function supportsModes(hostModes: string[] | undefined, requiredModes: string[] | undefined): boolean {
-  if (!requiredModes?.length) return true;
-  const supported = new Set(hostModes ?? []);
-  return requiredModes.every((mode) => supported.has(mode));
-}
-
-function formatMethodRequirement(method: { id: string; modes?: string[] }): string {
-  return method.modes?.length ? `${method.id}:${method.modes.join("|")}` : method.id;
-}
-
-function formatCapabilityRequirement(capability: { id: string; schemaHash?: string }): string {
-  return capability.schemaHash ? `${capability.id}@${capability.schemaHash}` : capability.id;
 }
 
 function parseOperationArgs(operation: RuntimeOperationDefinition, args: string[]): ParsedOperationInput {
@@ -1034,12 +985,12 @@ async function renderOperationResult(
       console.log("No changes applied.");
       return;
     }
-    console.log(`resolved ${result.plan.workflow} -> ${String(result.snapshotId ?? "no workspace source")}`);
+    console.log(`resolved ${result.plan.workflow}`);
     return;
   }
 
   if (operation.createsWorkspace && isWorkspaceRecord(result)) {
-    console.log(`${result.name} ${workspaceDisplayResourceId(result)}`);
+    console.log(result.name);
     return;
   }
 
@@ -1054,16 +1005,8 @@ async function renderOperationResult(
     return;
   }
 
-  if (isRecord(result)) {
-    const metadata = isRecord(result.metadata) ? result.metadata : {};
-    if (typeof metadata.snapshotId === "string") {
-      console.log(metadata.snapshotId);
-      return;
-    }
-  }
-
   if (isWorkspaceRecord(result)) {
-    console.log(`${result.name} ${workspaceDisplayResourceId(result)}`);
+    console.log(result.name);
     return;
   }
 
@@ -1756,8 +1699,8 @@ function isWorkflowPlan(value: unknown): value is WorkflowPlan {
 function isWorkspaceRecord(value: unknown): value is WorkspaceRecord {
   return isRecord(value) &&
     typeof value.name === "string" &&
-    typeof value.resourceId === "string" &&
-    typeof value.workflow === "string";
+    typeof value.workflow === "string" &&
+    isRecord(value.ctx);
 }
 
 function isDevMachineEvent(value: unknown): value is DevMachineEvent {
@@ -1809,7 +1752,7 @@ function printPlan(plan: WorkflowPlan): void {
 }
 
 function printWorkspaces(
-  workspaces: ReadonlyArray<Pick<WorkspaceRecord, "name" | "workflow" | "snapshotId" | "createdAt"> & { resourceId?: string; resources?: unknown }>,
+  workspaces: ReadonlyArray<Pick<WorkspaceRecord, "name" | "workflow" | "createdAt">>,
 ): void {
   if (workspaces.length === 0) {
     console.log("No workspaces.");
@@ -1817,32 +1760,13 @@ function printWorkspaces(
   }
 
   printTable(
-    ["name", "resource", "snapshot", "workflow", "created"],
+    ["name", "workflow", "created"],
     workspaces.map((workspace) => [
       workspace.name,
-      workspaceDisplayResourceId(workspace),
-      workspace.snapshotId ?? "",
       workspace.workflow,
       workspace.createdAt,
     ]),
   );
-}
-
-function workspaceDisplayResourceId(
-  workspace: { resourceId?: string; resources?: unknown },
-): string {
-  const resources = isRecord(workspace.resources) ? workspace.resources : {};
-  const defaultResource = workspaceResourceId(resources.default);
-  if (defaultResource) return defaultResource;
-  const vmResource = workspaceResourceId(resources.vm);
-  if (vmResource) return vmResource;
-  const values = Object.values(resources).map((resource) => workspaceResourceId(resource)).filter((value): value is string => Boolean(value));
-  if (values.length === 1) return values[0]!;
-  return workspace.resourceId ?? "";
-}
-
-function workspaceResourceId(value: unknown): string | undefined {
-  return isRecord(value) && typeof value.resourceId === "string" ? value.resourceId : undefined;
 }
 
 function printSnapshots(snapshots: SnapshotRecord[]): void {
@@ -1938,7 +1862,7 @@ function renderEvent(event: DevMachineEvent): void {
       console.error(`artifact ${event.providerId}:${event.kind}`);
       return;
     case "workspace.ready":
-      console.error(`workspace ${event.workspaceId} -> ${event.resourceId}`);
+      console.error(`workspace ${event.workspaceId} ready`);
       return;
     default:
       return;

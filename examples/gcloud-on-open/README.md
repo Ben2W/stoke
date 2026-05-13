@@ -7,9 +7,9 @@ The workflow:
 - requires local `gcloud` to be installed and authenticated before any rigkit command runs
 - creates a Freestyle VM
 - installs the Google Cloud CLI inside the VM
-- creates a workspace from that VM snapshot
-- copies selected files from the local gcloud config directory with `rig gcloud-workspace/inject-gcloud`
-- prints the SSH command
+- creates a workspace VM from that snapshot
+- copies selected files from the local gcloud config directory during workspace creation
+- opens an interactive SSH session
 
 Before running:
 
@@ -23,7 +23,6 @@ Run from this directory:
 pnpm rig:plan
 pnpm rig:apply
 pnpm rig:fork
-pnpm rig:inject-gcloud
 pnpm rig:ssh
 ```
 
