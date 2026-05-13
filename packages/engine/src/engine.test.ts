@@ -60,17 +60,23 @@ describe("DevMachineEngine workflow runtime", () => {
           .workspace({
             source: (ctx) => ctx.vm,
             cwd: "/workspace/repo",
-            onCreated: async ({ providers, workspace, ctx, local, providerContext }) => {
+            onCreated: async ({ providers, workspace, ctx, local }) => {
               if (ctx.summary !== "right-ready") throw new Error("missing final context");
-              if (providerContext.authority !== "fake-authority") throw new Error("missing provider context");
-              const vm = providers.test.fromWorkspace(workspace);
+              const vm = await providers.test.fromSnapshot(ctx.vm);
+              workspace.setResource("vm", {
+                providerId: "test",
+                resourceId: vm.vmId,
+                sourceRef: ctx.vm,
+              });
               await vm.exec("touch /tmp/workspace-" + workspace.name, { name: "mark workspace" });
               await local.open("vscode://" + workspace.name);
             },
             onOpen: async ({ providers, workspace, ctx, providerContext }) => {
               if (ctx.summary !== "right-ready") throw new Error("missing final context on open");
               if (providerContext.authority !== "fake-authority") throw new Error("missing provider context on open");
-              const vm = providers.test.fromWorkspace(workspace);
+              const vmResource = workspace.resources.vm;
+              if (!vmResource) throw new Error("missing vm resource");
+              const vm = providers.test.fromId(vmResource.resourceId);
               await vm.exec("touch /tmp/open-" + workspace.name, { name: "mark workspace open" });
             },
           })
@@ -81,9 +87,11 @@ describe("DevMachineEngine workflow runtime", () => {
                 .workspaceInput({ name: "workspace", position: 0 })
                 .extend({
                   label: workflow.string({ defaultValue: "marked" }),
-                }),
+            }),
             run: async ({ input, providers, local }) => {
-              const vm = providers.test.fromWorkspace(input.workspace);
+              const vmResource = input.workspace.resources.vm;
+              if (!vmResource) throw new Error("missing vm resource");
+              const vm = providers.test.fromId(vmResource.resourceId);
               await vm.exec("touch /tmp/mark-" + input.workspace.name, { name: "mark via operation" });
               await local.open("mark://" + input.workspace.name);
               return {
@@ -142,11 +150,13 @@ describe("DevMachineEngine workflow runtime", () => {
     const workspace = await engine.fork({ name: "work" });
     expect(workspace.snapshotId).toBe("snap-2");
     expect(workspace.name).toBe("work");
-    expect(workspace.resourceId).toBe("workspace-work");
+    expect(workspace.providerId).toBe("rigkit");
+    expect(workspace.resourceId).toBe("work");
+    expect(workspace.resources.vm?.resourceId).toBe("vm-3");
     expect(engine.listWorkspaces()).toHaveLength(1);
     expect(opened).toEqual(["vscode://work"]);
-    expect(provider.workspaceContextResourceIds).toEqual(["workspace-work"]);
-    expect(provider.hasFile("workspace-work", "/tmp/workspace-work")).toBe(true);
+    expect(provider.workspaceContextResourceIds).toEqual([]);
+    expect(provider.hasFile("vm-3", "/tmp/workspace-work")).toBe(true);
 
     const markOperation = engine.listOperations().find((operation) => operation.id === "mark");
     expect(markOperation?.requiredHostCapabilities).toEqual([
@@ -155,12 +165,12 @@ describe("DevMachineEngine workflow runtime", () => {
     const marked = await engine.runOperation({ operation: "mark", input: { workspace: "work" } });
     expect(marked).toEqual({ workspace: "work", label: "marked", cwd: "/workspace/repo" });
     expect(opened).toEqual(["vscode://work", "mark://work"]);
-    expect(provider.hasFile("workspace-work", "/tmp/mark-work")).toBe(true);
+    expect(provider.hasFile("vm-3", "/tmp/mark-work")).toBe(true);
 
     const terminal = await engine.attachTerminal({ workspaceOrVmId: "work", printOnly: true });
-    expect(terminal.command).toBe("ssh workspace-work");
-    expect(provider.workspaceContextResourceIds).toEqual(["workspace-work", "workspace-work"]);
-    expect(provider.hasFile("workspace-work", "/tmp/open-work")).toBe(true);
+    expect(terminal.command).toBe("ssh vm-3");
+    expect(provider.workspaceContextResourceIds).toEqual(["vm-3"]);
+    expect(provider.hasFile("vm-3", "/tmp/open-work")).toBe(true);
 
     const workspaceSnapshot = await engine.snapshotWorkspace({ workspace: "work", label: "verified-work" });
     expect(workspaceSnapshot.metadata.snapshotId).toBe("snap-3");
@@ -397,6 +407,7 @@ describe("DevMachineEngine workflow runtime", () => {
       snapshotId: "snap-2",
       sourceRef: { snapshotId: "snap-2" },
       context: { ready: true },
+      resources: {},
       createdAt: now,
       updatedAt: now,
       metadata: { ready: true },
@@ -775,6 +786,7 @@ type FakeVm = {
 type FakeRuntime = {
   createVm(): Promise<FakeVm>;
   fromSnapshot(ref: FakeSnapshotRef): Promise<FakeVm>;
+  fromId(vmId: string): FakeVm;
   fromWorkspace(workspace: Pick<WorkspaceRecord, "resourceId">): FakeVm;
   openTerminal(label: string, command: string): Promise<{ finished: true }>;
 };
@@ -797,6 +809,7 @@ class FakeWorkflowProvider implements WorkflowProviderController<FakeRuntime, { 
     return {
       createVm: async () => this.createVm(context),
       fromSnapshot: async () => this.createVm(context),
+      fromId: (vmId) => this.vmRuntime({ vmId }, context),
       fromWorkspace: (workspace) => this.vmRuntime({ vmId: workspace.resourceId }, context),
       openTerminal: async (label, command) => {
         const completed = this.options.terminalCompleted ?? Promise.resolve({ finished: true as const });

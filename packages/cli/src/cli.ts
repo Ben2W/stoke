@@ -1021,7 +1021,7 @@ async function renderOperationResult(
   }
 
   if (operation.createsWorkspace && isWorkspaceRecord(result)) {
-    console.log(`${result.name} ${result.resourceId}`);
+    console.log(`${result.name} ${workspaceDisplayResourceId(result)}`);
     return;
   }
 
@@ -1045,7 +1045,7 @@ async function renderOperationResult(
   }
 
   if (isWorkspaceRecord(result)) {
-    console.log(`${result.name} ${result.resourceId}`);
+    console.log(`${result.name} ${workspaceDisplayResourceId(result)}`);
     return;
   }
 
@@ -1791,7 +1791,7 @@ function printPlan(plan: WorkflowPlan): void {
 }
 
 function printWorkspaces(
-  workspaces: ReadonlyArray<Pick<WorkspaceRecord, "name" | "workflow" | "snapshotId" | "createdAt"> & { resourceId?: string }>,
+  workspaces: ReadonlyArray<Pick<WorkspaceRecord, "name" | "workflow" | "snapshotId" | "createdAt"> & { resourceId?: string; resources?: WorkspaceRecord["resources"] }>,
 ): void {
   if (workspaces.length === 0) {
     console.log("No workspaces.");
@@ -1802,12 +1802,23 @@ function printWorkspaces(
     ["name", "resource", "snapshot", "workflow", "created"],
     workspaces.map((workspace) => [
       workspace.name,
-      workspace.resourceId ?? "",
+      workspaceDisplayResourceId(workspace),
       workspace.snapshotId ?? "",
       workspace.workflow,
       workspace.createdAt,
     ]),
   );
+}
+
+function workspaceDisplayResourceId(
+  workspace: { resourceId?: string; resources?: WorkspaceRecord["resources"] },
+): string {
+  const resources = workspace.resources ?? {};
+  const resource = resources.default ?? resources.vm;
+  if (resource) return resource.resourceId;
+  const values = Object.values(resources);
+  if (values.length === 1) return values[0]?.resourceId ?? "";
+  return workspace.resourceId ?? "";
 }
 
 function printSnapshots(snapshots: SnapshotRecord[]): void {

@@ -54,6 +54,7 @@ export type FreestyleRuntime = {
   vms: {
     create(): Promise<FreestyleVmRuntime>;
     fromSnapshot(ref: FreestyleVmSnapshotRef): Promise<FreestyleVmRuntime>;
+    fromId(vmId: string): FreestyleVmRuntime;
     fromWorkspace(workspace: Pick<WorkspaceRecord, "resourceId">): FreestyleVmRuntime;
   };
   openWorkspace(target: FreestyleVmRuntime | FreestyleVmSnapshotRef, options?: { cwd?: string }): Promise<void>;
@@ -315,6 +316,7 @@ function createFreestyleRuntime(
         });
         return fromHandle(vm);
       },
+      fromId: (vmId) => fromHandle({ vmId }),
       fromWorkspace: (workspace) => fromHandle({ vmId: workspace.resourceId }),
     },
     openWorkspace: async (target, options) => {
@@ -330,6 +332,7 @@ function createFreestyleRuntime(
           resourceId: vm.vmId,
           sourceRef: null,
           context: {},
+          resources: {},
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
           metadata: {},

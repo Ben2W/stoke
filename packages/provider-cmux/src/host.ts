@@ -172,7 +172,6 @@ function parseSshInput(value: unknown): CmuxOpenSshInput {
     ...optionalNumberField(value, "port"),
     ...optionalStringField(value, "username"),
     ...(value.auth !== undefined ? { auth: parseSshAuth(value.auth) } : {}),
-    ...optionalStringField(value, "command"),
     ...optionalStringField(value, "identity"),
     ...optionalStringArrayField(value, "sshOptions"),
     ...optionalStringArrayField(value, "remoteCommandArgs"),
@@ -214,14 +213,14 @@ function cmuxSshOptionsForInput(ssh: CmuxOpenSshInput): CmuxSshOptions {
   ];
   return {
     destination,
-    port: ssh.port,
-    identity: ssh.identity,
-    sshOptions,
-    remoteCommandArgs: ssh.remoteCommandArgs,
-    initialCommand: ssh.initialCommand,
-    terminalStartupCommand: ssh.terminalStartupCommand ?? ssh.command,
-    autoConnect: ssh.autoConnect,
-    skipDaemonBootstrap: ssh.skipDaemonBootstrap,
+    ...(ssh.port !== undefined ? { port: ssh.port } : {}),
+    ...(ssh.identity !== undefined ? { identity: ssh.identity } : {}),
+    ...(sshOptions.length ? { sshOptions } : {}),
+    ...(ssh.remoteCommandArgs !== undefined ? { remoteCommandArgs: ssh.remoteCommandArgs } : {}),
+    ...(ssh.initialCommand !== undefined ? { initialCommand: ssh.initialCommand } : {}),
+    ...(ssh.terminalStartupCommand !== undefined ? { terminalStartupCommand: ssh.terminalStartupCommand } : {}),
+    ...(ssh.autoConnect !== undefined ? { autoConnect: ssh.autoConnect } : {}),
+    ...(ssh.skipDaemonBootstrap !== undefined ? { skipDaemonBootstrap: ssh.skipDaemonBootstrap } : {}),
   };
 }
 

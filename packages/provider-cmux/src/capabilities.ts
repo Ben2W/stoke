@@ -1,7 +1,7 @@
 export const CMUX_OPEN_CAPABILITY_ID = "cmux.open";
 
 export const CMUX_OPEN_SCHEMA_HASH =
-  "sha256:ed7f74b4fd1101ff87281c0269f9884f85783098d9a727fdfe05491efba2dd28";
+  "sha256:107fd120eb0cab31626f75acf217c8de93bf7b98ff1ffb104b6b22c2524f95f0";
 
 export const CMUX_OPEN_CAPABILITY = {
   id: CMUX_OPEN_CAPABILITY_ID,
@@ -15,7 +15,6 @@ export type CmuxOpenSshInput = string | {
   port?: number;
   username?: string;
   auth?: { type: "token"; token: string } | { type: "privateKey"; privateKey: string };
-  command?: string;
   identity?: string;
   sshOptions?: readonly string[];
   remoteCommandArgs?: readonly string[];

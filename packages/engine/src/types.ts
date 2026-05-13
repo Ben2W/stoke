@@ -496,8 +496,8 @@ export type WorkflowWorkspaceDefinition<
   source?: (ctx: Readonly<Context>) => JsonValue;
   cwd?: string | ((ctx: Readonly<Context>) => string | undefined);
   ports?: readonly number[];
-  onCreated?: (context: WorkflowWorkspaceCreatedContext<Providers, Context>) => MaybePromise<void>;
-  onOpen?: (context: WorkflowWorkspaceOpenContext<Providers, Context>) => MaybePromise<void>;
+  onCreated?: (context: WorkflowWorkspaceCreatedContext<Providers, Context>) => MaybePromise<void | JsonObject>;
+  onOpen?: (context: WorkflowWorkspaceOpenContext<Providers, Context>) => MaybePromise<void | JsonObject>;
 };
 
 export type WorkflowWorkspaceCreatedContext<
@@ -514,7 +514,7 @@ export type WorkflowWorkspaceLifecycleContext<
   Providers extends WorkflowProviderMap = WorkflowProviderMap,
   Context extends JsonObject = JsonObject,
 > = {
-  workspace: WorkspaceRuntimeRecord;
+  workspace: MutableWorkspaceRuntimeRecord;
   ctx: Readonly<Context>;
   providers: ProviderRuntimeMap<Providers>;
   providerContext: ProviderWorkspaceContext;
@@ -560,6 +560,7 @@ export type WorkspaceRecord = {
   snapshotId?: string;
   sourceRef: JsonValue;
   context: Record<string, JsonValue>;
+  resources: Record<string, WorkspaceResourceRecord>;
   createdAt: string;
   updatedAt: string;
   metadata: Record<string, JsonValue>;
@@ -567,7 +568,25 @@ export type WorkspaceRecord = {
 
 export type WorkspaceRuntimeRecord = WorkspaceRecord & {
   cwd?: string;
+  data: Record<string, JsonValue>;
 };
+
+export type MutableWorkspaceRuntimeRecord = WorkspaceRuntimeRecord & {
+  setMetadata(metadata: JsonObject): void;
+  setResource(name: string, resource: WorkspaceResourceInput): void;
+  removeResource(name: string): void;
+};
+
+export type WorkspaceResourceRecord = {
+  providerId: string;
+  resourceId: string;
+  kind?: string;
+  snapshotId?: string;
+  sourceRef?: JsonValue;
+  metadata?: JsonObject;
+};
+
+export type WorkspaceResourceInput = WorkspaceResourceRecord;
 
 export type WorkflowEvent =
   | { type: "definition.loaded"; workflow: string }

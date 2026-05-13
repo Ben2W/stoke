@@ -98,7 +98,10 @@ export class StateStore implements StateService {
       .from(workspaces)
       .where(or(eq(workspaces.name, nameOrResourceId), eq(workspaces.resourceId, nameOrResourceId)))
       .get();
-    return row ? toWorkspaceRecord(row) : undefined;
+    if (row) return toWorkspaceRecord(row);
+    return this.listWorkspaces().find((workspace) =>
+      Object.values(workspace.resources).some((resource) => resource.resourceId === nameOrResourceId)
+    );
   }
 
   getWorkspace(name: string): WorkspaceRecord | undefined {
@@ -120,6 +123,7 @@ export class StateStore implements StateService {
           snapshotId: workspace.snapshotId,
           sourceRef: workspace.sourceRef,
           context: workspace.context,
+          resources: workspace.resources,
           updatedAt: workspace.updatedAt,
           metadata: workspace.metadata,
         },
@@ -224,6 +228,7 @@ function toWorkspaceRecord(row: typeof workspaces.$inferSelect): WorkspaceRecord
     snapshotId: row.snapshotId ?? undefined,
     sourceRef: row.sourceRef,
     context: row.context,
+    resources: row.resources ?? {},
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     metadata: row.metadata,

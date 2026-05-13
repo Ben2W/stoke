@@ -72,6 +72,15 @@ const smoke = sequence("smoke")
   })
   .workspace({
     source: (ctx) => ctx.vm,
+    onCreated: async ({ ctx, providers, workspace }) => {
+      const vm = await providers.freestyle.vms.fromSnapshot(ctx.vm);
+      workspace.setResource("vm", {
+        providerId: "freestyle",
+        resourceId: vm.vmId,
+        kind: "vm",
+        sourceRef: ctx.vm,
+      });
+    },
   });
 
 export default defineConfig({

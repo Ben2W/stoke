@@ -1,5 +1,5 @@
 import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
-import type { JsonValue } from "../../types.ts";
+import type { JsonValue, WorkspaceResourceRecord } from "../../types.ts";
 
 export const workspaces = sqliteTable(
   "workspaces",
@@ -12,6 +12,7 @@ export const workspaces = sqliteTable(
     snapshotId: text("snapshot_id"),
     sourceRef: text("source_ref_json", { mode: "json" }).$type<JsonValue>().notNull(),
     context: text("context_json", { mode: "json" }).$type<Record<string, JsonValue>>().notNull(),
+    resources: text("resources_json", { mode: "json" }).$type<Record<string, WorkspaceResourceRecord>>(),
     createdAt: text("created_at").notNull(),
     updatedAt: text("updated_at").notNull(),
     metadata: text("metadata_json", { mode: "json" }).$type<Record<string, JsonValue>>().notNull(),

@@ -51,8 +51,19 @@ export default app
   })
   .workspace({
     source: (ctx) => ctx.vm,
+    onCreated: async ({ ctx, providers, workspace }) => {
+      const vm = await providers.freestyle.vms.fromSnapshot(ctx.vm);
+      workspace.setResource("vm", {
+        providerId: "freestyle",
+        resourceId: vm.vmId,
+        kind: "vm",
+        sourceRef: ctx.vm,
+      });
+    },
     onOpen: async ({ providers, workspace }) => {
-      const vm = providers.freestyle.vms.fromWorkspace(workspace);
+      const vmResource = workspace.resources.vm;
+      if (!vmResource) throw new Error(`Workspace ${workspace.name} does not have a Freestyle VM resource`);
+      const vm = providers.freestyle.vms.fromId(vmResource.resourceId);
       const gcloudConfigFiles = await providers.gcloudConfig.configFiles();
       for (const step of gcloudConfigCopyInjectionSteps(gcloudConfigFiles)) {
         await vm.exec(step.command, {

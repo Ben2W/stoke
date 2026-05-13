@@ -216,6 +216,7 @@ async function withWorkspaceRuntime(
             snapshotId: "snap-api",
             sourceRef: null,
             context: {},
+            resources: {},
             metadata: {},
             data: {},
             createdAt: now,

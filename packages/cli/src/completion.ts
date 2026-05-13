@@ -382,8 +382,19 @@ async function readWorkspaces(paths: { projectDir: string; configPath: string })
   const { workspaces } = await runtime.control.workspaces();
   return workspaces.map((workspace) => ({
     name: workspace.name,
-    resourceId: workspace.resourceId,
+    resourceId: workspaceDisplayResourceId(workspace),
   }));
+}
+
+function workspaceDisplayResourceId(
+  workspace: { resourceId?: string; resources?: Record<string, { resourceId: string }> },
+): string | undefined {
+  const resources = workspace.resources ?? {};
+  const resource = resources.default ?? resources.vm;
+  if (resource) return resource.resourceId;
+  const values = Object.values(resources);
+  if (values.length === 1) return values[0]?.resourceId;
+  return workspace.resourceId;
 }
 
 async function operationTargets(paths: { projectDir: string; configPath: string }): Promise<CompletionItem[]> {

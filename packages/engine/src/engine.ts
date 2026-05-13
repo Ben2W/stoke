@@ -3,7 +3,7 @@ import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { isRigkitConfig, isProviderDefinition, isWorkflowNode } from "./authoring.ts";
 import { loadDotEnv } from "./env-file.ts";
-import { hash, stableJson } from "./hash.ts";
+import { hash } from "./hash.ts";
 import type {
   BaseProviderPlugin,
   InteractionPresenter,
@@ -42,8 +42,10 @@ import type {
   WorkflowPlanNode,
   WorkflowProviderMap,
   WorkflowTaskNode,
+  MutableWorkspaceRuntimeRecord,
   WorkspaceRecord,
-  WorkspaceRuntimeRecord,
+  WorkspaceResourceInput,
+  WorkspaceResourceRecord,
 } from "./types.ts";
 
 export type CreateDevMachineEngineOptions = {
@@ -651,44 +653,42 @@ export class DevMachineEngine {
       });
     }
 
-    const sourceRef = this.resolveWorkspaceSource(workflow, applied.context, providers, { required: true })!;
-    const workspaceProvider = this.findWorkspaceProvider(providers, sourceRef);
-    const created = await workspaceProvider.createWorkspace(sourceRef, { name: input.name });
-    const providerId = created.providerId ?? providerIdOf(sourceRef) ?? this.providerIdForWorkspaceProvider(providers, workspaceProvider);
+    const sourceRef = applied.workspaceSource ?? null;
     const now = new Date().toISOString();
 
     const workspace: WorkspaceRecord = {
       id: crypto.randomUUID(),
       name: input.name,
-      providerId,
+      providerId: "rigkit",
       workflow: workflow.name,
-      resourceId: created.resourceId,
-      snapshotId: created.snapshotId,
-      sourceRef: created.sourceRef ?? sourceRef,
+      resourceId: input.name,
+      snapshotId: applied.snapshotId,
+      sourceRef,
       context: { ...applied.context },
+      resources: {},
       createdAt: now,
       updatedAt: now,
-      metadata: created.metadata ?? {},
+      metadata: {},
     };
 
     this.getStateService().saveWorkspace(workspace);
     await this.runWorkspaceCreatedHook({
       workflow,
       providers,
-      workspaceProvider,
       workspace,
       context: applied.context,
     });
+    const ready = this.getStateService().getWorkspace(input.name) ?? workspace;
 
     this.emit({
       type: "workspace.ready",
-      workspaceId: input.name,
-      providerId: workspace.providerId,
-      resourceId: workspace.resourceId,
-      snapshotId: workspace.snapshotId,
+      workspaceId: ready.name,
+      providerId: ready.providerId,
+      resourceId: ready.resourceId,
+      snapshotId: ready.snapshotId,
     });
 
-    return workspace;
+    return ready;
   }
 
   async attachTerminal(input: {
@@ -701,19 +701,20 @@ export class DevMachineEngine {
     const workspace = this.getStateService().findWorkspace(input.workspaceOrVmId);
     const workflow = this.getWorkflow(input.workflow ?? input.machine ?? workspace?.workflow);
     const providers = await this.createProviders(workflow);
-    const workspaceProvider = workspace
-      ? this.workspaceProviderById(providers, workspace.providerId)
-      : this.singleWorkspaceProvider(providers);
     if (workspace) {
       await this.runWorkspaceOpenHook({
         workflow,
         providers,
-        workspaceProvider,
         workspace,
         context: workspace.context,
       });
     }
-    const terminal = await workspaceProvider.ssh(workspace?.resourceId ?? input.workspaceOrVmId, { user: input.user });
+    const refreshedWorkspace = workspace ? (this.getStateService().getWorkspace(workspace.name) ?? workspace) : undefined;
+    const terminalResource = refreshedWorkspace ? this.primaryWorkspaceResource(refreshedWorkspace) : undefined;
+    const workspaceProvider = terminalResource
+      ? this.workspaceProviderById(providers, terminalResource.providerId)
+      : this.singleWorkspaceProvider(providers);
+    const terminal = await workspaceProvider.ssh(terminalResource?.resourceId ?? input.workspaceOrVmId, { user: input.user });
 
     if (!input.printOnly) {
       const proc = Bun.spawn(["sh", "-lc", terminal.command], {
@@ -733,8 +734,10 @@ export class DevMachineEngine {
 
     const workflow = this.getWorkflow(input.workflow ?? input.machine ?? workspace.workflow);
     const providers = await this.createProviders(workflow);
-    const workspaceProvider = this.workspaceProviderById(providers, workspace.providerId);
-    await workspaceProvider.deleteWorkspace(workspace);
+    for (const resource of this.workspaceResources(workspace)) {
+      const workspaceProvider = this.workspaceProviderById(providers, resource.providerId);
+      await workspaceProvider.deleteWorkspace(workspaceWithResource(workspace, resource));
+    }
 
     this.getStateService().deleteWorkspace(input.workspace);
 
@@ -747,8 +750,9 @@ export class DevMachineEngine {
 
     const workflow = this.getWorkflow(input.workflow ?? input.machine ?? workspace.workflow);
     const providers = await this.createProviders(workflow);
-    const workspaceProvider = this.workspaceProviderById(providers, workspace.providerId);
-    const snapshot = await workspaceProvider.snapshotWorkspace(workspace);
+    const resource = this.primaryWorkspaceResource(workspace);
+    const workspaceProvider = this.workspaceProviderById(providers, resource.providerId);
+    const snapshot = await workspaceProvider.snapshotWorkspace(workspaceWithResource(workspace, resource));
     const sourceRef = snapshot.sourceRef ?? workspace.sourceRef;
     const providerFingerprint = providerFingerprintFor(workflow);
     const now = new Date().toISOString();
@@ -1137,7 +1141,6 @@ export class DevMachineEngine {
   private async runWorkspaceCreatedHook(input: {
     workflow: LoadedWorkflow;
     providers: ProviderControllers;
-    workspaceProvider: WorkflowWorkspaceProvider;
     workspace: WorkspaceRecord;
     context: Record<string, JsonValue>;
   }): Promise<void> {
@@ -1147,7 +1150,6 @@ export class DevMachineEngine {
   private async runWorkspaceOpenHook(input: {
     workflow: LoadedWorkflow;
     providers: ProviderControllers;
-    workspaceProvider: WorkflowWorkspaceProvider;
     workspace: WorkspaceRecord;
     context: Record<string, JsonValue>;
   }): Promise<void> {
@@ -1157,27 +1159,28 @@ export class DevMachineEngine {
   private async runWorkspaceHook(
     lifecycle: "created" | "open",
     hook: ((context: {
-      workspace: WorkspaceRuntimeRecord;
+      workspace: MutableWorkspaceRuntimeRecord;
       ctx: Readonly<Record<string, JsonValue>>;
       providers: ProviderRuntimeMap<WorkflowProviderMap>;
       providerContext: ProviderWorkspaceContext;
       local: LocalWorkspaceRuntime;
-    }) => Promise<void> | void) | undefined,
+    }) => Promise<void | JsonObject> | void | JsonObject) | undefined,
     input: {
       workflow: LoadedWorkflow;
       providers: ProviderControllers;
-      workspaceProvider: WorkflowWorkspaceProvider;
       workspace: WorkspaceRecord;
       context: Record<string, JsonValue>;
     },
   ): Promise<void> {
     if (!hook) return;
 
-    const providerContext = await input.workspaceProvider.workspaceContext?.(input.workspace) ?? {};
-    const workspace: WorkspaceRuntimeRecord = {
+    const providerContext = await this.workspaceProviderContext(input.providers, input.workspace);
+    const draft: WorkspaceRecord = {
       ...input.workspace,
-      cwd: resolveWorkspaceCwd(input.workflow, input.context),
+      resources: { ...input.workspace.resources },
+      metadata: { ...input.workspace.metadata },
     };
+    const workspace = this.createMutableWorkspaceRuntime(input.workflow, input.context, draft);
     const metadata: JsonObject = {};
     const providers = await this.createTaskRuntime({
       workflow: input.workflow,
@@ -1186,13 +1189,97 @@ export class DevMachineEngine {
       metadata,
     });
 
-    await hook({
-      workspace,
-      ctx: Object.freeze({ ...input.context }),
-      providers,
-      providerContext: normalizeProviderWorkspaceContext(providerContext),
-      local: this.local,
-    });
+    try {
+      const result = await hook({
+        workspace,
+        ctx: Object.freeze({ ...input.context }),
+        providers,
+        providerContext: normalizeProviderWorkspaceContext(providerContext),
+        local: this.local,
+      });
+      Object.assign(draft.metadata, metadata);
+      if (result !== undefined) {
+        assertJsonValue(result, `Workflow ${input.workflow.name} workspace ${lifecycle} result`);
+        if (!isPlainObject(result)) {
+          throw new Error(`Workflow ${input.workflow.name} workspace ${lifecycle} result must be an object`);
+        }
+        Object.assign(draft.metadata, result);
+      }
+    } finally {
+      draft.updatedAt = new Date().toISOString();
+      this.getStateService().saveWorkspace(draft);
+    }
+  }
+
+  private createMutableWorkspaceRuntime(
+    workflow: LoadedWorkflow,
+    context: Record<string, JsonValue>,
+    draft: WorkspaceRecord,
+  ): MutableWorkspaceRuntimeRecord {
+    return {
+      ...draft,
+      resources: draft.resources,
+      metadata: draft.metadata,
+      data: draft.metadata,
+      cwd: resolveWorkspaceCwd(workflow, context),
+      setMetadata: (metadata) => {
+        assertJsonValue(metadata, `Workspace ${draft.name} metadata`);
+        Object.assign(draft.metadata, metadata);
+      },
+      setResource: (name, resource) => {
+        const normalized = name.trim();
+        if (!normalized) throw new Error(`Workspace resource name must be non-empty`);
+        draft.resources[normalized] = normalizeWorkspaceResource(resource, `Workspace ${draft.name} resource ${normalized}`);
+      },
+      removeResource: (name) => {
+        delete draft.resources[name];
+      },
+    };
+  }
+
+  private async workspaceProviderContext(
+    providers: ProviderControllers,
+    workspace: WorkspaceRecord,
+  ): Promise<ProviderWorkspaceContext> {
+    const resource = this.optionalPrimaryWorkspaceResource(workspace);
+    if (!resource) return {};
+    const workspaceProvider = this.workspaceProviderByIdOrUndefined(providers, resource.providerId);
+    return await workspaceProvider?.workspaceContext?.(workspaceWithResource(workspace, resource)) ?? {};
+  }
+
+  private workspaceResources(workspace: WorkspaceRecord): WorkspaceResourceRecord[] {
+    const resources = Object.values(workspace.resources ?? {});
+    if (resources.length > 0) return resources;
+    if (workspace.providerId !== "rigkit" && workspace.providerId !== "config") {
+      return [{
+        providerId: workspace.providerId,
+        resourceId: workspace.resourceId,
+        ...(workspace.snapshotId ? { snapshotId: workspace.snapshotId } : {}),
+        sourceRef: workspace.sourceRef,
+      }];
+    }
+    return [];
+  }
+
+  private optionalPrimaryWorkspaceResource(workspace: WorkspaceRecord): WorkspaceResourceRecord | undefined {
+    const defaultResource = workspace.resources?.default;
+    if (defaultResource) return defaultResource;
+    const vmResource = workspace.resources?.vm;
+    if (vmResource) return vmResource;
+    const resources = this.workspaceResources(workspace);
+    if (resources.length === 0) return undefined;
+    if (resources.length === 1) return resources[0]!;
+    throw new Error(
+      `Workspace ${workspace.name} has multiple provider resources; attach a resource named "default" to use core SSH/snapshot commands`,
+    );
+  }
+
+  private primaryWorkspaceResource(workspace: WorkspaceRecord): WorkspaceResourceRecord {
+    const resource = this.optionalPrimaryWorkspaceResource(workspace);
+    if (!resource) {
+      throw new Error(`Workspace ${workspace.name} does not have a provider resource`);
+    }
+    return resource;
   }
 
   private getWorkflow(name: string | undefined): LoadedWorkflow {
@@ -1340,16 +1427,18 @@ export class DevMachineEngine {
       : typeof data.vmId === "string"
         ? data.vmId
         : name;
+    const providerId = typeof data.providerId === "string" ? data.providerId : "config";
     const now = new Date().toISOString();
     const workspace: WorkspaceRecord = {
       id: crypto.randomUUID(),
       name,
-      providerId: typeof data.providerId === "string" ? data.providerId : "config",
+      providerId,
       workflow: workflow.name,
       resourceId,
       snapshotId: typeof data.snapshotId === "string" ? data.snapshotId : undefined,
       sourceRef: isJsonValue(data.sourceRef) ? data.sourceRef : data,
       context: {},
+      resources: workspaceResourcesFromData(data, providerId, resourceId),
       createdAt: now,
       updatedAt: now,
       metadata: data,
@@ -1401,16 +1490,18 @@ export class DevMachineEngine {
       : typeof data.vmId === "string"
         ? data.vmId
         : name;
+    const providerId = typeof data.providerId === "string" ? data.providerId : "config";
     const now = new Date().toISOString();
     const workspace: WorkspaceRecord = {
       id: crypto.randomUUID(),
       name,
-      providerId: typeof data.providerId === "string" ? data.providerId : "config",
+      providerId,
       workflow: input.workflow.name,
       resourceId,
       snapshotId: typeof data.snapshotId === "string" ? data.snapshotId : undefined,
       sourceRef: isJsonValue(data.sourceRef) ? data.sourceRef : data,
       context: { ...input.context },
+      resources: workspaceResourcesFromData(data, providerId, resourceId),
       createdAt: now,
       updatedAt: now,
       metadata: data,
@@ -1501,26 +1592,22 @@ export class DevMachineEngine {
     throw new Error(`Workflow ${workflow.name} produced multiple forkable artifacts; configure workspace.source`);
   }
 
-  private findWorkspaceProvider(
-    providers: ProviderControllers,
-    sourceRef: JsonValue,
-  ): WorkflowWorkspaceProvider {
-    const provider = Object.values(providers).find((controller) => controller.workspace?.canUse(sourceRef));
-    if (!provider?.workspace) {
-      throw new Error(`No workflow provider can create a workspace from ${stableJson(sourceRef)}`);
-    }
-    return provider.workspace;
-  }
-
   private workspaceProviderById(
     providers: ProviderControllers,
     providerId: string,
   ): WorkflowWorkspaceProvider {
-    const provider = Object.values(providers).find((controller) => controller.providerId === providerId);
-    if (!provider?.workspace) {
+    const workspace = this.workspaceProviderByIdOrUndefined(providers, providerId);
+    if (!workspace) {
       throw new Error(`Provider ${providerId} does not support workspaces`);
     }
-    return provider.workspace;
+    return workspace;
+  }
+
+  private workspaceProviderByIdOrUndefined(
+    providers: ProviderControllers,
+    providerId: string,
+  ): WorkflowWorkspaceProvider | undefined {
+    return Object.values(providers).find((controller) => controller.providerId === providerId)?.workspace;
   }
 
   private singleWorkspaceProvider(providers: ProviderControllers): WorkflowWorkspaceProvider {
@@ -1529,16 +1616,6 @@ export class DevMachineEngine {
       throw new Error(`Expected exactly one workspace-capable provider`);
     }
     return workspaceProviders[0].workspace;
-  }
-
-  private providerIdForWorkspaceProvider(
-    providers: ProviderControllers,
-    workspaceProvider: WorkflowWorkspaceProvider,
-  ): string {
-    for (const provider of Object.values(providers)) {
-      if (provider.workspace === workspaceProvider) return provider.providerId;
-    }
-    return "unknown";
   }
 
   private emit(event: WorkflowEvent): void {
@@ -1550,6 +1627,76 @@ export async function createDevMachineEngine(
   options: CreateDevMachineEngineOptions = {},
 ): Promise<DevMachineEngine> {
   return new DevMachineEngine(options);
+}
+
+function workspaceWithResource(
+  workspace: WorkspaceRecord,
+  resource: WorkspaceResourceRecord,
+): WorkspaceRecord {
+  return {
+    ...workspace,
+    providerId: resource.providerId,
+    resourceId: resource.resourceId,
+    snapshotId: resource.snapshotId ?? workspace.snapshotId,
+    sourceRef: resource.sourceRef ?? workspace.sourceRef,
+    metadata: {
+      ...workspace.metadata,
+      ...(resource.metadata ?? {}),
+    },
+  };
+}
+
+function normalizeWorkspaceResource(
+  resource: WorkspaceResourceInput,
+  label: string,
+): WorkspaceResourceRecord {
+  assertJsonValue(resource, label);
+  if (!isPlainObject(resource)) {
+    throw new Error(`${label} must be an object`);
+  }
+  if (typeof resource.providerId !== "string" || resource.providerId.trim() === "") {
+    throw new Error(`${label}.providerId must be a non-empty string`);
+  }
+  if (typeof resource.resourceId !== "string" || resource.resourceId.trim() === "") {
+    throw new Error(`${label}.resourceId must be a non-empty string`);
+  }
+  return {
+    providerId: resource.providerId.trim(),
+    resourceId: resource.resourceId.trim(),
+    ...(typeof resource.kind === "string" && resource.kind.trim() ? { kind: resource.kind.trim() } : {}),
+    ...(typeof resource.snapshotId === "string" && resource.snapshotId.trim()
+      ? { snapshotId: resource.snapshotId.trim() }
+      : {}),
+    ...(resource.sourceRef !== undefined ? { sourceRef: resource.sourceRef } : {}),
+    ...(isPlainObject(resource.metadata) ? { metadata: resource.metadata as JsonObject } : {}),
+  };
+}
+
+function workspaceResourcesFromData(
+  data: Record<string, JsonValue>,
+  providerId: string,
+  resourceId: string,
+): Record<string, WorkspaceResourceRecord> {
+  const resources = data.resources;
+  if (isPlainObject(resources)) {
+    return Object.fromEntries(
+      Object.entries(resources).map(([name, resource]) => [
+        name,
+        normalizeWorkspaceResource(resource as WorkspaceResourceInput, `Workspace resource ${name}`),
+      ]),
+    );
+  }
+  if (providerId !== "config" && providerId !== "rigkit") {
+    return {
+      default: {
+        providerId,
+        resourceId,
+        ...(typeof data.snapshotId === "string" ? { snapshotId: data.snapshotId } : {}),
+        ...(isJsonValue(data.sourceRef) ? { sourceRef: data.sourceRef } : {}),
+      },
+    };
+  }
+  return {};
 }
 
 async function resolveProviderDefinition(
