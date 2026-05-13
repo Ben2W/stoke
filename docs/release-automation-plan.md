@@ -180,7 +180,8 @@ Behavior:
 Patch releases must run from the existing release branch. Minor and major
 releases must run from `main` and create the new release branch automatically.
 Each user-facing prepare workflow has one version choice, generated from the
-package version in that branch.
+package version on `main`. Release preparation edits workflow files, so it uses
+`RELEASE_BOT_TOKEN` instead of the default `GITHUB_TOKEN`.
 
 ## Version Rules
 

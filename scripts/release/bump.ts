@@ -1,6 +1,7 @@
 import { bumpAllReleaseVersions, getReleaseState, resolveBumpVersion } from "./lib";
 
-const input = process.argv[2];
+const args = process.argv.slice(2).filter((arg) => arg !== "--");
+const input = args.find((arg) => !arg.startsWith("--"));
 
 if (!input) {
   throw new Error("Usage: bun scripts/release/bump.ts <patch|minor|major|x.y.z>");

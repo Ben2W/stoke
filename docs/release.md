@@ -75,7 +75,10 @@ The workflow:
 6. Opens a release PR back into the target `release/x.y` branch.
 
 `pnpm release:bump` updates the one-option workflow inputs for the next release.
-`pnpm release:check` fails if those workflow inputs are stale.
+Because that edits `.github/workflows/*`, prepare workflows use
+`RELEASE_BOT_TOKEN` instead of the default `GITHUB_TOKEN`. The token must be
+allowed to push workflow-file changes. `pnpm release:check` fails on `main` if
+those workflow inputs are stale.
 
 Merging that release PR runs `tag-release.yml`, which creates and pushes the
 matching `v*` tag. The tag triggers:

@@ -31,4 +31,4 @@ jobs:
         with:
           release-type: major
           release-version: ${{ inputs.version }}
-          github-token: ${{ github.token }}
+          github-token: ${{ secrets.RELEASE_BOT_TOKEN }}

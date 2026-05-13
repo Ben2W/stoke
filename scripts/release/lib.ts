@@ -99,6 +99,10 @@ export type ReleaseState = {
   packageVersions: Map<string, string>;
 };
 
+export type ReleaseCheckOptions = {
+  checkWorkflowOptions?: boolean;
+};
+
 export function getPackageJson(pkg: ReleasePackage) {
   return readJson<PackageJson>(join(pkg.dir, "package.json"));
 }
@@ -270,15 +274,35 @@ export function releaseTagFromEnv() {
   return undefined;
 }
 
-export function runReleaseCheck(tag?: string) {
+export function shouldCheckWorkflowOptions(tag?: string) {
+  if (tag) {
+    return false;
+  }
+
+  if (process.env.RIGKIT_CHECK_WORKFLOW_OPTIONS === "1") {
+    return true;
+  }
+
+  if (process.env.GITHUB_REF_TYPE === "branch") {
+    return process.env.GITHUB_REF_NAME === "main";
+  }
+
+  return currentGitBranch() === "main";
+}
+
+export function runReleaseCheck(tag?: string, options: ReleaseCheckOptions = {}) {
   const state = getReleaseState();
+  const checkWorkflowOptions =
+    options.checkWorkflowOptions ?? shouldCheckWorkflowOptions(tag);
 
   parseVersion(state.version);
   assertReleasePackageMetadata();
   assertNoUnconfiguredPublishablePackages();
   assertVersionConstants(state.version);
   assertTagMatchesVersion(state.version, tag);
-  syncPrepareReleaseWorkflowOptionsForVersion(state.version, { check: true });
+  if (checkWorkflowOptions) {
+    syncPrepareReleaseWorkflowOptionsForVersion(state.version, { check: true });
+  }
 
   console.log(`Rigkit release version: ${state.version}`);
   return state;
@@ -423,14 +447,21 @@ export function replaceInFiles(paths: string[], current: string, next: string) {
   }
 }
 
-export function bumpAllReleaseVersions(nextVersion: string) {
+export function bumpAllReleaseVersions(
+  nextVersion: string,
+  options: { syncWorkflowOptions?: boolean } = {},
+) {
   const currentVersion = getReleaseState().version;
   parseVersion(nextVersion);
   writeAllReleaseVersions(nextVersion);
   replaceInFiles(sdkVersionExpectationFiles, currentVersion, nextVersion);
-  syncPrepareReleaseWorkflowOptionsForVersion(nextVersion);
+  if (options.syncWorkflowOptions ?? true) {
+    syncPrepareReleaseWorkflowOptionsForVersion(nextVersion);
+  }
   run(["pnpm", "install", "--lockfile-only"], { quiet: true });
-  runReleaseCheck(undefined);
+  runReleaseCheck(undefined, {
+    checkWorkflowOptions: options.syncWorkflowOptions ?? true,
+  });
 }
 
 export function resolveBumpVersion(input: string, currentVersion: string) {
