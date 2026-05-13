@@ -23,6 +23,7 @@
   "dependencies": {
     "@rigkit/sdk": "workspace:*",
     "@rigkit/engine": "workspace:*",
+    "@rigkit/provider-cmux": "workspace:*",
     "freestyle": "latest",
     "zod": "^4"
   },

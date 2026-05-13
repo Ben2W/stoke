@@ -371,7 +371,7 @@ Hard requirements:
 - `ctx` must evolve across sequence steps.
 - Parallel branches must preserve named outputs.
 - `create` receives the final sequence `ctx`.
-- Workspace operations receive typed persisted workspace data.
+- Workspace operations receive typed persisted workspace context.
 - Effect environment types must not leak into normal config authoring.
 - Provider SDKs should remain promise-based for config authors.
 
@@ -653,8 +653,8 @@ Recommended workflow shape:
 
 ```text
 steps      build a reusable ctx
-create     turns final ctx into persisted workspace data
-operation  acts on persisted workspace data or other runtime inputs
+create     turns final ctx into persisted workspace ctx
+operation  acts on persisted workspace ctx or other runtime inputs
 ```
 
 `create` is not provider-owned. rigkit owns the workspace record and persistence.
@@ -675,15 +675,15 @@ const website = sequence("website")
     await vm.exec(`cd ${ctx.repoPath} && pnpm install`);
     return { ...ctx, vm: await vm.snapshotRef(), devPort, devCommand };
   })
-  .create(async ({ ctx, name, providers }) => {
-    const vm = await providers.freestyle.vms.createFromSnapshot(ctx.vm);
+  .create(async ({ workflow, workspace, providers }) => {
+    const vm = await providers.freestyle.vms.createFromSnapshot(workflow.ctx.vm);
     return {
-      name,
+      name: workspace.name,
       vmId: vm.id,
-      sourceSnapshot: ctx.vm,
-      repoPath: ctx.repoPath,
-      devPort: ctx.devPort,
-      devCommand: ctx.devCommand,
+      sourceSnapshot: workflow.ctx.vm,
+      repoPath: workflow.ctx.repoPath,
+      devPort: workflow.ctx.devPort,
+      devCommand: workflow.ctx.devCommand,
     };
   })
   .operation("open", {
@@ -695,14 +695,13 @@ const website = sequence("website")
       }),
     run: async ({ input, providers }) => {
       const workspace = input.workspace;
-      const vm = await providers.freestyle.vms.get(workspace.data.vmId);
-      const ssh = await vm.ssh();
+      const vm = await providers.freestyle.vms.get(workspace.ctx.vmId);
       await providers.cmux.open({
         name: workspace.name,
-        ssh,
-        cwd: workspace.data.repoPath,
-        command: workspace.data.devCommand,
-        url: `http://localhost:${workspace.data.devPort}`,
+        ssh: await providers.freestyle.cmux.createSshOptions(vm),
+        cwd: workspace.ctx.repoPath,
+        command: workspace.ctx.devCommand,
+        url: `http://localhost:${workspace.ctx.devPort}`,
       });
     },
   });
@@ -815,16 +814,16 @@ const website = sequence("website")
     };
   })
 
-  .create(async ({ ctx, name, providers }) => {
-    const vm = await providers.freestyle.vms.createFromSnapshot(ctx.vm);
+  .create(async ({ workflow, workspace, providers }) => {
+    const vm = await providers.freestyle.vms.createFromSnapshot(workflow.ctx.vm);
 
     return {
-      name,
+      name: workspace.name,
       vmId: vm.id,
-      sourceSnapshot: ctx.vm,
-      repoPath: ctx.repoPath,
-      devPort: ctx.devPort,
-      devCommand: ctx.devCommand,
+      sourceSnapshot: workflow.ctx.vm,
+      repoPath: workflow.ctx.repoPath,
+      devPort: workflow.ctx.devPort,
+      devCommand: workflow.ctx.devCommand,
     };
   })
 
@@ -841,15 +840,14 @@ const website = sequence("website")
 
     run: async ({ input, providers }) => {
       const workspace = input.workspace;
-      const vm = await providers.freestyle.vms.get(workspace.data.vmId);
-      const ssh = await vm.ssh();
+      const vm = await providers.freestyle.vms.get(workspace.ctx.vmId);
 
       const session = await providers.cmux.open({
         name: workspace.name,
-        ssh,
-        cwd: workspace.data.repoPath,
-        command: workspace.data.devCommand,
-        url: `http://localhost:${workspace.data.devPort}`,
+        ssh: await providers.freestyle.cmux.createSshOptions(vm),
+        cwd: workspace.ctx.repoPath,
+        command: workspace.ctx.devCommand,
+        url: `http://localhost:${workspace.ctx.devPort}`,
       });
 
       await session.closed;
@@ -868,7 +866,7 @@ const website = sequence("website")
       }),
 
     run: async ({ input, providers }) => {
-      await providers.freestyle.vms.delete(input.workspace.data.vmId);
+      await providers.freestyle.vms.delete(input.workspace.ctx.vmId);
     },
   })
 
@@ -893,7 +891,7 @@ const website = sequence("website")
 
     run: async ({ input, providers }) => {
       const source = input.from;
-      const vm = await providers.freestyle.vms.get(source.data.vmId);
+      const vm = await providers.freestyle.vms.get(source.ctx.vmId);
       const snapshot = await vm.snapshotRef();
       const forked = await providers.freestyle.vms.createFromSnapshot(snapshot);
 
@@ -901,9 +899,9 @@ const website = sequence("website")
         name: input.name,
         vmId: forked.id,
         sourceSnapshot: snapshot,
-        repoPath: source.data.repoPath,
-        devPort: source.data.devPort,
-        devCommand: source.data.devCommand,
+        repoPath: source.ctx.repoPath,
+        devPort: source.ctx.devPort,
+        devCommand: source.ctx.devCommand,
       };
     },
   });
@@ -937,7 +935,7 @@ In this model:
 ```text
 .step(...)      builds a reusable ctx/snapshot
 .create(...)    creates a live workspace and returns durable JSON
-.operation(...) acts on persisted workspace.data
+.operation(...) acts on persisted workspace.ctx
 ```
 
 rigkit persists the return value from `create` and from custom operations marked
@@ -1063,7 +1061,6 @@ Example `GET /operations` response:
       "source": "config",
       "title": "Open",
       "description": "Open the workspace in cmux and start the dev server",
-      "requiredHostCapabilities": ["cmux.open"],
       "cli": {
         "positionals": [
           {
@@ -1170,28 +1167,10 @@ host-specific parse metadata projected by rigkit from input helpers such as
 `position`. Keep them separate so non-CLI hosts do not need to understand CLI
 argument parsing.
 
-Operations that need privileged host methods should declare that explicitly:
-
-```json
-{
-  "id": "ssh",
-  "title": "SSH",
-  "requiredHostMethods": ["host.command.run:interactive"],
-  "cli": {
-    "positionals": [
-      {
-        "name": "workspace",
-        "index": 0
-      }
-    ]
-  }
-}
-```
-
-Hosts should use `requiredHostCapabilities` and `requiredHostMethods` for
-preflight. They can fail before starting the run when they know the operation
-cannot be supported, or show a precise permission prompt when support exists
-but user consent is required.
+Operations that need privileged host behavior request it while the operation is
+running. The host answers those requests with typed success or failure messages,
+so unsupported capabilities fail at the call site rather than through a static
+manifest preflight.
 
 Run an operation:
 
@@ -1314,10 +1293,7 @@ GET /snapshots
     {
       "name": "ben-demo",
       "workflow": "website",
-      "providerId": "freestyle",
-      "resourceId": "vm_123",
-      "snapshotId": "snap_456",
-      "data": {
+      "ctx": {
         "vmId": "vm_123",
         "repoPath": "/workspace/freestyle-website-next",
         "devPort": 4321,
@@ -1390,19 +1366,12 @@ active operation:
     "protocolHash": "sha256:runtime-known-protocol"
   },
   "operation": {
-    "id": "open",
-    "requiredHostCapabilities": [
-      {
-        "id": "cmux.open",
-        "schemaHash": "sha256:cmux-open-schema"
-      }
-    ],
-    "requiredHostMethods": []
+    "id": "open"
   }
 }
 ```
 
-If a required capability name matches but the schema hash differs, fail before
+If a requested capability name matches but the schema hash differs, fail when
 executing that capability. Protocol hash drift can be diagnostic; capability
 schema hash drift is a concrete incompatibility for that capability.
 
@@ -1763,10 +1732,10 @@ The config author calls the provider facade:
 ```ts
 const session = await providers.cmux.open({
   name: workspace.name,
-  ssh,
-  cwd: workspace.data.repoPath,
-  command: workspace.data.devCommand,
-  url: `http://localhost:${workspace.data.devPort}`,
+  ssh: await providers.freestyle.cmux.createSshOptions(vm),
+  cwd: workspace.ctx.repoPath,
+  command: workspace.ctx.devCommand,
+  url: `http://localhost:${workspace.ctx.devPort}`,
 });
 
 await session.closed;
@@ -2202,8 +2171,7 @@ This should be treated as a rewrite, not an incremental compatibility project.
 - Define v1 host methods.
 - Define typed host capability registration, manifests, schema hashes, and
   request/response messages.
-- Define operation manifest fields for `requiredHostMethods`,
-  `requiredHostCapabilities`, and CLI parse metadata.
+- Define operation manifest fields for CLI parse metadata.
 - Define `host.command.run` policy and consent behavior.
 - Add protocol hash metadata for diagnostics.
 - Define local vs remote runtime connection shapes.
@@ -2277,7 +2245,7 @@ This should be treated as a rewrite, not an incremental compatibility project.
   `StateService`.
 - Keep rigkit Drizzle migrations in Rigkit runtime/engine packages only. Providers
   may return durable JSON but must not register rigkit migrations.
-- Persist workspace data returned by `.create(...)` and by operations marked
+- Persist workspace context returned by `.create(...)` and by operations marked
   `createsWorkspace: true`.
 - Keep state schema and state semantics inside engine/runtime code.
 - Do not let hosts read or write SQLite state directly.
@@ -2300,8 +2268,8 @@ This should be treated as a rewrite, not an incremental compatibility project.
 - Open and maintain the run session WebSocket for active runs.
 - Send WebSocket `hello` with supported host methods, command modes, and
   registered capability schema hashes.
-- Preflight `requiredHostMethods` and `requiredHostCapabilities` from the
-  operation manifest before starting a run when possible.
+- Fail typed host capability requests at the call site when the active host
+  cannot support them.
 - Keep the run session WebSocket open for operations that wait on host-owned
   resources such as `await session.closed`.
 - Register trusted local host capability handlers such as `cmux.open`.

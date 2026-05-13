@@ -1,5 +1,5 @@
 import { Freestyle, VmBaseImage } from "freestyle";
-import type { CommandOptions, ExecOptions, ExecOutputChunk, ExecResult, JsonValue, WorkspaceRecord } from "@rigkit/sdk";
+import type { CommandOptions, ExecOptions, ExecOutputChunk, ExecResult } from "@rigkit/sdk";
 import type {
   BaseDevMachineProvider,
   ProviderRuntimeContext,
@@ -9,6 +9,7 @@ import type {
   VmHandle,
   WorkflowProviderController,
 } from "@rigkit/engine";
+import type { CmuxOpenSshInput } from "@rigkit/provider-cmux";
 import type { FreestyleIdentityId, FreestyleToken } from "./auth.ts";
 import { createFreestyleTerminalSession } from "./terminal-session.ts";
 
@@ -23,13 +24,6 @@ export type FreestyleVmConfig = {
   memory?: string | number;
   disk?: string | number;
   idleTimeoutSeconds?: number | null;
-};
-
-export type FreestyleWorkspaceContext = {
-  ssh: SshConnection;
-  host: string;
-  username: string;
-  vscodeAuthority: string;
 };
 
 export type FreestyleVmSnapshotRef = {
@@ -50,13 +44,36 @@ export type FreestyleVmRuntime = {
   ssh(options?: SshOptions): Promise<SshConnection>;
 };
 
+export type FreestyleCmuxSshOptions = Exclude<CmuxOpenSshInput, string>;
+
+export type FreestyleCmuxSshOptionsInput = Omit<
+  FreestyleCmuxSshOptions,
+  "kind" | "destination" | "host" | "username"
+> & SshOptions;
+
+export type FreestyleVscodeUrlOptions = SshOptions & {
+  cwd?: string;
+};
+
 export type FreestyleRuntime = {
   vms: {
     create(): Promise<FreestyleVmRuntime>;
     fromSnapshot(ref: FreestyleVmSnapshotRef): Promise<FreestyleVmRuntime>;
-    fromWorkspace(workspace: Pick<WorkspaceRecord, "resourceId">): FreestyleVmRuntime;
+    fromId(vmId: string): FreestyleVmRuntime;
+    delete(vmId: string): Promise<void>;
   };
-  openWorkspace(target: FreestyleVmRuntime | FreestyleVmSnapshotRef, options?: { cwd?: string }): Promise<void>;
+  cmux: {
+    createSshOptions(
+      target: FreestyleVmRuntime | FreestyleVmSnapshotRef,
+      options?: FreestyleCmuxSshOptionsInput,
+    ): Promise<FreestyleCmuxSshOptions>;
+  };
+  vscode: {
+    createUrl(
+      target: FreestyleVmRuntime | FreestyleVmSnapshotRef,
+      options?: FreestyleVscodeUrlOptions,
+    ): Promise<string>;
+  };
 };
 
 export type FreestyleTerminalRuntime = {
@@ -75,7 +92,7 @@ export function createFreestyleProvider(input: {
   identityId: FreestyleIdentityId;
   token: FreestyleToken;
   vm: FreestyleVmConfig;
-}): BaseDevMachineProvider<FreestyleWorkspaceContext> {
+}): BaseDevMachineProvider {
   return new FreestyleProvider(input.apiKey, input.identityId, input.token, input.vm);
 }
 
@@ -84,13 +101,13 @@ export function createFreestyleWorkflowProvider(input: {
   identityId: FreestyleIdentityId;
   token: FreestyleToken;
   vm: FreestyleVmConfig;
-}): WorkflowProviderController<FreestyleRuntime, FreestyleWorkspaceContext> {
+}): WorkflowProviderController<FreestyleRuntime> {
   return createFreestyleWorkflowController(createFreestyleProvider(input));
 }
 
 export function createFreestyleWorkflowController(
-  provider: BaseDevMachineProvider<FreestyleWorkspaceContext>,
-): WorkflowProviderController<FreestyleRuntime, FreestyleWorkspaceContext> {
+  provider: BaseDevMachineProvider,
+): WorkflowProviderController<FreestyleRuntime> {
   return {
     providerId: FREESTYLE_PROVIDER_ID,
     runtime(context) {
@@ -98,44 +115,6 @@ export function createFreestyleWorkflowController(
     },
     validateArtifact(ref) {
       return isFreestyleVmSnapshotRef(ref);
-    },
-    workspace: {
-      canUse(ref) {
-        return isFreestyleVmSnapshotRef(ref);
-      },
-      async createWorkspace(ref, input) {
-        if (!isFreestyleVmSnapshotRef(ref)) {
-          throw new Error(`Freestyle cannot create a workspace from this artifact`);
-        }
-        const vm = await provider.createVmFromSnapshot({ snapshotId: ref.snapshotId });
-        return {
-          providerId: FREESTYLE_PROVIDER_ID,
-          resourceId: vm.vmId,
-          snapshotId: ref.snapshotId,
-          sourceRef: ref,
-          metadata: { name: input.name },
-        };
-      },
-      async deleteWorkspace(workspace) {
-        await provider.deleteVm({ vmId: workspace.resourceId });
-      },
-      async snapshotWorkspace(workspace) {
-        const snapshot = await provider.snapshot({ vmId: workspace.resourceId });
-        return {
-          providerId: FREESTYLE_PROVIDER_ID,
-          resourceId: workspace.resourceId,
-          snapshotId: snapshot.snapshotId,
-          sourceRef: snapshotRef(snapshot),
-        };
-      },
-      async ssh(workspaceOrResourceId, options) {
-        return await provider.ssh({ vmId: workspaceOrResourceId }, options);
-      },
-      async workspaceContext(workspace) {
-        const context = await provider.workspaceContext?.({ vmId: workspace.resourceId }, { workspace });
-        if (!context) throw new Error(`Freestyle provider does not expose workspace context`);
-        return context;
-      },
     },
   };
 }
@@ -162,7 +141,7 @@ export function createFreestyleTerminalController(): WorkflowProviderController<
   };
 }
 
-class FreestyleProvider implements BaseDevMachineProvider<FreestyleWorkspaceContext> {
+class FreestyleProvider implements BaseDevMachineProvider {
   readonly providerId = FREESTYLE_PROVIDER_ID;
   private readonly client: Freestyle;
   private readonly identityId: FreestyleIdentityId;
@@ -261,13 +240,18 @@ class FreestyleProvider implements BaseDevMachineProvider<FreestyleWorkspaceCont
     };
   }
 
-  async workspaceContext(vm: VmHandle): Promise<FreestyleWorkspaceContext> {
+  async workspaceContext(vm: VmHandle): Promise<{
+    ssh: SshConnection;
+    host: string;
+    username: string;
+    vscodeAuthority: string;
+  }> {
     const ssh = await this.ssh(vm);
     return {
       ssh,
       host: ssh.host,
       username: ssh.username,
-      vscodeAuthority: `${ssh.username}:${this.token}@${ssh.host}`,
+      vscodeAuthority: vscodeAuthorityForSsh(ssh),
     };
   }
 
@@ -293,60 +277,103 @@ class FreestyleProvider implements BaseDevMachineProvider<FreestyleWorkspaceCont
 }
 
 function createFreestyleRuntime(
-  provider: BaseDevMachineProvider<FreestyleWorkspaceContext>,
+  provider: BaseDevMachineProvider,
   context: ProviderRuntimeContext,
 ): FreestyleRuntime {
   const fromHandle = (vm: VmHandle): FreestyleVmRuntime => createVmRuntime(provider, vm, context);
 
-  return {
-    vms: {
-      create: async () => {
-        const vm = await provider.createVm();
-        context.emit({ type: "vm.created", providerId: provider.providerId, vmId: vm.vmId });
-        return fromHandle(vm);
-      },
-      fromSnapshot: async (ref) => {
-        const vm = await provider.createVmFromSnapshot({ snapshotId: ref.snapshotId });
-        context.emit({
-          type: "vm.created",
-          providerId: provider.providerId,
-          vmId: vm.vmId,
-          fromSnapshotId: ref.snapshotId,
-        });
-        return fromHandle(vm);
-      },
-      fromWorkspace: (workspace) => fromHandle({ vmId: workspace.resourceId }),
+  const vms: FreestyleRuntime["vms"] = {
+    create: async () => {
+      const vm = await provider.createVm();
+      context.emit({ type: "vm.created", providerId: provider.providerId, vmId: vm.vmId });
+      return fromHandle(vm);
     },
-    openWorkspace: async (target, options) => {
-      const vm = isFreestyleVmSnapshotRef(target)
-        ? await createFreestyleRuntime(provider, context).vms.fromSnapshot(target)
-        : target;
-      const workspaceContext = await provider.workspaceContext?.({ vmId: vm.vmId }, {
-        workspace: {
-          id: vm.vmId,
-          name: vm.vmId,
-          providerId: provider.providerId,
-          workflow: context.workflow,
-          resourceId: vm.vmId,
-          sourceRef: null,
-          context: {},
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-          metadata: {},
-        },
+    fromSnapshot: async (ref) => {
+      const vm = await provider.createVmFromSnapshot({ snapshotId: ref.snapshotId });
+      context.emit({
+        type: "vm.created",
+        providerId: provider.providerId,
+        vmId: vm.vmId,
+        fromSnapshotId: ref.snapshotId,
       });
-      if (!workspaceContext?.vscodeAuthority) {
-        throw new Error(`Freestyle workspace context did not include a VS Code authority`);
-      }
-      await context.local.open(
-        `vscode://vscode-remote/ssh-remote+${encodeURIComponent(workspaceContext.vscodeAuthority)}${options?.cwd ?? ""}?windowId=_blank`,
-      );
+      return fromHandle(vm);
     },
+    fromId: (vmId) => fromHandle({ vmId }),
+    delete: async (vmId) => {
+      await provider.deleteVm({ vmId });
+    },
+  };
+
+  const resolveVm = async (
+    target: FreestyleVmRuntime | FreestyleVmSnapshotRef,
+  ): Promise<FreestyleVmRuntime> => isFreestyleVmSnapshotRef(target) ? await vms.fromSnapshot(target) : target;
+
+  const vscode: FreestyleRuntime["vscode"] = {
+    createUrl: async (target, options) => {
+      const vm = await resolveVm(target);
+      const { cwd, user } = options ?? {};
+      const ssh = await vm.ssh(user !== undefined ? { user } : undefined);
+      return freestyleVscodeUrl(ssh, { cwd });
+    },
+  };
+
+  return {
+    vms,
+    cmux: {
+      createSshOptions: async (target, options) => {
+        const vm = await resolveVm(target);
+        const { user, ...sshOptions } = options ?? {};
+        const ssh = await vm.ssh(user !== undefined ? { user } : undefined);
+        return freestyleCmuxSshOptions(ssh, sshOptions);
+      },
+    },
+    vscode,
   };
 }
 
+const freestyleCmuxTokenSshOptions = [
+  "StrictHostKeyChecking=no",
+  "UserKnownHostsFile=/dev/null",
+  "LogLevel=ERROR",
+  "IdentitiesOnly=yes",
+  "IdentityFile=/dev/null",
+  "ControlMaster=no",
+] as const;
+
+function freestyleCmuxSshOptions(
+  connection: SshConnection,
+  options: Omit<FreestyleCmuxSshOptionsInput, keyof SshOptions> | undefined,
+): FreestyleCmuxSshOptions {
+  const { sshOptions, port, ...rest } = options ?? {};
+  const mergedSshOptions = [
+    ...(connection.auth.type === "token" ? freestyleCmuxTokenSshOptions : []),
+    ...(sshOptions ?? []),
+  ];
+  return {
+    kind: "ssh",
+    destination: freestyleCmuxDestination(connection),
+    ...(port !== undefined || connection.port !== undefined ? { port: port ?? connection.port } : {}),
+    ...rest,
+    ...(mergedSshOptions.length ? { sshOptions: mergedSshOptions } : {}),
+  };
+}
+
+function freestyleCmuxDestination(connection: SshConnection): string {
+  if (connection.auth.type === "token") return `${connection.username},${connection.auth.token}@${connection.host}`;
+  return `${connection.username}@${connection.host}`;
+}
+
+function vscodeAuthorityForSsh(connection: SshConnection): string {
+  if (connection.auth.type === "token") return `${connection.username}:${connection.auth.token}@${connection.host}`;
+  return `${connection.username}@${connection.host}`;
+}
+
+function freestyleVscodeUrl(connection: SshConnection, options: { cwd?: string } = {}): string {
+  return `vscode://vscode-remote/ssh-remote+${encodeURIComponent(vscodeAuthorityForSsh(connection))}${options.cwd ?? ""}?windowId=_blank`;
+}
+
 function createVmRuntime(
-  provider: BaseDevMachineProvider<FreestyleWorkspaceContext>,
+  provider: BaseDevMachineProvider,
   vm: VmHandle,
   context: ProviderRuntimeContext,
 ): FreestyleVmRuntime {

@@ -43,14 +43,13 @@ export default workflow("site", {
 })
   .sequence("site")
   .operation("open", {
-    requiredHostCapabilities: [cmux.capabilities.open],
     run: async ({ providers }) => {
       await providers.cmux.open({
         name: "site",
         ssh: {
-          host: "vm-ssh.freestyle.sh",
-          username: "vm_123",
-          auth: { type: "token", token: "token_123" },
+          host: "devbox.example.com",
+          username: "root",
+          sshOptions: ["ServerAliveInterval=15"],
         },
         cwd: "/workspace/site",
         command: "pnpm dev",

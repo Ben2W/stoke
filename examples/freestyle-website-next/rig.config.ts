@@ -1,19 +1,49 @@
-import { createCmuxClient } from "@rigkit/provider-cmux";
-import { env, workflow } from "@rigkit/sdk";
+import { cmux, type CmuxRuntime } from "@rigkit/provider-cmux";
 import { freestyle } from "@rigkit/provider-freestyle";
 import type {
+  FreestyleRuntime,
   FreestyleVmRuntime,
   FreestyleVmSnapshotRef,
-  FreestyleWorkspaceContext,
 } from "@rigkit/provider-freestyle";
+import { env, workflow } from "@rigkit/sdk";
 
 const repo = "freestyle-sh/freestyle-website-next";
 const repoUrl = `https://github.com/${repo}.git`;
 const repoPath = "/workspace/freestyle-website-next";
 const devPort = 4321;
-const devCommand = `pnpm dev -- --host 0.0.0.0 --port ${devPort}`;
-const pnpmVersion = "9.15.9";
-const cmux = createCmuxClient();
+const devCommand = `bun run dev -- --host 0.0.0.0 --port ${devPort}`;
+
+const vmImage = `
+FROM ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV BUN_INSTALL=/opt/bun
+ENV PATH="/opt/bun/bin:$PATH"
+
+RUN apt-get update -qq \\
+  && apt-get install -y -qq \\
+    build-essential \\
+    ca-certificates \\
+    curl \\
+    git \\
+    gnupg \\
+    pkg-config \\
+    python3 \\
+    unzip \\
+    xz-utils \\
+  && mkdir -p /etc/apt/keyrings \\
+  && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /etc/apt/keyrings/githubcli-archive-keyring.gpg \\
+  && chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg \\
+  && printf 'deb [arch=%s signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main\\n' "$(dpkg --print-architecture)" > /etc/apt/sources.list.d/github-cli.list \\
+  && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \\
+  && apt-get update -qq \\
+  && apt-get install -y -qq gh nodejs \\
+  && corepack enable \\
+  && curl -fsSL https://bun.sh/install | HOME=/root BUN_INSTALL=/opt/bun bash \\
+  && ln -sf /opt/bun/bin/bun /usr/local/bin/bun \\
+  && git config --global init.defaultBranch main \\
+  && rm -rf /var/lib/apt/lists/*
+`;
 
 type VmContext = {
   vm: FreestyleVmSnapshotRef;
@@ -23,108 +53,17 @@ const app = workflow("freestyle-website-next", {
   providers: {
     freestyle: freestyle.provider({
       apiKey: env("FREESTYLE_API_KEY"),
-      image: "ubuntu-24.04",
+      image: vmImage,
     }),
     terminal: freestyle.terminal(),
+    cmux: cmux.provider(),
   },
 });
 
-const baseVm = app
-  .sequence("base-vm")
-  .task("create", async ({ freestyle }) => {
-    const vm = await freestyle.vms.create();
-    return { vm: await vm.snapshotRef() };
-  })
-  .task("install-toolchain", async ({ ctx, freestyle }) => {
-    const vm = await freestyle.vms.fromSnapshot(ctx.vm);
-    await vm.exec(
-      [
-        "set -e",
-        "export DEBIAN_FRONTEND=noninteractive",
-        "apt-get update -qq",
-        [
-          "apt-get install -y -qq",
-          "build-essential",
-          "ca-certificates",
-          "curl",
-          "git",
-          "gnupg",
-          "pkg-config",
-          "python3",
-          "unzip",
-          "xz-utils",
-        ].join(" "),
-      ].join("\n"),
-      {
-        name: "install system packages",
-        timeoutMs: 10 * 60 * 1000,
-      },
-    );
-
-    await vm.exec(
-      [
-        "set -e",
-        "export DEBIAN_FRONTEND=noninteractive",
-        "if ! command -v gh >/dev/null 2>&1; then",
-        "  if ! apt-get install -y -qq gh; then",
-        "    mkdir -p /etc/apt/keyrings",
-        "    curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /etc/apt/keyrings/githubcli-archive-keyring.gpg",
-        "    chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg",
-        "    printf 'deb [arch=%s signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main\\n' \"$(dpkg --print-architecture)\" > /etc/apt/sources.list.d/github-cli.list",
-        "    apt-get update -qq",
-        "    apt-get install -y -qq gh",
-        "  fi",
-        "fi",
-        "gh --version",
-      ].join("\n"),
-      {
-        name: "install github cli",
-        timeoutMs: 5 * 60 * 1000,
-      },
-    );
-
-    await vm.exec(
-      [
-        "set -e",
-        'export HOME="${HOME:-/root}"',
-        'mkdir -p "$HOME"',
-        'if [ ! -x /opt/bun/bin/bun ]; then curl -fsSL https://bun.sh/install | HOME="$HOME" BUN_INSTALL=/opt/bun bash; fi',
-        "ln -sf /opt/bun/bin/bun /usr/local/bin/bun",
-        "git config --global init.defaultBranch main",
-        "bun --version",
-      ].join("\n"),
-      {
-        name: "install bun",
-        timeoutMs: 5 * 60 * 1000,
-      },
-    );
-
-    return { vm: await vm.snapshotRef() };
-  })
-  .task("install-node-pnpm", async ({ ctx, freestyle }) => {
-    const vm = await freestyle.vms.fromSnapshot(ctx.vm);
-    await vm.exec(
-      [
-        "set -e",
-        "export DEBIAN_FRONTEND=noninteractive",
-        'node_major="$(node -p \'process.versions.node.split(\".\")[0]\' 2>/dev/null || printf 0)"',
-        'if [ "$node_major" -lt 20 ]; then',
-        "  curl -fsSL https://deb.nodesource.com/setup_22.x | bash -",
-        "  apt-get install -y -qq nodejs",
-        "fi",
-        "corepack enable",
-        `corepack prepare pnpm@${pnpmVersion} --activate || npm install -g pnpm@${pnpmVersion}`,
-        "node --version",
-        "pnpm --version",
-      ].join("\n"),
-      {
-        name: "install node and pnpm",
-        timeoutMs: 10 * 60 * 1000,
-      },
-    );
-
-    return { vm: await vm.snapshotRef() };
-  });
+const baseVm = app.sequence("base-vm").task("create", async ({ freestyle }) => {
+  const vm = await freestyle.vms.create();
+  return { vm: await vm.snapshotRef() };
+});
 
 const repoSetup = app
   .sequence<VmContext>("repo")
@@ -205,7 +144,7 @@ const repoSetup = app
   })
   .task("install", async ({ ctx, freestyle }) => {
     const vm = await freestyle.vms.fromSnapshot(ctx.vm);
-    await vm.exec(`cd ${shellQuote(ctx.repoPath)} && pnpm install`, {
+    await vm.exec(`cd ${shellQuote(ctx.repoPath)} && bun install`, {
       name: "install website dependencies",
       timeoutMs: 10 * 60 * 1000,
     });
@@ -218,96 +157,78 @@ const repoSetup = app
   });
 
 export default app
-  .sequence("websiteaa")
+  .sequence("website")
   .add(baseVm)
   .parallel({
     repo: repoSetup,
   })
   .workspace({
-    source: (ctx) => ctx.repo.vm,
-    cwd: (ctx) => ctx.repo.repoPath,
-    ports: [devPort],
-    onCreated: async ({ ctx, providerContext, providers, workspace }) => {
-      const freestyleContext = providerContext as FreestyleWorkspaceContext;
-      const vm = providers.freestyle.vms.fromWorkspace(workspace);
+    create: async ({ workflow, providers, workspace }) => {
+      const vm = await providers.freestyle.vms.fromSnapshot(workflow.ctx.repo.vm);
       const branch = `rigkit/${workspace.name.replaceAll(/[^A-Za-z0-9._/-]/g, "-")}`;
       await vm.exec(
         [
           "set -e",
-          `cd ${shellQuote(ctx.repo.repoPath)}`,
+          `cd ${shellQuote(workflow.ctx.repo.repoPath)}`,
           `git switch -C ${shellQuote(branch)}`,
         ].join("\n"),
         {
           name: "create workspace branch",
         },
       );
-
-      const cmuxWorkspace = await cmux.ssh({
-        destination: cmuxSshDestination(freestyleContext),
+      return {
+        vmId: vm.vmId,
+        repoPath: workflow.ctx.repo.repoPath,
+        repo: workflow.ctx.repo.repo,
+        branch,
+        devPort,
+      };
+    },
+    remove: async ({ providers, workspace }) => {
+      await providers.freestyle.vms.delete(workspace.ctx.vmId);
+    },
+  })
+  .workspaceOperation("open-cmux", {
+    title: "Open cmux",
+    description: "Open the website workspace in cmux",
+    run: async ({ providers, workspace }) => {
+      const vm = providers.freestyle.vms.fromId(workspace.ctx.vmId);
+      await openInCmux({
         name: workspace.name,
-        port: freestyleContext.ssh.port,
-        sshOptions: cmuxSshOptions(freestyleContext),
+        vm,
+        repoPath: workspace.ctx.repoPath,
+        freestyle: providers.freestyle,
+        cmux: providers.cmux,
       });
-      const cmuxWorkspaceId = cmuxWorkspace.id ?? cmuxWorkspace.handle;
-
-      const devPane = await cmux.newPane({
-        workspace: cmuxWorkspaceId,
-        type: "terminal",
-        direction: "down",
-        focus: true,
-      });
-      await cmux.send({
-        workspace: cmuxWorkspaceId,
-        surface: devPane.surface,
-        text: `cd ${shellQuote(ctx.repo.repoPath)} && ${devCommand}\\n`,
-      });
-
-      await Promise.all([
-        waitForLocalhost(vm, devPort),
-        cmux.waitForRemoteReady(cmuxWorkspaceId, {
-          timeoutMs: 90 * 1000,
-          requireProxy: true,
-        }),
-      ]);
-
-      await cmux.portsKick({
-        workspace: cmuxWorkspaceId,
-        surface: devPane.surface,
-        reason: "refresh",
-      });
-
-      await cmux.browserOpen({
-        workspace: cmuxWorkspaceId,
-        url: `http://localhost:${devPort}`,
-        focus: true,
-      });
-      await cmux.selectWorkspace(cmuxWorkspaceId);
+      await waitForLocalhost(vm, devPort);
     },
   });
+
+async function openInCmux(input: {
+  name: string;
+  vm: FreestyleVmRuntime;
+  repoPath: string;
+  freestyle: Pick<FreestyleRuntime, "cmux">;
+  cmux: CmuxRuntime;
+}): Promise<void> {
+  const ssh = await input.freestyle.cmux.createSshOptions(input.vm);
+  await input.cmux.open({
+    name: input.name,
+    ssh,
+    cwd: input.repoPath,
+    command: devCommand,
+    url: `http://localhost:${devPort}`,
+    focus: true,
+    waitForRemoteReady: {
+      timeoutMs: 90 * 1000,
+      requireProxy: true,
+    },
+  });
+}
 
 function dirname(path: string): string {
   const index = path.lastIndexOf("/");
   return index <= 0 ? "/" : path.slice(0, index);
-}
-
-function cmuxSshDestination(context: FreestyleWorkspaceContext): string {
-  const { ssh } = context;
-  if (ssh.auth.type === "token") {
-    return `${ssh.username},${ssh.auth.token}@${ssh.host}`;
-  }
-  return `${ssh.username}@${ssh.host}`;
-}
-
-function cmuxSshOptions(context: FreestyleWorkspaceContext): string[] {
-  if (context.ssh.auth.type !== "token") return [];
-  return [
-    "StrictHostKeyChecking=no",
-    "UserKnownHostsFile=/dev/null",
-    "LogLevel=ERROR",
-    "IdentitiesOnly=yes",
-    "IdentityFile=/dev/null",
-    "ControlMaster=no",
-  ];
 }
 
 async function waitForLocalhost(

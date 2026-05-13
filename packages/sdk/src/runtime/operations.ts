@@ -100,6 +100,12 @@ export function operationsFor(engine: DevMachineEngine): RuntimeOperation[] {
   return engine.listRuntimeOperations().map((operation) => runtimeOperationForEngineOperation(engine, operation));
 }
 
+export function workspaceOperationsFor(engine: DevMachineEngine): RuntimeOperation[] {
+  return engine.listRuntimeWorkspaceOperations().map((operation) =>
+    runtimeOperationForEngineOperation(engine, operation)
+  );
+}
+
 function runtimeOperationForEngineOperation(engine: DevMachineEngine, operation: EngineOperationSummary): RuntimeOperation {
   const required = operation.inputFields
     .filter((field) => field.required ?? true)
@@ -116,14 +122,6 @@ function runtimeOperationForEngineOperation(engine: DevMachineEngine, operation:
     title: operation.title ?? titleize(operation.id),
     description: operation.description ?? "",
     createsWorkspace: operation.createsWorkspace,
-    requiredHostMethods: operation.requiredHostMethods?.map((method) => ({
-      id: method.id,
-      ...(method.modes?.length ? { modes: [...method.modes] } : {}),
-    })),
-    requiredHostCapabilities: operation.requiredHostCapabilities?.map((capability) => ({
-      id: capability.id,
-      ...(capability.schemaHash ? { schemaHash: capability.schemaHash } : {}),
-    })),
     cli: operation.cli ? cloneOperationCli(operation.cli) : cliForFields(operation.inputFields),
     inputSchema: objectSchema(properties, required),
   };
@@ -188,58 +186,11 @@ function cliForFields(fields: EngineOperationSummary["inputFields"]): NonNullabl
 
 export function operationManifestFor(engine: DevMachineEngine): RuntimeOperationsManifest {
   const operations = operationsFor(engine);
+  const workspaceOperations = workspaceOperationsFor(engine);
   return {
-    hostMethods: {
-      known: [
-        { id: "message.show" },
-        { id: "prompt.text" },
-        { id: "prompt.confirm" },
-        { id: "prompt.select" },
-        { id: "open.external" },
-        { id: "host.command.run", modes: ["capture", "interactive"] },
-      ],
-      requiredByOperations: Object.fromEntries(
-        operations
-          .filter((operation) => operation.requiredHostMethods?.length)
-          .map((operation) => [
-            operation.id,
-            operation.requiredHostMethods!.flatMap((method) =>
-              method.modes?.length
-                ? method.modes.map((mode) => `${method.id}:${mode}`)
-                : [method.id]
-            ),
-          ]),
-      ),
-    },
-    hostCapabilities: {
-      optional: dedupeHostCapabilities(
-        operations.flatMap((operation) => operation.requiredHostCapabilities ?? []),
-      ),
-      requiredByOperations: Object.fromEntries(
-        operations
-          .filter((operation) => operation.requiredHostCapabilities?.length)
-          .map((operation) => [operation.id, operation.requiredHostCapabilities!.map((capability) => capability.id)]),
-      ),
-    },
     operations,
+    workspaceOperations,
   };
-}
-
-function dedupeHostCapabilities(
-  capabilities: Array<{ id: string; schemaHash?: string }>,
-): Array<{ id: string; schemaHash?: string }> {
-  const seen = new Set<string>();
-  const deduped: Array<{ id: string; schemaHash?: string }> = [];
-  for (const capability of capabilities) {
-    const key = capability.schemaHash ? `${capability.id}\0${capability.schemaHash}` : capability.id;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    deduped.push({
-      id: capability.id,
-      ...(capability.schemaHash ? { schemaHash: capability.schemaHash } : {}),
-    });
-  }
-  return deduped;
 }
 
 function workflowJsonSchema(workflows: string[]): JsonSchema {

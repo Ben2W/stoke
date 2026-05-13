@@ -14,7 +14,7 @@ import {
   createFreestyleWorkflowProvider,
   isFreestyleVmSnapshotRef,
 } from "./provider.ts";
-import type { FreestyleRuntime, FreestyleTerminalRuntime, FreestyleWorkspaceContext } from "./provider.ts";
+import type { FreestyleRuntime, FreestyleTerminalRuntime } from "./provider.ts";
 import { createFreestyleStore } from "./store.ts";
 
 const freestyleProviderConfigSchema = z.object({
@@ -31,8 +31,7 @@ export type FreestyleProviderConfig = z.output<typeof freestyleProviderConfigSch
 export type FreestyleProviderDefinition = WorkflowProviderDefinition<
   typeof FREESTYLE_PROVIDER_ID,
   FreestyleProviderConfig,
-  FreestyleRuntime,
-  FreestyleWorkspaceContext
+  FreestyleRuntime
 >;
 
 export type FreestyleTerminalProviderDefinition = WorkflowProviderDefinition<
@@ -63,7 +62,7 @@ export const freestyleProviderPlugin: BaseProviderPlugin = {
   createProvider({ provider, storage }) {
     const config = parseFreestyleProviderConfig(provider.config);
     const { apiKey, ...vm } = config;
-    let controller: Promise<WorkflowProviderController<FreestyleRuntime, FreestyleWorkspaceContext>> | undefined;
+    let controller: Promise<WorkflowProviderController<FreestyleRuntime>> | undefined;
 
     const load = async () => {
       controller ??= create();
@@ -103,20 +102,7 @@ export const freestyleProviderPlugin: BaseProviderPlugin = {
       providerId: FREESTYLE_PROVIDER_ID,
       runtime: async (context) => await (await load()).runtime(context),
       validateArtifact: (ref) => isFreestyleVmSnapshotRef(ref),
-      workspace: {
-        canUse: (ref) => isFreestyleVmSnapshotRef(ref),
-        createWorkspace: async (sourceRef, input) =>
-          await (await load()).workspace!.createWorkspace(sourceRef, input),
-        deleteWorkspace: async (workspace) =>
-          await (await load()).workspace!.deleteWorkspace(workspace),
-        snapshotWorkspace: async (workspace) =>
-          await (await load()).workspace!.snapshotWorkspace(workspace),
-        ssh: async (workspaceOrResourceId, options) =>
-          await (await load()).workspace!.ssh(workspaceOrResourceId, options),
-        workspaceContext: async (workspace) =>
-          await (await load()).workspace!.workspaceContext!(workspace),
-      },
-    } satisfies WorkflowProviderController<FreestyleRuntime, FreestyleWorkspaceContext>;
+    } satisfies WorkflowProviderController<FreestyleRuntime>;
   },
 };
 
@@ -148,12 +134,14 @@ export { createFreestyleStore } from "./store.ts";
 export { createFreestyleTerminalSession } from "./terminal-session.ts";
 export { RIGKIT_PROVIDER_FREESTYLE_VERSION } from "./version.ts";
 export type {
+  FreestyleCmuxSshOptions,
+  FreestyleCmuxSshOptionsInput,
   FreestyleRuntime,
   FreestyleTerminalRuntime,
+  FreestyleVscodeUrlOptions,
   FreestyleVmConfig,
   FreestyleVmRuntime,
   FreestyleVmSnapshotRef,
-  FreestyleWorkspaceContext,
 } from "./provider.ts";
 export type { FreestyleGitRelationship, FreestyleIdentity } from "./store.ts";
 

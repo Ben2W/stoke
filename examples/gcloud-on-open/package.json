@@ -7,8 +7,8 @@
     "rig:plan": "rig plan",
     "rig:apply": "rig apply",
     "rig:fork": "rig create --name gcloud-workspace",
-    "rig:ssh": "rig ssh gcloud-workspace --print",
-    "rig:rm": "rig delete gcloud-workspace -y",
+    "rig:ssh": "rig run gcloud-workspace/ssh",
+    "rig:rm": "rig run gcloud-workspace/remove -y",
     "typecheck": "tsc --noEmit",
     "test": "echo no gcloud on-open example tests yet"
   },

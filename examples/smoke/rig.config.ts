@@ -71,7 +71,13 @@ const smoke = sequence("smoke")
     return { vm: await vm.snapshotRef() };
   })
   .workspace({
-    source: (ctx) => ctx.vm,
+    create: async ({ workflow, providers }) => {
+      const vm = await providers.freestyle.vms.fromSnapshot(workflow.ctx.vm);
+      return { vmId: vm.vmId, ready: true };
+    },
+    remove: async ({ providers, workspace }) => {
+      await providers.freestyle.vms.delete(workspace.ctx.vmId);
+    },
   });
 
 export default defineConfig({

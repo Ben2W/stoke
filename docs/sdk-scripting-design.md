@@ -82,12 +82,14 @@ export default defineDevMachine({
   }),
   steps: [gcloudStep, verifyNode],
   workspace: {
-    onCreated: async ({ vm, workspace, ctx, local }) => {
+    create: async ({ workflow, workspace, providers }) => {
+      const vm = await providers.freestyle.vms.fromSnapshot(workflow.ctx.vm);
       const cwd = "/workspace/platform";
       await vm.exec(`cd ${cwd} && git switch -c rigkit/${workspace.name}`);
-      local.open(
-        `vscode://vscode-remote/ssh-remote+${encodeURIComponent(ctx.provider.vscodeAuthority)}${cwd}?windowId=_blank`,
-      );
+      return { cwd, vmId: vm.vmId };
+    },
+    remove: async ({ workspace, providers }) => {
+      await providers.freestyle.vms.delete(workspace.ctx.vmId);
     },
   },
 });
@@ -132,22 +134,33 @@ return { nodeVersion: "v24.0.0" };
 
 Dependent steps read prior values through `ctx.steps`.
 
-## Workspace Hooks
+## Workspace Operations
 
-Machines can define a workspace hook that runs after `rig create` creates a workspace VM from the resolved snapshot:
+Machines can define workspace `create` and `remove` handlers plus named workspace operations:
 
 ```ts
-workspace: {
-  onCreated: async ({ vm, workspace, ctx, local }) => {
-    await vm.exec(`cd ${ctx.steps.repoPath} && git switch -c rigkit/${workspace.name}`);
-    local.open(
-      `vscode://vscode-remote/ssh-remote+${encodeURIComponent(ctx.provider.vscodeAuthority)}${ctx.steps.repoPath}?windowId=_blank`,
-    );
+sequence("platform")
+  .workspace({
+    create: async ({ workflow, providers }) => {
+      const vm = await providers.freestyle.vms.fromSnapshot(workflow.ctx.vm);
+      return { repoPath: workflow.ctx.repoPath, vmId: vm.vmId };
+    },
+    remove: async ({ workspace, providers }) => {
+      await providers.freestyle.vms.delete(workspace.ctx.vmId);
+    },
+  })
+  .workspaceOperation("open", {
+    run: async ({ workspace, providers }) => {
+      const vm = providers.freestyle.vms.fromId(workspace.ctx.vmId);
+      const url = await providers.freestyle.vscode.createUrl(vm, {
+        cwd: workspace.ctx.repoPath,
+      });
+      return { url };
+    },
   },
-}
 ```
 
-`ctx.steps` is the persisted context returned by completed steps. `ctx.provider` is provider-specific, computed fresh for the workspace VM, and should not be persisted by the engine because it may contain connection details or tokens.
+`create` returns JSON-serializable workspace context. `remove` and workspace operations read that same typed context through `workspace.ctx`.
 
 ## Caching
 

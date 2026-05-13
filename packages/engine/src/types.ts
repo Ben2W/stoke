@@ -52,8 +52,6 @@ export type CommandOptions = ExecOptions & {
   name?: string;
 };
 
-export type ProviderWorkspaceContext = object;
-
 export type LocalWorkspaceRuntime = {
   open(target: string): MaybePromise<void>;
   command?(input: LocalCommandRequest): MaybePromise<LocalCommandResult>;
@@ -94,22 +92,19 @@ export type WorkflowProviderDefinition<
   ProviderId extends string = string,
   Config extends object = Record<string, unknown>,
   Runtime = unknown,
-  WorkspaceContext extends ProviderWorkspaceContext = ProviderWorkspaceContext,
 > = {
   readonly kind: "rigkit.provider";
   readonly providerId: ProviderId;
   readonly config: ResolvableObject<Config>;
   readonly plugin?: unknown;
   readonly __runtime?: Runtime;
-  readonly __workspaceContext?: WorkspaceContext;
 };
 
 export type DevProviderDefinition<
   ProviderId extends string = string,
   Config extends object = Record<string, unknown>,
   Runtime = unknown,
-  WorkspaceContext extends ProviderWorkspaceContext = ProviderWorkspaceContext,
-> = WorkflowProviderDefinition<ProviderId, Config, Runtime, WorkspaceContext>;
+> = WorkflowProviderDefinition<ProviderId, Config, Runtime>;
 
 export type LoadedProviderDefinition<
   ProviderId extends string = string,
@@ -120,17 +115,12 @@ export type LoadedProviderDefinition<
   plugin?: unknown;
 };
 
-export type WorkflowProviderMap = Record<string, WorkflowProviderDefinition<string, any, any, any>>;
+export type WorkflowProviderMap = Record<string, WorkflowProviderDefinition<string, any, any>>;
 
 export type ProviderRuntimeOf<Provider> =
-  Provider extends WorkflowProviderDefinition<any, any, infer Runtime, any>
+  Provider extends WorkflowProviderDefinition<any, any, infer Runtime>
     ? Runtime
     : never;
-
-export type ProviderWorkspaceContextOf<Provider> =
-  Provider extends WorkflowProviderDefinition<any, any, any, infer WorkspaceContext extends ProviderWorkspaceContext>
-    ? WorkspaceContext
-    : ProviderWorkspaceContext;
 
 export type ProviderRuntimeMap<Providers extends WorkflowProviderMap> = {
   readonly [Key in keyof Providers]: ProviderRuntimeOf<Providers[Key]>;
@@ -160,32 +150,6 @@ export type WorkflowTaskHandler<
   Result extends WorkflowTaskResult = WorkflowTaskResult,
 > = (context: WorkflowTaskRuntime<Providers, Context>) => MaybePromise<Result>;
 
-export type WorkflowCreateRuntime<
-  Providers extends WorkflowProviderMap,
-  Context extends JsonObject,
-> = ProviderRuntimeMap<Providers> & {
-  readonly ctx: Readonly<Context>;
-  readonly name: string;
-  readonly providers: ProviderRuntimeMap<Providers>;
-  readonly local: LocalWorkspaceRuntime;
-  readonly workflow: string;
-};
-
-export type WorkflowCreateResult = JsonObject;
-
-export type WorkflowCreateHandler<
-  Providers extends WorkflowProviderMap,
-  Context extends JsonObject,
-  Result extends WorkflowCreateResult = WorkflowCreateResult,
-> = (context: WorkflowCreateRuntime<Providers, Context>) => MaybePromise<Result>;
-
-export type WorkflowCreateDefinition<
-  Providers extends WorkflowProviderMap = WorkflowProviderMap,
-  Context extends JsonObject = JsonObject,
-> = {
-  readonly handler: WorkflowCreateHandler<Providers, Context, any>;
-};
-
 export type WorkflowInputFieldKind = "workspace" | "string" | "boolean" | "number";
 
 export type WorkflowInputFieldDefinition<Value = unknown> = {
@@ -199,9 +163,7 @@ export type WorkflowInputFieldDefinition<Value = unknown> = {
 };
 
 export type WorkflowOperationWorkspaceInput<Name extends string> = {
-  [Key in Name]: WorkspaceRuntimeRecord & {
-    data: Record<string, JsonValue>;
-  };
+  [Key in Name]: WorkspaceRuntimeRecord;
 };
 
 export type WorkflowInputShape = Record<string, WorkflowInputFieldDefinition<any>>;
@@ -272,15 +234,77 @@ export type WorkflowOperationHandler<
   Result extends WorkflowOperationResult = WorkflowOperationResult,
 > = (context: WorkflowOperationRuntime<Providers, Input>) => MaybePromise<Result>;
 
-export type WorkflowHostMethodRequirement = {
-  readonly id: string;
-  readonly modes?: readonly string[];
+export type WorkflowRuntimeContext<Context extends JsonObject> = {
+  readonly name: string;
+  readonly ctx: Readonly<Context>;
 };
 
-export type WorkflowHostCapabilityRequirement = {
-  readonly id: string;
-  readonly schemaHash?: string;
+export type ReadonlyWorkspaceContext<Context extends JsonObject> = {
+  readonly [Key in keyof Context]: Context[Key];
 };
+
+export type WorkspaceCreateRuntimeRecord = {
+  readonly name: string;
+};
+
+export type WorkspaceRuntimeRecord<Context extends object = JsonObject> = {
+  readonly name: string;
+  readonly ctx: Context;
+};
+
+export type WorkflowWorkspaceCreateRuntime<
+  Providers extends WorkflowProviderMap,
+  Context extends JsonObject,
+> = ProviderRuntimeMap<Providers> & {
+  readonly workflow: WorkflowRuntimeContext<Context>;
+  readonly workspace: WorkspaceCreateRuntimeRecord;
+  readonly providers: ProviderRuntimeMap<Providers>;
+  readonly local: LocalWorkspaceRuntime;
+};
+
+export type WorkflowWorkspaceCreateHandler<
+  Providers extends WorkflowProviderMap,
+  Context extends JsonObject,
+  Data extends JsonObject,
+> = (context: WorkflowWorkspaceCreateRuntime<Providers, Context>) => MaybePromise<Data>;
+
+export type WorkflowWorkspaceRemoveRuntime<
+  Providers extends WorkflowProviderMap,
+  Context extends JsonObject,
+  Data extends JsonObject,
+> = ProviderRuntimeMap<Providers> & {
+  readonly workflow: WorkflowRuntimeContext<Context>;
+  readonly workspace: WorkspaceRuntimeRecord<ReadonlyWorkspaceContext<Data>>;
+  readonly providers: ProviderRuntimeMap<Providers>;
+  readonly local: LocalWorkspaceRuntime;
+};
+
+export type WorkflowWorkspaceRemoveHandler<
+  Providers extends WorkflowProviderMap,
+  Context extends JsonObject,
+  Data extends JsonObject,
+> = (context: WorkflowWorkspaceRemoveRuntime<Providers, Context, Data>) => MaybePromise<void>;
+
+export type WorkflowWorkspaceOperationRuntime<
+  Providers extends WorkflowProviderMap,
+  Context extends JsonObject,
+  Data extends object,
+  Input extends object,
+> = ProviderRuntimeMap<Providers> & {
+  readonly workflow: WorkflowRuntimeContext<Context>;
+  readonly input: Readonly<Input>;
+  readonly workspace: WorkspaceRuntimeRecord<Data>;
+  readonly providers: ProviderRuntimeMap<Providers>;
+  readonly local: LocalWorkspaceRuntime;
+};
+
+export type WorkflowWorkspaceOperationHandler<
+  Providers extends WorkflowProviderMap,
+  Context extends JsonObject,
+  Data extends object,
+  Input extends object,
+  Result extends WorkflowOperationResult = WorkflowOperationResult,
+> = (context: WorkflowWorkspaceOperationRuntime<Providers, Context, Data, Input>) => MaybePromise<Result>;
 
 export type WorkflowOperationOptions<
   Providers extends WorkflowProviderMap,
@@ -288,9 +312,6 @@ export type WorkflowOperationOptions<
 > = {
   title?: string;
   description?: string;
-  createsWorkspace?: boolean;
-  requiredHostMethods?: readonly WorkflowHostMethodRequirement[];
-  requiredHostCapabilities?: readonly WorkflowHostCapabilityRequirement[];
   input?: WorkflowOperationInputBuilder<Input> | ((workflow: WorkflowOperationInputHelpers) => WorkflowOperationInputBuilder<Input>);
   run: WorkflowOperationHandler<Providers, Input>;
 };
@@ -302,11 +323,33 @@ export type WorkflowOperationDefinition<
   readonly id: string;
   readonly title?: string;
   readonly description?: string;
-  readonly createsWorkspace?: boolean;
-  readonly requiredHostMethods?: readonly WorkflowHostMethodRequirement[];
-  readonly requiredHostCapabilities?: readonly WorkflowHostCapabilityRequirement[];
   readonly input?: WorkflowOperationInputBuilder<Input>;
   readonly run: WorkflowOperationHandler<Providers, Input>;
+};
+
+export type WorkflowWorkspaceOperationOptions<
+  Providers extends WorkflowProviderMap,
+  Context extends JsonObject,
+  Data extends object,
+  Input extends object = {},
+> = {
+  title?: string;
+  description?: string;
+  input?: WorkflowOperationInputBuilder<Input> | ((workflow: WorkflowOperationInputHelpers) => WorkflowOperationInputBuilder<Input>);
+  run: WorkflowWorkspaceOperationHandler<Providers, Context, Data, Input>;
+};
+
+export type WorkflowWorkspaceOperationDefinition<
+  Providers extends WorkflowProviderMap = WorkflowProviderMap,
+  Context extends JsonObject = JsonObject,
+  Data extends object = JsonObject,
+  Input extends object = object,
+> = {
+  readonly id: string;
+  readonly title?: string;
+  readonly description?: string;
+  readonly input?: WorkflowOperationInputBuilder<Input>;
+  readonly run: WorkflowWorkspaceOperationHandler<Providers, Context, Data, Input>;
 };
 
 export type OutputSchema<Output extends JsonObject = JsonObject> =
@@ -389,8 +432,8 @@ export type WorkflowNodeDefinition<
   readonly name: string;
   readonly workflow: WorkflowDefinition<string, Providers>;
   readonly workspaceDefinition?: WorkflowWorkspaceDefinition<Providers, OutputContext>;
-  readonly createDefinition?: WorkflowCreateDefinition<Providers, OutputContext>;
   readonly operations?: readonly WorkflowOperationDefinition<Providers, any>[];
+  readonly workspaceOperations?: readonly WorkflowWorkspaceOperationDefinition<Providers, OutputContext, any, any>[];
   readonly __providers?: Providers;
   readonly __input?: InputContext;
   readonly __output?: OutputContext;
@@ -410,6 +453,9 @@ export type WorkflowSequenceBuilder<
   Providers extends WorkflowProviderMap,
   InputContext extends JsonObject,
   OutputContext extends JsonObject,
+  WorkspaceData extends object = JsonObject,
+  OperationIds extends string = never,
+  WorkspaceOperationIds extends string = never,
 > = WorkflowNodeDefinition<Providers, InputContext, OutputContext> & {
   readonly nodeKind: "sequence";
   readonly children: readonly WorkflowNodeDefinition<Providers, any, any>[];
@@ -417,28 +463,63 @@ export type WorkflowSequenceBuilder<
   task<Result extends WorkflowTaskResult>(
     name: string,
     handler: WorkflowTaskHandler<Providers, OutputContext, Result>,
-  ): WorkflowSequenceBuilder<Providers, InputContext, Merge<OutputContext, TaskReturnContext<Result>>>;
+  ): WorkflowSequenceBuilder<
+    Providers,
+    InputContext,
+    Merge<OutputContext, TaskReturnContext<Result>>,
+    WorkspaceData,
+    OperationIds,
+    WorkspaceOperationIds
+  >;
 
   task<Schema extends OutputSchema<JsonObject>, Result extends MaybePromise<OutputSchemaValue<Schema> | void>>(
     name: string,
     options: WorkflowTaskOptions<OutputSchemaValue<Schema>>,
     handler: WorkflowTaskHandler<Providers, OutputContext, Awaited<Result> & WorkflowTaskResult>,
-  ): WorkflowSequenceBuilder<Providers, InputContext, Merge<OutputContext, TaskReturnContext<Result>>>;
+  ): WorkflowSequenceBuilder<
+    Providers,
+    InputContext,
+    Merge<OutputContext, TaskReturnContext<Result>>,
+    WorkspaceData,
+    OperationIds,
+    WorkspaceOperationIds
+  >;
 
   step<Result extends WorkflowTaskResult>(
     name: string,
     handler: WorkflowTaskHandler<Providers, OutputContext, Result>,
-  ): WorkflowSequenceBuilder<Providers, InputContext, Merge<OutputContext, TaskReturnContext<Result>>>;
+  ): WorkflowSequenceBuilder<
+    Providers,
+    InputContext,
+    Merge<OutputContext, TaskReturnContext<Result>>,
+    WorkspaceData,
+    OperationIds,
+    WorkspaceOperationIds
+  >;
 
   step<Schema extends OutputSchema<JsonObject>, Result extends MaybePromise<OutputSchemaValue<Schema> | void>>(
     name: string,
     options: WorkflowTaskOptions<OutputSchemaValue<Schema>>,
     handler: WorkflowTaskHandler<Providers, OutputContext, Awaited<Result> & WorkflowTaskResult>,
-  ): WorkflowSequenceBuilder<Providers, InputContext, Merge<OutputContext, TaskReturnContext<Result>>>;
+  ): WorkflowSequenceBuilder<
+    Providers,
+    InputContext,
+    Merge<OutputContext, TaskReturnContext<Result>>,
+    WorkspaceData,
+    OperationIds,
+    WorkspaceOperationIds
+  >;
 
   add<Node extends WorkflowNodeDefinition<Providers, any, any>>(
     node: OutputContext extends WorkflowNodeInput<Node> ? Node : never,
-  ): WorkflowSequenceBuilder<Providers, InputContext, Merge<OutputContext, WorkflowNodeOutput<Node>>>;
+  ): WorkflowSequenceBuilder<
+    Providers,
+    InputContext,
+    Merge<OutputContext, WorkflowNodeOutput<Node>>,
+    WorkspaceData,
+    OperationIds,
+    WorkspaceOperationIds
+  >;
 
   parallel<const Branches extends Record<string, WorkflowNodeDefinition<Providers, any, any>>>(
     branches: {
@@ -446,21 +527,85 @@ export type WorkflowSequenceBuilder<
         ? Branches[Key]
         : never;
     },
-  ): WorkflowSequenceBuilder<Providers, InputContext, Merge<OutputContext, ParallelOutput<Branches>>>;
+  ): WorkflowSequenceBuilder<
+    Providers,
+    InputContext,
+    Merge<OutputContext, ParallelOutput<Branches>>,
+    WorkspaceData,
+    OperationIds,
+    WorkspaceOperationIds
+  >;
 
-  workspace(
-    definition: WorkflowWorkspaceDefinition<Providers, OutputContext>,
-  ): WorkflowSequenceBuilder<Providers, InputContext, OutputContext>;
-
-  create<Result extends WorkflowCreateResult>(
-    handler: WorkflowCreateHandler<Providers, OutputContext, Result>,
-  ): WorkflowSequenceBuilder<Providers, InputContext, OutputContext>;
+  workspace<Data extends JsonObject>(
+    definition: WorkflowWorkspaceDefinition<Providers, OutputContext, Data>,
+  ): WorkflowSequenceBuilder<
+    Providers,
+    InputContext,
+    OutputContext,
+    ReadonlyWorkspaceContext<Data>,
+    OperationIds,
+    WorkspaceOperationIds
+  >;
 
   operation<const Id extends string, Input extends object = {}>(
-    id: Id,
+    id: Id & WorkflowOperationIdConstraint<Id, OperationIds>,
     options: WorkflowOperationOptions<Providers, Input>,
-  ): WorkflowSequenceBuilder<Providers, InputContext, OutputContext>;
+  ): WorkflowSequenceBuilder<
+    Providers,
+    InputContext,
+    OutputContext,
+    WorkspaceData,
+    OperationIds | Id,
+    WorkspaceOperationIds
+  >;
+
+  workspaceOperation<const Id extends string, Input extends object = {}>(
+    id: Id & WorkflowOperationIdConstraint<Id, WorkspaceOperationIds>,
+    options: WorkflowWorkspaceOperationOptions<Providers, OutputContext, WorkspaceData, Input>,
+  ): WorkflowSequenceBuilder<
+    Providers,
+    InputContext,
+    OutputContext,
+    WorkspaceData,
+    OperationIds,
+    WorkspaceOperationIds | Id
+  >;
 };
+
+export const RESERVED_WORKFLOW_OPERATION_IDS = [
+  "apply",
+  "completion",
+  "create",
+  "doctor",
+  "fork",
+  "help",
+  "init",
+  "ls",
+  "plan",
+  "projects",
+  "remove",
+  "run",
+  "version",
+] as const;
+
+export type ReservedWorkflowOperationId = typeof RESERVED_WORKFLOW_OPERATION_IDS[number];
+
+type WorkflowOperationIdError<Message extends string> = {
+  readonly __rigkitOperationIdError: Message;
+};
+
+export type WorkflowOperationIdConstraint<
+  Id extends string,
+  Existing extends string,
+> = string extends Id
+  ? unknown
+  : Id extends Existing
+    ? WorkflowOperationIdError<`Operation id "${Id}" is already defined`>
+    : Id extends ReservedWorkflowOperationId
+      ? WorkflowOperationIdError<`Operation id "${Id}" is reserved by Rigkit`>
+      : Id extends `${string}/${string}`
+        ? WorkflowOperationIdError<`Operation id "${Id}" cannot contain "/"`>
+        : unknown;
 
 export type WorkflowNodeInput<Node> =
   Node extends WorkflowNodeDefinition<any, infer Input extends JsonObject, any>
@@ -492,42 +637,19 @@ export type Simplify<Value> = { [Key in keyof Value]: Value[Key] } & {};
 export type WorkflowWorkspaceDefinition<
   Providers extends WorkflowProviderMap = WorkflowProviderMap,
   Context extends JsonObject = JsonObject,
+  Data extends JsonObject = JsonObject,
 > = {
-  source?: (ctx: Readonly<Context>) => JsonValue;
-  cwd?: string | ((ctx: Readonly<Context>) => string | undefined);
-  ports?: readonly number[];
-  onCreated?: (context: WorkflowWorkspaceCreatedContext<Providers, Context>) => MaybePromise<void>;
-  onOpen?: (context: WorkflowWorkspaceOpenContext<Providers, Context>) => MaybePromise<void>;
-};
-
-export type WorkflowWorkspaceCreatedContext<
-  Providers extends WorkflowProviderMap = WorkflowProviderMap,
-  Context extends JsonObject = JsonObject,
-> = WorkflowWorkspaceLifecycleContext<Providers, Context>;
-
-export type WorkflowWorkspaceOpenContext<
-  Providers extends WorkflowProviderMap = WorkflowProviderMap,
-  Context extends JsonObject = JsonObject,
-> = WorkflowWorkspaceLifecycleContext<Providers, Context>;
-
-export type WorkflowWorkspaceLifecycleContext<
-  Providers extends WorkflowProviderMap = WorkflowProviderMap,
-  Context extends JsonObject = JsonObject,
-> = {
-  workspace: WorkspaceRuntimeRecord;
-  ctx: Readonly<Context>;
-  providers: ProviderRuntimeMap<Providers>;
-  providerContext: ProviderWorkspaceContext;
-  local: LocalWorkspaceRuntime;
+  create: WorkflowWorkspaceCreateHandler<Providers, Context, Data>;
+  remove: WorkflowWorkspaceRemoveHandler<Providers, Context, Data>;
 };
 
 export type LoadedWorkflow = {
   name: string;
   providers: Record<string, LoadedProviderDefinition>;
   root: WorkflowNodeDefinition<any, any, any>;
-  workspace?: WorkflowWorkspaceDefinition<any, any>;
-  create?: WorkflowCreateDefinition<any, any>;
+  workspace?: WorkflowWorkspaceDefinition<any, any, any>;
   operations: readonly WorkflowOperationDefinition<any, any>[];
+  workspaceOperations: readonly WorkflowWorkspaceOperationDefinition<any, any, any, any>[];
 };
 
 export type WorkflowPlanNode = {
@@ -554,19 +676,11 @@ export type MachinePlan = WorkflowPlan;
 export type WorkspaceRecord = {
   id: string;
   name: string;
-  providerId: string;
   workflow: string;
-  resourceId: string;
-  snapshotId?: string;
-  sourceRef: JsonValue;
-  context: Record<string, JsonValue>;
+  workflowCtx: Record<string, JsonValue>;
+  ctx: Record<string, JsonValue>;
   createdAt: string;
   updatedAt: string;
-  metadata: Record<string, JsonValue>;
-};
-
-export type WorkspaceRuntimeRecord = WorkspaceRecord & {
-  cwd?: string;
 };
 
 export type WorkflowEvent =
@@ -597,7 +711,7 @@ export type WorkflowEvent =
       title: string;
     }
   | { type: "artifact.created"; nodePath: string; providerId: string; kind: string; ref: JsonValue }
-  | { type: "workspace.ready"; workspaceId: string; providerId: string; resourceId: string; snapshotId?: string };
+  | { type: "workspace.ready"; workspaceId: string };
 
 export type DevMachineEvent = WorkflowEvent;
 

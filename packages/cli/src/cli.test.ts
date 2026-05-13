@@ -83,8 +83,8 @@ describe("CLI entrypoint", () => {
 
       expect(result.exitCode).toBe(0);
       expect(result.stderr).toBe("");
-      expect(result.stdout).toContain("name  resource  snapshot  workflow");
-      expect(result.stdout).toContain("api   vm-api    snap-api  smoke");
+      expect(result.stdout).toContain("name  workflow");
+      expect(result.stdout).toContain("api   smoke");
     });
   });
 
@@ -100,8 +100,7 @@ describe("CLI entrypoint", () => {
         workspaces: [{
           name: "api",
           workflow: "smoke",
-          resourceId: "vm-api",
-          snapshotId: "snap-api",
+          ctx: {},
         }],
       });
     });
@@ -210,14 +209,8 @@ async function withWorkspaceRuntime(
           workspaces: [{
             id: "workspace-api",
             name: "api",
-            providerId: "freestyle",
             workflow: "smoke",
-            resourceId: "vm-api",
-            snapshotId: "snap-api",
-            sourceRef: null,
-            context: {},
-            metadata: {},
-            data: {},
+            ctx: {},
             createdAt: now,
             updatedAt: now,
           }],

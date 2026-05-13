@@ -1,4 +1,4 @@
-# Gcloud On-Open Example
+# Gcloud Injection Example
 
 This example demonstrates copying local gcloud config/auth files into a workspace without giving rigkit its own Google OAuth client.
 
@@ -7,10 +7,9 @@ The workflow:
 - requires local `gcloud` to be installed and authenticated before any rigkit command runs
 - creates a Freestyle VM
 - installs the Google Cloud CLI inside the VM
-- forks a workspace from that VM snapshot
-- runs `workspace.onOpen` before `rig ssh`
-- copies selected files from the local gcloud config directory into the workspace
-- prints the SSH command
+- creates a workspace VM from that snapshot
+- copies selected files from the local gcloud config directory during workspace creation
+- opens an interactive SSH session
 
 Before running:
 

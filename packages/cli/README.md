@@ -16,7 +16,7 @@ Interactive terminals use Inquirer prompts and a chalk/log-update run timeline. 
 
 Interactive providers can ask the CLI to open provider-owned URLs. For example, Freestyle terminal sessions are served by the Freestyle provider, while the CLI only opens the presented URL in a browser.
 
-`rig ssh <workspace>` runs the workflow's uncached `workspace.onOpen` hook before attaching or printing the SSH command.
+Workspace-specific operations run as `rig <workspace>/<operation>`, for example `rig website-workspace/open-cmux` or `rig website-workspace/remove -y`.
 
 `rig ls` lists workspaces for the selected project. `rig ls snapshots` lists cached snapshot runs, and `rig ls config` shows the resolved project paths.
 

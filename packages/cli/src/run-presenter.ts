@@ -146,7 +146,7 @@ export function createRunPresenter(operation: string): RunPresenter | undefined 
           );
           break;
         case "workspace.ready":
-          phase = `Workspace ${String(event.resourceId ?? event.workspaceId ?? "ready")} ready`;
+          phase = `Workspace ${String(event.workspaceId ?? "ready")} ready`;
           break;
         case "run.completed":
           finalStatus = "completed";

@@ -6,7 +6,6 @@ import { describe, expect, test } from "bun:test";
 import type { ProviderStorage, ProviderStorageRecord } from "@rigkit/engine";
 import type { JsonValue } from "@rigkit/sdk";
 import {
-  CMUX_OPEN_CAPABILITY,
   CmuxCommandError,
   cmux,
   cmuxProviderPlugin,
@@ -409,10 +408,8 @@ describe("cmux sdk", () => {
       name: "website",
       ssh: {
         kind: "ssh",
-        host: "vm-ssh.freestyle.sh",
-        username: "vm_123",
-        auth: { type: "token", token: "token_123" },
-        command: "ssh vm_123:token_123@vm-ssh.freestyle.sh",
+        destination: "vm_123,token_123@vm-ssh.freestyle.sh",
+        sshOptions: ["ServerAliveInterval=15"],
       },
       cwd: "/workspace/site",
       command: "pnpm dev",
@@ -434,15 +431,7 @@ describe("cmux sdk", () => {
         params: expect.objectContaining({
           destination: "vm_123,token_123@vm-ssh.freestyle.sh",
           name: "website",
-          terminalStartupCommand: "ssh vm_123:token_123@vm-ssh.freestyle.sh",
-          sshOptions: [
-            "StrictHostKeyChecking=no",
-            "UserKnownHostsFile=/dev/null",
-            "LogLevel=ERROR",
-            "IdentitiesOnly=yes",
-            "IdentityFile=/dev/null",
-            "ControlMaster=no",
-          ],
+          sshOptions: ["ServerAliveInterval=15"],
         }),
       },
       {
@@ -490,13 +479,36 @@ describe("cmux sdk", () => {
         params: "workspace-1",
       },
     ]);
+    expect(calls[0]?.params).not.toHaveProperty("terminalStartupCommand");
+  });
+
+  test("forwards an explicit cmux ssh terminal startup command", async () => {
+    const calls: Array<{ method: string; params: unknown }> = [];
+    const client = fakeOpenClient(calls);
+
+    await openCmux({
+      name: "website",
+      ssh: {
+        kind: "ssh",
+        destination: "vm_123,token_123@vm-ssh.freestyle.sh",
+        terminalStartupCommand: "ssh -tt vm_123:token_123@vm-ssh.freestyle.sh",
+      },
+    }, { client });
+
+    expect(calls[0]).toEqual({
+      method: "ssh",
+      params: expect.objectContaining({
+        destination: "vm_123,token_123@vm-ssh.freestyle.sh",
+        name: "website",
+        terminalStartupCommand: "ssh -tt vm_123:token_123@vm-ssh.freestyle.sh",
+      }),
+    });
   });
 
   test("exposes a provider facade that requests cmux.open from the local host", async () => {
     const definition = cmux.provider();
     expect(definition.providerId).toBe("cmux");
     expect(definition.plugin).toBe(cmuxProviderPlugin);
-    expect(cmux.capabilities.open).toBe(CMUX_OPEN_CAPABILITY);
 
     const controller = await cmuxProviderPlugin.createProvider({
       provider: { providerId: "cmux", config: {} },

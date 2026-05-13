@@ -2,7 +2,7 @@
 
 Minimal Rigkit workflow for testing local cmux integration.
 
-On every `rig create`, the workspace `onCreated` hook asks the local rigkit host to create a cmux workspace and run:
+After `rig create`, run `rig cmux-playground/open` to ask the local rigkit host to create a cmux workspace and run:
 
 ```bash
 echo hello world
@@ -14,6 +14,7 @@ Run from this directory:
 pnpm rig:plan
 pnpm rig:apply
 pnpm rig:fork
+pnpm rig:open
 ```
 
 The Freestyle API key is read from `FREESTYLE_API_KEY`. The local `cmux` CLI/app must be installed.

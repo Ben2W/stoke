@@ -9,6 +9,7 @@ import {
   type HostResponse,
   type RunOperationRequest,
   type RuntimeOperation,
+  type RuntimeOperationsManifest,
 } from "./protocol.ts";
 import {
   createRun,
@@ -87,10 +88,10 @@ export function runtimeRuns(store: RunStore) {
 export async function startRuntimeRun(state: RuntimeAppState, body: RunOperationRequest) {
   const engine = await loadEngine(state.context);
   const manifest = operationManifestFor(engine);
-  const operation = findRuntimeOperation(manifest.operations, body.operation);
-  if (!operation) throw new RuntimeControlHttpError(400, `Unknown operation ${body.operation}`);
+  const resolved = resolveRuntimeOperation(manifest, body.operation);
+  if (!resolved) throw new RuntimeControlHttpError(400, `Unknown operation ${body.operation}`);
 
-  const run = createRun(operation.id, body.input ?? {}, operation);
+  const run = createRun(resolved.runOperation, body.input ?? {}, resolved.operation);
   state.store.runs.set(run.id, run);
   runOperation(run, state.store, state.context);
 
@@ -144,16 +145,46 @@ export function runtimeControlErrorStatus(error: unknown): number {
   return 500;
 }
 
-function findRuntimeOperation(operations: RuntimeOperation[], requestedOperation: string): RuntimeOperation | undefined {
-  return operations.find((operation) =>
+function resolveRuntimeOperation(
+  manifest: RuntimeOperationsManifest,
+  requestedOperation: string,
+): { operation: RuntimeOperation; runOperation: string } | undefined {
+  const workspaceOperation = parseWorkspaceOperationId(requestedOperation);
+  if (workspaceOperation) {
+    const operation = manifest.workspaceOperations.find((item) => item.id === workspaceOperation.operation);
+    return operation ? { operation, runOperation: requestedOperation } : undefined;
+  }
+
+  const operation = manifest.operations.find((operation) =>
     operation.id === requestedOperation || operation.aliases?.includes(requestedOperation)
   );
+  return operation ? { operation, runOperation: operation.id } : undefined;
 }
 
-function runtimeWorkspace(workspace: WorkspaceRecord): WorkspaceRecord & { data: WorkspaceRecord["metadata"] } {
+function parseWorkspaceOperationId(value: string): { workspace: string; operation: string } | undefined {
+  const slash = value.indexOf("/");
+  if (slash <= 0 || slash === value.length - 1) return undefined;
   return {
-    ...workspace,
-    data: workspace.metadata,
+    workspace: value.slice(0, slash),
+    operation: value.slice(slash + 1),
+  };
+}
+
+function runtimeWorkspace(workspace: WorkspaceRecord): {
+  id: string;
+  name: string;
+  workflow: string;
+  ctx: WorkspaceRecord["ctx"];
+  createdAt: string;
+  updatedAt: string;
+} {
+  return {
+    id: workspace.id,
+    name: workspace.name,
+    workflow: workspace.workflow,
+    ctx: workspace.ctx,
+    createdAt: workspace.createdAt,
+    updatedAt: workspace.updatedAt,
   };
 }
 

@@ -237,11 +237,10 @@ describe("runtime HTTP app", () => {
       scheme: "bearer",
     });
     expect(body.components.schemas.RuntimeOperation.required).toContain("inputSchema");
-    expect(body.components.schemas.Workspace.required).toContain("data");
+    expect(body.components.schemas.Workspace.required).toContain("ctx");
     expect(body.components.schemas.OperationsManifest.required).toEqual([
-      "hostMethods",
-      "hostCapabilities",
       "operations",
+      "workspaceOperations",
     ]);
   });
 
@@ -277,7 +276,6 @@ describe("runtime HTTP app", () => {
           kind: "command",
           title: "SSH",
           description: "Get an SSH command",
-          requiredHostMethods: [{ id: "host.command.run", modes: ["interactive"] }],
           inputFields: [
             { kind: "string", name: "workflow", required: false },
             { kind: "string", name: "workspaceOrVmId", position: 0, required: true },
@@ -299,9 +297,6 @@ describe("runtime HTTP app", () => {
           source: "config",
           title: "Open",
           description: "Open a workspace",
-          createsWorkspace: false,
-          requiredHostMethods: [{ id: "host.command.run", modes: ["interactive"] }],
-          requiredHostCapabilities: [{ id: "cmux.open", schemaHash: "sha256:cmux-open-schema" }],
           inputFields: [
             {
               kind: "workspace",
@@ -320,32 +315,46 @@ describe("runtime HTTP app", () => {
           ],
         },
         {
-          workflow: "test",
-          id: "fork",
-          source: "config",
+          workflow: "",
+          id: "create",
+          source: "core",
+          kind: "command",
           createsWorkspace: true,
+          inputFields: [{ kind: "string", name: "name", required: true }],
+        },
+      ],
+      listRuntimeWorkspaceOperations: () => [
+        {
+          workflow: "test",
+          id: "remove",
+          source: "core",
+          kind: "workspace-action",
+          title: "Remove",
+          description: "Remove a workspace",
+          inputFields: [],
+        },
+        {
+          workflow: "test",
+          id: "open-cmux",
+          source: "config",
+          kind: "workspace-action",
+          title: "Open cmux",
+          description: "Open a workspace in cmux",
           inputFields: [],
         },
       ],
     } as any);
 
     const operation = manifest.operations.find((item) => item.id === "open");
-    const forkOperation = manifest.operations.find((item) => item.id === "fork");
+    const createOperation = manifest.operations.find((item) => item.id === "create");
     const sshOperation = manifest.operations.find((item) => item.id === "ssh");
+    const cmuxOperation = manifest.workspaceOperations.find((item) => item.id === "open-cmux");
     const inputSchema = operation?.inputSchema as any;
     const sshInputSchema = sshOperation?.inputSchema as any;
 
     expect(operation?.source).toBe("config");
     expect(operation?.kind).toBe("workspace-action");
-    expect(operation?.requiredHostMethods).toEqual([
-      { id: "host.command.run", modes: ["interactive"] },
-    ]);
-    expect(operation?.requiredHostCapabilities).toEqual([
-      { id: "cmux.open", schemaHash: "sha256:cmux-open-schema" },
-    ]);
-    expect(manifest.hostCapabilities.optional).toEqual([
-      { id: "cmux.open", schemaHash: "sha256:cmux-open-schema" },
-    ]);
+    expect(cmuxOperation?.id).toBe("open-cmux");
     expect(operation?.cli?.positionals).toEqual([{ name: "workspace", index: 0 }]);
     expect(operation?.cli?.options).toEqual([
       { name: "rebuild", flag: "--rebuild", required: false, type: "boolean" },
@@ -361,9 +370,9 @@ describe("runtime HTTP app", () => {
       default: false,
       description: "Rebuild before opening",
     });
-    expect(forkOperation?.source).toBe("config");
-    expect(forkOperation?.createsWorkspace).toBe(true);
-    expect(manifest.operations.some((item) => item.id === "create")).toBe(false);
+    expect(createOperation?.source).toBe("core");
+    expect(createOperation?.createsWorkspace).toBe(true);
+    expect(manifest.workspaceOperations.map((item) => item.id)).toEqual(["remove", "open-cmux"]);
     expect(sshOperation?.cli?.options?.find((item) => item.name === "print")).toEqual({
       name: "print",
       flag: "--print",
@@ -447,8 +456,6 @@ describe("runtime HTTP app", () => {
 
       expect(ack?.operation).toEqual({
         id: "plan",
-        requiredHostCapabilities: [],
-        requiredHostMethods: [],
       });
       expect(messages.some((message) => message.type === "heartbeat.ack")).toBe(true);
       expect(messages.some((message) => message.type === "run.completed")).toBe(true);
@@ -457,21 +464,24 @@ describe("runtime HTTP app", () => {
     }
   });
 
-  test("exposes persisted workspace payload as workspace data", async () => {
-    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-runtime-workspace-data-"));
+  test("exposes persisted workspace payload as workspace context", async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-runtime-workspace-ctx-"));
     const configPath = join(projectDir, "rig.config.ts");
     writeFileSync(
       configPath,
       `
         import { defineConfig, sequence } from "${import.meta.dir}/../../../engine/src/index.ts";
 
-        const root = sequence("workspace-data")
+        const root = sequence("workspace-ctx")
           .step("prepare", async () => ({ repoPath: "/workspace/repo" }))
-          .create(async ({ ctx, name }) => ({
-            name,
-            resourceId: "resource-" + name,
-            repoPath: ctx.repoPath,
-          }));
+          .workspace({
+            create: async ({ workflow, workspace }) => ({
+              name: workspace.name,
+              vmId: "vm-" + workspace.name,
+              repoPath: workflow.ctx.repoPath,
+            }),
+            remove: async () => {},
+          });
 
         export default defineConfig({
           providers: {},
@@ -481,7 +491,7 @@ describe("runtime HTTP app", () => {
     );
 
     const server = await serveRuntime({
-      projectId: "project-workspace-data-test",
+      projectId: "project-workspace-ctx-test",
       projectDir,
       configPath,
       statePath: join(projectDir, "state.sqlite"),
@@ -505,14 +515,13 @@ describe("runtime HTTP app", () => {
 
       const { workspaces } = await fetch(new URL("/workspaces", server.url), {
         headers: { authorization: `Bearer ${server.token}` },
-      }).then((response) => response.json() as Promise<{ workspaces: Array<{ data: Record<string, unknown>; metadata: Record<string, unknown> }> }>);
+      }).then((response) => response.json() as Promise<{ workspaces: Array<{ ctx: Record<string, unknown> }> }>);
 
-      expect(workspaces[0]?.data).toEqual({
+      expect(workspaces[0]?.ctx).toEqual({
         name: "demo",
-        resourceId: "resource-demo",
+        vmId: "vm-demo",
         repoPath: "/workspace/repo",
       });
-      expect(workspaces[0]?.metadata).toEqual(workspaces[0]?.data);
     } finally {
       server.stop();
     }
@@ -528,7 +537,10 @@ describe("runtime HTTP app", () => {
 
         const root = sequence("validation")
           .step("prepare", async () => ({ ok: true }))
-          .create(async ({ name }) => ({ name, resourceId: "resource-" + name }));
+          .workspace({
+            create: async ({ workspace }) => ({ name: workspace.name, vmId: "vm-" + workspace.name }),
+            remove: async () => {},
+          });
 
         export default defineConfig({
           providers: {},
@@ -574,46 +586,9 @@ describe("runtime HTTP app", () => {
     }
   });
 
-  test("fails run sessions when host hello lacks required methods or capabilities", async () => {
-    const { server, projectDir } = await serveRuntimeFixture("rigkit-runtime-required-host-", `
-      const root = sequence("required-host").operation("needs-host", {
-        requiredHostMethods: [{ id: "host.command.run", modes: ["capture"] }],
-        requiredHostCapabilities: [{ id: "cmux.open", schemaHash: "sha256:cmux-open-schema" }],
-        run: async () => await new Promise(() => {}),
-      });
-
-      export default defineConfig({
-        providers: {},
-        workflows: { root },
-      });
-    `);
-
-    try {
-      const started = await startRun(server, "needs-host");
-      const messages = await collectSessionMessages(
-        new URL(started.sessionUrl, server.url),
-        server.token,
-        {
-          done: (items) => items.some((item) => item.type === "run.failed"),
-        },
-      );
-      const failed = messages.find((message) => message.type === "run.failed");
-      const message = String(failed?.error?.message ?? "");
-
-      expect(failed?.error?.code).toBe("HOST_REQUEST_FAILED");
-      expect(message).toContain("host method host.command.run:capture");
-      expect(message).toContain("host capability cmux.open@sha256:cmux-open-schema");
-      expect(messages.some((item) => item.type === "hello.ack")).toBe(false);
-    } finally {
-      server.stop();
-      rmSync(projectDir, { recursive: true, force: true });
-    }
-  });
-
   test("bridges typed host capability requests over run sessions", async () => {
     const { server, projectDir } = await serveRuntimeFixture("rigkit-runtime-capability-", `
       const root = sequence("capability-test").operation("open", {
-        requiredHostCapabilities: [{ id: "cmux.open", schemaHash: "sha256:cmux-open-schema" }],
         run: async ({ local }) => await local.requestCapability("cmux.open", { name: "demo" }),
       });
 
@@ -659,7 +634,6 @@ describe("runtime HTTP app", () => {
   test("resolves host capability resource lifetimes from session close reports", async () => {
     const { server, projectDir } = await serveRuntimeFixture("rigkit-runtime-capability-close-", `
       const root = sequence("capability-close-test").operation("open", {
-        requiredHostCapabilities: [{ id: "cmux.open", schemaHash: "sha256:cmux-open-schema" }],
         run: async ({ local }) => {
           if (!local.requestCapabilitySession) throw new Error("requestCapabilitySession unavailable");
           const session = await local.requestCapabilitySession("cmux.open", { name: "demo" });
@@ -708,7 +682,6 @@ describe("runtime HTTP app", () => {
   test("keeps host-owned capability runs attached until the host cancels", async () => {
     const { server, projectDir } = await serveRuntimeFixture("rigkit-runtime-capability-attached-", `
       const root = sequence("capability-attached-test").operation("open", {
-        requiredHostCapabilities: [{ id: "cmux.open", schemaHash: "sha256:cmux-open-schema" }],
         run: async ({ local }) => {
           await local.requestCapability("cmux.open", { name: "demo" });
           await new Promise(() => {});
@@ -755,7 +728,6 @@ describe("runtime HTTP app", () => {
   test("turns host response errors into typed host request failures", async () => {
     const { server, projectDir } = await serveRuntimeFixture("rigkit-runtime-capability-error-", `
       const root = sequence("capability-error-test").operation("cmux-open", {
-        requiredHostCapabilities: [{ id: "cmux.open", schemaHash: "sha256:cmux-open-schema" }],
         run: async ({ local }) => await local.requestCapability("cmux.open", { name: "demo" }),
       });
 

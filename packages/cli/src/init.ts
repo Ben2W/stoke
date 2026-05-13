@@ -111,15 +111,16 @@ const dev = sequence(${workflowName})
     }
     return { vm: await vm.snapshotRef() };
   })
-  .create(async ({ ctx, name, providers }) => {
-    const vm = await providers.freestyle.vms.fromSnapshot(ctx.vm);
-    return {
-      name,
-      providerId: "freestyle",
-      resourceId: vm.vmId,
-      vmId: vm.vmId,
-      sourceRef: ctx.vm,
-    };
+  .workspace({
+    create: async ({ workflow, providers }) => {
+      const vm = await providers.freestyle.vms.fromSnapshot(workflow.ctx.vm);
+      return {
+        vmId: vm.vmId,
+      };
+    },
+    remove: async ({ providers, workspace }) => {
+      await providers.freestyle.vms.delete(workspace.ctx.vmId);
+    },
   });
 
 export default defineConfig({

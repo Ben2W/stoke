@@ -14,11 +14,13 @@ import {
 
 const app = workflow("example", {
   providers: {
-    gcloudConfig: copyGcloudConfig.provider(),
+    gcloudConfig: copyGcloudConfig.provider({
+      requireAuth: true,
+    }),
   },
 });
 
-// Inside workspace.onOpen:
+// Inside a workspace operation:
 const gcloudConfigFiles = await providers.gcloudConfig.configFiles();
 for (const step of gcloudConfigCopyInjectionSteps(gcloudConfigFiles)) {
   await vm.exec(step.command, { name: step.name, env: step.env });
@@ -28,4 +30,4 @@ const verified = await vm.probe(gcloudCopiedConfigReadyCommand());
 if (!verified.ok) throw new Error("gcloud did not accept the copied config files");
 ```
 
-If local `gcloud` is missing, provider startup fails with the Google Cloud SDK install URL. If it is not authenticated, startup asks the user to run `gcloud auth login`.
+By default, provider startup requires local `gcloud` to be installed and authenticated before Rigkit runs project commands. If local `gcloud` is missing, startup fails with the Google Cloud SDK install URL. If it is not authenticated, startup asks the user to run `gcloud auth login`.

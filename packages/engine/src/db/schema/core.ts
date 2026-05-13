@@ -6,19 +6,15 @@ export const workspaces = sqliteTable(
   {
     id: text("id").primaryKey(),
     name: text("name").notNull(),
-    providerId: text("provider_id").notNull(),
     workflow: text("workflow").notNull(),
-    resourceId: text("resource_id").notNull(),
-    snapshotId: text("snapshot_id"),
-    sourceRef: text("source_ref_json", { mode: "json" }).$type<JsonValue>().notNull(),
-    context: text("context_json", { mode: "json" }).$type<Record<string, JsonValue>>().notNull(),
+    workflowCtx: text("workflow_ctx_json", { mode: "json" }).$type<Record<string, JsonValue>>().notNull(),
     createdAt: text("created_at").notNull(),
     updatedAt: text("updated_at").notNull(),
-    metadata: text("metadata_json", { mode: "json" }).$type<Record<string, JsonValue>>().notNull(),
+    ctx: text("ctx_json", { mode: "json" }).$type<Record<string, JsonValue>>().notNull(),
   },
   (table) => [
     uniqueIndex("workspaces_name_idx").on(table.name),
-    index("workspaces_provider_resource_idx").on(table.providerId, table.resourceId),
+    index("workspaces_workflow_idx").on(table.workflow),
   ],
 );
 

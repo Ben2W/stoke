@@ -19,8 +19,13 @@ export default app
     return { vm: await vm.snapshotRef() };
   })
   .workspace({
-    source: (ctx) => ctx.vm,
-    onCreated: async ({ providers, workspace }) => {
+    create: async () => ({}),
+    remove: async () => {},
+  })
+  .workspaceOperation("open", {
+    title: "Open",
+    description: "Open a cmux workspace",
+    run: async ({ providers, workspace }) => {
       await providers.cmux.open({
         name: workspace.name,
         command: "echo hello world",

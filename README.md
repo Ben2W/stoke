@@ -15,7 +15,7 @@ packages/cli/      global `rig` command
 apps/app/               placeholder for the future app
 apps/install-worker/    Cloudflare Worker for install and release metadata
 examples/smoke/         runnable smoke workflow
-examples/gcloud-on-open/ copy local gcloud config files on workspace open
+examples/gcloud-on-open/ copy local gcloud config files with a workspace operation
 docs/                   design docs
 ```
 
@@ -96,7 +96,7 @@ Implemented:
 
 - `workflow(name, { providers })` with typed `sequence`, `parallel`, `add`, and `task` builders
 - task handlers with typed `ctx` plus flattened workflow provider runtimes
-- `workspace.onCreated` and uncached `workspace.onOpen` lifecycle hooks
+- generic typed workspaces with required `create`/`remove` handlers and workspace operations
 - `DevMachineEngine` with `load`, `plan`, `apply`, `fork`, `attachTerminal`, `listWorkspaces`, and `deleteWorkspace`
 - graph-based node-run caching keyed by upstream run IDs and provider fingerprints
 - Freestyle provider package for VM create, snapshot refs, create-from-snapshot, provider-owned terminal sessions, workspace fork, exec, and SSH command generation

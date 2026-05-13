@@ -8,7 +8,7 @@
     "rig:apply": "rig apply",
     "rig:fork": "rig create --name smoke-workspace",
     "rig:ssh": "rig ssh smoke-workspace",
-    "rig:rm": "rig delete smoke-workspace -y",
+    "rig:rm": "rig smoke-workspace/remove -y",
     "typecheck": "tsc --noEmit",
     "test": "echo no smoke example tests yet"
   },

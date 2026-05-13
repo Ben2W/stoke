@@ -94,15 +94,8 @@ type EngineProjectInfo = {
 };
 
 type RuntimeOperationManifest = {
-  hostMethods?: {
-    known?: Array<{ id: string; modes?: string[] }>;
-    requiredByOperations?: Record<string, string[]>;
-  };
-  hostCapabilities?: {
-    optional?: Array<{ id: string; schemaHash?: string }>;
-    requiredByOperations?: Record<string, string[]>;
-  };
   operations: RuntimeOperationDefinition[];
+  workspaceOperations?: RuntimeOperationDefinition[];
 };
 
 type RuntimeOperationDefinition = {
@@ -111,8 +104,6 @@ type RuntimeOperationDefinition = {
   title?: string;
   description?: string;
   createsWorkspace?: boolean;
-  requiredHostMethods?: Array<{ id: string; modes?: string[] }>;
-  requiredHostCapabilities?: Array<{ id: string; schemaHash?: string }>;
   cli?: {
     positionals?: Array<{ name: string; index: number }>;
     options?: Array<{
@@ -801,18 +792,18 @@ async function executeRuntimeOperation(
   result: unknown;
 }> {
   const manifest = await readRuntimeOperations(runtime);
-  const operation = findRuntimeOperation(manifest.operations, requestedOperation);
-  if (!operation) {
+  const resolved = findRuntimeOperation(manifest, requestedOperation);
+  if (!resolved) {
     throw new Error(`This project does not define a Rigkit operation named "${requestedOperation}".`);
   }
+  const { operation, runOperation } = resolved;
 
-  preflightHostSupport(operation);
   const parsed = parseOperationArgs(operation, args);
   enforceHostOnlyBooleanGuards(operation, parsed);
 
   const result = await runRuntimeOperation<unknown>(
     runtime,
-    operation.id,
+    runOperation,
     parsed.input,
     { renderEvents: !wantsJson(invocation) },
   );
@@ -821,50 +812,28 @@ async function executeRuntimeOperation(
 }
 
 function findRuntimeOperation(
-  operations: RuntimeOperationDefinition[],
+  manifest: RuntimeOperationManifest,
   requestedOperation: string,
-): RuntimeOperationDefinition | undefined {
-  return operations.find((operation) =>
+): { operation: RuntimeOperationDefinition; runOperation: string } | undefined {
+  const workspaceOperation = parseWorkspaceOperationId(requestedOperation);
+  if (workspaceOperation) {
+    const operation = (manifest.workspaceOperations ?? []).find((item) => item.id === workspaceOperation.operation);
+    return operation ? { operation, runOperation: requestedOperation } : undefined;
+  }
+
+  const operation = manifest.operations.find((operation) =>
     operation.id === requestedOperation || operation.aliases?.includes(requestedOperation)
   );
+  return operation ? { operation, runOperation: operation.id } : undefined;
 }
 
-function preflightHostSupport(operation: RuntimeOperationDefinition): void {
-  const unsupportedMethod = operation.requiredHostMethods?.find((method) => {
-    const supported = CLI_HOST_METHODS.find((item) => item.id === method.id);
-    return !supported || !supportsModes(supported.modes, method.modes);
-  });
-  if (unsupportedMethod) {
-    throw new Error(
-      `Operation "${operation.id}" requires host method "${formatMethodRequirement(unsupportedMethod)}". ` +
-        `Upgrade Rigkit or use a host that supports this method.`,
-    );
-  }
-
-  const unsupportedCapability = operation.requiredHostCapabilities?.find((capability) => {
-    const supported = CLI_HOST_CAPABILITIES.find((item) => item.id === capability.id);
-    return !supported || (capability.schemaHash && supported.schemaHash !== capability.schemaHash);
-  });
-  if (unsupportedCapability) {
-    throw new Error(
-      `Operation "${operation.id}" requires host capability "${formatCapabilityRequirement(unsupportedCapability)}". ` +
-        `Install or enable a local host capability handler to use it from this host.`,
-    );
-  }
-}
-
-function supportsModes(hostModes: string[] | undefined, requiredModes: string[] | undefined): boolean {
-  if (!requiredModes?.length) return true;
-  const supported = new Set(hostModes ?? []);
-  return requiredModes.every((mode) => supported.has(mode));
-}
-
-function formatMethodRequirement(method: { id: string; modes?: string[] }): string {
-  return method.modes?.length ? `${method.id}:${method.modes.join("|")}` : method.id;
-}
-
-function formatCapabilityRequirement(capability: { id: string; schemaHash?: string }): string {
-  return capability.schemaHash ? `${capability.id}@${capability.schemaHash}` : capability.id;
+function parseWorkspaceOperationId(value: string): { workspace: string; operation: string } | undefined {
+  const slash = value.indexOf("/");
+  if (slash <= 0 || slash === value.length - 1) return undefined;
+  return {
+    workspace: value.slice(0, slash),
+    operation: value.slice(slash + 1),
+  };
 }
 
 function parseOperationArgs(operation: RuntimeOperationDefinition, args: string[]): ParsedOperationInput {
@@ -1016,12 +985,12 @@ async function renderOperationResult(
       console.log("No changes applied.");
       return;
     }
-    console.log(`resolved ${result.plan.workflow} -> ${String(result.snapshotId ?? "no workspace source")}`);
+    console.log(`resolved ${result.plan.workflow}`);
     return;
   }
 
   if (operation.createsWorkspace && isWorkspaceRecord(result)) {
-    console.log(`${result.name} ${result.resourceId}`);
+    console.log(result.name);
     return;
   }
 
@@ -1036,16 +1005,8 @@ async function renderOperationResult(
     return;
   }
 
-  if (isRecord(result)) {
-    const metadata = isRecord(result.metadata) ? result.metadata : {};
-    if (typeof metadata.snapshotId === "string") {
-      console.log(metadata.snapshotId);
-      return;
-    }
-  }
-
   if (isWorkspaceRecord(result)) {
-    console.log(`${result.name} ${result.resourceId}`);
+    console.log(result.name);
     return;
   }
 
@@ -1738,8 +1699,8 @@ function isWorkflowPlan(value: unknown): value is WorkflowPlan {
 function isWorkspaceRecord(value: unknown): value is WorkspaceRecord {
   return isRecord(value) &&
     typeof value.name === "string" &&
-    typeof value.resourceId === "string" &&
-    typeof value.workflow === "string";
+    typeof value.workflow === "string" &&
+    isRecord(value.ctx);
 }
 
 function isDevMachineEvent(value: unknown): value is DevMachineEvent {
@@ -1791,7 +1752,7 @@ function printPlan(plan: WorkflowPlan): void {
 }
 
 function printWorkspaces(
-  workspaces: ReadonlyArray<Pick<WorkspaceRecord, "name" | "workflow" | "snapshotId" | "createdAt"> & { resourceId?: string }>,
+  workspaces: ReadonlyArray<Pick<WorkspaceRecord, "name" | "workflow" | "createdAt">>,
 ): void {
   if (workspaces.length === 0) {
     console.log("No workspaces.");
@@ -1799,11 +1760,9 @@ function printWorkspaces(
   }
 
   printTable(
-    ["name", "resource", "snapshot", "workflow", "created"],
+    ["name", "workflow", "created"],
     workspaces.map((workspace) => [
       workspace.name,
-      workspace.resourceId ?? "",
-      workspace.snapshotId ?? "",
       workspace.workflow,
       workspace.createdAt,
     ]),
@@ -1903,7 +1862,7 @@ function renderEvent(event: DevMachineEvent): void {
       console.error(`artifact ${event.providerId}:${event.kind}`);
       return;
     case "workspace.ready":
-      console.error(`workspace ${event.workspaceId} -> ${event.resourceId}`);
+      console.error(`workspace ${event.workspaceId} ready`);
       return;
     default:
       return;
