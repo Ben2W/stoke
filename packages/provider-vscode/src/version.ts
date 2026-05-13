@@ -1,1 +1,1 @@
-export const RIGKIT_PROVIDER_VSCODE_VERSION = "0.2.0";
+export const RIGKIT_PROVIDER_VSCODE_VERSION = "0.2.1";
