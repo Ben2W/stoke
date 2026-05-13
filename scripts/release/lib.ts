@@ -253,7 +253,24 @@ export function assertTagMatchesVersion(version: string, tag?: string) {
   }
 }
 
-export function runReleaseCheck(tag = process.env.GITHUB_REF_NAME) {
+export function releaseTagFromEnv() {
+  if (process.env.GITHUB_REF?.startsWith("refs/tags/")) {
+    return process.env.GITHUB_REF.replace(/^refs\/tags\//, "");
+  }
+
+  if (process.env.GITHUB_REF_TYPE === "tag") {
+    return process.env.GITHUB_REF_NAME;
+  }
+
+  const refName = process.env.GITHUB_REF_NAME;
+  if (!process.env.GITHUB_REF_TYPE && refName?.match(/^v\d+\.\d+\.\d+/)) {
+    return refName;
+  }
+
+  return undefined;
+}
+
+export function runReleaseCheck(tag?: string) {
   const state = getReleaseState();
 
   parseVersion(state.version);

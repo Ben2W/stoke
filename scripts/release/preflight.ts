@@ -3,6 +3,7 @@ import {
   assertNpmPublishReady,
   assertReleaseBranchForVersion,
   currentGitBranch,
+  releaseTagFromEnv,
   runReleaseCheck,
 } from "./lib";
 
@@ -15,7 +16,7 @@ function valueArg(name: string) {
   return index >= 0 ? process.argv[index + 1] : undefined;
 }
 
-const tag = valueArg("--tag") ?? process.env.GITHUB_REF_NAME;
+const tag = valueArg("--tag") ?? releaseTagFromEnv();
 const skipNpm = hasArg("--skip-npm");
 const skipReleaseBranch = hasArg("--skip-release-branch");
 const allowMissingPackageNames = hasArg("--allow-unpublished");
