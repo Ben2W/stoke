@@ -38,6 +38,7 @@ runs:
           exit 1
         fi
 
+        git config --local --unset-all http.https://github.com/.extraheader || true
         git remote set-url origin "https://x-access-token:${RELEASE_BOT_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
 
     - name: Setup Node
