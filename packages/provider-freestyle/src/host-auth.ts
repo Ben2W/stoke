@@ -145,6 +145,15 @@ export function createFreestyleProxyFetch(input: {
     }
 
     const data = await proxyResponse.json();
+    if (isBackgroundRequestPending(data)) {
+      const requestId = backgroundRequestId(data);
+      return Response.json(data, {
+        status: 202,
+        headers: {
+          ...(requestId ? { "x-freestyle-background-request-id": requestId } : {}),
+        },
+      });
+    }
     return Response.json(data);
   };
 
@@ -524,6 +533,23 @@ function normalizeProxyError(errorText: string, status: number): { body: string;
     body: JSON.stringify({ code: fallbackCode, message: errorText || "Request failed" }),
     contentType: "application/json",
   };
+}
+
+function isBackgroundRequestPending(value: unknown): boolean {
+  return Boolean(
+    isRecord(value) &&
+      (value.status === "pending" || value.status === "running") &&
+      (typeof value.requestId === "string" || typeof value.request_id === "string")
+  );
+}
+
+function backgroundRequestId(value: unknown): string | undefined {
+  if (!isRecord(value)) return undefined;
+  return typeof value.requestId === "string"
+    ? value.requestId
+    : typeof value.request_id === "string"
+      ? value.request_id
+      : undefined;
 }
 
 function stringField(record: Record<string, unknown>, key: string): string {

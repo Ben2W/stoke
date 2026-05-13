@@ -51,7 +51,7 @@ const vmSpec = new VmSpec()
     "corepack enable",
     "curl -fsSL https://bun.sh/install | HOME=/root BUN_INSTALL=/opt/bun bash",
     "ln -sf /opt/bun/bin/bun /usr/local/bin/bun",
-    "git config --global init.defaultBranch main",
+    "git config --system init.defaultBranch main",
   )
   .memSizeGb(16)
   .vcpuCount(4)

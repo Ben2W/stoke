@@ -8,6 +8,7 @@ import type {
   WorkflowEvent,
 } from "@rigkit/engine";
 import { FREESTYLE_PROVIDER_ID, freestyleProviderPlugin } from "./index.ts";
+import { createFreestyleProxyFetch } from "./host-auth.ts";
 import type { FreestyleRuntime } from "./provider.ts";
 
 const originalFreestyleApiKey = process.env.FREESTYLE_API_KEY;
@@ -244,6 +245,50 @@ describe("Freestyle provider host auth", () => {
     } finally {
       globalThis.fetch = previousFetch;
     }
+  });
+});
+
+describe("Freestyle provider proxy fetch", () => {
+  test("preserves Freestyle background request semantics through the browser-auth proxy", async () => {
+    const proxyFetch = createFreestyleProxyFetch({
+      dashboardUrl: "https://dash.freestyle.sh",
+      accessToken: "stack-access-token",
+      teamId: "team_123",
+      fetch: testFetch(async (resource, init) => {
+        const url = resourceUrl(resource);
+        expect(url.href).toBe("https://dash.freestyle.sh/api/proxy/request");
+        expect(init?.method).toBe("POST");
+
+        const body = JSON.parse(String(init?.body));
+        expect(body).toMatchObject({
+          data: {
+            accessToken: "stack-access-token",
+            teamId: "team_123",
+            path: "v1/vms",
+            method: "POST",
+          },
+        });
+
+        return Response.json({
+          requestId: "ri_test_123",
+          status: "pending",
+          resultUrl: "/auth/v1/background-requests/ri_test_123",
+          logsUrl: "/observability/v1/logs?requestId=ri_test_123",
+        });
+      }),
+    });
+
+    const response = await proxyFetch("https://api.freestyle.sh/v1/vms", {
+      method: "POST",
+      body: "{}",
+    });
+
+    expect(response.status).toBe(202);
+    expect(response.headers.get("x-freestyle-background-request-id")).toBe("ri_test_123");
+    await expect(response.json()).resolves.toMatchObject({
+      requestId: "ri_test_123",
+      status: "pending",
+    });
   });
 });
 
