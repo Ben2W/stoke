@@ -1,1 +1,1 @@
-export const RIGKIT_CLI_VERSION = "0.2.1";
+export const RIGKIT_CLI_VERSION = "0.2.2";
