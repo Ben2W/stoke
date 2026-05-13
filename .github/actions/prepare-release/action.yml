@@ -5,6 +5,9 @@ inputs:
   release-type:
     description: "patch, minor, or major"
     required: true
+  release-version:
+    description: "The selected release version"
+    required: true
   github-token:
     description: "GitHub token used to open the release PR"
     required: true
@@ -36,7 +39,10 @@ runs:
     - name: Plan release
       id: plan
       shell: bash
-      run: pnpm release:plan -- --release-type "${{ inputs.release-type }}"
+      run: |
+        pnpm release:plan -- \
+          --release-type "${{ inputs.release-type }}" \
+          --expected-version "${{ inputs.release-version }}"
 
     - name: Create release branch
       if: steps.plan.outputs.create_release_branch == 'true'

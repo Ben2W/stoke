@@ -87,6 +87,7 @@ pnpm release:bump patch
 pnpm release:bump minor
 pnpm release:bump major
 pnpm release:bump 0.2.0
+pnpm release:update-workflows
 pnpm release:pack
 pnpm release:publish -- --dry-run
 pnpm release:trust-commands
@@ -98,6 +99,7 @@ pnpm release:trust-commands
 - package names and directories match config
 - publishable package versions are lockstep
 - version constants match package versions
+- prepare workflow version choices match the current package version
 - workflows do not duplicate package publish lists
 
 `release:preflight` should verify:
@@ -121,6 +123,7 @@ publishing should never silently skip.
 - all version constants
 - `packages/sdk/src/runtime/version.ts`
 - version assertions in tests
+- prepare workflow version choices
 - release docs examples when appropriate
 - lockfile, if needed
 
@@ -158,7 +161,7 @@ Prepare Major Release
 Behavior:
 
 1. Check out the selected source branch.
-2. Compute the next version and target release branch.
+2. Compute the next version and verify it matches the selected workflow option.
 3. Create the target release branch for minor and major releases.
 4. Run `pnpm release:bump <computed-version>`.
 5. Generate the release PR body.
@@ -176,6 +179,8 @@ Behavior:
 
 Patch releases must run from the existing release branch. Minor and major
 releases must run from `main` and create the new release branch automatically.
+Each user-facing prepare workflow has one version choice, generated from the
+package version in that branch.
 
 ## Version Rules
 
@@ -308,6 +313,7 @@ Canary releases must never publish to `latest`.
 - `pnpm release:preflight`
 - `pnpm release:plan`
 - `pnpm release:bump`
+- `pnpm release:update-workflows`
 - `pnpm release:prepare`
 - `pnpm release:pack`
 - `pnpm release:publish`

@@ -95,6 +95,13 @@ function writeOutput(plan: ReleasePlan) {
 
 if (import.meta.main) {
   const plan = createReleasePlan(releaseTypeArg());
+  const expectedVersion = valueArg("--expected-version");
+  if (expectedVersion && expectedVersion !== plan.version) {
+    throw new Error(
+      `Selected release version ${expectedVersion} does not match computed version ${plan.version}`,
+    );
+  }
+
   writeOutput(plan);
 
   console.log(`Release type: ${plan.releaseType}`);

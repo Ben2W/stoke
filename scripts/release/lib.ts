@@ -20,6 +20,7 @@ import {
   type ReleaseType,
   versionLineForVersion,
 } from "./config";
+import { syncPrepareReleaseWorkflowOptionsForVersion } from "./workflow-options";
 
 export { bumpVersion };
 
@@ -260,6 +261,7 @@ export function runReleaseCheck(tag = process.env.GITHUB_REF_NAME) {
   assertNoUnconfiguredPublishablePackages();
   assertVersionConstants(state.version);
   assertTagMatchesVersion(state.version, tag);
+  syncPrepareReleaseWorkflowOptionsForVersion(state.version, { check: true });
 
   console.log(`Rigkit release version: ${state.version}`);
   return state;
@@ -409,6 +411,7 @@ export function bumpAllReleaseVersions(nextVersion: string) {
   parseVersion(nextVersion);
   writeAllReleaseVersions(nextVersion);
   replaceInFiles(sdkVersionExpectationFiles, currentVersion, nextVersion);
+  syncPrepareReleaseWorkflowOptionsForVersion(nextVersion);
   run(["pnpm", "install", "--lockfile-only"], { quiet: true });
   runReleaseCheck(undefined);
 }

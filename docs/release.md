@@ -39,22 +39,22 @@ tests, CI-only changes, or internal changes that should not publish packages.
 Use the workflow that matches the release intent.
 
 For a patch on an existing release line, run the patch workflow from that
-release branch:
+release branch and select the single version option shown in GitHub Actions:
 
 ```bash
-gh workflow run prepare-patch-release.yml --ref release/0.1
+gh workflow run prepare-patch-release.yml --ref release/0.1 -f version=0.1.10
 ```
 
-For a new minor release from `main`:
+For a new minor release from `main`, select the generated next minor version:
 
 ```bash
-gh workflow run prepare-minor-release.yml --ref main
+gh workflow run prepare-minor-release.yml --ref main -f version=0.2.0
 ```
 
-For a new major release from `main`:
+For a new major release from `main`, select the generated next major version:
 
 ```bash
-gh workflow run prepare-major-release.yml --ref main
+gh workflow run prepare-major-release.yml --ref main -f version=1.0.0
 ```
 
 The workflows compute the next version and target branch:
@@ -68,11 +68,14 @@ major from main at 1.7.4        -> 2.0.0 into release/2.0
 The workflow:
 
 1. Checks out the selected source branch.
-2. Computes the next version and target release branch.
+2. Computes the next version and verifies it matches the selected version.
 3. Creates the target release branch for minor and major releases.
 4. Runs `pnpm release:bump <version>`, which updates package versions and constants.
 5. Runs release preflight, typecheck, tests, and build.
 6. Opens a release PR back into the target `release/x.y` branch.
+
+`pnpm release:bump` updates the one-option workflow inputs for the next release.
+`pnpm release:check` fails if those workflow inputs are stale.
 
 Merging that release PR runs `tag-release.yml`, which creates and pushes the
 matching `v*` tag. The tag triggers:
@@ -88,6 +91,7 @@ Useful release scripts:
 pnpm release:check
 pnpm release:preflight
 pnpm release:plan -- --release-type patch
+pnpm release:update-workflows
 pnpm release:bump patch
 pnpm release:bump minor
 pnpm release:bump major

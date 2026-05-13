@@ -12,6 +12,7 @@
     "release:preflight": "bun scripts/release/preflight.ts",
     "release:plan": "bun scripts/release/plan.ts",
     "release:bump": "bun scripts/release/bump.ts",
+    "release:update-workflows": "bun scripts/release/update-workflow-options.ts",
     "release:prepare": "bun scripts/release/prepare.ts",
     "release:version": "bun scripts/release/version.ts",
     "release:pack": "bun scripts/release/pack.ts",
