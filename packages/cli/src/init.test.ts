@@ -3,7 +3,12 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { initProject, normalizeMachineName } from "./init.ts";
-import { FREESTYLE_PROVIDER_PACKAGE_NAME, PROJECT_PACKAGE_NAME } from "./project.ts";
+import {
+  FREESTYLE_PROVIDER_PACKAGE_NAME,
+  FREESTYLE_SDK_PACKAGE_NAME,
+  FREESTYLE_SDK_PACKAGE_VERSION,
+  PROJECT_PACKAGE_NAME,
+} from "./project.ts";
 import { RIGKIT_CLI_VERSION } from "./version.ts";
 
 describe("initProject", () => {
@@ -29,6 +34,7 @@ describe("initProject", () => {
 
     expect(readFileSync(join(projectDir, "rig.config.ts"), "utf8")).toContain('sequence("platform-api"');
     expect(readFileSync(join(projectDir, "rig.config.ts"), "utf8")).toContain("defineConfig({");
+    expect(readFileSync(join(projectDir, "rig.config.ts"), "utf8")).toContain("new VmSpec()");
     expect(readFileSync(join(projectDir, "rig.config.ts"), "utf8")).not.toContain("FREESTYLE_API_KEY");
     expect(existsSync(join(projectDir, ".env"))).toBe(false);
     expect(existsSync(join(projectDir, ".env.example"))).toBe(false);
@@ -40,6 +46,7 @@ describe("initProject", () => {
     expect(pkg.scripts.apply).toBe("rig apply");
     expect(pkg.devDependencies[PROJECT_PACKAGE_NAME]).toBe(RIGKIT_CLI_VERSION);
     expect(pkg.devDependencies[FREESTYLE_PROVIDER_PACKAGE_NAME]).toBe(RIGKIT_CLI_VERSION);
+    expect(pkg.devDependencies[FREESTYLE_SDK_PACKAGE_NAME]).toBe(FREESTYLE_SDK_PACKAGE_VERSION);
   });
 
   test("updates existing project files without replacing package metadata", () => {

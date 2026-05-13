@@ -15,7 +15,8 @@
   "dependencies": {
     "@rigkit/provider-cmux": "workspace:*",
     "@rigkit/provider-freestyle": "workspace:*",
-    "@rigkit/sdk": "workspace:*"
+    "@rigkit/sdk": "workspace:*",
+    "freestyle": "^0.1.51"
   },
   "devDependencies": {
     "@rigkit/cli": "workspace:*",

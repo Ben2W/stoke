@@ -57,6 +57,9 @@ importers:
       '@rigkit/sdk':
         specifier: workspace:*
         version: link:../../packages/sdk
+      freestyle:
+        specifier: ^0.1.51
+        version: 0.1.51
     devDependencies:
       '@rigkit/cli':
         specifier: workspace:*
@@ -79,6 +82,9 @@ importers:
       '@rigkit/sdk':
         specifier: workspace:*
         version: link:../../packages/sdk
+      freestyle:
+        specifier: ^0.1.51
+        version: 0.1.51
     devDependencies:
       '@rigkit/cli':
         specifier: workspace:*
@@ -101,6 +107,9 @@ importers:
       '@rigkit/sdk':
         specifier: workspace:*
         version: link:../../packages/sdk
+      freestyle:
+        specifier: ^0.1.51
+        version: 0.1.51
     devDependencies:
       '@rigkit/cli':
         specifier: workspace:*
@@ -120,6 +129,9 @@ importers:
       '@rigkit/sdk':
         specifier: workspace:*
         version: link:../../packages/sdk
+      freestyle:
+        specifier: ^0.1.51
+        version: 0.1.51
     devDependencies:
       '@rigkit/cli':
         specifier: workspace:*
@@ -211,9 +223,6 @@ importers:
       '@rigkit/sdk':
         specifier: workspace:*
         version: link:../sdk
-      freestyle:
-        specifier: latest
-        version: 0.1.51
       zod:
         specifier: ^4
         version: 4.4.3
@@ -221,6 +230,9 @@ importers:
       '@types/bun':
         specifier: latest
         version: 1.3.14
+      freestyle:
+        specifier: ^0.1.51
+        version: 0.1.51
       typescript:
         specifier: latest
         version: 6.0.3

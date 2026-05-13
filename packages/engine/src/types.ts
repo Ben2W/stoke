@@ -133,6 +133,8 @@ export type WorkflowRuntimeHelpers = {
   log(data: string, options?: { stream?: WorkflowLogStream; label?: string }): void;
 };
 
+export type WorkflowStepRuntime = WorkflowRuntimeHelpers;
+
 export type WorkflowTaskRuntime<
   Providers extends WorkflowProviderMap,
   Context extends JsonObject,
@@ -140,6 +142,7 @@ export type WorkflowTaskRuntime<
   readonly providers: ProviderRuntimeMap<Providers>;
   readonly ctx: Readonly<Context>;
   readonly runtime: WorkflowRuntimeHelpers;
+  readonly step: WorkflowStepRuntime;
 };
 
 export type WorkflowTaskResult = void | undefined | JsonObject;
@@ -224,6 +227,7 @@ export type WorkflowOperationRuntime<
   readonly providers: ProviderRuntimeMap<Providers>;
   readonly local: LocalWorkspaceRuntime;
   readonly workflow: string;
+  readonly step: WorkflowStepRuntime;
 };
 
 export type WorkflowOperationResult = void | undefined | JsonValue;
@@ -260,6 +264,7 @@ export type WorkflowWorkspaceCreateRuntime<
   readonly workspace: WorkspaceCreateRuntimeRecord;
   readonly providers: ProviderRuntimeMap<Providers>;
   readonly local: LocalWorkspaceRuntime;
+  readonly step: WorkflowStepRuntime;
 };
 
 export type WorkflowWorkspaceCreateHandler<
@@ -277,6 +282,7 @@ export type WorkflowWorkspaceRemoveRuntime<
   readonly workspace: WorkspaceRuntimeRecord<ReadonlyWorkspaceContext<Data>>;
   readonly providers: ProviderRuntimeMap<Providers>;
   readonly local: LocalWorkspaceRuntime;
+  readonly step: WorkflowStepRuntime;
 };
 
 export type WorkflowWorkspaceRemoveHandler<
@@ -296,6 +302,7 @@ export type WorkflowWorkspaceOperationRuntime<
   readonly workspace: WorkspaceRuntimeRecord<Data>;
   readonly providers: ProviderRuntimeMap<Providers>;
   readonly local: LocalWorkspaceRuntime;
+  readonly step: WorkflowStepRuntime;
 };
 
 export type WorkflowWorkspaceOperationHandler<

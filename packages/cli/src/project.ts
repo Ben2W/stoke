@@ -4,6 +4,8 @@ import { existsSync, readdirSync } from "node:fs";
 export const DEFAULT_CONFIG_FILE = "rig.config.ts";
 export const PROJECT_PACKAGE_NAME = "@rigkit/sdk";
 export const FREESTYLE_PROVIDER_PACKAGE_NAME = "@rigkit/provider-freestyle";
+export const FREESTYLE_SDK_PACKAGE_NAME = "freestyle";
+export const FREESTYLE_SDK_PACKAGE_VERSION = "^0.1.51";
 
 export type ConfigPathOptions = {
   project?: string;

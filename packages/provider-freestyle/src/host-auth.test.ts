@@ -46,7 +46,6 @@ describe("Freestyle provider host auth", () => {
         provider: {
           providerId: FREESTYLE_PROVIDER_ID,
           config: {
-            image: "node-22",
             auth: { apiKey: "object-api-key" },
           },
         },
@@ -122,7 +121,6 @@ describe("Freestyle provider host auth", () => {
         provider: {
           providerId: FREESTYLE_PROVIDER_ID,
           config: {
-            image: "node-22",
             auth: {
               teamId: "team_123",
             },
@@ -225,7 +223,7 @@ describe("Freestyle provider host auth", () => {
       await freestyleProviderPlugin.createProvider({
         provider: {
           providerId: FREESTYLE_PROVIDER_ID,
-          config: { image: "node-22" },
+          config: {},
         },
         storage: projectStorage,
         hostStorage,

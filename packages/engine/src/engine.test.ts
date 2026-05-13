@@ -27,8 +27,8 @@ describe("DevMachineEngine workflow runtime", () => {
           },
         });
 
-        const base = app.sequence("base").task("first", async ({ runtime, test }) => {
-          runtime.log("preparing base\\n", { label: "setup" });
+        const base = app.sequence("base").task("first", async ({ step, test }) => {
+          step.log("preparing base\\n", { label: "setup" });
           const vm = await test.createVm();
           await vm.exec("touch /tmp/first", { name: "touch first" });
           if (!(await vm.exists("/tmp/first"))) throw new Error("first was not created");

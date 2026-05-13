@@ -37,6 +37,7 @@ import type {
   WorkflowInputFieldDefinition,
   WorkflowDefinition,
   WorkflowEvent,
+  WorkflowLogStream,
   WorkflowNodeDefinition,
   WorkflowOperationDefinition,
   WorkflowPlan,
@@ -593,6 +594,7 @@ export class DevMachineEngine {
       providers: runtime,
       local: this.local,
       workflow: workflow.name,
+      step: this.createStepRuntime(workflow.name, `operation.${operation.id}`, metadata),
     });
     if (result !== undefined) assertJsonValue(result, `Operation ${operation.id} result`);
     return result ?? null;
@@ -761,6 +763,7 @@ export class DevMachineEngine {
       workspace: workspaceRuntime,
       providers: runtime,
       local: this.local,
+      step: this.createStepRuntime(workflow.name, `workspace.${workspace.name}.remove`, metadata),
     });
 
     this.getStateService().deleteWorkspace(input.workspace);
@@ -970,26 +973,13 @@ export class DevMachineEngine {
       nodePath,
       metadata,
     });
+    const step = this.createStepRuntime(input.workflow.name, nodePath, metadata);
     const result = await input.node.handler({
       ...runtime,
       providers: runtime,
       ctx: Object.freeze({ ...input.state.context }),
-      runtime: {
-        workflow: input.workflow.name,
-        nodePath,
-        metadata: (value) => {
-          Object.assign(metadata, value);
-        },
-        log: (data, options = {}) => {
-          this.emit({
-            type: "log.output",
-            nodePath,
-            stream: options.stream ?? "info",
-            label: options.label,
-            data,
-          });
-        },
-      },
+      runtime: step,
+      step,
     });
     const output = normalizeTaskOutput(nodePath, result, input.node.options?.output, "fresh");
     if (!output) {
@@ -1152,6 +1142,7 @@ export class DevMachineEngine {
         },
         providers,
         local: this.local,
+        step: this.createStepRuntime(input.workflow.name, `workspace.${input.name}.create`, metadata),
       });
       assertJsonValue(data, `Workflow ${input.workflow.name} workspace create result`);
       if (!isPlainObject(data)) {
@@ -1192,6 +1183,11 @@ export class DevMachineEngine {
       workspace,
       providers,
       local: this.local,
+      step: this.createStepRuntime(
+        input.workflow.name,
+        `workspace.${input.workspace.name}.${input.operation.id}`,
+        metadata,
+      ),
     });
     if (result !== undefined) assertJsonValue(result, `Workspace operation ${input.operation.id} result`);
     return result ?? null;
@@ -1202,6 +1198,25 @@ export class DevMachineEngine {
       name: draft.name,
       ctx: Object.freeze({ ...draft.ctx }) as Data,
     }) as WorkspaceRuntimeRecord<Data>;
+  }
+
+  private createStepRuntime(workflow: string, nodePath: string, metadata: JsonObject) {
+    return {
+      workflow,
+      nodePath,
+      metadata: (value: JsonObject) => {
+        Object.assign(metadata, value);
+      },
+      log: (data: string, options: { stream?: WorkflowLogStream; label?: string } = {}) => {
+        this.emit({
+          type: "log.output",
+          nodePath,
+          stream: options.stream ?? "info",
+          label: options.label,
+          data,
+        });
+      },
+    };
   }
 
   private getWorkflow(name: string | undefined): LoadedWorkflow {

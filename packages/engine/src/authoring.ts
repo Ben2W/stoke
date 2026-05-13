@@ -25,7 +25,7 @@ import type {
   WorkflowWorkspaceDefinition,
 } from "./types.ts";
 
-const reservedTaskContextKeys = new Set(["ctx", "runtime", "providers"]);
+const reservedTaskContextKeys = new Set(["ctx", "runtime", "providers", "step"]);
 const reservedHostOperationIds = new Set<string>(RESERVED_WORKFLOW_OPERATION_IDS);
 
 const readEnv = (name: string, fallback?: string): string => {
