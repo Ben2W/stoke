@@ -1,4 +1,4 @@
-# Freestyle Workflows
+# RigKit
 
 `rig` is a CLI and engine for building forkable development workflows from typed task graphs and provider-owned artifacts.
 
