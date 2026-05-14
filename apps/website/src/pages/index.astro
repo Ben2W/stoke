@@ -1,0 +1,107 @@
+---
+import SiteLayout from "@/layouts/SiteLayout.astro";
+import Header from "@/components/Header.astro";
+import { InstallBlock } from "@/components/InstallBlock";
+import CodeShowcase from "@/components/CodeShowcase.astro";
+import { CliShowcase } from "@/components/CliShowcase";
+import DiscordIcon from "@/components/DiscordIcon.astro";
+---
+
+<SiteLayout
+  title="Rigkit — forkable dev workflows from typed task graphs"
+  description="Rig is a CLI and engine for building forkable development workflows from typed task graphs and provider-owned artifacts."
+>
+  <div class="flex min-h-screen flex-col">
+    <Header />
+
+    <main class="flex-1 px-6 pt-10 pb-20 sm:px-10 sm:pt-16">
+      <div class="mx-auto flex w-full max-w-2xl flex-col">
+        <p
+          class="mb-7 inline-flex items-center self-start rounded-lg border-[1.5px] border-[var(--color-accent)] px-3 py-1.5 font-sans text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--color-accent)]"
+        >
+          Rigkit · v0.2
+        </p>
+
+        <h1
+          class="font-sans text-[44px] font-extrabold leading-[1.02] tracking-[-0.035em] text-[var(--color-fg)] sm:text-[56px]"
+        >
+          Forkable dev workflows
+          <br />
+          from typed task graphs.
+        </h1>
+
+        <p
+          class="mt-5 max-w-xl font-sans text-[16px] leading-[1.55] text-[#2a2a2a]"
+        >
+          <code class="font-mono text-[15px] text-[var(--color-fg)]">rig</code>
+          is a CLI and engine for orchestrating provider-owned artifacts —
+          Freestyle VMs, gcloud configs, cmux sessions — behind a single typed
+          config.
+        </p>
+
+        <div class="mt-8">
+          <InstallBlock client:load />
+        </div>
+
+        <div
+          class="mt-7 flex flex-wrap items-center gap-x-5 gap-y-3 font-mono text-[13px]"
+        >
+          <a
+            href="https://docs.rigkit.freestyle.sh"
+            class="inline-flex items-center gap-1.5 text-[var(--color-accent)] underline-offset-4 transition-all hover:underline"
+          >
+            Read the docs
+            <span aria-hidden="true">→</span>
+          </a>
+          <span class="text-[var(--color-dim)]">·</span>
+          <a
+            href="https://discord.com/invite/v5WT4fbXhc"
+            class="inline-flex items-center gap-1.5 text-[#5865f2] underline-offset-4 transition-all hover:underline"
+          >
+            <DiscordIcon class="h-[10px] w-[13px]" />
+            Join the Discord
+          </a>
+          <span class="text-[var(--color-dim)]">·</span>
+          <a
+            href="https://github.com/freestyle-sh/rigkit"
+            class="text-[var(--color-muted)] transition-colors hover:text-[var(--color-fg)]"
+          >
+            github.com/freestyle-sh/rigkit
+          </a>
+        </div>
+
+        <div class="mt-14">
+          <CodeShowcase />
+        </div>
+      </div>
+    </main>
+
+    <footer
+      class="border-t border-[var(--color-border)] px-6 py-5 font-mono text-[12px] text-[var(--color-dim)] sm:px-10"
+    >
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <span>
+          Built by
+          <a
+            href="https://www.freestyle.sh"
+            class="text-[var(--color-muted)] transition-colors hover:text-[var(--color-fg)]"
+            >Freestyle</a
+          >
+        </span>
+        <span>
+          <a
+            href="/install"
+            class="transition-colors hover:text-[var(--color-fg)]"
+            >/install</a
+          >
+          ·
+          <a
+            href="/latest.json"
+            class="transition-colors hover:text-[var(--color-fg)]"
+            >/latest.json</a
+          >
+        </span>
+      </div>
+    </footer>
+  </div>
+</SiteLayout>

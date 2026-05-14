@@ -1,0 +1,57 @@
+---
+title: "Quickstart"
+description: "Install rig and scaffold your first rigkit project in under a minute."
+---
+
+## Install
+
+<CodeGroup>
+
+```sh macOS / Linux
+curl -fsSL https://rigkit.freestyle.sh/install | sh
+```
+
+```sh Pinned version
+curl -fsSL https://rigkit.freestyle.sh/install | RIGKIT_VERSION=0.2.4 sh
+```
+
+</CodeGroup>
+
+The installer drops `rig` into `~/.rigkit/bin` and wires up shell completion. Restart your shell or follow the printed instructions to pick up `PATH`.
+
+## Scaffold a project
+
+```sh
+rig init
+```
+
+`rig init` asks for a project name and a package manager, then writes `rig.config.ts`, `package.json`, and the rigkit gitignore entries.
+
+For non-interactive setup:
+
+```sh
+rig init --name platform --package-manager pnpm
+```
+
+## Plan and apply
+
+```sh
+rig plan
+rig apply
+```
+
+<Tip>
+  `rig plan` is read-only — it prints the operations rig would perform without
+  touching providers. Inspect the plan before running `rig apply`.
+</Tip>
+
+## What's next
+
+<CardGroup cols={2}>
+  <Card title="CLI reference" icon="terminal" href="/cli/overview">
+    Every command and flag.
+  </Card>
+  <Card title="Freestyle provider" icon="cloud" href="/providers/freestyle">
+    Run workflows against Freestyle VMs.
+  </Card>
+</CardGroup>

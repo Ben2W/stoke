@@ -4,9 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "rig:plan": "rig plan",
-    "rig:apply": "rig apply",
-    "rig:fork": "rig create --name gcloud-workspace",
+    "rig:plan": "rig run plan",
+    "rig:apply": "rig run apply",
+    "rig:fork": "rig run create --name gcloud-workspace",
     "rig:ssh": "rig run gcloud-workspace/ssh",
     "rig:rm": "rig run gcloud-workspace/remove -y",
     "typecheck": "tsc --noEmit",

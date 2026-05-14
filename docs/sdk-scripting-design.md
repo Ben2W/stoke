@@ -181,9 +181,9 @@ When applying a machine, the engine finds the latest cached prefix and only runs
 The CLI loads `rig.config.ts`, validates the step chain, prints plans, applies missing steps, snapshots results, and forks workspaces from the latest resolved snapshot.
 
 ```bash
-rig plan
-rig apply
-rig create --name my-workspace
+rig run plan
+rig run apply
+rig run create --name my-workspace
 rig projects
-rig ssh my-workspace
+rig run ssh my-workspace
 ```

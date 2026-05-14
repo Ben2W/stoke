@@ -42,8 +42,8 @@ describe("initProject", () => {
 
     const pkg = JSON.parse(readFileSync(join(projectDir, "package.json"), "utf8"));
     expect(pkg.name).toBe("platform-api");
-    expect(pkg.scripts.plan).toBe("rig plan");
-    expect(pkg.scripts.apply).toBe("rig apply");
+    expect(pkg.scripts.plan).toBe("rig run plan");
+    expect(pkg.scripts.apply).toBe("rig run apply");
     expect(pkg.devDependencies[PROJECT_PACKAGE_NAME]).toBe(RIGKIT_CLI_VERSION);
     expect(pkg.devDependencies[FREESTYLE_PROVIDER_PACKAGE_NAME]).toBe(RIGKIT_CLI_VERSION);
     expect(pkg.devDependencies[FREESTYLE_SDK_PACKAGE_NAME]).toBe(FREESTYLE_SDK_PACKAGE_VERSION);
@@ -74,7 +74,7 @@ describe("initProject", () => {
     const pkg = JSON.parse(readFileSync(join(projectDir, "package.json"), "utf8"));
     expect(pkg.name).toBe("existing");
     expect(pkg.scripts.test).toBe("bun test");
-    expect(pkg.scripts.plan).toBe("rig plan");
+    expect(pkg.scripts.plan).toBe("rig run plan");
   });
 });
 

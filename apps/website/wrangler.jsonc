@@ -1,0 +1,21 @@
+{
+  "name": "rigkit-website",
+  "compatibility_date": "2026-05-02",
+  "main": "./src/worker.ts",
+  "workers_dev": true,
+  "preview_urls": true,
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "not_found_handling": "404-page"
+  },
+  "routes": [
+    { "pattern": "rigkit.freestyle.sh", "custom_domain": true },
+    { "pattern": "rig.freestyle.sh", "custom_domain": true }
+  ],
+  "vars": {
+    "GITHUB_REPO": "freestyle-sh/rigkit",
+    "PUBLIC_BASE_URL": "https://rigkit.freestyle.sh",
+    "CACHE_TTL_SECONDS": "300"
+  }
+}

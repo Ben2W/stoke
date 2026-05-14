@@ -1,0 +1,64 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "mint",
+  "name": "Rigkit",
+  "description": "Forkable dev workflows from typed task graphs.",
+  "colors": {
+    "primary": "#2d4df5",
+    "light": "#5a76ff",
+    "dark": "#1a3ad9"
+  },
+  "favicon": "/logo/favicon.svg",
+  "logo": {
+    "light": "/logo/light.svg",
+    "dark": "/logo/dark.svg"
+  },
+  "background": {
+    "color": {
+      "light": "#efece5",
+      "dark": "#0a0a0a"
+    }
+  },
+  "fonts": {
+    "family": "Inter"
+  },
+  "navbar": {
+    "links": [
+      {
+        "label": "Home",
+        "href": "https://rigkit.freestyle.sh"
+      }
+    ],
+    "primary": {
+      "type": "github",
+      "href": "https://github.com/freestyle-sh/rigkit"
+    }
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/freestyle-sh/rigkit",
+      "website": "https://www.freestyle.sh"
+    }
+  },
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Guides",
+        "groups": [
+          {
+            "group": "Getting started",
+            "pages": ["introduction", "quickstart"]
+          },
+          {
+            "group": "CLI",
+            "pages": ["cli/overview"]
+          },
+          {
+            "group": "Providers",
+            "pages": ["providers/freestyle", "providers/cmux"]
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,43 @@
+---
+title: "CLI overview"
+description: "The rig command surface."
+---
+
+<Note>
+  This page is a stub. Fill in commands and flags as the CLI stabilizes.
+</Note>
+
+## Commands
+
+| Command       | Description                                            |
+| ------------- | ------------------------------------------------------ |
+| `rig init`    | Scaffold a new rigkit project.                         |
+| `rig plan`    | Print the operations rig would perform.                |
+| `rig apply`   | Run the operations in the plan.                        |
+| `rig run`     | Invoke a named operation on a workspace.               |
+| `rig projects`| List workspaces known to the local runtime.            |
+
+## Help
+
+```sh
+rig help
+rig run --help
+```
+
+## Completion
+
+<CodeGroup>
+
+```sh zsh
+eval "$(rig completion zsh)"
+```
+
+```sh bash
+eval "$(rig completion bash)"
+```
+
+```sh fish
+rig completion fish | source
+```
+
+</CodeGroup>

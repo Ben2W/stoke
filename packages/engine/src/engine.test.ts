@@ -274,6 +274,37 @@ describe("DevMachineEngine workflow runtime", () => {
     expect(status).toEqual({ workspace: "created", vmId: "vm-2" });
   });
 
+  test("rejects workspace names that are not shell-safe", async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-"));
+    writeFileSync(
+      join(projectDir, "rig.config.ts"),
+      `
+        import { defineConfig, sequence } from "${import.meta.dir}/index.ts";
+
+        const root = sequence("workspace-names")
+          .step("ready", async () => ({ ctx: { ready: true } }))
+          .workspace({
+            create: async ({ workspace }) => ({ name: workspace.name }),
+            remove: async () => {},
+          });
+
+        export default defineConfig({
+          providers: {},
+          workflows: { root },
+        });
+      `,
+    );
+
+    const engine = await createDevMachineEngine({ projectDir });
+    await engine.load();
+
+    await expect(engine.fork({ name: "" })).rejects.toThrow("create requires a workspace name");
+    for (const name of ["some workspace", "some/workspace", "-workspace"]) {
+      await expect(engine.fork({ name })).rejects.toThrow("Workspace name");
+    }
+    expect(engine.listWorkspaces()).toEqual([]);
+  });
+
   test("loads multiple workflows from defineConfig", async () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-"));
     writeFileSync(

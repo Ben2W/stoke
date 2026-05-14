@@ -23,7 +23,7 @@ describe("CLI entrypoint", () => {
     expect(rootHelp.exitCode).toBe(0);
     expect(rootHelp.stderr).toBe("");
     expect(rootHelp.stdout).toContain("rig ");
-    expect(rootHelp.stdout).toContain("<operation> Run a project operation exposed by the runtime");
+    expect(rootHelp.stdout).toContain("run         Run a project operation exposed by the runtime");
 
     const version = await runCli(["version"]);
     expect(version.exitCode).toBe(0);
@@ -34,15 +34,15 @@ describe("CLI entrypoint", () => {
     expect(help.exitCode).toBe(0);
     expect(help.stderr).toBe("");
     expect(help.stdout).toContain("rig ");
-    expect(help.stdout).toContain("<operation> Run a project operation exposed by the runtime");
+    expect(help.stdout).toContain("run         Run a project operation exposed by the runtime");
   });
 
-  test("treats unknown root tokens as project operations", async () => {
+  test("rejects operation shorthand at the root", async () => {
     const result = await runCli(["unknown"]);
 
     expect(result.exitCode).toBe(1);
     expect(result.stdout).toBe("");
-    expect(result.stderr).toContain("No Rigkit config found");
+    expect(result.stderr).toContain("unknown command 'unknown'");
   });
 
   test("serves dynamic shell completion endpoint", async () => {
@@ -106,11 +106,23 @@ describe("CLI entrypoint", () => {
     });
   });
 
+  test("rejects workspace create names that are not shell-safe", async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-cli-create-name-"));
+
+    await withWorkspaceRuntime({ projectDir }, async ({ env }) => {
+      const result = await runCli(["-C", projectDir, "run", "create", "--name", "some workspace", "--json"], { env });
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toContain('Invalid workspace name "some workspace"');
+    });
+  });
+
   test("requires discovered projects for operation --all", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "rigkit-cli-run-all-"));
 
     try {
-      const result = await runCli(["plan", "--all", "--json"], { cwd });
+      const result = await runCli(["run", "plan", "--all", "--json"], { cwd });
 
       expect(result.exitCode).toBe(1);
       expect(result.stdout).toBe("");
@@ -128,7 +140,7 @@ describe("CLI entrypoint", () => {
     writeFileSync(join(cwd, "web", "rig.config.ts"), "export default {}\n");
 
     try {
-      const result = await runCli(["plan", "--discover", "--json"], { cwd });
+      const result = await runCli(["run", "plan", "--discover", "--json"], { cwd });
 
       expect(result.exitCode).toBe(1);
       expect(result.stdout).toBe("");
@@ -214,6 +226,30 @@ async function withWorkspaceRuntime(
             createdAt: now,
             updatedAt: now,
           }],
+        });
+      }
+      if (pathname === "/operations") {
+        return runtimeJson({
+          operations: [{
+            id: "create",
+            kind: "command",
+            source: "core",
+            title: "Create",
+            description: "Create a workspace",
+            createsWorkspace: true,
+            cli: {
+              options: [{ name: "name", flag: "--name", required: true, type: "string" }],
+            },
+            inputSchema: {
+              type: "object",
+              additionalProperties: false,
+              properties: {
+                name: { type: "string", minLength: 1 },
+              },
+              required: ["name"],
+            },
+          }],
+          workspaceOperations: [],
         });
       }
       return runtimeJson({ error: { message: "Not found" } }, { status: 404 });

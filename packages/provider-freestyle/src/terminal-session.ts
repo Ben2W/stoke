@@ -10,6 +10,7 @@ export type FreestyleTerminalSessionRequest = {
   canFinishWhileRunning?: boolean;
   instructions?: string;
   nodePath?: string;
+  openExternalTarget?: (target: string) => unknown;
 };
 
 export type FreestyleTerminalSessionResult = {
@@ -41,12 +42,15 @@ export function createFreestyleTerminalSession(
   let terminalCols = 100;
   let terminalRows = 28;
   let terminalQueryBuffer = "";
+  let browserPromptOutputTail = "";
+  let browserPromptOpenTimer: ReturnType<typeof setTimeout> | undefined;
   let proc: Subprocess<"pipe", "pipe", "pipe"> | undefined;
   let stdin: { write(data: Uint8Array): unknown; flush?(): unknown } | undefined;
   let complete!: (result: FreestyleTerminalSessionResult) => void;
   let fail!: (error: Error) => void;
   const sockets = new Set<ServerWebSocket<SocketData>>();
   const outputBuffer: string[] = [];
+  const openedExternalTargets = new Set<string>();
   const startupCommand = request.startupInput ?? request.remoteCommand;
   const startupInput = startupCommand ? ensureTrailingNewline(startupCommand) : undefined;
   const displayCommand = request.displayCommand ?? request.remoteCommand ?? request.command;
@@ -122,6 +126,7 @@ export function createFreestyleTerminalSession(
     stop: () => {
       if (stopped) return;
       stopped = true;
+      clearTimeout(browserPromptOpenTimer);
       proc?.kill();
       server.stop(true);
     },
@@ -136,10 +141,11 @@ export function createFreestyleTerminalSession(
       canFinish: canFinishWhileRunning,
     });
 
-    proc = Bun.spawn(["sh", "-lc", `exec ${request.command}`], {
+    proc = Bun.spawn(["sh", "-lc", terminalProcessShellCommand(request.command)], {
       stdin: "pipe",
       stdout: "pipe",
       stderr: "pipe",
+      env: terminalProcessEnv(terminalCols, terminalRows),
     });
     stdin = proc.stdin;
 
@@ -184,6 +190,7 @@ export function createFreestyleTerminalSession(
   function handleProcessOutput(data: string): void {
     appendOutput(data);
     respondToTerminalQueries(data);
+    openBrowserUrlsFromOutput(data);
   }
 
   function appendOutput(data: string): void {
@@ -193,9 +200,10 @@ export function createFreestyleTerminalSession(
   }
 
   function writeInput(data: string): void {
-    if (isCursorPositionReport(data)) return;
+    const input = sanitizeBrowserTerminalInput(data);
+    if (!input) return;
 
-    if (startupInput && data === startupInput) {
+    if (startupInput && input === startupInput) {
       if (remoteCommandStarted) return;
       remoteCommandStarted = true;
       broadcast({
@@ -205,7 +213,7 @@ export function createFreestyleTerminalSession(
       });
     }
 
-    writeProcessInput(data);
+    writeProcessInput(input);
   }
 
   function writeProcessInput(data: string): void {
@@ -231,6 +239,26 @@ export function createFreestyleTerminalSession(
 
     if (terminalQueryBuffer.length > 16) {
       terminalQueryBuffer = terminalQueryBuffer.slice(-16);
+    }
+  }
+
+  function openBrowserUrlsFromOutput(data: string): void {
+    if (!request.openExternalTarget) return;
+    browserPromptOutputTail = (browserPromptOutputTail + data).slice(-12_000);
+    clearTimeout(browserPromptOpenTimer);
+    browserPromptOpenTimer = setTimeout(openBufferedBrowserPromptUrls, 600);
+  }
+
+  function openBufferedBrowserPromptUrls(): void {
+    browserPromptOpenTimer = undefined;
+    const openExternalTarget = request.openExternalTarget;
+    if (!openExternalTarget) return;
+    for (const url of browserPromptUrlsInText(browserPromptOutputTail)) {
+      if (openedExternalTargets.has(url)) continue;
+      openedExternalTargets.add(url);
+      Promise.resolve(openExternalTarget(url)).catch(() => {
+        // The URL remains visible/clickable in the terminal if the host cannot open it.
+      });
     }
   }
 
@@ -267,6 +295,192 @@ export function createFreestyleTerminalSession(
   }
 }
 
+function browserPromptUrlsInText(text: string): string[] {
+  const cleaned = stripAnsi(text).replace(/\r(?!\n)/g, "\n");
+  const urls: string[] = [];
+  const matcher = /https?:\/\/[^\s<>"'\\]+/ig;
+  let match: RegExpExecArray | null;
+  while ((match = matcher.exec(cleaned)) !== null) {
+    const url = normalizeHttpUrl(match[0]);
+    if (!url) continue;
+    const context = cleaned.slice(Math.max(0, match.index - 260), match.index);
+    const trailing = cleaned.slice(match.index + match[0].length, match.index + match[0].length + 260);
+    if (looksLikeBrowserAuthPrompt(context) && looksLikeCompleteBrowserPrompt(trailing)) urls.push(url);
+  }
+  return urls;
+}
+
+function looksLikeBrowserAuthPrompt(context: string): boolean {
+  const lower = context.toLowerCase();
+  return Boolean(
+    lower.includes("browser") ||
+      lower.includes("sign in") ||
+      lower.includes("login") ||
+      lower.includes("oauth") ||
+      lower.includes("authorize") ||
+      lower.includes("visit:"),
+  );
+}
+
+function looksLikeCompleteBrowserPrompt(trailing: string): boolean {
+  const lower = trailing.toLowerCase();
+  return Boolean(
+    lower.includes("paste code here") ||
+      lower.includes("in your browser"),
+  );
+}
+
+function normalizeHttpUrl(value: string): string | undefined {
+  let url = value.trim();
+  while (/[),.;:!?\]}]+$/.test(url)) url = url.slice(0, -1);
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol === "http:" || parsed.protocol === "https:") return parsed.href;
+  } catch {
+    return undefined;
+  }
+  return undefined;
+}
+
+function stripAnsi(text: string): string {
+  return text.replace(/[\u001b\u009b][[\]()#;?]*(?:(?:(?:[a-zA-Z\d]*(?:;[a-zA-Z\d]*)*)?\u0007)|(?:(?:\d{1,4}(?:;\d{0,4})*)?[\dA-PR-TZcf-nq-uy=><~]))/g, "");
+}
+
+function terminalProcessShellCommand(command: string): string {
+  return [
+    "if command -v python3 >/dev/null 2>&1; then",
+    `  exec python3 -c ${shellQuote(ptyBridgePythonScript)} ${shellQuote(command)}`,
+    "fi",
+    `exec ${command}`,
+  ].join("\n");
+}
+
+function terminalProcessEnv(cols: number, rows: number): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const [key, value] of Object.entries(process.env)) {
+    if (typeof value === "string") env[key] = value;
+  }
+  env.TERM = env.TERM || "xterm-256color";
+  env.COLORTERM = env.COLORTERM || "truecolor";
+  env.COLUMNS = String(cols);
+  env.LINES = String(rows);
+  return env;
+}
+
+const ptyBridgePythonScript = String.raw`
+import errno
+import fcntl
+import os
+import pty
+import select
+import signal
+import struct
+import sys
+import termios
+
+command = sys.argv[1]
+rows = int(os.environ.get("LINES") or "28")
+cols = int(os.environ.get("COLUMNS") or "100")
+
+pid, fd = pty.fork()
+if pid == 0:
+    os.environ.setdefault("TERM", "xterm-256color")
+    os.environ.setdefault("COLORTERM", "truecolor")
+    os.execlp("sh", "sh", "-lc", "exec " + command)
+
+def forward_signal(signum, _frame):
+    try:
+        os.kill(pid, signum)
+    finally:
+        sys.exit(128 + signum)
+
+signal.signal(signal.SIGTERM, forward_signal)
+signal.signal(signal.SIGINT, forward_signal)
+
+try:
+    fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
+except Exception:
+    pass
+
+for target in (fd, sys.stdin.fileno()):
+    try:
+        os.set_blocking(target, False)
+    except Exception:
+        pass
+
+stdout_fd = sys.stdout.fileno()
+stdin_open = True
+child_exited = False
+exit_code = 0
+
+while True:
+    reads = [fd]
+    if stdin_open:
+        reads.append(sys.stdin.fileno())
+    try:
+        ready, _, _ = select.select(reads, [], [], 0.1)
+    except InterruptedError:
+        continue
+
+    if fd in ready:
+        try:
+            data = os.read(fd, 65536)
+        except OSError as exc:
+            if exc.errno not in (errno.EIO, errno.EBADF):
+                raise
+            data = b""
+        if data:
+            os.write(stdout_fd, data)
+        else:
+            child_exited = True
+
+    if stdin_open and sys.stdin.fileno() in ready:
+        try:
+            data = os.read(sys.stdin.fileno(), 65536)
+        except BlockingIOError:
+            data = None
+        if data:
+            os.write(fd, data)
+        elif data == b"":
+            stdin_open = False
+
+    try:
+        done_pid, status = os.waitpid(pid, os.WNOHANG)
+    except ChildProcessError:
+        done_pid = pid
+        status = 0
+
+    if done_pid == pid:
+        child_exited = True
+        if os.WIFEXITED(status):
+            exit_code = os.WEXITSTATUS(status)
+        elif os.WIFSIGNALED(status):
+            exit_code = 128 + os.WTERMSIG(status)
+        else:
+            exit_code = 1
+
+    if child_exited:
+        while True:
+            try:
+                data = os.read(fd, 65536)
+            except OSError:
+                break
+            if not data:
+                break
+            os.write(stdout_fd, data)
+        break
+
+try:
+    os.close(fd)
+except Exception:
+    pass
+sys.exit(exit_code)
+`;
+
+function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", `'\\''`)}'`;
+}
+
 function parseClientMessage(raw: string | Buffer): ClientMessage | undefined {
   if (typeof raw !== "string") return undefined;
   try {
@@ -292,6 +506,30 @@ function isCursorPositionReport(data: string): boolean {
   return /^\x1b\[\??\d+;\d+R$/.test(data);
 }
 
+function isDeviceAttributesReport(data: string): boolean {
+  return /^\x1b\[(?:[>?]\d+)?(?:;\d+)*c$/.test(data);
+}
+
+function isDeviceStatusReport(data: string): boolean {
+  return /^\x1b\[\??\d+n$/.test(data);
+}
+
+function isStringControlResponse(data: string): boolean {
+  return /^(?:\x1b[\]\^_P]|[\x90\x9d\x9e\x9f])/.test(data);
+}
+
+function sanitizeBrowserTerminalInput(data: string): string {
+  if (
+    isCursorPositionReport(data) ||
+    isDeviceAttributesReport(data) ||
+    isDeviceStatusReport(data) ||
+    isStringControlResponse(data)
+  ) {
+    return "";
+  }
+  return data;
+}
+
 function send(ws: ServerWebSocket<SocketData>, message: ServerMessage): void {
   ws.send(JSON.stringify(message));
 }
@@ -305,11 +543,11 @@ function htmlResponse(body: string): Response {
     headers: {
       "content-type": "text/html; charset=utf-8",
       "content-security-policy": [
-        "default-src 'none'",
-        "script-src 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' https://esm.sh",
-        "style-src 'unsafe-inline'",
-        "connect-src 'self' ws: wss: https://esm.sh",
-        "form-action 'self'",
+      "default-src 'none'",
+      "script-src 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' https://esm.sh",
+      "style-src 'unsafe-inline' https://esm.sh",
+      "connect-src 'self' ws: wss: https://esm.sh",
+      "form-action 'self'",
       ].join("; "),
     },
   });
@@ -342,6 +580,7 @@ function renderInteractionPage(
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>${escapedDocTitle}</title>
+  <link rel="stylesheet" href="https://esm.sh/@xterm/xterm@6.0.0/css/xterm.css">
   <style>
     :root {
       color-scheme: light;
@@ -590,10 +829,13 @@ function renderInteractionPage(
       background: var(--term-bg);
       overflow: hidden;
       user-select: text;
+      outline: none;
     }
     .term-host {
       position: absolute;
       inset: 0;
+      padding: 14px 16px;
+      box-sizing: border-box;
       user-select: text;
       --term-bg: #faf8f2;
       --term-fg: #1a1a1a;
@@ -618,6 +860,17 @@ function renderInteractionPage(
       --term-color-14: #06606a;
       --term-color-15: #0a0a0a;
     }
+    .term-host .xterm {
+      width: 100%;
+      height: 100%;
+      padding: 0;
+    }
+    .term-host .xterm-viewport {
+      background: transparent !important;
+    }
+    .term-host .xterm-screen {
+      user-select: text;
+    }
     .term-host:not(.ready) { visibility: hidden; }
     .term-host.link-hover,
     .term-fallback.link-hover {
@@ -640,34 +893,18 @@ function renderInteractionPage(
       line-height: 1.4;
     }
     .term-fallback.hidden { display: none; }
-    .wterm {
-      position: relative;
-      background: var(--term-bg);
-      color: var(--term-fg);
-      font-family: var(--term-font-family);
-      font-size: var(--term-font-size);
-      line-height: 1.2;
-      padding: 14px 16px;
-      outline: none;
-      overflow: auto;
-      user-select: text;
+    .term-input-proxy {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      border: 0;
+      opacity: 0;
+      pointer-events: none;
+      resize: none;
     }
-    .term-grid { display: block; white-space: pre; contain: layout paint style; user-select: text; }
-    .term-row {
-      display: block;
-      height: var(--term-row-height);
-      line-height: var(--term-row-height);
-      user-select: text;
-    }
-    .term-row > span {
-      display: inline-block;
-      height: var(--term-row-height);
-      vertical-align: top;
-      user-select: text;
-    }
-    .term-block { width: 1ch; overflow: hidden; }
-    .term-cursor { outline: 1px solid var(--term-cursor); outline-offset: -1px; }
-    .wterm.focused .term-cursor { background: var(--term-cursor); color: #ffffff; outline: none; }
     .success-pane {
       position: absolute;
       inset: 0;
@@ -798,13 +1035,13 @@ function renderInteractionPage(
       startupMaxTimer = startupMaxTimer || setTimeout(sendStartupInput, 1500);
     }
 
-    const URL_MATCH_PATTERN = "https?:\\\\/\\\\/[^\\\\s<>\\\"']+";
+    const URL_MATCH_PATTERN = "https?:\\\\/\\\\/[^\\\\s<>\\\"'\\\\\\\\]+";
 
     function stripAnsi(text) {
       return text.replace(/[\\u001b\\u009b][[\\]()#;?]*(?:(?:(?:[a-zA-Z\\d]*(?:;[a-zA-Z\\d]*)*)?\\u0007)|(?:(?:\\d{1,4}(?:;\\d{0,4})*)?[\\dA-PR-TZcf-nq-uy=><~]))/g, "");
     }
 
-    function normalizeHttpUrl(value) {
+    function normalizeHttpUrlLiteral(value) {
       let url = String(value || "").trim();
       while (/[),.;:!?\\]}]+$/.test(url)) url = url.slice(0, -1);
       try {
@@ -816,13 +1053,29 @@ function renderInteractionPage(
       return null;
     }
 
+    function normalizeHttpUrl(value) {
+      const normalized = normalizeHttpUrlLiteral(value);
+      return normalized ? expandKnownTerminalUrl(normalized) : null;
+    }
+
+    function expandKnownTerminalUrl(url) {
+      const cleaned = stripAnsi(terminalOutputTail).replace(/\\r(?!\\n)/g, "\\n");
+      let best = url;
+      for (const candidate of urlsInText(cleaned)) {
+        if (candidate.url.startsWith(url) && candidate.url.length > best.length) {
+          best = candidate.url;
+        }
+      }
+      return best;
+    }
+
     function urlsInText(text) {
       const urls = [];
       const matcher = new RegExp(URL_MATCH_PATTERN, "ig");
       let match;
       while ((match = matcher.exec(text)) !== null) {
         const raw = match[0];
-        const url = normalizeHttpUrl(raw);
+        const url = normalizeHttpUrlLiteral(raw);
         if (url) urls.push({ url, start: match.index, end: match.index + raw.length });
       }
       return urls;
@@ -863,7 +1116,7 @@ function renderInteractionPage(
 
     function isTextEditingTarget(target) {
       if (!(target instanceof Element)) return false;
-      if (terminalEl && terminalEl.contains(target)) return false;
+      if (terminalEl && terminalEl.contains(target)) return true;
       return Boolean(target.closest("textarea, input, select, button, [contenteditable=''], [contenteditable='true']"));
     }
 
@@ -940,6 +1193,16 @@ function renderInteractionPage(
       term?.focus();
       if (data === "\\r") openPendingBrowserPrompt();
       sendTerminalInput(data);
+    }, { capture: true });
+
+    document.addEventListener("paste", (event) => {
+      if (event.defaultPrevented || isTextEditingTarget(event.target)) return;
+      const text = event.clipboardData && event.clipboardData.getData("text/plain");
+      if (!text) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      term?.focus();
+      sendTerminalInput(text);
     }, { capture: true });
 
     function setupSocket() {
@@ -1058,8 +1321,10 @@ function renderInteractionPage(
     }
 
     function TerminalChrome() {
+      const shellRef = useRef(null);
       const hostRef = useRef(null);
       const fallbackRef = useRef(null);
+      const inputProxyRef = useRef(null);
 
       useEffect(() => {
         const host = hostRef.current;
@@ -1081,7 +1346,10 @@ function renderInteractionPage(
           const selection = window.getSelection();
           if (selection && selection.toString()) return;
           const url = terminalUrlFromEvent(event);
-          if (!url) return;
+          if (!url) {
+            focusTerminalInput();
+            return;
+          }
           event.preventDefault();
           event.stopPropagation();
           openExternalUrl(url);
@@ -1104,46 +1372,98 @@ function renderInteractionPage(
         fallback?.addEventListener("pointerleave", handleTerminalPointerLeave);
 
         let cancelled = false;
+        let resizeObserver = null;
+        let currentTerm = null;
         (async () => {
           try {
-            const [{ WTerm }, { GhosttyCore }] = await Promise.all([
-              import("https://esm.sh/@wterm/dom@0.3.0?bundle"),
-              import("https://esm.sh/@wterm/ghostty@0.3.0?bundle"),
+            const [{ Terminal }, { FitAddon }, { WebLinksAddon }] = await Promise.all([
+              import("https://esm.sh/@xterm/xterm@6.0.0?bundle"),
+              import("https://esm.sh/@xterm/addon-fit@0.11.0?bundle"),
+              import("https://esm.sh/@xterm/addon-web-links@0.12.0?bundle"),
             ]);
             if (cancelled || !hostRef.current) return;
-            const core = await GhosttyCore.load({
-              wasmPath: "https://esm.sh/@wterm/ghostty@0.3.0/wasm/ghostty-vt.wasm",
-            });
-            if (cancelled || !hostRef.current) return;
-            term = new WTerm(hostRef.current, {
-              core,
+            const xterm = new Terminal({
               cols: 100,
               rows: 28,
-              autoResize: true,
               cursorBlink: true,
-              onData(data) { sendTerminalInput(data); },
-              onResize(cols, rows) {
-                if (socket && socket.readyState === WebSocket.OPEN) {
-                  socket.send(JSON.stringify({ type: "resize", cols, rows }));
-                }
+              convertEol: true,
+              scrollback: 10000,
+              fontFamily: 'ui-monospace, "SF Mono", SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace',
+              fontSize: 13,
+              lineHeight: 1.3,
+              theme: {
+                background: "#faf8f2",
+                foreground: "#1a1a1a",
+                cursor: "#2d4df5",
+                selectionBackground: "#d8d2c5",
+                black: "#0a0a0a",
+                red: "#c93250",
+                green: "#1f8b4c",
+                yellow: "#a17500",
+                blue: "#2d4df5",
+                magenta: "#8e3eff",
+                cyan: "#0a7783",
+                white: "#5a5a5a",
+                brightBlack: "#6a6a6a",
+                brightRed: "#b81e3a",
+                brightGreen: "#176a3a",
+                brightYellow: "#7a5800",
+                brightBlue: "#1a3ad9",
+                brightMagenta: "#7128df",
+                brightCyan: "#06606a",
+                brightWhite: "#0a0a0a",
               },
             });
-            await term.init();
+            const fitAddon = new FitAddon();
+            xterm.loadAddon(fitAddon);
+            xterm.loadAddon(new WebLinksAddon((event, url) => {
+              event.preventDefault();
+              openExternalUrl(url);
+            }));
+            xterm.onData((data) => {
+              if (data === "\\r") openPendingBrowserPrompt();
+              sendTerminalInput(data);
+            });
+            xterm.onResize(({ cols, rows }) => {
+              if (socket && socket.readyState === WebSocket.OPEN) {
+                socket.send(JSON.stringify({ type: "resize", cols, rows }));
+              }
+            });
+            xterm.open(hostRef.current);
+            const fitTerminal = () => {
+              try {
+                fitAddon.fit();
+                if (socket && socket.readyState === WebSocket.OPEN) {
+                  socket.send(JSON.stringify({ type: "resize", cols: xterm.cols, rows: xterm.rows }));
+                }
+              } catch {
+                // The fit addon can throw while the element is detached during teardown.
+              }
+            };
+            fitTerminal();
+            resizeObserver = new ResizeObserver(fitTerminal);
+            resizeObserver.observe(hostRef.current);
+            currentTerm = xterm;
+            term = xterm;
             for (const chunk of outputBacklog) term.write(chunk);
             termReady = true;
             hostRef.current.classList.add("ready");
             fallbackRef.current && fallbackRef.current.classList.add("hidden");
             term.focus();
+            focusTerminalInput();
           } catch (error) {
             console.error(error);
             if (fallbackRef.current) {
-              fallbackRef.current.textContent += "\\nUnable to load the libghostty renderer. Output will continue here.\\n";
+              fallbackRef.current.textContent += "\\nUnable to load the xterm renderer. Output will continue here.\\n";
             }
           }
         })();
 
         return () => {
           cancelled = true;
+          resizeObserver?.disconnect();
+          currentTerm?.dispose();
+          if (term === currentTerm) term = null;
           terminalEl = null;
           host?.removeEventListener("click", handleTerminalClick);
           host?.removeEventListener("pointermove", handleTerminalPointerMove);
@@ -1154,14 +1474,79 @@ function renderInteractionPage(
         };
       }, []);
 
+      const focusTerminalInput = useCallback(() => {
+        shellRef.current?.focus({ preventScroll: true });
+        if (term?.focus) {
+          term.focus();
+        } else {
+          inputProxyRef.current?.focus({ preventScroll: true });
+        }
+      }, []);
+
+      const sendKeyboardEventToTerminal = useCallback((event) => {
+        const data = keyEventToTerminalInput(event);
+        if (!data) return;
+        event.preventDefault();
+        event.stopPropagation();
+        if (inputProxyRef.current) inputProxyRef.current.value = "";
+        if (data === "\\r") openPendingBrowserPrompt();
+        sendTerminalInput(data);
+      }, []);
+
+      const sendTextInputEventToTerminal = useCallback((event) => {
+        const data = event.data || "";
+        if (!data) return;
+        event.preventDefault();
+        event.stopPropagation();
+        if (inputProxyRef.current) inputProxyRef.current.value = "";
+        sendTerminalInput(data);
+      }, []);
+
+      const sendPasteEventToTerminal = useCallback((event) => {
+        const text = event.clipboardData && event.clipboardData.getData("text/plain");
+        if (!text) return;
+        event.preventDefault();
+        event.stopPropagation();
+        if (inputProxyRef.current) inputProxyRef.current.value = "";
+        sendTerminalInput(text);
+      }, []);
+
+      const sendInputValueToTerminal = useCallback((event) => {
+        const target = event.currentTarget;
+        const value = target.value || "";
+        if (!value) return;
+        target.value = "";
+        sendTerminalInput(value);
+      }, []);
+
       return h(F, null,
         h("div", { className: "term-titlebar" },
           h("span", { className: "term-titlebar-icon", "aria-hidden": "true" }, h(TerminalIcon, null)),
           h("span", { className: "term-titlebar-label" }, NODE_PATH + " · terminal"),
         ),
-        h("div", { className: "terminal-shell" },
+        h("div", {
+          ref: shellRef,
+          className: "terminal-shell",
+          tabIndex: 0,
+          onPointerDownCapture: focusTerminalInput,
+          onKeyDown: sendKeyboardEventToTerminal,
+          onPaste: sendPasteEventToTerminal,
+        },
           h("pre", { ref: fallbackRef, className: "term-fallback" }, "Starting terminal...\\n"),
           h("div", { ref: hostRef, className: "term-host" }),
+          h("textarea", {
+            ref: inputProxyRef,
+            className: "term-input-proxy",
+            tabIndex: 0,
+            autoCapitalize: "off",
+            autoComplete: "off",
+            autoCorrect: "off",
+            spellCheck: false,
+            onKeyDown: sendKeyboardEventToTerminal,
+            onBeforeInput: sendTextInputEventToTerminal,
+            onInput: sendInputValueToTerminal,
+            onPaste: sendPasteEventToTerminal,
+          }),
         ),
       );
     }
@@ -1182,49 +1567,9 @@ function renderInteractionPage(
       const target = event.target;
       if (!(target instanceof Element)) return null;
 
-      const row = target.closest(".term-row");
-      if (row) {
-        return terminalUrlFromRowEvent(row, event);
-      }
-
       const fallback = target.closest(".term-fallback");
       if (fallback) {
         return terminalUrlFromPreEvent(fallback, event);
-      }
-
-      return null;
-    }
-
-    function terminalUrlFromRowEvent(row, event) {
-      const text = row.textContent || "";
-      if (!text) return null;
-
-      const clickedIndex = textIndexFromRowPoint(row, event.clientX);
-      if (clickedIndex !== null) {
-        const exactUrl = urlAtTextIndex(text, clickedIndex);
-        if (exactUrl) return exactUrl;
-      }
-
-      const urls = urlsInText(text);
-      return urls.length === 1 ? urls[0].url : null;
-    }
-
-    function textIndexFromRowPoint(row, clientX) {
-      let offset = 0;
-      const spans = row.querySelectorAll("span");
-      for (const span of spans) {
-        const text = span.textContent || "";
-        if (!text) continue;
-
-        const rect = span.getBoundingClientRect();
-        if (clientX >= rect.left && clientX <= rect.right) {
-          const charWidth = rect.width / Math.max(text.length, 1);
-          if (!Number.isFinite(charWidth) || charWidth <= 0) return offset;
-          const index = Math.floor((clientX - rect.left) / charWidth);
-          return offset + Math.max(0, Math.min(text.length - 1, index));
-        }
-
-        offset += text.length;
       }
 
       return null;

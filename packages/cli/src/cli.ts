@@ -148,41 +148,10 @@ const CLI_HOST_CAPABILITIES: Array<{ id: string; schemaHash?: string }> = [
   ...(capability.schemaHash ? { schemaHash: capability.schemaHash } : {}),
 }));
 
-const MANAGEMENT_COMMANDS = new Set([
-  "completion",
-  "doctor",
-  "help",
-  "init",
-  "ls",
-  "projects",
-  "run",
-  "version",
-]);
-
-const GLOBAL_OPTIONS_WITH_VALUES = new Set(["-C", "--project", "--config", "--state"]);
-
 if (process.argv[2] === "__complete") {
   runCompletionEndpoint(process.argv.slice(3)).catch(handleCliError);
 } else {
-  runCli(normalizeOperationArgv(process.argv)).catch(handleCliError);
-}
-
-function normalizeOperationArgv(argv: string[]): string[] {
-  const args = argv.slice(2);
-  for (let index = 0; index < args.length; index += 1) {
-    const arg = args[index]!;
-    if (arg === "--") return argv;
-    if (GLOBAL_OPTIONS_WITH_VALUES.has(arg)) {
-      index += 1;
-      continue;
-    }
-    if ([...GLOBAL_OPTIONS_WITH_VALUES].some((option) => arg.startsWith(`${option}=`))) continue;
-    if (arg === "--json") continue;
-    if (arg.startsWith("-")) return argv;
-    if (MANAGEMENT_COMMANDS.has(arg)) return argv;
-    return [...argv.slice(0, 2), ...args.slice(0, index), "run", ...args.slice(index)];
-  }
-  return argv;
+  runCli(process.argv).catch(handleCliError);
 }
 
 async function runCli(argv: string[]): Promise<void> {
@@ -190,7 +159,7 @@ async function runCli(argv: string[]): Promise<void> {
   program
     .name("rig")
     .description("Rigkit workflow CLI")
-    .usage("[options] <command|operation>")
+    .usage("[options] <command>")
     .version(RIGKIT_CLI_VERSION, "-v, --version", "Show Rigkit CLI version")
     .showHelpAfterError()
     .exitOverride()
@@ -228,7 +197,7 @@ async function runCli(argv: string[]): Promise<void> {
     });
 
   program
-    .command("run <operation> [args...]", { hidden: true })
+    .command("run <operation> [args...]")
     .description("Run a project operation exposed by the runtime")
     .allowUnknownOption(true)
     .option("--all", "Run against every discovered project")
@@ -499,6 +468,52 @@ async function promptPackageManager(defaultValue: PackageManager): Promise<Packa
   return answers.packageManager;
 }
 
+async function promptWorkspaceName(): Promise<string> {
+  const answers = await inquirer.prompt<{ name: string }>([{
+    type: "input",
+    name: "name",
+    message: "Workspace name:",
+    validate(value: string) {
+      return validateWorkspaceName(value.trim());
+    },
+    filter: (value: string) => value.trim(),
+  }]);
+  return answers.name;
+}
+
+const workspaceNamePattern = /^(?!-)[A-Za-z0-9._-]+$/;
+
+function validateWorkspaceName(value: string): true | string {
+  if (!value) return "Workspace name is required.";
+  if (!workspaceNamePattern.test(value)) {
+    return 'Use only letters, numbers, ".", "_", and "-", and do not start with "-".';
+  }
+  return true;
+}
+
+function assertValidWorkspaceName(value: unknown): void {
+  if (typeof value !== "string") throw new Error(`Workspace name must be a string`);
+  const valid = validateWorkspaceName(value);
+  if (valid !== true) throw new Error(`Invalid workspace name "${value}". ${valid}`);
+}
+
+async function promptWorkspaceOperation(
+  workspace: string,
+  operations: RuntimeOperationDefinition[],
+): Promise<string> {
+  const answers = await inquirer.prompt<{ operation: string }>([{
+    type: "select",
+    name: "operation",
+    message: `Operation for ${workspace}:`,
+    choices: operations.map((operation) => ({
+      name: operation.id,
+      value: operation.id,
+      description: operation.description || operation.title || "workspace operation",
+    })),
+  }]);
+  return answers.operation;
+}
+
 async function runPackageManagerInstall(
   projectDir: string,
   packageManager: PackageManager,
@@ -580,7 +595,7 @@ function printInitResult(result: InitProjectResult, install: InitInstallResult):
   if (install.skipped) {
     console.log(`  ${detectInstallCommand(result.packageJsonPath)}`);
   }
-  console.log("  rig plan");
+  console.log("  rig run plan");
 }
 
 function displayProjectDir(projectDir: string): string {
@@ -649,6 +664,7 @@ async function runProjectOperation(
   }
 
   await renderOperationResult(operation, result, parsed.hostOptions);
+  printInteractiveOutputGap(invocation);
 }
 
 async function runDiscoveredProjectOperation(
@@ -704,6 +720,7 @@ async function runDiscoveredProjectOperation(
         console.log(chalk.bold(displayProjectDir(project.projectDir)));
       }
       await renderOperationResult(operation, result, parsed.hostOptions);
+      printInteractiveOutputGap(invocation);
     }
   }
 
@@ -774,13 +791,13 @@ async function executeRuntimeOperation(
   result: unknown;
 }> {
   const manifest = await readRuntimeOperations(runtime);
-  const resolved = findRuntimeOperation(manifest, requestedOperation);
+  const resolved = await resolveRequestedRuntimeOperation(invocation, runtime, manifest, requestedOperation);
   if (!resolved) {
     throw new Error(`This project does not define a Rigkit operation named "${requestedOperation}".`);
   }
   const { operation, runOperation } = resolved;
 
-  const parsed = parseOperationArgs(operation, args);
+  const parsed = await parseOperationArgsWithPrompts(invocation, operation, args);
   enforceHostOnlyBooleanGuards(operation, parsed);
 
   const result = await runRuntimeOperation<unknown>(
@@ -791,6 +808,28 @@ async function executeRuntimeOperation(
   );
 
   return { operation, parsed, result };
+}
+
+async function resolveRequestedRuntimeOperation(
+  invocation: CliInvocation,
+  runtime: RuntimeClient,
+  manifest: RuntimeOperationManifest,
+  requestedOperation: string,
+): Promise<{ operation: RuntimeOperationDefinition; runOperation: string } | undefined> {
+  const resolved = findRuntimeOperation(manifest, requestedOperation);
+  if (resolved) return resolved;
+
+  if (requestedOperation.includes("/") || wantsJson(invocation) || !canPrompt()) return undefined;
+
+  const workspaces = await runtime.control.workspaces()
+    .then((response) => response.workspaces as WorkspaceRecord[])
+    .catch(() => []);
+  const workspace = workspaces.find((item) => item.name === requestedOperation);
+  if (!workspace || (manifest.workspaceOperations ?? []).length === 0) return undefined;
+
+  const operationId = await promptWorkspaceOperation(workspace.name, manifest.workspaceOperations ?? []);
+  const operation = (manifest.workspaceOperations ?? []).find((item) => item.id === operationId);
+  return operation ? { operation, runOperation: `${workspace.name}/${operation.id}` } : undefined;
 }
 
 function findRuntimeOperation(
@@ -818,7 +857,36 @@ function parseWorkspaceOperationId(value: string): { workspace: string; operatio
   };
 }
 
-function parseOperationArgs(operation: RuntimeOperationDefinition, args: string[]): ParsedOperationInput {
+async function parseOperationArgsWithPrompts(
+  invocation: CliInvocation,
+  operation: RuntimeOperationDefinition,
+  args: string[],
+): Promise<ParsedOperationInput> {
+  const parsed = parseOperationArgs(operation, args, {
+    allowMissingRequired: !wantsJson(invocation) && canPrompt(),
+  });
+
+  if (
+    operation.createsWorkspace &&
+    parsed.input.name === undefined &&
+    !wantsJson(invocation) &&
+    canPrompt()
+  ) {
+    parsed.input.name = await promptWorkspaceName();
+  }
+  if (operation.createsWorkspace && parsed.input.name !== undefined) {
+    assertValidWorkspaceName(parsed.input.name);
+  }
+
+  enforceRequiredOperationInputs(operation, parsed);
+  return parsed;
+}
+
+function parseOperationArgs(
+  operation: RuntimeOperationDefinition,
+  args: string[],
+  options: { allowMissingRequired?: boolean } = {},
+): ParsedOperationInput {
   const cli = inferCliMetadata(operation);
   const input: Record<string, unknown> = {};
   const hostOptions: Record<string, unknown> = {};
@@ -857,19 +925,27 @@ function parseOperationArgs(operation: RuntimeOperationDefinition, args: string[
     assignPositional(positionals, positionalIndex++, arg, input);
   }
 
+  if (!options.allowMissingRequired) enforceRequiredOperationInputs(operation, { input, hostOptions });
+
+  return { input, hostOptions };
+}
+
+function enforceRequiredOperationInputs(
+  operation: RuntimeOperationDefinition,
+  parsed: ParsedOperationInput,
+): void {
+  const cli = inferCliMetadata(operation);
   for (const option of cli.options ?? []) {
-    if (option.required && input[option.name] === undefined && hostOptions[option.name] === undefined) {
+    if (option.required && parsed.input[option.name] === undefined && parsed.hostOptions[option.name] === undefined) {
       throw new Error(`Operation ${operation.id} requires ${option.flag}`);
     }
   }
 
   for (const name of operation.inputSchema?.required ?? []) {
-    if (input[name] === undefined) {
+    if (parsed.input[name] === undefined) {
       throw new Error(`Operation ${operation.id} requires ${name}`);
     }
   }
-
-  return { input, hostOptions };
 }
 
 function enforceHostOnlyBooleanGuards(
@@ -1072,7 +1148,7 @@ async function runHelp(invocation: CliInvocation): Promise<void> {
       commands: [
         { name: "help", description: "Show Rigkit CLI help" },
         { name: "init", description: "Initialize a Rigkit project" },
-        { name: "<operation>", description: "Run a project operation exposed by the runtime" },
+        { name: "run", description: "Run a project operation exposed by the runtime" },
         { name: "ls", description: "List project workspaces" },
         { name: "projects", description: "Discover Rigkit projects below the current directory" },
         { name: "doctor", description: "Show Rigkit runtime diagnostics" },
@@ -1086,12 +1162,12 @@ async function runHelp(invocation: CliInvocation): Promise<void> {
     `rig ${RIGKIT_CLI_VERSION}`,
     "",
     "Usage:",
-    "  rig [options] <command|operation>",
+    "  rig [options] <command>",
     "",
     "Commands:",
     "  help        Show Rigkit CLI help",
     "  init        Initialize a Rigkit project",
-    "  <operation> Run a project operation exposed by the runtime",
+    "  run         Run a project operation exposed by the runtime",
     "  ls          List project workspaces",
     "  projects    Discover Rigkit projects below the current directory",
     "  doctor      Show Rigkit runtime diagnostics",
@@ -1771,6 +1847,11 @@ function wantsJson(invocation: CliInvocation): boolean {
 
 function printJson(value: unknown): void {
   console.log(JSON.stringify(value, null, 2));
+}
+
+function printInteractiveOutputGap(invocation: CliInvocation): void {
+  if (wantsJson(invocation) || !process.stdout.isTTY) return;
+  console.log("");
 }
 
 function printPlan(plan: WorkflowPlan): void {

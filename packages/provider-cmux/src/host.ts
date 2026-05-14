@@ -1,10 +1,8 @@
 import {
   createCmuxClient,
   formatShellCommand,
-  type CmuxBrowserOpenOptions,
   type CmuxClient,
   type CmuxClientOptions,
-  type CmuxNewPaneOptions,
   type CmuxNewWorkspaceOptions,
   type CmuxPane,
   type CmuxPortsKickOptions,
@@ -21,8 +19,11 @@ import {
 import {
   CMUX_OPEN_CAPABILITY,
   type CmuxOpenInput,
+  type CmuxOpenPaneResult,
   type CmuxOpenResult,
   type CmuxOpenSshInput,
+  type CmuxOpenTerminalDirection,
+  type CmuxOpenTerminalInput,
   type CmuxRemoteReadyOptions,
 } from "./capabilities.ts";
 
@@ -33,6 +34,7 @@ export type CmuxOpenClient = Pick<
   | "newWorkspace"
   | "ssh"
   | "newPane"
+  | "newSurface"
   | "send"
   | "portsKick"
   | "browserOpen"
@@ -72,9 +74,8 @@ export async function openCmux(
     ...(options.logger ? { logger: options.logger } : {}),
     printCommands: options.clientOptions?.printCommands ?? false,
   });
-  const command = commandForInput(input);
   let workspace: CmuxWorkspace;
-  let terminalPane: CmuxPane | undefined;
+  const terminalPanes: CmuxPane[] = [];
 
   logger?.(`cmux: opening ${input.name}`);
   if (input.ssh) {
@@ -89,27 +90,34 @@ export async function openCmux(
     const workspaceOptions: CmuxNewWorkspaceOptions = {
       name: input.name,
       cwd: input.cwd,
-      command: input.command,
       focus: input.focus,
     };
     workspace = await cmux.newWorkspace(workspaceOptions);
   }
 
   const workspaceId = workspace.id ?? workspace.handle;
+  const useTabLayout = input.surfaceLayout === "tabs";
 
-  if (input.ssh && command) {
-    logger?.(input.cwd ? `cmux: starting command in ${input.cwd}` : "cmux: starting command");
-    const paneOptions: CmuxNewPaneOptions = {
-      workspace: workspaceId,
-      type: "terminal",
-      direction: "down",
-      focus: true,
-    };
-    terminalPane = await cmux.newPane(paneOptions);
+  for (const terminal of input.terminals ?? []) {
+    const cwd = terminal.cwd ?? input.cwd;
+    logger?.(cwd ? `cmux: starting terminal in ${cwd}` : "cmux: starting terminal");
+    const terminalPane = useTabLayout
+      ? await cmux.newSurface({
+          workspace: workspaceId,
+          type: "terminal",
+          focus: terminal.focus ?? true,
+        })
+      : await cmux.newPane({
+          workspace: workspaceId,
+          type: "terminal",
+          direction: terminal.direction ?? "down",
+          focus: terminal.focus ?? true,
+        });
+    terminalPanes.push(terminalPane);
     const sendOptions: CmuxSendOptions = {
       workspace: workspaceId,
       surface: terminalPane.surface,
-      text: command,
+      text: commandForTerminal(terminal, input),
     };
     await cmux.send(sendOptions);
   }
@@ -120,25 +128,34 @@ export async function openCmux(
     await cmux.waitForRemoteReady(workspaceId, waitOptions);
   }
 
-  if (input.ssh && terminalPane?.surface) {
+  if (input.ssh && terminalPanes.some((pane) => pane.surface)) {
     logger?.("cmux: refreshing remote ports");
-    const kickOptions: CmuxPortsKickOptions = {
-      workspace: workspaceId,
-      surface: terminalPane.surface,
-      reason: "command",
-    };
-    await cmux.portsKick(kickOptions);
+    for (const pane of terminalPanes) {
+      if (!pane.surface) continue;
+      const kickOptions: CmuxPortsKickOptions = {
+        workspace: workspaceId,
+        surface: pane.surface,
+        reason: "command",
+      };
+      await cmux.portsKick(kickOptions);
+    }
   }
 
   let browserPane: CmuxPane | undefined;
   if (input.url) {
     logger?.(`cmux: opening ${input.url}`);
-    const browserOptions: CmuxBrowserOpenOptions = {
-      workspace: workspaceId,
-      url: input.url,
-      focus: input.focus !== false,
-    };
-    browserPane = await cmux.browserOpen(browserOptions);
+    browserPane = useTabLayout
+      ? await cmux.newSurface({
+          workspace: workspaceId,
+          type: "browser",
+          url: input.url,
+          focus: input.focus !== false,
+        })
+      : await cmux.browserOpen({
+          workspace: workspaceId,
+          url: input.url,
+          focus: input.focus !== false,
+        });
   }
 
   if (input.focus !== false) {
@@ -151,10 +168,8 @@ export async function openCmux(
     sessionId: workspaceId,
     workspaceId,
     ...(workspace.ref ? { workspaceRef: workspace.ref } : {}),
-    ...(terminalPane?.pane ? { terminalPaneId: terminalPane.pane } : {}),
-    ...(terminalPane?.surface ? { terminalSurfaceId: terminalPane.surface } : {}),
-    ...(browserPane?.pane ? { browserPaneId: browserPane.pane } : {}),
-    ...(browserPane?.surface ? { browserSurfaceId: browserPane.surface } : {}),
+    terminalPanes: terminalPanes.map(paneResultForCmuxPane),
+    ...(browserPane ? { browserPane: paneResultForCmuxPane(browserPane) } : {}),
   };
 }
 
@@ -174,7 +189,8 @@ export function parseCmuxOpenInput(value: unknown): CmuxOpenInput {
     name,
     ...(value.ssh !== undefined ? { ssh: parseSshInput(value.ssh) } : {}),
     ...optionalStringField(value, "cwd"),
-    ...optionalStringField(value, "command"),
+    ...optionalSurfaceLayoutField(value, "surfaceLayout"),
+    ...(value.terminals !== undefined ? { terminals: parseTerminalInputs(value.terminals) } : {}),
     ...optionalStringField(value, "url"),
     ...optionalBooleanField(value, "focus"),
     ...(value.waitForRemoteReady !== undefined
@@ -237,10 +253,34 @@ function sshDestination(ssh: Extract<CmuxOpenSshInput, object>): string {
   return `${ssh.username}@${ssh.host}`;
 }
 
-function commandForInput(input: CmuxOpenInput): string | undefined {
-  if (!input.command) return undefined;
-  const prefix = input.cwd ? `${formatShellCommand(["cd", input.cwd])} && ` : "";
-  return `${prefix}${input.command}\n`;
+function parseTerminalInputs(value: unknown): CmuxOpenTerminalInput[] {
+  if (!Array.isArray(value)) throw new Error(`cmux.open terminals must be an array`);
+  return value.map((item, index) => parseTerminalInput(item, index));
+}
+
+function parseTerminalInput(value: unknown, index: number): CmuxOpenTerminalInput {
+  if (!isRecord(value)) throw new Error(`cmux.open terminals[${index}] must be an object`);
+  return {
+    command: requiredString(value, "command"),
+    ...optionalStringField(value, "cwd"),
+    ...optionalTerminalDirectionField(value, "direction"),
+    ...optionalBooleanField(value, "focus"),
+  };
+}
+
+function commandForTerminal(terminal: CmuxOpenTerminalInput, input: CmuxOpenInput): string {
+  const cwd = terminal.cwd ?? input.cwd;
+  const prefix = cwd ? `${formatShellCommand(["cd", cwd])} && ` : "";
+  return `${prefix}${terminal.command}\n`;
+}
+
+function paneResultForCmuxPane(pane: CmuxPane): CmuxOpenPaneResult {
+  return {
+    ...(pane.pane ? { paneId: pane.pane } : {}),
+    ...(pane.paneRef ? { paneRef: pane.paneRef } : {}),
+    ...(pane.surface ? { surfaceId: pane.surface } : {}),
+    ...(pane.surfaceRef ? { surfaceRef: pane.surfaceRef } : {}),
+  };
 }
 
 function remoteReadyOptionsForInput(input: CmuxOpenInput): CmuxWaitForRemoteOptions | false {
@@ -298,6 +338,30 @@ function optionalBooleanField(record: Record<string, unknown>, key: string): Rec
   const value = record[key];
   if (value === undefined) return {};
   if (typeof value !== "boolean") throw new Error(`cmux.open ${key} must be a boolean`);
+  return { [key]: value };
+}
+
+function optionalTerminalDirectionField(
+  record: Record<string, unknown>,
+  key: string,
+): Record<string, CmuxOpenTerminalDirection> {
+  const value = record[key];
+  if (value === undefined) return {};
+  if (value !== "left" && value !== "right" && value !== "up" && value !== "down") {
+    throw new Error(`cmux.open ${key} must be "left", "right", "up", or "down"`);
+  }
+  return { [key]: value };
+}
+
+function optionalSurfaceLayoutField(
+  record: Record<string, unknown>,
+  key: string,
+): Record<string, "splits" | "tabs"> {
+  const value = record[key];
+  if (value === undefined) return {};
+  if (value !== "splits" && value !== "tabs") {
+    throw new Error(`cmux.open ${key} must be "splits" or "tabs"`);
+  }
   return { [key]: value };
 }
 

@@ -205,7 +205,8 @@ They currently use the `NPM_CANARY_TOKEN` secret.
 
 ## Installer Deployment
 
-The public installer is served by the install Worker:
+The public installer is served by the website Worker (which also hosts the
+marketing page at the root):
 
 ```bash
 curl -fsSL https://rigkit.freestyle.sh/install | sh
@@ -215,10 +216,10 @@ The Worker uses GitHub Releases as the source of truth, serves latest-version
 metadata, and redirects downloads to GitHub release assets. Normal CLI releases
 do not require a Worker deployment.
 
-Deploy the Worker only when `apps/install-worker` changes:
+Deploy the Worker only when `apps/website` changes:
 
 ```bash
-pnpm --filter @rigkit/install-worker deploy
+pnpm --filter @rigkit/website worker:deploy
 ```
 
 The installer writes the binary to `~/.rigkit/bin/rig` by default and adds

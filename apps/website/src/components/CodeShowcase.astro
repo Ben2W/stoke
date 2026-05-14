@@ -1,0 +1,91 @@
+---
+import { Code } from "astro:components";
+
+const snippet = `import { cmux } from "@rigkit/provider-cmux";
+import { freestyle, VmBaseImage, VmSpec } from "@rigkit/provider-freestyle";
+import { workflow } from "@rigkit/sdk";
+
+const vmSpec = new VmSpec()
+  .baseImage(new VmBaseImage("FROM ubuntu:24.04"))
+  .idleTimeoutSeconds(3600);
+
+const app = workflow("playground", {
+  providers: {
+    freestyle: freestyle.provider(),
+    cmux: cmux.provider(),
+  },
+});
+
+export default app
+  .sequence("playground")
+  .task("create-vm", async ({ freestyle, step }) => {
+    const { vm } = await freestyle.client.vms.create({
+      spec: vmSpec,
+      logger: step.log,
+    });
+    const snapshot = await vm.snapshot();
+    return { ctx: { snapshotId: snapshot.snapshotId } };
+  })
+  .workspace({
+    create: async ({ workflow, providers }) => {
+      const { vmId } = await providers.freestyle.client.vms.create({
+        snapshotId: workflow.ctx.snapshotId,
+      });
+      return { vmId };
+    },
+  })
+  .workspaceOperation("open", {
+    title: "Open in cmux",
+    run: async ({ providers, workspace }) => {
+      await providers.cmux.open({
+        name: workspace.name,
+        ssh: await providers.freestyle.cmux.createSshOptions({
+          vmId: workspace.ctx.vmId,
+        }),
+        focus: true,
+      });
+    },
+  });
+`;
+---
+
+<section class="w-full">
+  <div
+    class="overflow-hidden rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] shadow-[0_1px_0_rgba(10,10,10,0.04)]"
+  >
+    <div
+      class="flex items-center gap-2 border-b border-[var(--color-border)] bg-[#f2efe7] px-4 py-2.5"
+    >
+      <span
+        class="inline-block h-[8px] w-[8px] rounded-full bg-[var(--color-border-strong)]"
+      ></span>
+      <span class="font-mono text-[12px] text-[var(--color-muted)]">
+        rig.config.ts
+      </span>
+    </div>
+    <div class="code-host overflow-x-auto px-4 py-4">
+      <Code code={snippet} lang="ts" theme="github-light" />
+    </div>
+  </div>
+  <p class="mt-3 font-mono text-[12px] text-[var(--color-muted)]">
+    <code class="text-[var(--color-fg)]">rig apply</code>
+    <span class="text-[var(--color-dim)]">·</span>
+    <code class="text-[var(--color-fg)]">rig create workspace-1</code>
+    <span class="text-[var(--color-dim)]">·</span>
+    <code class="text-[var(--color-fg)]">rig run workspace-1/open</code>
+  </p>
+</section>
+
+<style is:global>
+  .code-host pre.astro-code,
+  .code-host pre.astro-code > code {
+    background: transparent !important;
+    font-family: var(--font-mono) !important;
+    font-size: 13px;
+    line-height: 1.55;
+  }
+  .code-host pre.astro-code {
+    margin: 0;
+    padding: 0;
+  }
+</style>

@@ -135,7 +135,7 @@ describe("cmux sdk", () => {
     ]);
   });
 
-  test("creates panes, opens browsers, and sends terminal text", async () => {
+  test("creates panes, surfaces, opens browsers, and sends terminal text", async () => {
     const calls: Array<{ method: string; params: CmuxRpcParams }> = [];
     const cmux = createCmuxClient({
       printCommands: false,
@@ -161,6 +161,16 @@ describe("cmux sdk", () => {
             pane_ref: "pane:11",
           };
         }
+        if (method === "surface.create") {
+          return {
+            workspace_id: "00000000-0000-0000-0000-000000000009",
+            workspace_ref: "workspace:9",
+            surface_id: "00000000-0000-0000-0000-000000000012",
+            surface_ref: "surface:12",
+            pane_id: "00000000-0000-0000-0000-000000000008",
+            pane_ref: "pane:8",
+          };
+        }
         return {};
       },
     });
@@ -181,6 +191,17 @@ describe("cmux sdk", () => {
       surface: pane.surface,
       reason: "refresh",
     });
+    const surface = await cmux.newSurface({
+      workspace: "00000000-0000-0000-0000-000000000009",
+      pane: pane.pane,
+      type: "terminal",
+      focus: false,
+    });
+    await cmux.send({
+      workspace: "00000000-0000-0000-0000-000000000009",
+      surface: surface.surface,
+      text: "codex\\n",
+    });
     await cmux.browserOpen({
       workspace: "00000000-0000-0000-0000-000000000009",
       url: "http://localhost:3000",
@@ -188,6 +209,7 @@ describe("cmux sdk", () => {
     });
 
     expect(pane.surface).toBe("00000000-0000-0000-0000-000000000007");
+    expect(surface.surface).toBe("00000000-0000-0000-0000-000000000012");
     expect(calls).toEqual([
       {
         method: "pane.create",
@@ -212,6 +234,23 @@ describe("cmux sdk", () => {
           workspace_id: "00000000-0000-0000-0000-000000000009",
           surface_id: "00000000-0000-0000-0000-000000000007",
           reason: "refresh",
+        },
+      },
+      {
+        method: "surface.create",
+        params: {
+          type: "terminal",
+          pane_id: "00000000-0000-0000-0000-000000000008",
+          workspace_id: "00000000-0000-0000-0000-000000000009",
+          focus: false,
+        },
+      },
+      {
+        method: "surface.send_text",
+        params: {
+          workspace_id: "00000000-0000-0000-0000-000000000009",
+          surface_id: "00000000-0000-0000-0000-000000000012",
+          text: "codex\\n",
         },
       },
       {
@@ -400,7 +439,7 @@ describe("cmux sdk", () => {
     expect(() => cmux.run(["bad"])).toThrow(CmuxCommandError);
   });
 
-  test("handles cmux.open host capability for an ssh workspace", async () => {
+  test("handles cmux.open host capability for an ssh workspace with tabs", async () => {
     const calls: Array<{ method: string; params: unknown }> = [];
     const logs: string[] = [];
     const client = fakeOpenClient(calls);
@@ -413,7 +452,11 @@ describe("cmux sdk", () => {
         sshOptions: ["ServerAliveInterval=15"],
       },
       cwd: "/workspace/site",
-      command: "pnpm dev",
+      surfaceLayout: "tabs",
+      terminals: [
+        { command: "pnpm dev" },
+        { command: "codex", focus: false },
+      ],
       url: "http://localhost:4321",
     }, { client, logger: (message) => logs.push(message) });
 
@@ -421,10 +464,26 @@ describe("cmux sdk", () => {
       sessionId: "workspace-1",
       workspaceId: "workspace-1",
       workspaceRef: "workspace:1",
-      terminalPaneId: "pane-1",
-      terminalSurfaceId: "surface-1",
-      browserPaneId: "pane-2",
-      browserSurfaceId: "surface-2",
+      terminalPanes: [
+        {
+          paneId: "pane-1",
+          paneRef: "pane:1",
+          surfaceId: "surface-1",
+          surfaceRef: "surface:1",
+        },
+        {
+          paneId: "pane-2",
+          paneRef: "pane:2",
+          surfaceId: "surface-2",
+          surfaceRef: "surface:2",
+        },
+      ],
+      browserPane: {
+        paneId: "pane-3",
+        paneRef: "pane:3",
+        surfaceId: "surface-3",
+        surfaceRef: "surface:3",
+      },
     });
     expect(calls).toEqual([
       {
@@ -436,11 +495,10 @@ describe("cmux sdk", () => {
         }),
       },
       {
-        method: "newPane",
+        method: "newSurface",
         params: {
           workspace: "workspace-1",
           type: "terminal",
-          direction: "down",
           focus: true,
         },
       },
@@ -450,6 +508,22 @@ describe("cmux sdk", () => {
           workspace: "workspace-1",
           surface: "surface-1",
           text: "cd /workspace/site && pnpm dev\n",
+        },
+      },
+      {
+        method: "newSurface",
+        params: {
+          workspace: "workspace-1",
+          type: "terminal",
+          focus: false,
+        },
+      },
+      {
+        method: "send",
+        params: {
+          workspace: "workspace-1",
+          surface: "surface-2",
+          text: "cd /workspace/site && codex\n",
         },
       },
       {
@@ -468,9 +542,18 @@ describe("cmux sdk", () => {
         },
       },
       {
-        method: "browserOpen",
+        method: "portsKick",
         params: {
           workspace: "workspace-1",
+          surface: "surface-2",
+          reason: "command",
+        },
+      },
+      {
+        method: "newSurface",
+        params: {
+          workspace: "workspace-1",
+          type: "browser",
           url: "http://localhost:4321",
           focus: true,
         },
@@ -484,7 +567,8 @@ describe("cmux sdk", () => {
     expect(logs).toEqual([
       "cmux: opening website",
       "cmux: connecting remote workspace",
-      "cmux: starting command in /workspace/site",
+      "cmux: starting terminal in /workspace/site",
+      "cmux: starting terminal in /workspace/site",
       "cmux: waiting for remote ports",
       "cmux: refreshing remote ports",
       "cmux: opening http://localhost:4321",
@@ -611,6 +695,7 @@ describe("cmux sdk", () => {
 });
 
 function fakeOpenClient(calls: Array<{ method: string; params: unknown }>): CmuxOpenClient {
+  let terminalPaneIndex = 0;
   return {
     async newWorkspace(params) {
       calls.push({ method: "newWorkspace", params });
@@ -622,13 +707,26 @@ function fakeOpenClient(calls: Array<{ method: string; params: unknown }>): Cmux
     },
     async newPane(params) {
       calls.push({ method: "newPane", params });
+      terminalPaneIndex += 1;
       return {
         workspace: "workspace-1",
         workspaceRef: "workspace:1",
-        pane: "pane-1",
-        paneRef: "pane:1",
-        surface: "surface-1",
-        surfaceRef: "surface:1",
+        pane: `pane-${terminalPaneIndex}`,
+        paneRef: `pane:${terminalPaneIndex}`,
+        surface: `surface-${terminalPaneIndex}`,
+        surfaceRef: `surface:${terminalPaneIndex}`,
+      };
+    },
+    async newSurface(params) {
+      calls.push({ method: "newSurface", params });
+      terminalPaneIndex += 1;
+      return {
+        workspace: "workspace-1",
+        workspaceRef: "workspace:1",
+        pane: `pane-${terminalPaneIndex}`,
+        paneRef: `pane:${terminalPaneIndex}`,
+        surface: `surface-${terminalPaneIndex}`,
+        surfaceRef: `surface:${terminalPaneIndex}`,
       };
     },
     async send(params) {
@@ -644,10 +742,10 @@ function fakeOpenClient(calls: Array<{ method: string; params: unknown }>): Cmux
       return {
         workspace: "workspace-1",
         workspaceRef: "workspace:1",
-        pane: "pane-2",
-        paneRef: "pane:2",
-        surface: "surface-2",
-        surfaceRef: "surface:2",
+        pane: "browser-pane-1",
+        paneRef: "pane:browser-1",
+        surface: "browser-surface-1",
+        surfaceRef: "surface:browser-1",
       };
     },
     async selectWorkspace(workspace) {

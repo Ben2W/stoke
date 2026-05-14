@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import worker from "./index.ts";
+import worker from "./worker.ts";
 
 type MetadataBody = {
   version: string;
@@ -39,7 +39,7 @@ afterEach(() => {
   globalThis.fetch = originalFetch;
 });
 
-describe("install worker", () => {
+describe("website worker · install routes", () => {
   test("serves latest release metadata from GitHub releases", async () => {
     mockGithubFetch();
 
@@ -123,19 +123,61 @@ describe("install worker", () => {
     expect(response.status).toBe(400);
     expect(await response.json() as ErrorBody).toEqual({ error: "Unknown target windows-x64. Expected darwin-arm64, darwin-x64, linux-arm64, linux-x64." });
   });
+
+  test("forwards non-install routes to the static asset binding", async () => {
+    const assetCalls: string[] = [];
+    const env: Env = {
+      GITHUB_REPO: "freestyle-sh/rigkit",
+      PUBLIC_BASE_URL: "https://rigkit.freestyle.sh",
+      CACHE_TTL_SECONDS: "300",
+      ASSETS: {
+        async fetch(request: Request) {
+          assetCalls.push(new URL(request.url).pathname);
+          return new Response("<html>hello</html>", {
+            status: 200,
+            headers: { "content-type": "text/html" },
+          });
+        },
+      },
+    };
+
+    const response = await worker.fetch(new Request("https://rigkit.freestyle.sh/"), env, ctx());
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe("<html>hello</html>");
+    expect(assetCalls).toEqual(["/"]);
+  });
 });
 
-function dispatch(url: string, env: Partial<Record<"GITHUB_TOKEN", string>> = {}): Promise<Response> {
-  return worker.fetch(new Request(url), {
+type Env = {
+  GITHUB_REPO?: string;
+  GITHUB_TOKEN?: string;
+  PUBLIC_BASE_URL?: string;
+  CACHE_TTL_SECONDS?: string;
+  ASSETS: { fetch(request: Request): Promise<Response> };
+};
+
+function dispatch(url: string, overrides: Partial<Record<"GITHUB_TOKEN", string>> = {}): Promise<Response> {
+  const env: Env = {
     GITHUB_REPO: "freestyle-sh/rigkit",
     PUBLIC_BASE_URL: "https://rigkit.freestyle.sh",
     CACHE_TTL_SECONDS: "300",
-    ...env,
-  }, {
+    ASSETS: {
+      async fetch() {
+        throw new Error("ASSETS.fetch should not be called for install paths");
+      },
+    },
+    ...overrides,
+  };
+
+  return worker.fetch(new Request(url), env, ctx());
+}
+
+function ctx(): ExecutionContext {
+  return {
     waitUntil: () => undefined,
     passThroughOnException: () => undefined,
     props: undefined,
-  } as ExecutionContext);
+  } as ExecutionContext;
 }
 
 function mockGithubFetch(): Array<{ url: string; headers: Headers }> {

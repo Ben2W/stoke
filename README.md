@@ -13,7 +13,8 @@ packages/provider-gcloud-cli/    local Google Cloud CLI auth provider
 packages/provider-vscode/   VS Code host package
 packages/cli/      global `rig` command
 apps/app/               placeholder for the future app
-apps/install-worker/    Cloudflare Worker for install and release metadata
+apps/website/           Astro marketing site + install Worker (rigkit.freestyle.sh)
+apps/docs/              Mintlify docs site (docs.rigkit.freestyle.sh)
 examples/smoke/         runnable smoke workflow
 examples/gcloud-on-open/ copy local gcloud config files with a workspace operation
 docs/                   design docs
@@ -43,16 +44,16 @@ pnpm release:check
 pnpm build:cli-binaries
 pnpm smoke:plan
 pnpm smoke:apply
-pnpm --filter @rigkit/cli rigkit -C ../../examples/smoke run create --name my-workspace
-pnpm --filter @rigkit/cli rigkit -C ../../examples/smoke projects
-pnpm --filter @rigkit/cli rigkit -C ../../examples/smoke run ssh my-workspace --print
+pnpm --filter @rigkit/cli rig -C ../../examples/smoke run create --name my-workspace
+pnpm --filter @rigkit/cli rig -C ../../examples/smoke projects
+pnpm --filter @rigkit/cli rig -C ../../examples/smoke run ssh my-workspace --print
 ```
 
 The CLI also has built-in help:
 
 ```bash
 pnpm --filter @rigkit/cli rig help
-pnpm --filter @rigkit/cli rig help run
+pnpm --filter @rigkit/cli rig run --help
 ```
 
 Enable shell completion:
@@ -64,7 +65,7 @@ eval "$(rig completion zsh)"
 ```
 
 The installer adds the completion hook for new installs.
-Completion includes dynamic runtime operation and workspace targets, so `rig ssh <tab>` suggests locally known workspaces from the runtime API.
+Completion includes dynamic runtime operation and workspace targets, so `rig run ssh <tab>` suggests locally known workspaces from the runtime API.
 
 Initialize a new Rigkit project:
 
@@ -85,8 +86,8 @@ By default other `rig` commands load `rig.config.ts` from the current directory.
 Remote GitHub project targets can be run without cloning first:
 
 ```bash
-rig plan github:owner/repo
-rig apply github:owner/repo#branch-name
+rig run plan github:owner/repo
+rig run apply github:owner/repo#branch-name
 ```
 
 The CLI materializes the repo into `~/.rigkit/projects`, installs dependencies if the project runtime is missing, stores state beside the cache, and asks for explicit trust before executing remote project code.
@@ -103,7 +104,7 @@ Implemented:
 - Freestyle provider package for VM create, snapshot refs, create-from-snapshot, provider-owned terminal sessions, workspace fork, exec, and SSH command generation
 - Google Cloud provider package for copying local `gcloud` config/auth files, token brokering, and injection helpers
 - local `.rigkit/state.sqlite` node-run/workspace cache
-- manifest-driven `rig <operation>` CLI host for runtime-exposed project operations
+- manifest-driven `rig run <operation>` CLI host for runtime-exposed project operations
 - project-local runtime daemon with handle/token/lock lifecycle through `@rigkit/runtime-client`
 - VS Code host package using the shared runtime manager
 - pnpm/turbo workspace with project package, engine, hosts, app placeholder, and smoke example

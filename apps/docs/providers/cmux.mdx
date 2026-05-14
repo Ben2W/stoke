@@ -1,0 +1,27 @@
+---
+title: "cmux provider"
+description: "Run interactive cmux sessions from rigkit task graphs."
+---
+
+<Note>
+  Stub page. Document operations and config schema here.
+</Note>
+
+## Install
+
+```sh
+pnpm add @rigkit/provider-cmux
+```
+
+## Configure
+
+```ts rig.config.ts
+import { defineProject } from "@rigkit/sdk";
+import { cmux } from "@rigkit/provider-cmux";
+
+export default defineProject({
+  providers: {
+    sessions: cmux({}),
+  },
+});
+```

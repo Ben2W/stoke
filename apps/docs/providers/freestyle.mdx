@@ -1,0 +1,33 @@
+---
+title: "Freestyle provider"
+description: "Run rigkit workflows against Freestyle VMs."
+---
+
+<Note>
+  Stub page. Fill in once the provider API is locked.
+</Note>
+
+## Install
+
+```sh
+pnpm add @rigkit/provider-freestyle
+```
+
+## Authentication
+
+By default the Freestyle provider opens a browser login and persists host credentials outside project state. To use API-key auth, set `auth: { apiKey: env("FREESTYLE_API_KEY") }` in the provider config.
+
+## Configure
+
+```ts rig.config.ts
+import { defineProject } from "@rigkit/sdk";
+import { freestyle } from "@rigkit/provider-freestyle";
+
+export default defineProject({
+  providers: {
+    cloud: freestyle({
+      // auth: { apiKey: env("FREESTYLE_API_KEY") },
+    }),
+  },
+});
+```

@@ -11,8 +11,8 @@ describe("CLI completion", () => {
     await withWorkspaceRuntime({ projectDir }, async () => {
       const items = await completeRig({
         cwd: projectDir,
-        words: ["rig", "ssh", ""],
-        currentIndex: 2,
+        words: ["rig", "run", "ssh", ""],
+        currentIndex: 3,
       });
 
       expect(items.map((item) => item.value)).toEqual(["api", "web"]);
@@ -25,8 +25,8 @@ describe("CLI completion", () => {
     await withWorkspaceRuntime({ projectDir }, async () => {
       const items = await completeRig({
         cwd: projectDir,
-        words: ["rig", "ssh", "vm-"],
-        currentIndex: 2,
+        words: ["rig", "run", "ssh", "vm-"],
+        currentIndex: 3,
       });
 
       expect(items).toEqual([]);
@@ -39,8 +39,8 @@ describe("CLI completion", () => {
     await withWorkspaceRuntime({ projectDir, cleanupDir: parentDir }, async () => {
       const items = await completeRig({
         cwd: parentDir,
-        words: ["rig", "-C", "project", "ssh", ""],
-        currentIndex: 4,
+        words: ["rig", "-C", "project", "run", "ssh", ""],
+        currentIndex: 5,
       });
 
       expect(items.map((item) => item.value)).toEqual(["api", "web"]);
@@ -55,15 +55,42 @@ describe("CLI completion", () => {
         words: ["rig", "run", ""],
         currentIndex: 2,
       });
-      expect(roots.map((item) => item.value)).toContain("api/");
+      expect(roots.map((item) => item.value)).toContain("api");
       expect(roots.map((item) => item.value)).toContain("ssh");
 
-      const operations = await completeRig({
+      const exactWorkspace = await completeRig({
+        cwd: projectDir,
+        words: ["rig", "run", "api"],
+        currentIndex: 2,
+      });
+      expect(exactWorkspace.map((item) => item.value)).toEqual(["api/remove", "api/open-cmux"]);
+
+      const workspaceAfterSpace = await completeRig({
+        cwd: projectDir,
+        words: ["rig", "run", "api", ""],
+        currentIndex: 3,
+      });
+      expect(workspaceAfterSpace.map((item) => item.value)).toEqual(["api/remove", "api/open-cmux"]);
+
+      const slashWorkspace = await completeRig({
         cwd: projectDir,
         words: ["rig", "run", "api/"],
         currentIndex: 2,
       });
-      expect(operations.map((item) => item.value)).toEqual(["api/remove", "api/open-cmux"]);
+      expect(slashWorkspace.map((item) => item.value)).toEqual(["api/remove", "api/open-cmux"]);
+    });
+  });
+
+  test("does not complete runtime operations at the root command position", async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-completion-"));
+    await withWorkspaceRuntime({ projectDir }, async () => {
+      const items = await completeRig({
+        cwd: projectDir,
+        words: ["rig", "s"],
+        currentIndex: 1,
+      });
+
+      expect(items.map((item) => item.value)).not.toContain("ssh");
     });
   });
 
@@ -72,7 +99,10 @@ describe("CLI completion", () => {
 
     expect(formatCompletionItems(items, "bash")).toBe("api");
     expect(formatCompletionItems(items, "zsh")).toBe("api\tvm-api");
+    expect(formatCompletionItems([{ value: "api", description: "workspace smoke", noSpace: true }], "zsh"))
+      .toBe("api\tworkspace smoke\tnospace");
     expect(renderCompletionScript("zsh")).toContain("rig __complete");
+    expect(renderCompletionScript("zsh")).toContain("compadd -S ''");
   });
 
   test("completes ls targets", async () => {
