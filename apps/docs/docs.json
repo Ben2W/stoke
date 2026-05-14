@@ -2,22 +2,25 @@
   "$schema": "https://mintlify.com/docs.json",
   "theme": "mint",
   "name": "Rigkit",
-  "description": "Forkable dev workflows from typed task graphs.",
+  "description": "Declarative dev environments, in TypeScript.",
+  "banner": {
+    "content": "🚧 Docs are under construction — pages are stubs while the rigkit v0.2 surface stabilizes. [Track progress on GitHub](https://github.com/freestyle-sh/rigkit) or [join the Discord](https://discord.com/invite/v5WT4fbXhc).",
+    "dismissible": false
+  },
   "colors": {
     "primary": "#2d4df5",
     "light": "#5a76ff",
     "dark": "#1a3ad9"
-  },
-  "favicon": "/logo/favicon.svg",
-  "logo": {
-    "light": "/logo/light.svg",
-    "dark": "/logo/dark.svg"
   },
   "background": {
     "color": {
       "light": "#efece5",
       "dark": "#0a0a0a"
     }
+  },
+  "appearance": {
+    "default": "light",
+    "strict": true
   },
   "fonts": {
     "family": "Inter"
@@ -27,6 +30,10 @@
       {
         "label": "Home",
         "href": "https://rigkit.freestyle.sh"
+      },
+      {
+        "label": "Discord",
+        "href": "https://discord.com/invite/v5WT4fbXhc"
       }
     ],
     "primary": {
@@ -41,24 +48,6 @@
     }
   },
   "navigation": {
-    "tabs": [
-      {
-        "tab": "Guides",
-        "groups": [
-          {
-            "group": "Getting started",
-            "pages": ["introduction", "quickstart"]
-          },
-          {
-            "group": "CLI",
-            "pages": ["cli/overview"]
-          },
-          {
-            "group": "Providers",
-            "pages": ["providers/freestyle", "providers/cmux"]
-          }
-        ]
-      }
-    ]
+    "pages": ["introduction"]
   }
 }
