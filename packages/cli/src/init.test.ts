@@ -3,7 +3,12 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { initProject, normalizeMachineName } from "./init.ts";
-import { FREESTYLE_PROVIDER_PACKAGE_NAME, PROJECT_PACKAGE_NAME } from "./project.ts";
+import {
+  FREESTYLE_PROVIDER_PACKAGE_NAME,
+  FREESTYLE_SDK_PACKAGE_NAME,
+  FREESTYLE_SDK_PACKAGE_VERSION,
+  PROJECT_PACKAGE_NAME,
+} from "./project.ts";
 import { RIGKIT_CLI_VERSION } from "./version.ts";
 
 describe("initProject", () => {
@@ -14,7 +19,6 @@ describe("initProject", () => {
       projectDir,
       configPath: join(projectDir, "rig.config.ts"),
       name: "Platform API",
-      apiKey: "fs_test_123",
     });
 
     expect(result.name).toBe("platform-api");
@@ -22,16 +26,18 @@ describe("initProject", () => {
     expect(existsSync(projectDir)).toBe(true);
     expect(result.created).toEqual({
       config: true,
-      env: true,
-      envExample: true,
+      env: false,
+      envExample: false,
       gitignore: true,
       packageJson: true,
     });
 
     expect(readFileSync(join(projectDir, "rig.config.ts"), "utf8")).toContain('sequence("platform-api"');
     expect(readFileSync(join(projectDir, "rig.config.ts"), "utf8")).toContain("defineConfig({");
-    expect(readFileSync(join(projectDir, ".env"), "utf8")).toBe("FREESTYLE_API_KEY=fs_test_123\n");
-    expect(readFileSync(join(projectDir, ".env.example"), "utf8")).toBe("FREESTYLE_API_KEY=\n");
+    expect(readFileSync(join(projectDir, "rig.config.ts"), "utf8")).toContain("new VmSpec()");
+    expect(readFileSync(join(projectDir, "rig.config.ts"), "utf8")).not.toContain("FREESTYLE_API_KEY");
+    expect(existsSync(join(projectDir, ".env"))).toBe(false);
+    expect(existsSync(join(projectDir, ".env.example"))).toBe(false);
     expect(readFileSync(join(projectDir, ".gitignore"), "utf8")).toContain(".env\n.rigkit/\n");
 
     const pkg = JSON.parse(readFileSync(join(projectDir, "package.json"), "utf8"));
@@ -40,6 +46,7 @@ describe("initProject", () => {
     expect(pkg.scripts.apply).toBe("rig apply");
     expect(pkg.devDependencies[PROJECT_PACKAGE_NAME]).toBe(RIGKIT_CLI_VERSION);
     expect(pkg.devDependencies[FREESTYLE_PROVIDER_PACKAGE_NAME]).toBe(RIGKIT_CLI_VERSION);
+    expect(pkg.devDependencies[FREESTYLE_SDK_PACKAGE_NAME]).toBe(FREESTYLE_SDK_PACKAGE_VERSION);
   });
 
   test("updates existing project files without replacing package metadata", () => {

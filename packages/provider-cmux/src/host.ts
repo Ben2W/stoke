@@ -13,7 +13,11 @@ import {
   type CmuxWaitForRemoteOptions,
   type CmuxWorkspace,
 } from "./index.ts";
-import { defineHostCapability, type HostCapabilityHandler } from "@rigkit/sdk/host";
+import {
+  defineHostCapability,
+  type HostCapabilityContext,
+  type HostCapabilityHandler,
+} from "@rigkit/sdk/host";
 import {
   CMUX_OPEN_CAPABILITY,
   type CmuxOpenInput,
@@ -39,6 +43,7 @@ export type CmuxOpenClient = Pick<
 export type CmuxOpenHostOptions = {
   client?: CmuxOpenClient;
   clientOptions?: CmuxClientOptions;
+  logger?: (message: string) => void;
 };
 
 export function createCmuxOpenHostCapability(
@@ -46,7 +51,11 @@ export function createCmuxOpenHostCapability(
 ): CmuxHostCapabilityHandler {
   return defineHostCapability(CMUX_OPEN_CAPABILITY.id, {
     schemaHash: CMUX_OPEN_CAPABILITY.schemaHash,
-    handle: async (params) => await openCmux(params, options),
+    handle: async (params, context) =>
+      await openCmux(params, {
+        ...options,
+        logger: options.logger ?? hostCapabilityLogger(context) ?? options.clientOptions?.logger,
+      }),
   });
 }
 
@@ -57,18 +66,26 @@ export async function openCmux(
   options: CmuxOpenHostOptions = {},
 ): Promise<CmuxOpenResult> {
   const input = parseCmuxOpenInput(params);
-  const cmux = options.client ?? createCmuxClient(options.clientOptions);
+  const logger = cmuxOpenLogger(options);
+  const cmux = options.client ?? createCmuxClient({
+    ...options.clientOptions,
+    ...(options.logger ? { logger: options.logger } : {}),
+    printCommands: options.clientOptions?.printCommands ?? false,
+  });
   const command = commandForInput(input);
   let workspace: CmuxWorkspace;
   let terminalPane: CmuxPane | undefined;
 
+  logger?.(`cmux: opening ${input.name}`);
   if (input.ssh) {
+    logger?.("cmux: connecting remote workspace");
     workspace = await cmux.ssh({
       ...cmuxSshOptionsForInput(input.ssh),
       name: input.name,
       noFocus: input.focus === false,
     });
   } else {
+    logger?.("cmux: creating workspace");
     const workspaceOptions: CmuxNewWorkspaceOptions = {
       name: input.name,
       cwd: input.cwd,
@@ -81,6 +98,7 @@ export async function openCmux(
   const workspaceId = workspace.id ?? workspace.handle;
 
   if (input.ssh && command) {
+    logger?.(input.cwd ? `cmux: starting command in ${input.cwd}` : "cmux: starting command");
     const paneOptions: CmuxNewPaneOptions = {
       workspace: workspaceId,
       type: "terminal",
@@ -98,10 +116,12 @@ export async function openCmux(
 
   const waitOptions = remoteReadyOptionsForInput(input);
   if (input.ssh && waitOptions) {
+    logger?.("cmux: waiting for remote ports");
     await cmux.waitForRemoteReady(workspaceId, waitOptions);
   }
 
   if (input.ssh && terminalPane?.surface) {
+    logger?.("cmux: refreshing remote ports");
     const kickOptions: CmuxPortsKickOptions = {
       workspace: workspaceId,
       surface: terminalPane.surface,
@@ -112,6 +132,7 @@ export async function openCmux(
 
   let browserPane: CmuxPane | undefined;
   if (input.url) {
+    logger?.(`cmux: opening ${input.url}`);
     const browserOptions: CmuxBrowserOpenOptions = {
       workspace: workspaceId,
       url: input.url,
@@ -121,9 +142,11 @@ export async function openCmux(
   }
 
   if (input.focus !== false) {
+    logger?.("cmux: focusing workspace");
     await cmux.selectWorkspace(workspaceId);
   }
 
+  logger?.(`cmux: ready ${input.name}`);
   return {
     sessionId: workspaceId,
     workspaceId,
@@ -133,6 +156,15 @@ export async function openCmux(
     ...(browserPane?.pane ? { browserPaneId: browserPane.pane } : {}),
     ...(browserPane?.surface ? { browserSurfaceId: browserPane.surface } : {}),
   };
+}
+
+function cmuxOpenLogger(options: CmuxOpenHostOptions): ((message: string) => void) | undefined {
+  return options.logger ?? options.clientOptions?.logger;
+}
+
+function hostCapabilityLogger(context: HostCapabilityContext | undefined): ((message: string) => void) | undefined {
+  if (!context) return undefined;
+  return (message) => context.log(message, { label: "cmux" });
 }
 
 export function parseCmuxOpenInput(value: unknown): CmuxOpenInput {

@@ -15,7 +15,8 @@
   "dependencies": {
     "@rigkit/provider-freestyle": "workspace:*",
     "@rigkit/provider-gcloud-cli": "workspace:*",
-    "@rigkit/sdk": "workspace:*"
+    "@rigkit/sdk": "workspace:*",
+    "freestyle": "^0.1.51"
   },
   "devDependencies": {
     "@rigkit/cli": "workspace:*",

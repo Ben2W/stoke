@@ -29,6 +29,8 @@ describe("local gcloud config copy provider", () => {
           config: { command: join(projectDir, "missing-gcloud") },
         },
         storage: state.providerStorage("gcloud.config.copy"),
+        hostStorage: state.providerStorage("gcloud.config.copy.host"),
+        local: { open: async () => {} },
       }),
     ).rejects.toThrow("Local gcloud CLI is required");
   });
@@ -49,6 +51,8 @@ describe("local gcloud config copy provider", () => {
         },
       },
       storage: state.providerStorage("gcloud.config.copy"),
+      hostStorage: state.providerStorage("gcloud.config.copy.host"),
+      local: { open: async () => {} },
     });
 
     expect(controller.providerId).toBe(GCLOUD_CONFIG_COPY_PROVIDER_ID);

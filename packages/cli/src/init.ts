@@ -1,13 +1,18 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { RIGKIT_CLI_VERSION } from "./version.ts";
-import { FREESTYLE_PROVIDER_PACKAGE_NAME, PROJECT_PACKAGE_NAME } from "./project.ts";
+import {
+  FREESTYLE_PROVIDER_PACKAGE_NAME,
+  FREESTYLE_SDK_PACKAGE_NAME,
+  FREESTYLE_SDK_PACKAGE_VERSION,
+  PROJECT_PACKAGE_NAME,
+} from "./project.ts";
 
 export type InitProjectInput = {
   projectDir: string;
   configPath: string;
   name: string;
-  apiKey: string;
+  apiKey?: string;
   force?: boolean;
 };
 
@@ -47,11 +52,14 @@ export function initProject(input: InitProjectInput): InitProjectResult {
     writeFileSync(input.configPath, starterConfig(name));
   }
 
+  const apiKey = input.apiKey?.trim();
   const envPath = join(input.projectDir, ".env");
-  const env = writeEnvFile(envPath, input.apiKey);
+  const env = apiKey
+    ? writeEnvFile(envPath, apiKey)
+    : { created: false, updated: false };
 
   const envExamplePath = join(input.projectDir, ".env.example");
-  const wroteEnvExample = !existsSync(envExamplePath);
+  const wroteEnvExample = Boolean(apiKey) && !existsSync(envExamplePath);
   if (wroteEnvExample) {
     writeFileSync(envExamplePath, "FREESTYLE_API_KEY=\n");
   }
@@ -94,32 +102,46 @@ export function normalizeMachineName(value: string): string {
 export function starterConfig(name: string): string {
   const workflowName = JSON.stringify(normalizeMachineName(name));
 
-  return `import { defineConfig, env, sequence } from "@rigkit/sdk";
-import { freestyle } from "@rigkit/provider-freestyle";
+  return `import { defineConfig, sequence } from "@rigkit/sdk";
+import { freestyle, VmBaseImage, VmSpec } from "@rigkit/provider-freestyle";
 
-const freestyleProvider = freestyle.provider({
-  apiKey: () => env.secret("FREESTYLE_API_KEY"),
-  image: "node-22",
-});
+const vmIdleTimeoutSeconds = 3600;
+const vmSpec = new VmSpec()
+  .baseImage(new VmBaseImage("FROM node:22"))
+  .idleTimeoutSeconds(vmIdleTimeoutSeconds);
+
+const freestyleProvider = freestyle.provider();
 
 const dev = sequence(${workflowName})
-  .step("verify-node-22", async ({ providers }) => {
-    const vm = await providers.freestyle.vms.create();
-    const result = await vm.probe("node --version", { name: "node is v22" });
-    if (!result.ok || !result.stdout.trim().startsWith("v22.")) {
-      throw new Error(\`Expected Node.js v22, got: \${result.stdout}\${result.stderr}\`);
+  .step("verify-node-22", async ({ providers, step }) => {
+    const { vm, vmId } = await providers.freestyle.client.vms.create({
+      spec: vmSpec,
+      logger: step.log,
+    });
+    try {
+      const result = await vm.exec("node --version");
+      if ((result.statusCode ?? 0) !== 0 || !result.stdout.trim().startsWith("v22.")) {
+        throw new Error(\`Expected Node.js v22, got: \${result.stdout}\${result.stderr}\`);
+      }
+      const snapshot = await vm.snapshot();
+      return { ctx: { snapshotId: snapshot.snapshotId } };
+    } finally {
+      await providers.freestyle.client.vms.delete({ vmId });
     }
-    return { vm: await vm.snapshotRef() };
   })
   .workspace({
-    create: async ({ workflow, providers }) => {
-      const vm = await providers.freestyle.vms.fromSnapshot(workflow.ctx.vm);
+    create: async ({ workflow, providers, step }) => {
+      const { vmId } = await providers.freestyle.client.vms.create({
+        snapshotId: workflow.ctx.snapshotId,
+        idleTimeoutSeconds: vmIdleTimeoutSeconds,
+        logger: step.log,
+      });
       return {
-        vmId: vm.vmId,
+        vmId,
       };
     },
     remove: async ({ providers, workspace }) => {
-      await providers.freestyle.vms.delete(workspace.ctx.vmId);
+      await providers.freestyle.client.vms.delete({ vmId: workspace.ctx.vmId });
     },
   });
 
@@ -218,11 +240,13 @@ function ensureProjectPackageJson(
   const devDependencies = isRecord(pkg.devDependencies) ? pkg.devDependencies : {};
   const sdkDependencyChanged =
     devDependencies[PROJECT_PACKAGE_NAME] !== RIGKIT_CLI_VERSION ||
-    devDependencies[FREESTYLE_PROVIDER_PACKAGE_NAME] !== RIGKIT_CLI_VERSION;
+    devDependencies[FREESTYLE_PROVIDER_PACKAGE_NAME] !== RIGKIT_CLI_VERSION ||
+    devDependencies[FREESTYLE_SDK_PACKAGE_NAME] !== FREESTYLE_SDK_PACKAGE_VERSION;
   if (sdkDependencyChanged) {
     delete devDependencies["@rigkit/runtime"];
     devDependencies[PROJECT_PACKAGE_NAME] = RIGKIT_CLI_VERSION;
     devDependencies[FREESTYLE_PROVIDER_PACKAGE_NAME] = RIGKIT_CLI_VERSION;
+    devDependencies[FREESTYLE_SDK_PACKAGE_NAME] = FREESTYLE_SDK_PACKAGE_VERSION;
     updated = true;
   }
   pkg.devDependencies = sortObject(devDependencies);

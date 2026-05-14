@@ -37,24 +37,25 @@ export const cmuxProviderPlugin: BaseProviderPlugin = {
     return {
       providerId: CMUX_PROVIDER_ID,
       runtime(context) {
-        return createCmuxRuntime(context.local);
+        return createCmuxRuntime(context.local, context.nodePath);
       },
     };
   },
 };
 
-function createCmuxRuntime(local: LocalWorkspaceRuntime): CmuxRuntime {
+function createCmuxRuntime(local: LocalWorkspaceRuntime, nodePath: string): CmuxRuntime {
   return {
-    open: async (input) => await requestCmuxOpen(local, input),
+    open: async (input) => await requestCmuxOpen(local, input, { nodePath }),
   };
 }
 
 export async function requestCmuxOpen(
   local: LocalWorkspaceRuntime,
   input: CmuxOpenInput,
+  options: { nodePath?: string } = {},
 ): Promise<CmuxOpenSession> {
   if (local.requestCapabilitySession) {
-    const session = await local.requestCapabilitySession<CmuxOpenResult>(CMUX_OPEN_CAPABILITY_ID, input);
+    const session = await local.requestCapabilitySession<CmuxOpenResult>(CMUX_OPEN_CAPABILITY_ID, input, options);
     return {
       ...parseCmuxOpenResult(session.result),
       closed: session.closed,
@@ -64,7 +65,7 @@ export async function requestCmuxOpen(
     throw new Error(`Host capability ${CMUX_OPEN_CAPABILITY_ID} is unavailable in this runtime`);
   }
   const result = parseCmuxOpenResult(
-    await local.requestCapability(CMUX_OPEN_CAPABILITY_ID, input),
+    await local.requestCapability(CMUX_OPEN_CAPABILITY_ID, input, options),
   );
   return {
     ...result,

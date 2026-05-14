@@ -60,6 +60,10 @@ export interface StateService {
     upstreamRunIds: readonly string[];
   }): WorkflowNodeRunRecord | undefined;
   saveNodeRun(run: WorkflowNodeRunRecord): void;
+  invalidateNodeRuns(input: {
+    workflow: string;
+    nodePaths: readonly string[];
+  }): string[];
   providerStorage(providerId: string): ProviderStorage;
 }
 
@@ -168,6 +172,42 @@ export class StateStore implements StateService {
 
   saveNodeRun(run: WorkflowNodeRunRecord): void {
     this.db.insert(workflowNodeRuns).values(run).run();
+  }
+
+  invalidateNodeRuns(input: {
+    workflow: string;
+    nodePaths: readonly string[];
+  }): string[] {
+    const targetPaths = new Set(input.nodePaths);
+    if (targetPaths.size === 0) return [];
+
+    const rows = this.db
+      .select()
+      .from(workflowNodeRuns)
+      .where(eq(workflowNodeRuns.workflow, input.workflow))
+      .orderBy(asc(workflowNodeRuns.createdAt))
+      .all()
+      .map(toNodeRunRecord);
+
+    const invalidatedIds = new Set<string>();
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const row of rows) {
+        if (row.invalidated || invalidatedIds.has(row.id)) continue;
+        const isTarget = targetPaths.has(row.nodePath);
+        const dependsOnInvalidated = row.upstreamRunIds.some((id) => invalidatedIds.has(id));
+        if (!isTarget && !dependsOnInvalidated) continue;
+        invalidatedIds.add(row.id);
+        changed = true;
+      }
+    }
+
+    for (const id of invalidatedIds) {
+      this.db.update(workflowNodeRuns).set({ invalidated: true }).where(eq(workflowNodeRuns.id, id)).run();
+    }
+
+    return [...invalidatedIds];
   }
 
   providerStorage(providerId: string): ProviderStorage {

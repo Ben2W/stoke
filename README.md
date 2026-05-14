@@ -21,9 +21,10 @@ docs/                   design docs
 
 ## Setup
 
-Create `.env` in the repo root:
+Freestyle auth is handled by the provider. By default Rigkit opens the Freestyle browser login and stores provider-owned host credentials outside project state. To use API-key auth, pass `auth: { apiKey: env("FREESTYLE_API_KEY") }` in the provider config.
 
 ```bash
+# Optional, only used by configs that opt into API-key auth.
 FREESTYLE_API_KEY=fs_live_...
 ```
 
@@ -71,10 +72,10 @@ Initialize a new Rigkit project:
 rig init
 ```
 
-`rig init` asks for a project name, Freestyle API key, and whether to install dependencies with npm, bun, pnpm, or skip. It then creates a project folder with `rig.config.ts`, `.env`, `.env.example`, `package.json`, and `.gitignore` entries. For non-interactive setup:
+`rig init` asks for a project name and whether to install dependencies with npm, bun, pnpm, or skip. It then creates a project folder with `rig.config.ts`, `package.json`, and `.gitignore` entries. For non-interactive setup:
 
 ```bash
-rig init --name platform --api-key fs_live_... --package-manager pnpm
+rig init --name platform --package-manager pnpm
 ```
 
 That creates `./platform`. Use `-C <dir>` with `init` to choose a parent directory for the new project.

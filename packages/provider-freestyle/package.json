@@ -24,11 +24,14 @@
     "@rigkit/sdk": "workspace:*",
     "@rigkit/engine": "workspace:*",
     "@rigkit/provider-cmux": "workspace:*",
-    "freestyle": "latest",
     "zod": "^4"
+  },
+  "peerDependencies": {
+    "freestyle": "^0.1.51"
   },
   "devDependencies": {
     "@types/bun": "latest",
+    "freestyle": "^0.1.51",
     "typescript": "latest"
   },
   "publishConfig": {

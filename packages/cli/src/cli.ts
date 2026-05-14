@@ -405,29 +405,29 @@ async function runInit(invocation: CliInvocation, options: InitOptions): Promise
 async function resolveInitAnswers(
   options: InitOptions,
   jsonMode: boolean,
-): Promise<{ name: string; apiKey: string; packageManager: PackageManager }> {
-  if (jsonMode && (options.name === undefined || !options.apiKey?.trim())) {
-    throw new Error(`rig init --json requires --name and --api-key`);
+): Promise<{ name: string; apiKey?: string; packageManager: PackageManager }> {
+  if (jsonMode && options.name === undefined) {
+    throw new Error(`rig init --json requires --name`);
   }
 
   if (jsonMode && options.packageManager && options.packageManager !== "skip") {
     throw new Error(`rig init --json only supports --package-manager skip`);
   }
 
-  if (options.name === undefined || !options.apiKey) {
+  if (options.name === undefined) {
     assertInteractiveInit();
   }
 
   if (!jsonMode) {
     console.log(chalk.bold("Initialize Rigkit"));
-    console.log(chalk.dim("This creates a project folder with rig.config.ts, .env, package.json, and local ignore rules."));
+    console.log(chalk.dim("This creates a project folder with rig.config.ts, package.json, and local ignore rules."));
     console.log("");
   }
 
   const name = options.name !== undefined
     ? normalizeMachineName(options.name)
     : await promptName();
-  const apiKey = options.apiKey?.trim() || await promptRequiredSecret("Freestyle API key");
+  const apiKey = options.apiKey?.trim();
   const packageManager = options.packageManager ?? (jsonMode || !canPrompt() ? "skip" : await promptPackageManager("skip"));
 
   return {
@@ -439,7 +439,7 @@ async function resolveInitAnswers(
 
 function assertInteractiveInit(): void {
   if (canPrompt()) return;
-  throw new Error(`rig init needs --name and --api-key when not running in an interactive terminal`);
+  throw new Error(`rig init needs --name when not running in an interactive terminal`);
 }
 
 function canPrompt(): boolean {
@@ -478,14 +478,6 @@ async function promptName(): Promise<string> {
   return answers.name;
 }
 
-async function promptRequiredSecret(label: string): Promise<string> {
-  for (;;) {
-    const value = (await promptSecret(label)).trim();
-    if (value) return value;
-    console.log(chalk.red(`${label} is required.`));
-  }
-}
-
 async function promptPackageManager(defaultValue: PackageManager): Promise<PackageManager> {
   const choices: Array<{ value: PackageManager; label: string; hint: string }> = [
     { value: "npm", label: "npm", hint: "npm install" },
@@ -505,16 +497,6 @@ async function promptPackageManager(defaultValue: PackageManager): Promise<Packa
     })),
   }]);
   return answers.packageManager;
-}
-
-async function promptSecret(label: string): Promise<string> {
-  const answers = await inquirer.prompt<{ value: string }>([{
-    type: "password",
-    name: "value",
-    message: `${label}:`,
-    mask: "*",
-  }]);
-  return answers.value;
 }
 
 async function runPackageManagerInstall(
@@ -1214,10 +1196,12 @@ async function runRuntimeOperation<T>(
       return;
     }
     if (isHostCapabilityRequestEvent(event)) {
-      presenter?.pause();
+      const suspendPresenter = hostCapabilityNeedsTerminal(event);
+      const logger = createHostCapabilityLogger(event, presenter);
+      if (suspendPresenter) presenter?.pause();
       try {
         if (sendSession) {
-          await answerHostCapabilityRequestOverSession(sendSession, event);
+          await answerHostCapabilityRequestOverSession(sendSession, event, { logger });
         } else if (respond) {
           await answerHostCapabilityRequestOverSession((message) => {
             if (isRecord(message) && message.type === "response") {
@@ -1225,12 +1209,12 @@ async function runRuntimeOperation<T>(
               if (id) return respond(id, "error" in message ? { error: message.error } : { result: message.result });
             }
             throw new Error(`Session response channel cannot send ${String(isRecord(message) ? message.type : typeof message)}`);
-          }, event);
+          }, event, { logger });
         } else {
-          await answerHostCapabilityRequest(runtime, event);
+          await answerHostCapabilityRequest(runtime, event, { logger });
         }
       } finally {
-        presenter?.resume();
+        if (suspendPresenter) presenter?.resume();
       }
       return;
     }
@@ -1352,12 +1336,22 @@ type HostCapabilityRequestEvent = {
   type: "host.capability.request";
   requestId?: string;
   id?: string;
+  nodePath?: string;
   capability: string;
   params: unknown;
 };
 
 type HostRequestHandlingOptions = {
   quietOpen?: boolean;
+};
+
+type HostCapabilityLogOptions = {
+  stream?: "stdout" | "stderr" | "info";
+  label?: string;
+};
+
+type HostCapabilityRequestHandlingOptions = {
+  logger?: (data: string, options?: HostCapabilityLogOptions) => void;
 };
 
 class UnsupportedHostCapabilityError extends Error {
@@ -1407,11 +1401,15 @@ async function answerHostRequestOverSession(
   }
 }
 
-async function answerHostCapabilityRequest(runtime: RuntimeClient, event: HostCapabilityRequestEvent): Promise<void> {
+async function answerHostCapabilityRequest(
+  runtime: RuntimeClient,
+  event: HostCapabilityRequestEvent,
+  options: HostCapabilityRequestHandlingOptions = {},
+): Promise<void> {
   const requestId = event.requestId ?? event.id;
   if (!requestId) throw new Error(`Host capability request is missing requestId`);
   try {
-    const handled = await handleHostCapabilityRequest(event.capability, event.params);
+    const handled = await handleHostCapabilityRequest(event.capability, event.params, options);
     await runtime.control.hostResponse(requestId, { result: handled.result });
   } catch (error) {
     await runtime.control.hostResponse(requestId, {
@@ -1423,11 +1421,12 @@ async function answerHostCapabilityRequest(runtime: RuntimeClient, event: HostCa
 async function answerHostCapabilityRequestOverSession(
   send: (message: unknown) => void | Promise<void>,
   event: HostCapabilityRequestEvent,
+  options: HostCapabilityRequestHandlingOptions = {},
 ): Promise<void> {
   const id = event.id ?? event.requestId;
   if (!id) throw new Error(`Host capability request is missing id`);
   try {
-    const handled = await handleHostCapabilityRequest(event.capability, event.params);
+    const handled = await handleHostCapabilityRequest(event.capability, event.params, options);
     await send({ type: "response", id, result: handled.result });
     if (handled.closed) reportHostCapabilityClosed(send, id, handled.closed);
   } catch (error) {
@@ -1473,6 +1472,34 @@ function hostRequestNeedsTerminal(event: HostRequestEvent): boolean {
   }
 }
 
+function hostCapabilityNeedsTerminal(event: HostCapabilityRequestEvent): boolean {
+  switch (event.capability) {
+    case "cmux.open":
+      return false;
+    default:
+      return true;
+  }
+}
+
+function createHostCapabilityLogger(
+  event: HostCapabilityRequestEvent,
+  presenter: RunPresenter | undefined,
+): (data: string, options?: HostCapabilityLogOptions) => void {
+  return (data, options = {}) => {
+    if (presenter) {
+      presenter.render({
+        type: "log.output",
+        nodePath: event.nodePath ?? "runtime",
+        stream: options.stream ?? "info",
+        label: options.label ?? event.capability,
+        data,
+      });
+      return;
+    }
+    console.error(data);
+  };
+}
+
 function isTrustedCaptureHostCommand(params: unknown): boolean {
   return process.env.RIGKIT_TRUST_HOST_COMMANDS === "1" &&
     isRecord(params) &&
@@ -1484,12 +1511,18 @@ type HandledHostCapability = {
   closed?: Promise<void>;
 };
 
-async function handleHostCapabilityRequest(capability: string, params: unknown): Promise<HandledHostCapability> {
+async function handleHostCapabilityRequest(
+  capability: string,
+  params: unknown,
+  options: HostCapabilityRequestHandlingOptions = {},
+): Promise<HandledHostCapability> {
   const handler = CLI_HOST_CAPABILITY_HANDLERS.get(capability);
   if (!handler) {
     throw new UnsupportedHostCapabilityError(capability);
   }
-  return normalizeHostCapabilityResult(await handler.handle(params));
+  return normalizeHostCapabilityResult(await handler.handle(params, {
+    log: (data, logOptions) => options.logger?.(data, logOptions),
+  }));
 }
 
 function normalizeHostCapabilityResult(value: unknown): HandledHostCapability {
@@ -1685,6 +1718,7 @@ function isHostCapabilityRequestEvent(value: unknown): value is HostCapabilityRe
   return isRecord(value) &&
     value.type === "host.capability.request" &&
     (typeof value.requestId === "string" || typeof value.id === "string") &&
+    (value.nodePath === undefined || typeof value.nodePath === "string") &&
     typeof value.capability === "string";
 }
 
@@ -1760,13 +1794,33 @@ function printWorkspaces(
   }
 
   printTable(
-    ["name", "workflow", "created"],
+    ["name", "workflow", "created", "age"],
     workspaces.map((workspace) => [
       workspace.name,
       workspace.workflow,
       workspace.createdAt,
+      formatWorkspaceAge(workspace.createdAt),
     ]),
   );
+}
+
+function formatWorkspaceAge(createdAt: string): string {
+  const createdTime = Date.parse(createdAt);
+  if (Number.isNaN(createdTime)) return chalk.dim("unknown");
+
+  const ageMs = Math.max(0, Date.now() - createdTime);
+  const minute = 60 * 1000;
+  const hour = 60 * minute;
+  const day = 24 * hour;
+  const label = ageMs < hour
+    ? `${Math.max(1, Math.floor(ageMs / minute))}m`
+    : ageMs < day
+      ? `${Math.floor(ageMs / hour)}h`
+      : `${Math.floor(ageMs / day)}d`;
+
+  if (ageMs < day) return chalk.green(label);
+  if (ageMs <= 3 * day) return chalk.yellow(label);
+  return chalk.red(label);
 }
 
 function printSnapshots(snapshots: SnapshotRecord[]): void {

@@ -10,7 +10,7 @@ sequence("normal-operation-ids")
   });
 
 sequence("workspace-operation-ids")
-  .step("prepare", async () => ({ snapshotId: "snap-1" }))
+  .step("prepare", async () => ({ ctx: { snapshotId: "snap-1" } }))
   .workspace({
     create: async ({ workflow, workspace }) => {
       const snapshotId: string = workflow.ctx.snapshotId;
@@ -43,6 +43,26 @@ sequence("workspace-operation-ids")
   .workspaceOperation("open-cmux" as const, {
     run: async () => null,
   });
+
+sequence("typed-step-invalidation")
+  .step("github-auth", async () => ({ ctx: { token: "ok" } }))
+  .step("check-auth", async ({ step }) => {
+    const token: string = step.ctx.token;
+    void token;
+    return step.invalidate("github-auth");
+  });
+
+sequence("typed-step-invalidation-targets")
+  .step("github-auth", async () => ({ ctx: { token: "ok" } }))
+  .step("check-auth", async ({ step }) => {
+    // @ts-expect-error invalidation target must be a previous task id
+    return step.invalidate("missing-auth");
+  });
+
+sequence("duplicate-step-id")
+  .step("prepare" as const, async () => ({ ctx: { snapshotId: "snap-1" } }))
+  // @ts-expect-error duplicate task ids are rejected for literal ids
+  .step("prepare" as const, async ({ step }) => ({ ctx: step.ctx }));
 
 sequence("reserved-operation-id")
   // @ts-expect-error reserved operation ids are rejected for literal ids

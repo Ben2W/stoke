@@ -4,7 +4,12 @@ import { pathToFileURL } from "node:url";
 import { isRigkitConfig, isProviderDefinition, isWorkflowNode } from "./authoring.ts";
 import { loadDotEnv } from "./env-file.ts";
 import { hash } from "./hash.ts";
-import { RESERVED_WORKFLOW_OPERATION_IDS } from "./types.ts";
+import {
+  createFileProviderHostStorage,
+  defaultProviderHostStorageDir,
+  type ProviderHostStorageFactory,
+} from "./host-storage.ts";
+import { RESERVED_WORKFLOW_OPERATION_IDS, STEP_INVALIDATION_KIND } from "./types.ts";
 import type {
   BaseProviderPlugin,
   InteractionPresenter,
@@ -32,11 +37,14 @@ import type {
   WorkflowInputFieldDefinition,
   WorkflowDefinition,
   WorkflowEvent,
+  WorkflowLogStream,
   WorkflowNodeDefinition,
   WorkflowOperationDefinition,
   WorkflowPlan,
   WorkflowPlanNode,
   WorkflowProviderMap,
+  WorkflowStepInvalidation,
+  WorkflowTaskCacheTTL,
   WorkflowTaskNode,
   WorkspaceRecord,
   WorkspaceRuntimeRecord,
@@ -51,6 +59,8 @@ export type CreateDevMachineEngineOptions = {
   providers?: BaseProviderPlugin[];
   providerFactory?: ProviderFactory;
   stateFactory?: StateServiceFactory;
+  hostStorageDir?: string;
+  hostStorageFactory?: ProviderHostStorageFactory;
   interaction?: {
     present?: InteractionPresenter;
   };
@@ -147,8 +157,14 @@ type EvaluationMode = "plan" | "apply";
 type EvaluationState = {
   context: Record<string, JsonValue>;
   upstreamRunIds: string[];
+  previousTasks: EvaluationPreviousTask[];
   known: boolean;
   blockedReason?: string;
+};
+
+type EvaluationPreviousTask = {
+  name: string;
+  path: string;
 };
 
 type EvaluationResult = EvaluationState & {
@@ -179,6 +195,30 @@ type RuntimeWorkspaceOperationEntry = {
   readonly run: (input: { workspace: string; workflow?: string; input?: unknown }) => Promise<unknown>;
 };
 
+class StepInvalidationRestart extends Error {
+  readonly workflow: string;
+  readonly target: string;
+  readonly targetNodePath: string;
+  readonly currentNodePath: string;
+  readonly invalidatedRunIds: string[];
+
+  constructor(input: {
+    workflow: string;
+    target: string;
+    targetNodePath: string;
+    currentNodePath: string;
+    invalidatedRunIds: string[];
+  }) {
+    super(`Task ${input.currentNodePath} invalidated ${input.targetNodePath}`);
+    this.name = "StepInvalidationRestart";
+    this.workflow = input.workflow;
+    this.target = input.target;
+    this.targetNodePath = input.targetNodePath;
+    this.currentNodePath = input.currentNodePath;
+    this.invalidatedRunIds = input.invalidatedRunIds;
+  }
+}
+
 let configImportCounter = 0;
 
 export class DevMachineEngine {
@@ -189,6 +229,9 @@ export class DevMachineEngine {
   private providers: BaseProviderPlugin[];
   private readonly providerFactory: ProviderFactory;
   private readonly stateFactory: StateServiceFactory;
+  private readonly hostStorageDir: string;
+  private readonly hostStorageFactory: ProviderHostStorageFactory;
+  private readonly providerHostStorage = new Map<string, ReturnType<ProviderHostStorageFactory>>();
   private readonly interactionPresenter: InteractionPresenter;
   private readonly local: LocalWorkspaceRuntime;
   private readonly handlers = new Set<EventHandler>();
@@ -204,6 +247,8 @@ export class DevMachineEngine {
     this.providers = options.providers ?? [];
     this.providerFactory = options.providerFactory ?? ((input) => this.createProviderFromPlugin(input));
     this.stateFactory = options.stateFactory ?? createStateStore;
+    this.hostStorageDir = options.hostStorageDir ? resolve(options.hostStorageDir) : defaultProviderHostStorageDir();
+    this.hostStorageFactory = options.hostStorageFactory ?? createFileProviderHostStorage;
     this.interactionPresenter = options.interaction?.present ?? defaultInteractionPresenter;
     this.local = {
       open: options.local?.open ?? openLocalTarget,
@@ -581,6 +626,7 @@ export class DevMachineEngine {
       providers: runtime,
       local: this.local,
       workflow: workflow.name,
+      step: this.createStepRuntime(workflow.name, `operation.${operation.id}`, metadata),
     });
     if (result !== undefined) assertJsonValue(result, `Operation ${operation.id} result`);
     return result ?? null;
@@ -648,11 +694,27 @@ export class DevMachineEngine {
   }> {
     const workflow = this.getWorkflow(input.workflow ?? input.machine);
     const providers = await this.createProviders(workflow);
-    const result = await this.evaluate({
-      workflow,
-      providers,
-      mode: "apply",
-    });
+    let result: { context: Record<string, JsonValue>; plan: WorkflowPlan } | undefined;
+    const maxRestarts = 8;
+    for (let attempt = 0; attempt <= maxRestarts; attempt++) {
+      try {
+        result = await this.evaluate({
+          workflow,
+          providers,
+          mode: "apply",
+        });
+        break;
+      } catch (error) {
+        if (!(error instanceof StepInvalidationRestart)) throw error;
+        if (attempt === maxRestarts) {
+          throw new Error(
+            `Task ${error.currentNodePath} repeatedly invalidated ${error.targetNodePath}; stopping after ${maxRestarts + 1} attempts`,
+            { cause: error },
+          );
+        }
+      }
+    }
+    if (!result) throw new Error(`Workflow ${workflow.name} did not produce an apply result`);
 
     return {
       context: result.context,
@@ -749,6 +811,7 @@ export class DevMachineEngine {
       workspace: workspaceRuntime,
       providers: runtime,
       local: this.local,
+      step: this.createStepRuntime(workflow.name, `workspace.${workspace.name}.remove`, metadata),
     });
 
     this.getStateService().deleteWorkspace(input.workspace);
@@ -771,6 +834,7 @@ export class DevMachineEngine {
       state: {
         context: {},
         upstreamRunIds: [],
+        previousTasks: [],
         known: true,
       },
       prefix: [],
@@ -819,6 +883,7 @@ export class DevMachineEngine {
       state = {
         context: result.context,
         upstreamRunIds: result.upstreamRunIds,
+        previousTasks: result.previousTasks,
         known: result.known,
         blockedReason: result.blockedReason,
       };
@@ -831,6 +896,7 @@ export class DevMachineEngine {
     const branches = parallelBranches(input.node);
     const branchOutputs: Record<string, JsonValue> = {};
     const joinedRunIds: string[] = [];
+    let joinedPreviousTasks = [...input.state.previousTasks];
     let known = input.state.known;
     let blockedReason = input.state.blockedReason;
 
@@ -845,6 +911,7 @@ export class DevMachineEngine {
         state: {
           context: { ...input.state.context },
           upstreamRunIds: [...input.state.upstreamRunIds],
+          previousTasks: [...input.state.previousTasks],
           known: input.state.known,
           blockedReason: input.state.blockedReason,
         },
@@ -856,6 +923,7 @@ export class DevMachineEngine {
       if (branchState.known) {
         branchOutputs[branchName] = branchState.context;
         joinedRunIds.push(...branchState.upstreamRunIds);
+        joinedPreviousTasks = mergePreviousTasks(joinedPreviousTasks, branchState.previousTasks);
       } else {
         known = false;
         blockedReason ??= branchState.blockedReason ?? `depends on ${branchName}`;
@@ -865,6 +933,7 @@ export class DevMachineEngine {
     return {
       context: known ? { ...input.state.context, ...branchOutputs } : { ...input.state.context },
       upstreamRunIds: known ? joinedRunIds.sort() : [],
+      previousTasks: known ? joinedPreviousTasks : input.state.previousTasks,
       known,
       blockedReason,
       planNodes: input.planNodes,
@@ -875,7 +944,7 @@ export class DevMachineEngine {
     const nodePath = [...input.prefix, input.node.name].join(".");
     const upstreamRunIds = [...input.state.upstreamRunIds];
     const nodeKey = hash({
-      cache: "task-v2",
+      cache: "task-v3",
       kind: "task",
       path: nodePath,
       name: input.node.name,
@@ -897,6 +966,7 @@ export class DevMachineEngine {
       return {
         context: input.state.context,
         upstreamRunIds: [],
+        previousTasks: input.state.previousTasks,
         known: false,
         blockedReason: input.state.blockedReason ?? `depends on ${nodePath}`,
         planNodes: input.planNodes,
@@ -911,9 +981,14 @@ export class DevMachineEngine {
       upstreamRunIds,
       providers: input.providers,
       outputSchema: input.node.options?.output,
+      cacheTTL: input.node.options?.cacheTTL,
     });
 
     if (cached) {
+      const previousTasks = appendPreviousTask(input.state.previousTasks, {
+        name: input.node.name,
+        path: nodePath,
+      });
       this.emit({ type: "node.cached", nodePath, runId: cached.id });
       input.planNodes.push({
         index: planIndex,
@@ -924,8 +999,9 @@ export class DevMachineEngine {
         upstreamRunIds,
       });
       return {
-        context: { ...input.state.context, ...cached.output },
+        context: cached.output,
         upstreamRunIds: [cached.id],
+        previousTasks,
         known: true,
         planNodes: input.planNodes,
       };
@@ -944,6 +1020,7 @@ export class DevMachineEngine {
       return {
         context: input.state.context,
         upstreamRunIds: [],
+        previousTasks: input.state.previousTasks,
         known: false,
         blockedReason: `depends on ${nodePath}`,
         planNodes: input.planNodes,
@@ -958,28 +1035,38 @@ export class DevMachineEngine {
       nodePath,
       metadata,
     });
+    const step = this.createStepRuntime(
+      input.workflow.name,
+      nodePath,
+      metadata,
+      input.state.context,
+      input.state.previousTasks,
+    );
     const result = await input.node.handler({
       ...runtime,
       providers: runtime,
-      ctx: Object.freeze({ ...input.state.context }),
-      runtime: {
-        workflow: input.workflow.name,
-        nodePath,
-        metadata: (value) => {
-          Object.assign(metadata, value);
-        },
-        log: (data, options = {}) => {
-          this.emit({
-            type: "log.output",
-            nodePath,
-            stream: options.stream ?? "info",
-            label: options.label,
-            data,
-          });
-        },
-      },
+      step,
     });
-    const output = normalizeTaskOutput(nodePath, result, input.node.options?.output, "fresh");
+    if (isStepInvalidation(result)) {
+      const invalidatedRunIds = this.getStateService().invalidateNodeRuns({
+        workflow: input.workflow.name,
+        nodePaths: [result.targetNodePath, nodePath],
+      });
+      throw new StepInvalidationRestart({
+        workflow: input.workflow.name,
+        target: result.target,
+        targetNodePath: result.targetNodePath,
+        currentNodePath: nodePath,
+        invalidatedRunIds,
+      });
+    }
+    const output = normalizeTaskOutput(
+      nodePath,
+      result,
+      input.node.options?.output,
+      "fresh",
+      input.state.context,
+    );
     if (!output) {
       throw new Error(`Task ${nodePath} output failed schema validation`);
     }
@@ -1013,9 +1100,15 @@ export class DevMachineEngine {
     }
     this.emit({ type: "node.completed", nodePath, runId: record.id });
 
+    const previousTasks = appendPreviousTask(input.state.previousTasks, {
+      name: input.node.name,
+      path: nodePath,
+    });
+
     return {
-      context: { ...input.state.context, ...output },
+      context: output,
       upstreamRunIds: [record.id],
+      previousTasks,
       known: true,
       planNodes: input.planNodes,
     };
@@ -1029,9 +1122,11 @@ export class DevMachineEngine {
     upstreamRunIds: readonly string[];
     providers: ProviderControllers;
     outputSchema?: OutputSchema;
+    cacheTTL?: WorkflowTaskCacheTTL;
   }): Promise<WorkflowNodeRunRecord | undefined> {
     const cached = this.getStateService().findReusableNodeRun(input);
     if (!cached) return undefined;
+    if (!isCacheFresh(cached.createdAt, input.cacheTTL)) return undefined;
 
     const parsed = normalizeTaskOutput(input.nodePath, cached.output, input.outputSchema, "cached");
     if (!parsed) return undefined;
@@ -1140,6 +1235,7 @@ export class DevMachineEngine {
         },
         providers,
         local: this.local,
+        step: this.createStepRuntime(input.workflow.name, `workspace.${input.name}.create`, metadata),
       });
       assertJsonValue(data, `Workflow ${input.workflow.name} workspace create result`);
       if (!isPlainObject(data)) {
@@ -1180,6 +1276,11 @@ export class DevMachineEngine {
       workspace,
       providers,
       local: this.local,
+      step: this.createStepRuntime(
+        input.workflow.name,
+        `workspace.${input.workspace.name}.${input.operation.id}`,
+        metadata,
+      ),
     });
     if (result !== undefined) assertJsonValue(result, `Workspace operation ${input.operation.id} result`);
     return result ?? null;
@@ -1190,6 +1291,46 @@ export class DevMachineEngine {
       name: draft.name,
       ctx: Object.freeze({ ...draft.ctx }) as Data,
     }) as WorkspaceRuntimeRecord<Data>;
+  }
+
+  private createStepRuntime<Context extends JsonObject = JsonObject>(
+    workflow: string,
+    nodePath: string,
+    metadata: JsonObject,
+    context: Context = {} as Context,
+    previousTasks: readonly EvaluationPreviousTask[] = [],
+  ) {
+    return {
+      workflow,
+      nodePath,
+      ctx: Object.freeze({ ...context }) as Readonly<Context>,
+      metadata: (value: JsonObject) => {
+        Object.assign(metadata, value);
+      },
+      log: (data: string, options: { stream?: WorkflowLogStream; label?: string } = {}) => {
+        this.emit({
+          type: "log.output",
+          nodePath,
+          stream: options.stream ?? "info",
+          label: options.label,
+          data,
+        });
+      },
+      invalidate: <Target extends string>(target: Target) => {
+        const matches = previousTasks.filter((task) => task.name === target || task.path === target);
+        if (matches.length === 0) {
+          throw new Error(`Task ${nodePath} cannot invalidate ${target} because it has not run earlier in this workflow`);
+        }
+        if (matches.length > 1) {
+          throw new Error(`Task ${nodePath} cannot invalidate ${target} because it matches multiple earlier tasks`);
+        }
+        return {
+          kind: STEP_INVALIDATION_KIND,
+          target,
+          targetNodePath: matches[0]!.path,
+        };
+      },
+    };
   }
 
   private getWorkflow(name: string | undefined): LoadedWorkflow {
@@ -1324,6 +1465,8 @@ export class DevMachineEngine {
         const controller = await this.providerFactory({
           provider,
           storage: this.getStateService().providerStorage(provider.providerId),
+          hostStorage: this.getProviderHostStorage(provider.providerId),
+          local: this.local,
         });
         return [name, controller] as const;
       }),
@@ -1340,6 +1483,18 @@ export class DevMachineEngine {
       );
     }
     return await plugin.createProvider(input);
+  }
+
+  private getProviderHostStorage(providerId: string): ReturnType<ProviderHostStorageFactory> {
+    let storage = this.providerHostStorage.get(providerId);
+    if (!storage) {
+      storage = this.hostStorageFactory({
+        providerId,
+        rootDir: this.hostStorageDir,
+      });
+      this.providerHostStorage.set(providerId, storage);
+    }
+    return storage;
   }
 
   private async resolveWorkflow(root: WorkflowNodeDefinition<any, any, any>): Promise<LoadedWorkflow> {
@@ -1553,24 +1708,121 @@ function parallelBranches(node: WorkflowNodeDefinition<any, any, any>): Record<s
   return (node as { branches?: Record<string, WorkflowNodeDefinition<any, any, any>> }).branches ?? {};
 }
 
+function appendPreviousTask(
+  tasks: readonly EvaluationPreviousTask[],
+  task: EvaluationPreviousTask,
+): EvaluationPreviousTask[] {
+  return mergePreviousTasks([...tasks], [task]);
+}
+
+function mergePreviousTasks(
+  left: readonly EvaluationPreviousTask[],
+  right: readonly EvaluationPreviousTask[],
+): EvaluationPreviousTask[] {
+  const seen = new Set<string>();
+  const result: EvaluationPreviousTask[] = [];
+  for (const task of [...left, ...right]) {
+    if (seen.has(task.path)) continue;
+    seen.add(task.path);
+    result.push(task);
+  }
+  return result;
+}
+
 function normalizeTaskOutput(
   nodePath: string,
   result: unknown,
   schema: OutputSchema | undefined,
   source: "fresh" | "cached",
+  currentContext: Record<string, JsonValue> = {},
 ): Record<string, JsonValue> | undefined {
+  if (source === "fresh") {
+    if (result === undefined) return { ...currentContext };
+    if (!isPlainObject(result) || !("ctx" in result)) {
+      throw new Error(`Task ${nodePath} must return { ctx: { ... } } or step.invalidate(...)`);
+    }
+    const ctx = result.ctx;
+    const value = schema ? parseWithSchema(schema, ctx, source) : ctx;
+    if (!isPlainObject(value)) {
+      throw new Error(`Task ${nodePath} ctx must be a JSON-serializable object`);
+    }
+
+    for (const [key, item] of Object.entries(value)) {
+      assertJsonValue(item, `Task ${nodePath} ctx value ${key}`);
+    }
+
+    return value as Record<string, JsonValue>;
+  }
+
   const value = schema ? parseWithSchema(schema, result, source) : result;
-  if (value === undefined) return source === "cached" && schema ? undefined : {};
+  if (value === undefined) return schema ? undefined : {};
   if (!isPlainObject(value)) {
     if (source === "cached") return undefined;
-    throw new Error(`Task ${nodePath} must return an object with JSON-serializable context values`);
+    throw new Error(`Task ${nodePath} cached ctx must be a JSON-serializable object`);
   }
 
   for (const [key, item] of Object.entries(value)) {
-    assertJsonValue(item, `Task ${nodePath} return value ${key}`);
+    assertJsonValue(item, `Task ${nodePath} ctx value ${key}`);
   }
 
   return value as Record<string, JsonValue>;
+}
+
+function isCacheFresh(createdAt: string, ttl: WorkflowTaskCacheTTL | undefined): boolean {
+  const ttlMs = parseCacheTTL(ttl);
+  if (ttlMs === undefined) return true;
+  if (ttlMs <= 0) return false;
+  const createdTime = Date.parse(createdAt);
+  if (Number.isNaN(createdTime)) return false;
+  return Date.now() - createdTime <= ttlMs;
+}
+
+function parseCacheTTL(ttl: WorkflowTaskCacheTTL | undefined): number | undefined {
+  if (ttl === undefined) return undefined;
+  if (typeof ttl === "number") {
+    assertFiniteTTL(ttl, "cacheTTL");
+    return ttl;
+  }
+  if (typeof ttl === "string") return parseCacheTTLString(ttl);
+
+  const total =
+    (ttl.seconds ?? 0) * 1000 +
+    (ttl.minutes ?? 0) * 60 * 1000 +
+    (ttl.hours ?? 0) * 60 * 60 * 1000 +
+    (ttl.days ?? 0) * 24 * 60 * 60 * 1000;
+  assertFiniteTTL(total, "cacheTTL");
+  return total;
+}
+
+function parseCacheTTLString(value: string): number {
+  const input = value.trim();
+  const match = input.match(/^(\d+(?:\.\d+)?)\s*(ms|s|m|h|d)$/i);
+  if (!match) {
+    throw new Error(`cacheTTL must be a number, an object, or a string like "30m", "6h", or "1d"`);
+  }
+  const amount = Number(match[1]);
+  assertFiniteTTL(amount, "cacheTTL");
+  const unit = match[2].toLowerCase();
+  const multiplier =
+    unit === "ms" ? 1
+      : unit === "s" ? 1000
+      : unit === "m" ? 60 * 1000
+      : unit === "h" ? 60 * 60 * 1000
+      : 24 * 60 * 60 * 1000;
+  return amount * multiplier;
+}
+
+function assertFiniteTTL(value: number, label: string): void {
+  if (!Number.isFinite(value) || value < 0) {
+    throw new Error(`${label} must be a finite non-negative duration`);
+  }
+}
+
+function isStepInvalidation(value: unknown): value is WorkflowStepInvalidation<string> {
+  return isPlainObject(value) &&
+    value.kind === STEP_INVALIDATION_KIND &&
+    typeof value.target === "string" &&
+    typeof value.targetNodePath === "string";
 }
 
 function parseWithSchema(

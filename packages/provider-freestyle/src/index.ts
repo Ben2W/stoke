@@ -3,30 +3,37 @@ import {
   type WorkflowProviderDefinition,
 } from "@rigkit/sdk";
 import type { BaseProviderPlugin } from "@rigkit/engine";
-import type { WorkflowProviderController } from "@rigkit/engine";
-import { Freestyle } from "freestyle";
 import * as z from "zod/v4-mini";
 import { freestyleIdentityId, freestyleToken, freestyleTokenId } from "./auth.ts";
+import {
+  createFreestyleAuthenticatedClient,
+  createFreestyleProxyFetch,
+  type FreestyleProviderAuthConfig,
+} from "./host-auth.ts";
 import {
   FREESTYLE_PROVIDER_ID,
   FREESTYLE_TERMINAL_PROVIDER_ID,
   createFreestyleTerminalController,
   createFreestyleWorkflowProvider,
-  isFreestyleVmSnapshotRef,
 } from "./provider.ts";
 import type { FreestyleRuntime, FreestyleTerminalRuntime } from "./provider.ts";
-import { createFreestyleStore } from "./store.ts";
 
 const freestyleProviderConfigSchema = z.object({
-  apiKey: z.string().check(z.minLength(1)),
-  image: z.string().check(z.minLength(1)),
-  cpu: z.optional(z.number()),
-  memory: z.optional(z.union([z.string(), z.number()])),
-  disk: z.optional(z.union([z.string(), z.number()])),
-  idleTimeoutSeconds: z.optional(z.nullable(z.number())),
+  auth: z.optional(z.object({
+    apiKey: z.optional(z.string().check(z.minLength(1))),
+    profile: z.optional(z.string().check(z.minLength(1))),
+    teamId: z.optional(z.string().check(z.minLength(1))),
+    apiUrl: z.optional(z.string().check(z.minLength(1))),
+    dashboardUrl: z.optional(z.string().check(z.minLength(1))),
+    stackApiUrl: z.optional(z.string().check(z.minLength(1))),
+    stackAppUrl: z.optional(z.string().check(z.minLength(1))),
+    stackProjectId: z.optional(z.string().check(z.minLength(1))),
+    stackPublishableClientKey: z.optional(z.string().check(z.minLength(1))),
+  })),
 });
 
 export type FreestyleProviderConfig = z.output<typeof freestyleProviderConfigSchema>;
+export type { FreestyleProviderAuthConfig };
 
 export type FreestyleProviderDefinition = WorkflowProviderDefinition<
   typeof FREESTYLE_PROVIDER_ID,
@@ -41,7 +48,7 @@ export type FreestyleTerminalProviderDefinition = WorkflowProviderDefinition<
 >;
 
 export function provider(
-  config: FreestyleProviderDefinition["config"],
+  config: FreestyleProviderDefinition["config"] = {},
 ): FreestyleProviderDefinition {
   return defineProvider(FREESTYLE_PROVIDER_ID, config, freestyleProviderPlugin);
 }
@@ -59,50 +66,18 @@ export const defineFreestyleProvider = provider;
 
 export const freestyleProviderPlugin: BaseProviderPlugin = {
   providerId: FREESTYLE_PROVIDER_ID,
-  createProvider({ provider, storage }) {
+  async createProvider({ provider, hostStorage, local }) {
     const config = parseFreestyleProviderConfig(provider.config);
-    const { apiKey, ...vm } = config;
-    let controller: Promise<WorkflowProviderController<FreestyleRuntime>> | undefined;
-
-    const load = async () => {
-      controller ??= create();
-      return await controller;
-    };
-
-    const create = async () => {
-      const store = createFreestyleStore(storage);
-      const savedIdentity = store.getIdentity();
-      if (savedIdentity) {
-        return createFreestyleWorkflowProvider({
-          apiKey,
-          identityId: savedIdentity.identityId,
-          token: savedIdentity.token,
-          vm,
-        });
-      }
-
-      const client = new Freestyle({ apiKey });
-      const { identity, identityId } = await client.identities.create();
-      const { token, tokenId } = await identity.tokens.create();
-      const createdIdentity = store.saveIdentity({
-        identityId: freestyleIdentityId(identityId),
-        tokenId: freestyleTokenId(tokenId),
-        token: freestyleToken(token),
-      });
-
-      return createFreestyleWorkflowProvider({
-        apiKey,
-        identityId: createdIdentity.identityId,
-        token: createdIdentity.token,
-        vm,
-      });
-    };
-
-    return {
-      providerId: FREESTYLE_PROVIDER_ID,
-      runtime: async (context) => await (await load()).runtime(context),
-      validateArtifact: (ref) => isFreestyleVmSnapshotRef(ref),
-    } satisfies WorkflowProviderController<FreestyleRuntime>;
+    const authenticated = await createFreestyleAuthenticatedClient({
+      auth: config.auth,
+      hostStorage,
+      local,
+    });
+    return createFreestyleWorkflowProvider({
+      client: authenticated.client,
+      identityId: authenticated.identityId,
+      token: authenticated.token,
+    });
   },
 };
 
@@ -114,6 +89,10 @@ export const freestyleTerminalPlugin: BaseProviderPlugin = {
 };
 
 export {
+  createFreestyleAuthenticatedClient,
+  createFreestyleProxyFetch,
+} from "./host-auth.ts";
+export {
   freestyleIdentityId,
   freestyleToken,
   freestyleTokenId,
@@ -124,24 +103,23 @@ export {
 export {
   FREESTYLE_PROVIDER_ID,
   FREESTYLE_TERMINAL_PROVIDER_ID,
-  createFreestyleProvider,
   createFreestyleTerminalController,
   createFreestyleWorkflowController,
   createFreestyleWorkflowProvider,
-  isFreestyleVmSnapshotRef,
 } from "./provider.ts";
 export { createFreestyleStore } from "./store.ts";
 export { createFreestyleTerminalSession } from "./terminal-session.ts";
 export { RIGKIT_PROVIDER_FREESTYLE_VERSION } from "./version.ts";
+export { Freestyle, VmBaseImage, VmSpec, VmWith, VmWithInstance } from "freestyle";
+export type { CreateVmOptions } from "freestyle";
 export type {
   FreestyleCmuxSshOptions,
   FreestyleCmuxSshOptionsInput,
   FreestyleRuntime,
+  FreestyleSdkVm,
+  FreestyleSshInput,
   FreestyleTerminalRuntime,
   FreestyleVscodeUrlOptions,
-  FreestyleVmConfig,
-  FreestyleVmRuntime,
-  FreestyleVmSnapshotRef,
 } from "./provider.ts";
 export type { FreestyleGitRelationship, FreestyleIdentity } from "./store.ts";
 

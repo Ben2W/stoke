@@ -402,6 +402,7 @@ describe("cmux sdk", () => {
 
   test("handles cmux.open host capability for an ssh workspace", async () => {
     const calls: Array<{ method: string; params: unknown }> = [];
+    const logs: string[] = [];
     const client = fakeOpenClient(calls);
 
     const result = await openCmux({
@@ -414,7 +415,7 @@ describe("cmux sdk", () => {
       cwd: "/workspace/site",
       command: "pnpm dev",
       url: "http://localhost:4321",
-    }, { client });
+    }, { client, logger: (message) => logs.push(message) });
 
     expect(result).toEqual({
       sessionId: "workspace-1",
@@ -480,6 +481,16 @@ describe("cmux sdk", () => {
       },
     ]);
     expect(calls[0]?.params).not.toHaveProperty("terminalStartupCommand");
+    expect(logs).toEqual([
+      "cmux: opening website",
+      "cmux: connecting remote workspace",
+      "cmux: starting command in /workspace/site",
+      "cmux: waiting for remote ports",
+      "cmux: refreshing remote ports",
+      "cmux: opening http://localhost:4321",
+      "cmux: focusing workspace",
+      "cmux: ready website",
+    ]);
   });
 
   test("forwards an explicit cmux ssh terminal startup command", async () => {
@@ -513,8 +524,10 @@ describe("cmux sdk", () => {
     const controller = await cmuxProviderPlugin.createProvider({
       provider: { providerId: "cmux", config: {} },
       storage: memoryProviderStorage("cmux"),
+      hostStorage: memoryProviderStorage("cmux"),
+      local: { open: async () => {} },
     });
-    const requests: Array<{ capability: string; params: unknown }> = [];
+    const requests: Array<{ capability: string; params: unknown; options: unknown }> = [];
     const runtime = await controller.runtime({
       workflow: "test",
       nodePath: "operation.open",
@@ -525,8 +538,8 @@ describe("cmux sdk", () => {
       metadata: () => {},
       local: {
         open: async () => {},
-        requestCapability: async <Result,>(capability: string, params: unknown) => {
-          requests.push({ capability, params });
+        requestCapability: async <Result,>(capability: string, params: unknown, options: unknown) => {
+          requests.push({ capability, params, options });
           return { sessionId: "workspace-1", workspaceId: "workspace-1" } as Result;
         },
       },
@@ -538,6 +551,7 @@ describe("cmux sdk", () => {
       {
         capability: "cmux.open",
         params: { name: "workspace" },
+        options: { nodePath: "operation.open" },
       },
     ]);
     expect(session.sessionId).toBe("workspace-1");
@@ -554,6 +568,8 @@ describe("cmux sdk", () => {
     const controller = await cmuxProviderPlugin.createProvider({
       provider: { providerId: "cmux", config: {} },
       storage: memoryProviderStorage("cmux"),
+      hostStorage: memoryProviderStorage("cmux"),
+      local: { open: async () => {} },
     });
     let resolveClosed!: () => void;
     const runtime = await controller.runtime({
@@ -566,9 +582,10 @@ describe("cmux sdk", () => {
       metadata: () => {},
       local: {
         open: async () => {},
-        requestCapabilitySession: async <Result,>(capability: string, params: unknown) => {
+        requestCapabilitySession: async <Result,>(capability: string, params: unknown, options: unknown) => {
           expect(capability).toBe("cmux.open");
           expect(params).toEqual({ name: "workspace" });
+          expect(options).toEqual({ nodePath: "operation.open" });
           return {
             result: { sessionId: "workspace-1", workspaceId: "workspace-1" } as Result,
             closed: new Promise<void>((resolve) => {

@@ -1,82 +1,108 @@
-import { defineConfig, env, sequence } from "@rigkit/sdk";
-import { freestyle } from "@rigkit/provider-freestyle";
+import { defineConfig, sequence } from "@rigkit/sdk";
+import {
+  freestyle,
+  VmBaseImage,
+  VmSpec,
+} from "@rigkit/provider-freestyle";
 
-const freestyleProvider = freestyle.provider({
-  apiKey: env.secret("FREESTYLE_API_KEY"),
-  image: "ubuntu-24.04",
-});
+const vmIdleTimeoutSeconds = 3600;
+
+const vmSpec = new VmSpec()
+  .baseImage(new VmBaseImage("FROM ubuntu:24.04"))
+  .idleTimeoutSeconds(vmIdleTimeoutSeconds);
+
+const freestyleProvider = freestyle.provider();
 
 const smoke = sequence("smoke")
-  .step("create-vm", async ({ providers }) => {
+  .step("create-vm", async ({ providers, step }) => {
     console.log("Creating VM...");
-    const vm = await providers.freestyle.vms.create();
-    return { vm: await vm.snapshotRef() };
-  })
-  .step("install-gcloud-cli", async ({ ctx, providers }) => {
-    const vm = await providers.freestyle.vms.fromSnapshot(ctx.vm);
-    const installed = await vm.probe("command -v gcloud", {
-      name: "check gcloud cli",
+    const { vm, vmId } = await providers.freestyle.client.vms.create({
+      spec: vmSpec,
+      logger: step.log,
     });
-    if (installed.ok) return { vm: await vm.snapshotRef() };
-
-    await vm.exec(
-      [
-        "export DEBIAN_FRONTEND=noninteractive",
-        "sudo apt-get update",
-        "sudo apt-get install -y apt-transport-https ca-certificates curl gnupg",
-        "curl -fsSL https://packages.cloud.google.com/apt/doc/apt-key.gpg | gpg --dearmor | sudo tee /usr/share/keyrings/cloud.google.gpg >/dev/null",
-        "echo 'deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main' | sudo tee /etc/apt/sources.list.d/google-cloud-sdk.list",
-        "sudo apt-get update",
-        "sudo apt-get install -y google-cloud-cli",
-      ].join(" && "),
-      {
-        name: "install gcloud cli",
-      },
-    );
-
-    if (!(await vm.probe("command -v gcloud")).ok) {
-      throw new Error("gcloud cli was not installed");
+    try {
+      const snapshot = await vm.snapshot();
+      return { ctx: { snapshotId: snapshot.snapshotId } };
+    } finally {
+      await providers.freestyle.client.vms.delete({ vmId });
     }
-
-    return { vm: await vm.snapshotRef() };
   })
-  .step("gcloud-login", async ({ ctx, providers }) => {
-    const vm = await providers.freestyle.vms.fromSnapshot(ctx.vm);
-    const loggedIn = await vm.probe(
-      "gcloud auth list --filter=status:ACTIVE --format='value(account)' | grep -q .",
-      {
-        name: "check active gcloud account",
-      },
-    );
-    if (loggedIn.ok) return { vm: await vm.snapshotRef() };
-
-    await providers.terminal.open("Log in to gcloud", {
-      target: vm,
-      command: "gcloud auth login",
-      instructions:
-        "Complete Google authentication in the browser, then return to the terminal once login finishes.",
+  .step("install-gcloud-cli", async ({ step, providers }) => {
+    const { vm, vmId } = await providers.freestyle.client.vms.create({
+      snapshotId: step.ctx.snapshotId,
+      idleTimeoutSeconds: vmIdleTimeoutSeconds,
+      logger: step.log,
     });
+    try {
+      const installed = await vm.exec("command -v gcloud");
+      if ((installed.statusCode ?? 0) !== 0) {
+        step.log("installing gcloud cli");
+        const install = await vm.exec([
+          "set -e",
+          "export DEBIAN_FRONTEND=noninteractive",
+          "apt-get update",
+          "apt-get install -y apt-transport-https ca-certificates curl gnupg",
+          "curl -fsSL https://packages.cloud.google.com/apt/doc/apt-key.gpg | gpg --dearmor > /usr/share/keyrings/cloud.google.gpg",
+          "echo 'deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main' > /etc/apt/sources.list.d/google-cloud-sdk.list",
+          "apt-get update",
+          "apt-get install -y google-cloud-cli",
+        ].join("\n"));
+        if ((install.statusCode ?? 0) !== 0) {
+          throw new Error(`gcloud cli install failed:\n${install.stdout ?? ""}${install.stderr ?? ""}`.trim());
+        }
 
-    const activeAccount = await vm.probe(
-      "gcloud auth list --filter=status:ACTIVE --format='value(account)' | grep -q .",
-      {
-        name: "verify active gcloud account",
-      },
-    );
+        const installedAfter = await vm.exec("command -v gcloud");
+        if ((installedAfter.statusCode ?? 0) !== 0) {
+          throw new Error("gcloud cli was not installed");
+        }
+      }
 
-    if (!activeAccount.ok) {
-      throw new Error("no active gcloud account found after interactive login");
+      const snapshot = await vm.snapshot();
+      return { ctx: { snapshotId: snapshot.snapshotId } };
+    } finally {
+      await providers.freestyle.client.vms.delete({ vmId });
     }
+  })
+  .step("gcloud-login", async ({ step, providers }) => {
+    const { vm, vmId } = await providers.freestyle.client.vms.create({
+      snapshotId: step.ctx.snapshotId,
+      idleTimeoutSeconds: vmIdleTimeoutSeconds,
+      logger: step.log,
+    });
+    try {
+      const loggedIn = await vm.exec("gcloud auth list --filter=status:ACTIVE --format='value(account)' | grep -q .");
+      if ((loggedIn.statusCode ?? 0) !== 0) {
+        await providers.terminal.open("Log in to gcloud", {
+          ssh: await providers.freestyle.createSSHOptions({ vmId }),
+          command: "gcloud auth login",
+          instructions:
+            "Complete Google authentication in the browser, then return to the terminal once login finishes.",
+        });
 
-    return { vm: await vm.snapshotRef() };
+        const activeAccount = await vm.exec("gcloud auth list --filter=status:ACTIVE --format='value(account)' | grep -q .");
+
+        if ((activeAccount.statusCode ?? 0) !== 0) {
+          throw new Error("no active gcloud account found after interactive login");
+        }
+      }
+
+      const snapshot = await vm.snapshot();
+      return { ctx: { snapshotId: snapshot.snapshotId } };
+    } finally {
+      await providers.freestyle.client.vms.delete({ vmId });
+    }
   })
   .workspace({
-    create: async ({ workflow, providers }) => {
-      const vm = await providers.freestyle.vms.fromSnapshot(workflow.ctx.vm);
-      return { vmId: vm.vmId, ready: true };
+    create: async ({ workflow, providers, step }) => {
+      const { vmId } = await providers.freestyle.client.vms.create({
+        snapshotId: workflow.ctx.snapshotId,
+        idleTimeoutSeconds: vmIdleTimeoutSeconds,
+        logger: step.log,
+      });
+      return { vmId, ready: true };
     },
     remove: async ({ providers, workspace }) => {
-      await providers.freestyle.vms.delete(workspace.ctx.vmId);
+      await providers.freestyle.client.vms.delete({ vmId: workspace.ctx.vmId });
     },
   });
 

@@ -33,4 +33,4 @@ gcloud auth list
 gcloud auth print-access-token >/dev/null
 ```
 
-The Freestyle API key is read from `FREESTYLE_API_KEY`.
+Freestyle auth is handled by the provider. By default Rigkit opens the Freestyle browser login.

@@ -1,8 +1,17 @@
+export type HostCapabilityLogOptions = {
+  stream?: "stdout" | "stderr" | "info";
+  label?: string;
+};
+
+export type HostCapabilityContext = {
+  log(data: string, options?: HostCapabilityLogOptions): void;
+};
+
 export type HostCapabilityDefinition<Input = unknown, Result = unknown> = {
   readonly schemaHash?: string;
   readonly input?: unknown;
   readonly output?: unknown;
-  readonly handle: (params: Input) => Result | Promise<Result>;
+  readonly handle: (params: Input, context?: HostCapabilityContext) => Result | Promise<Result>;
 };
 
 export type HostCapabilityHandler<Input = unknown, Result = unknown> =
