@@ -3,9 +3,8 @@
   "compilerOptions": {
     "jsx": "react-jsx",
     "types": ["@cloudflare/workers-types", "bun"],
-    "baseUrl": ".",
     "paths": {
-      "@/*": ["src/*"]
+      "@/*": ["./src/*"]
     }
   },
   "include": ["src/**/*", ".astro/types.d.ts"],

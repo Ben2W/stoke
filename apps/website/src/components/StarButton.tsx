@@ -12,9 +12,11 @@ export function StarButton() {
       headers: { Accept: "application/vnd.github+json" },
     })
       .then((r) => (r.ok ? r.json() : null))
-      .then((data: { stargazers_count?: number } | null) => {
-        if (cancelled || !data?.stargazers_count) return;
-        setStars(data.stargazers_count);
+      .then((data) => {
+        if (cancelled) return;
+        const count = (data as { stargazers_count?: number } | null)
+          ?.stargazers_count;
+        if (typeof count === "number" && count > 0) setStars(count);
       })
       .catch(() => {});
     return () => {
