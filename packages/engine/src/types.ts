@@ -55,11 +55,20 @@ export type CommandOptions = ExecOptions & {
 export type LocalWorkspaceRuntime = {
   open(target: string): MaybePromise<void>;
   command?(input: LocalCommandRequest): MaybePromise<LocalCommandResult>;
-  requestCapability?<Result = unknown>(capability: string, params: unknown): MaybePromise<Result>;
+  requestCapability?<Result = unknown>(
+    capability: string,
+    params: unknown,
+    options?: LocalHostCapabilityRequestOptions,
+  ): MaybePromise<Result>;
   requestCapabilitySession?<Result = unknown>(
     capability: string,
     params: unknown,
+    options?: LocalHostCapabilityRequestOptions,
   ): MaybePromise<HostCapabilitySession<Result>>;
+};
+
+export type LocalHostCapabilityRequestOptions = {
+  nodePath?: string;
 };
 
 export type HostCapabilitySession<Result = unknown> = {

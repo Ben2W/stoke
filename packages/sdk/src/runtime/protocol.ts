@@ -99,6 +99,7 @@ export type HostCapabilityRequestEvent = {
   type: "host.capability.request";
   requestId: string;
   id: string;
+  nodePath?: string;
   capability: string;
   params: unknown;
 };

@@ -3,6 +3,7 @@ import {
   type DevMachineEngine,
   type EngineOperationSummary,
   type JsonValue,
+  type LocalHostCapabilityRequestOptions,
 } from "@rigkit/engine";
 import { normalizeRuntimeRunError } from "./errors.ts";
 import {
@@ -83,10 +84,18 @@ async function executeOperation(run: RunRecord, store: RunStore, options: Engine
         const result = await requestHost(store, run, "host.command.run", command);
         return HostCommandResultSchema.parse(result);
       },
-      requestCapability: async <Result = unknown>(capability: string, params: unknown) =>
-        await requestHostCapability(store, run, capability, params) as Result,
-      requestCapabilitySession: async <Result = unknown>(capability: string, params: unknown) =>
-        await requestHostCapabilitySession<Result>(store, run, capability, params),
+      requestCapability: async <Result = unknown>(
+        capability: string,
+        params: unknown,
+        requestOptions?: LocalHostCapabilityRequestOptions,
+      ) =>
+        await requestHostCapability(store, run, capability, params, requestOptions) as Result,
+      requestCapabilitySession: async <Result = unknown>(
+        capability: string,
+        params: unknown,
+        requestOptions?: LocalHostCapabilityRequestOptions,
+      ) =>
+        await requestHostCapabilitySession<Result>(store, run, capability, params, requestOptions),
     },
   });
   engine.onEvent((event) => emitRunEvent(run, event));

@@ -21,6 +21,10 @@ export type HostCapabilitySessionResult<Result = unknown> = {
   closed: Promise<void>;
 };
 
+export type HostCapabilityRequestOptions = {
+  nodePath?: string;
+};
+
 export type RunRecord = {
   id: string;
   operation: string;
@@ -197,8 +201,9 @@ export function requestHostCapability(
   run: RunRecord,
   capability: string,
   params: unknown,
+  options: HostCapabilityRequestOptions = {},
 ): Promise<unknown> {
-  const { requestId } = emitHostCapabilityRequest(run, capability, params);
+  const { requestId } = emitHostCapabilityRequest(run, capability, params, options);
   return waitForHostResponse(store, requestId);
 }
 
@@ -207,8 +212,9 @@ export async function requestHostCapabilitySession<Result = unknown>(
   run: RunRecord,
   capability: string,
   params: unknown,
+  options: HostCapabilityRequestOptions = {},
 ): Promise<HostCapabilitySessionResult<Result>> {
-  const { requestId } = emitHostCapabilityRequest(run, capability, params);
+  const { requestId } = emitHostCapabilityRequest(run, capability, params, options);
   const closed = new Promise<void>((resolveClosed, rejectClosed) => {
     store.hostCapabilityResources.set(requestId, { resolveClosed, rejectClosed });
     run.pendingHostCapabilityResourceIds.add(requestId);
@@ -234,6 +240,7 @@ function emitHostCapabilityRequest(
   run: RunRecord,
   capability: string,
   params: unknown,
+  options: HostCapabilityRequestOptions = {},
 ): { requestId: string } {
   if (run.status !== "running") {
     throw new RuntimeHostRequestError({
@@ -243,7 +250,14 @@ function emitHostCapabilityRequest(
   }
   const requestId = `cap_req_${crypto.randomUUID()}`;
   run.pendingHostRequestIds.add(requestId);
-  emitRunEvent(run, { type: "host.capability.request", requestId, id: requestId, capability, params });
+  emitRunEvent(run, {
+    type: "host.capability.request",
+    requestId,
+    id: requestId,
+    ...(options.nodePath ? { nodePath: options.nodePath } : {}),
+    capability,
+    params,
+  });
   return { requestId };
 }
 

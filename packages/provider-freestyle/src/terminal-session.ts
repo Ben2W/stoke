@@ -331,7 +331,6 @@ function renderInteractionPage(
 
   const titleLit = javaScriptLiteral(request.title);
   const instructionsLit = javaScriptLiteral(instructions);
-  const commandLit = javaScriptLiteral(command);
   const nodeLit = javaScriptLiteral(node);
   const startupInputLiteral = javaScriptLiteral(options.startupInput ?? null);
   const canFinishWhileRunningLiteral = javaScriptLiteral(canFinishWhileProcessRuns(request, options.startupInput));
@@ -345,37 +344,34 @@ function renderInteractionPage(
   <title>${escapedDocTitle}</title>
   <style>
     :root {
-      color-scheme: dark;
-      --bg-0: #07070a;
-      --bg-1: #0c0c11;
-      --bg-2: #111118;
-      --bg-3: #16161f;
-      --border: #1f1f2a;
-      --border-strong: #2a2a38;
-      --text: #f5f5f7;
-      --text-muted: #9a9aa8;
-      --text-dim: #6c6c7a;
-      --accent: #ff5a1f;
-      --accent-soft: #ffb892;
-      --accent-glow: rgba(255, 90, 31, 0.45);
-      --ok: #34d399;
-      --warn: #facc15;
-      --err: #f87171;
+      color-scheme: light;
+      --bg: #efece5;
+      --surface: #ffffff;
+      --fg: #0a0a0a;
+      --muted: #5a5a5a;
+      --dim: #8e8a80;
+      --border: #d8d2c5;
+      --border-strong: #b8b0a0;
+      --accent: #2d4df5;
+      --accent-soft: #e8ecff;
+      --ok: #0f9d58;
+      --err: #d93025;
+      --term-bg: #faf8f2;
+      --term-fg: #1a1a1a;
       --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
       --sans: "Inter", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       font-family: var(--sans);
-      color: var(--text);
-      background: var(--bg-0);
+      color: var(--fg);
+      background: var(--bg);
     }
     * { box-sizing: border-box; }
     body {
       margin: 0;
       min-height: 100vh;
       overflow: hidden;
-      background:
-        radial-gradient(circle at 10% -10%, rgba(255, 90, 31, 0.10), transparent 40%),
-        radial-gradient(circle at 95% 110%, rgba(255, 90, 31, 0.06), transparent 50%),
-        var(--bg-0);
+      background: var(--bg);
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
     }
     #app {
       display: grid;
@@ -384,122 +380,84 @@ function renderInteractionPage(
     }
     .noscript-fallback {
       padding: 32px;
-      color: var(--text-muted);
+      color: var(--muted);
       font-size: 14px;
       line-height: 1.6;
       max-width: 640px;
       margin: 0 auto;
     }
     .app-header {
-      display: grid;
-      grid-template-columns: auto 1fr auto;
-      align-items: center;
-      gap: 16px;
-      padding: 14px 22px;
-      border-bottom: 1px solid var(--border);
-      background: linear-gradient(180deg, var(--bg-3), var(--bg-2));
-    }
-    .brand {
       display: flex;
       align-items: center;
-      gap: 10px;
-      font-size: 13px;
-      letter-spacing: -0.01em;
+      padding: 18px 24px 14px;
     }
-    .brand-mark {
-      width: 24px;
-      height: 24px;
-      display: grid;
-      place-items: center;
-      border-radius: 7px;
-      background: radial-gradient(circle at 30% 30%, #ffb892, #ff5a1f 65%, #d63d00);
-      box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4) inset, 0 4px 14px var(--accent-glow);
-      color: #1a0900;
-      font-weight: 800;
-      font-size: 14px;
-      line-height: 1;
-    }
-    .brand-wordmark { color: var(--text); font-weight: 600; }
-    .brand-divider { width: 1px; height: 14px; background: var(--border-strong); margin: 0 4px; }
-    .brand-node { color: var(--text-muted); font-family: var(--mono); font-size: 12px; font-weight: 500; }
-    .status-pill {
+    .brand {
       display: inline-flex;
       align-items: center;
-      gap: 8px;
-      padding: 6px 11px;
-      border-radius: 999px;
-      border: 1px solid var(--border-strong);
-      background: rgba(255, 255, 255, 0.02);
-      color: var(--text-muted);
-      font-size: 12px;
-      font-weight: 500;
-      max-width: 380px;
-      min-width: 0;
+      gap: 10px;
+      color: var(--fg);
     }
-    .status-dot { width: 8px; height: 8px; border-radius: 999px; background: var(--text-dim); flex: 0 0 auto; }
-    .status-pill[data-state="working"] .status-dot { background: var(--accent); animation: pulse 1.6s ease-out infinite; }
-    .status-pill[data-state="ready"] .status-dot { background: var(--ok); }
-    .status-pill[data-state="done"] .status-dot { background: var(--ok); }
-    .status-pill[data-state="error"] .status-dot { background: var(--err); }
-    .status-pill .status-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    @keyframes pulse {
-      0% { box-shadow: 0 0 0 0 var(--accent-glow); }
-      70% { box-shadow: 0 0 0 6px transparent; }
-      100% { box-shadow: 0 0 0 0 transparent; }
+    .brand-mark { width: 22px; height: 22px; color: var(--fg); flex: 0 0 auto; }
+    .brand-mark svg { width: 100%; height: 100%; display: block; }
+    .brand-wordmark {
+      font-family: var(--mono);
+      font-size: 15px;
+      font-weight: 500;
+      letter-spacing: -0.01em;
+      color: var(--fg);
+    }
+    .brand-node {
+      margin-left: 14px;
+      padding-left: 14px;
+      border-left: 1px solid var(--border);
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 13px;
     }
     .workspace {
       display: grid;
-      grid-template-columns: minmax(340px, 460px) minmax(0, 1fr);
+      grid-template-columns: minmax(360px, 480px) minmax(0, 1fr);
       gap: 22px;
-      padding: 22px;
+      padding: 0 24px 24px;
       min-height: 0;
       height: 100%;
     }
     .instructions-pane {
       display: flex;
       flex-direction: column;
-      gap: 16px;
+      gap: 20px;
       min-width: 0;
-      padding: 24px 22px;
-      border: 1px solid var(--border);
-      border-radius: 14px;
-      background: linear-gradient(180deg, var(--bg-2), var(--bg-1));
-      box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset, 0 20px 60px rgba(0, 0, 0, 0.4);
+      padding: 18px 22px 22px;
       overflow: auto;
       user-select: text;
     }
     .eyebrow {
       margin: 0;
+      align-self: flex-start;
       display: inline-flex;
       align-items: center;
-      gap: 8px;
+      padding: 6px 12px;
+      border: 1.5px solid var(--accent);
+      border-radius: 8px;
       color: var(--accent);
       font-size: 11px;
       font-weight: 600;
-      letter-spacing: 0.1em;
+      letter-spacing: 0.12em;
       text-transform: uppercase;
-    }
-    .eyebrow::before {
-      content: "";
-      width: 5px;
-      height: 5px;
-      border-radius: 999px;
-      background: var(--accent);
-      box-shadow: 0 0 8px var(--accent-glow);
     }
     .task-title {
       margin: 0;
-      font-size: 22px;
-      font-weight: 600;
-      letter-spacing: -0.02em;
-      line-height: 1.2;
-      color: var(--text);
+      font-size: 40px;
+      font-weight: 800;
+      letter-spacing: -0.035em;
+      line-height: 1.02;
+      color: var(--fg);
     }
     .instruction-text {
       margin: 0;
       white-space: pre-wrap;
-      color: #d4d4dc;
-      font-size: 14px;
+      color: #2a2a2a;
+      font-size: 15px;
       line-height: 1.55;
     }
     .instruction-steps {
@@ -514,95 +472,64 @@ function renderInteractionPage(
     .instruction-steps li {
       counter-increment: step;
       position: relative;
-      padding: 11px 14px 11px 42px;
-      border-radius: 10px;
-      background: rgba(255, 255, 255, 0.025);
-      border: 1px solid var(--border);
-      color: #d4d4dc;
-      font-size: 13.5px;
+      padding: 2px 0 2px 34px;
+      color: #2a2a2a;
+      font-size: 15px;
       line-height: 1.5;
     }
     .instruction-steps li::before {
       content: counter(step);
       position: absolute;
-      left: 12px;
-      top: 11px;
+      left: 0;
+      top: 1px;
       width: 22px;
       height: 22px;
       display: grid;
       place-items: center;
       border-radius: 999px;
-      background: rgba(255, 90, 31, 0.16);
-      border: 1px solid rgba(255, 90, 31, 0.42);
-      color: var(--accent-soft);
+      border: 1.5px solid var(--accent);
+      color: var(--accent);
       font-family: var(--mono);
       font-size: 11px;
       font-weight: 600;
+      line-height: 1;
     }
-    .command-block {
-      margin: 0;
-      padding: 12px 14px;
-      border-radius: 10px;
-      border: 1px solid var(--border-strong);
-      background: rgba(0, 0, 0, 0.4);
-    }
-    .command-label {
-      margin: 0 0 6px;
-      color: var(--text-dim);
-      font-size: 11px;
-      letter-spacing: 0.06em;
-      text-transform: uppercase;
-      font-weight: 600;
-    }
-    .command-code {
-      margin: 0;
-      font-family: var(--mono);
-      font-size: 13px;
-      color: var(--accent-soft);
-      white-space: pre-wrap;
-      overflow-wrap: anywhere;
-    }
-    .command-prompt { color: var(--text-dim); font-weight: 600; user-select: none; }
     .instructions-cta {
       margin-top: auto;
+      padding-top: 12px;
       display: flex;
       flex-direction: column;
-      gap: 10px;
+      gap: 12px;
     }
     .primary-button {
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      gap: 8px;
+      gap: 10px;
       width: 100%;
       border: 0;
       border-radius: 10px;
-      padding: 13px 18px;
+      padding: 14px 18px;
       font: inherit;
       font-size: 14px;
       font-weight: 600;
       letter-spacing: -0.005em;
       cursor: pointer;
-      color: #1a0900;
-      background: linear-gradient(180deg, #ff7a45, #ff5a1f);
-      box-shadow:
-        0 0 0 1px rgba(255, 90, 31, 0.5) inset,
-        0 1px 0 rgba(255, 255, 255, 0.25) inset,
-        0 8px 22px rgba(255, 90, 31, 0.32);
-      transition: filter 0.18s ease, box-shadow 0.18s ease;
+      color: #ffffff;
+      background: var(--fg);
+      transition: transform 0.12s ease, background 0.12s ease, opacity 0.12s ease;
     }
     .primary-button:hover:not(:disabled) {
-      filter: brightness(1.06);
-      box-shadow:
-        0 0 0 1px rgba(255, 90, 31, 0.6) inset,
-        0 1px 0 rgba(255, 255, 255, 0.3) inset,
-        0 12px 30px rgba(255, 90, 31, 0.45);
+      transform: translateY(-1px);
+      background: #1f1f1f;
+    }
+    .primary-button:active:not(:disabled) {
+      transform: translateY(0);
     }
     .primary-button:disabled {
       cursor: not-allowed;
-      color: var(--text-dim);
-      background: var(--bg-2);
-      box-shadow: 0 0 0 1px var(--border-strong) inset;
+      color: var(--dim);
+      background: var(--border);
     }
     .primary-button .check { width: 16px; height: 16px; display: inline-grid; place-items: center; }
     .primary-button .check svg {
@@ -610,15 +537,15 @@ function renderInteractionPage(
       height: 16px;
       fill: none;
       stroke: currentColor;
-      stroke-width: 2.6;
+      stroke-width: 2.4;
       stroke-linecap: round;
       stroke-linejoin: round;
     }
     .cta-hint {
       margin: 0;
-      color: var(--text-dim);
-      font-size: 12px;
-      line-height: 1.45;
+      color: var(--muted);
+      font-size: 12.5px;
+      line-height: 1.5;
       text-align: center;
     }
     .right-pane {
@@ -633,32 +560,26 @@ function renderInteractionPage(
       grid-template-rows: auto minmax(0, 1fr);
       overflow: hidden;
       border: 1px solid var(--border);
-      border-radius: 14px;
-      background: linear-gradient(180deg, var(--bg-2), var(--bg-1));
-      box-shadow:
-        0 1px 0 rgba(255, 255, 255, 0.04) inset,
-        0 20px 60px rgba(0, 0, 0, 0.45);
+      border-radius: 10px;
+      background: var(--term-bg);
     }
     .term-titlebar {
       display: flex;
       align-items: center;
-      gap: 12px;
+      gap: 10px;
       padding: 10px 14px;
       border-bottom: 1px solid var(--border);
-      background: var(--bg-3);
+      background: #f2efe7;
     }
-    .lights { display: flex; gap: 7px; align-items: center; }
-    .light {
+    .term-titlebar-icon {
       width: 12px;
       height: 12px;
-      border-radius: 999px;
-      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+      color: var(--muted);
+      flex: 0 0 auto;
     }
-    .light.red { background: #ff5f57; }
-    .light.yellow { background: #febc2e; }
-    .light.green { background: #28c840; }
+    .term-titlebar-icon svg { width: 100%; height: 100%; display: block; }
     .term-titlebar-label {
-      color: var(--text-muted);
+      color: var(--muted);
       font-family: var(--mono);
       font-size: 12px;
     }
@@ -666,7 +587,7 @@ function renderInteractionPage(
       position: relative;
       min-height: 0;
       height: 100%;
-      background: var(--bg-1);
+      background: var(--term-bg);
       overflow: hidden;
       user-select: text;
     }
@@ -674,28 +595,28 @@ function renderInteractionPage(
       position: absolute;
       inset: 0;
       user-select: text;
-      --term-bg: #0c0c11;
-      --term-fg: #e8e8ee;
-      --term-cursor: #ff5a1f;
+      --term-bg: #faf8f2;
+      --term-fg: #1a1a1a;
+      --term-cursor: #2d4df5;
       --term-font-family: var(--mono);
       --term-font-size: 13px;
       --term-row-height: 17px;
-      --term-color-0: #1a1a22;
-      --term-color-1: #ff6b6b;
-      --term-color-2: #34d399;
-      --term-color-3: #facc15;
-      --term-color-4: #60a5fa;
-      --term-color-5: #c084fc;
-      --term-color-6: #5eead4;
-      --term-color-7: #e5e7eb;
-      --term-color-8: #6b7280;
-      --term-color-9: #ff8a8a;
-      --term-color-10: #6ee7b7;
-      --term-color-11: #fde047;
-      --term-color-12: #93c5fd;
-      --term-color-13: #d8b4fe;
-      --term-color-14: #99f6e4;
-      --term-color-15: #ffffff;
+      --term-color-0: #0a0a0a;
+      --term-color-1: #c93250;
+      --term-color-2: #1f8b4c;
+      --term-color-3: #a17500;
+      --term-color-4: #2d4df5;
+      --term-color-5: #8e3eff;
+      --term-color-6: #0a7783;
+      --term-color-7: #5a5a5a;
+      --term-color-8: #6a6a6a;
+      --term-color-9: #b81e3a;
+      --term-color-10: #176a3a;
+      --term-color-11: #7a5800;
+      --term-color-12: #1a3ad9;
+      --term-color-13: #7128df;
+      --term-color-14: #06606a;
+      --term-color-15: #0a0a0a;
     }
     .term-host:not(.ready) { visibility: hidden; }
     .term-fallback {
@@ -707,8 +628,8 @@ function renderInteractionPage(
       overflow: auto;
       white-space: pre-wrap;
       overflow-wrap: anywhere;
-      background: var(--bg-1);
-      color: #e5e7eb;
+      background: var(--term-bg);
+      color: var(--fg);
       user-select: text;
       font-family: var(--mono);
       font-size: 13px;
@@ -742,91 +663,71 @@ function renderInteractionPage(
     }
     .term-block { width: 1ch; overflow: hidden; }
     .term-cursor { outline: 1px solid var(--term-cursor); outline-offset: -1px; }
-    .wterm.focused .term-cursor { background: var(--term-cursor); color: var(--bg-1); outline: none; }
+    .wterm.focused .term-cursor { background: var(--term-cursor); color: #ffffff; outline: none; }
     .success-pane {
       position: absolute;
       inset: 0;
       display: grid;
       place-items: center;
       padding: 24px;
+      animation: fadeUp 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
+    }
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
     }
     .success-card {
-      width: min(440px, 100%);
+      width: min(420px, 100%);
       padding: 32px 28px 28px;
-      border-radius: 16px;
-      border: 1px solid var(--border-strong);
-      background: linear-gradient(180deg, var(--bg-2), var(--bg-1));
-      box-shadow:
-        0 1px 0 rgba(255, 255, 255, 0.05) inset,
-        0 30px 80px rgba(0, 0, 0, 0.55),
-        0 0 60px rgba(52, 211, 153, 0.08);
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background: var(--surface);
       text-align: center;
     }
     .success-icon {
-      width: 72px;
-      height: 72px;
+      width: 52px;
+      height: 52px;
       margin: 0 auto 18px;
       display: grid;
       place-items: center;
       border-radius: 999px;
-      background: radial-gradient(circle at 30% 30%, #6ee7b7, #10b981 70%);
-      box-shadow:
-        0 0 0 1px rgba(255, 255, 255, 0.12) inset,
-        0 0 0 8px rgba(16, 185, 129, 0.08),
-        0 14px 36px rgba(16, 185, 129, 0.32);
-      color: #052e1d;
+      border: 2px solid var(--accent);
+      color: var(--accent);
     }
     .success-icon svg {
-      width: 32px;
-      height: 32px;
+      width: 24px;
+      height: 24px;
       fill: none;
       stroke: currentColor;
-      stroke-width: 3;
+      stroke-width: 2.6;
       stroke-linecap: round;
       stroke-linejoin: round;
     }
     .success-title {
       margin: 0 0 8px;
-      font-size: 22px;
-      font-weight: 600;
-      letter-spacing: -0.015em;
-      color: var(--text);
+      font-size: 26px;
+      font-weight: 800;
+      letter-spacing: -0.025em;
+      color: var(--fg);
     }
     .success-message {
-      margin: 0 0 18px;
-      color: var(--text-muted);
+      margin: 0;
+      color: var(--muted);
       font-size: 14px;
       line-height: 1.55;
-    }
-    .success-meta {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      padding: 6px 11px;
-      border-radius: 999px;
-      border: 1px solid var(--border-strong);
-      background: rgba(255, 255, 255, 0.02);
-      color: var(--text-dim);
-      font-family: var(--mono);
-      font-size: 11.5px;
-    }
-    .success-meta-dot {
-      width: 6px;
-      height: 6px;
-      border-radius: 999px;
-      background: var(--ok);
-      box-shadow: 0 0 8px rgba(52, 211, 153, 0.6);
     }
     @media (max-width: 880px) {
       body { overflow: auto; }
       #app { height: auto; min-height: 100vh; }
-      .workspace { grid-template-columns: 1fr; padding: 16px; gap: 16px; }
+      .workspace { grid-template-columns: 1fr; padding: 0 16px 16px; gap: 16px; }
       .right-pane { height: min(640px, 70vh); }
+      .task-title { font-size: 32px; }
     }
     @media (max-width: 540px) {
-      .app-header { padding: 12px 14px; }
-      .brand-wordmark, .brand-divider, .brand-node { display: none; }
-      .status-pill { max-width: 200px; }
+      .app-header { padding: 14px 16px 10px; }
+      .brand-node { display: none; }
+      .task-title { font-size: 28px; }
+      .instructions-pane { padding: 12px 16px 16px; }
     }
   </style>
 </head>
@@ -844,7 +745,6 @@ function renderInteractionPage(
   <script type="module">
     import * as React from "https://esm.sh/react@18.3.1";
     import { createRoot } from "https://esm.sh/react-dom@18.3.1/client";
-    import { motion, AnimatePresence } from "https://esm.sh/framer-motion@11.11.17?deps=react@18.3.1,react-dom@18.3.1";
 
     const h = React.createElement;
     const F = React.Fragment;
@@ -852,7 +752,6 @@ function renderInteractionPage(
 
     const TASK_TITLE = ${titleLit};
     const TASK_INSTRUCTIONS = ${instructionsLit};
-    const TASK_COMMAND = ${commandLit};
     const NODE_PATH = ${nodeLit};
     const startupInput = ${startupInputLiteral};
     const canFinishWhileRunning = ${canFinishWhileRunningLiteral};
@@ -1026,18 +925,28 @@ function renderInteractionPage(
       );
     }
 
+    function CloudIcon() {
+      return h("svg", { viewBox: "0 0 32 32", fill: "none", stroke: "currentColor", strokeWidth: "1.6", strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": "true" },
+        h("path", { d: "M22 21H10.5a4.5 4.5 0 0 1-.45-8.97A6.5 6.5 0 0 1 22.86 13H23a4 4 0 0 1 0 8h-1" }),
+        h("path", { d: "M11.5 24v3" }),
+        h("path", { d: "M16 25v3" }),
+        h("path", { d: "M20.5 24v3" })
+      );
+    }
+
+    function TerminalIcon() {
+      return h("svg", { viewBox: "0 0 16 16", fill: "none", stroke: "currentColor", strokeWidth: "1.5", strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": "true" },
+        h("polyline", { points: "4 5 7 8 4 11" }),
+        h("line", { x1: "8.5", y1: "11", x2: "12", y2: "11" })
+      );
+    }
+
     function Header(props) {
       return h("header", { className: "app-header" },
         h("div", { className: "brand" },
-          h("div", { className: "brand-mark", "aria-hidden": "true" }, "F"),
-          h("span", { className: "brand-wordmark" }, "Freestyle"),
-          h("span", { className: "brand-divider", "aria-hidden": "true" }),
+          h("span", { className: "brand-mark", "aria-hidden": "true" }, h(CloudIcon, null)),
+          h("span", { className: "brand-wordmark" }, "freestyle.sh"),
           h("span", { className: "brand-node" }, props.node),
-        ),
-        h("div", null),
-        h("div", { className: "status-pill", "data-state": props.state, role: "status", "aria-live": "polite", title: props.text },
-          h("span", { className: "status-dot", "aria-hidden": "true" }),
-          h("span", { className: "status-text" }, props.text),
         ),
       );
     }
@@ -1056,24 +965,12 @@ function renderInteractionPage(
                 )
               : h("p", { className: "instruction-text" }, props.instructions))
           : null,
-        props.command
-          ? h("div", { className: "command-block" },
-              h("p", { className: "command-label" }, "Command"),
-              h("pre", { className: "command-code" },
-                h("span", { className: "command-prompt" }, "$ "),
-                props.command,
-              ),
-            )
-          : null,
         h("div", { className: "instructions-cta" },
-          h(motion.button, {
+          h("button", {
             type: "button",
             className: "primary-button",
             disabled: buttonDisabled,
             onClick: props.onFinish,
-            whileHover: buttonDisabled ? undefined : { y: -1 },
-            whileTap: buttonDisabled ? undefined : { scale: 0.97 },
-            transition: { type: "spring", stiffness: 480, damping: 28 },
           },
             h("span", { className: "check" }, h(CheckIcon, null)),
             h("span", null, "Complete task"),
@@ -1150,11 +1047,7 @@ function renderInteractionPage(
 
       return h(F, null,
         h("div", { className: "term-titlebar" },
-          h("div", { className: "lights", "aria-hidden": "true" },
-            h("span", { className: "light red" }),
-            h("span", { className: "light yellow" }),
-            h("span", { className: "light green" }),
-          ),
+          h("span", { className: "term-titlebar-icon", "aria-hidden": "true" }, h(TerminalIcon, null)),
           h("span", { className: "term-titlebar-label" }, NODE_PATH + " · terminal"),
         ),
         h("div", { className: "terminal-shell" },
@@ -1164,76 +1057,26 @@ function renderInteractionPage(
       );
     }
 
-    function SuccessPane(props) {
-      return h(motion.div, {
-        className: "success-pane",
-        initial: { opacity: 0, scale: 0.96, y: 8 },
-        animate: { opacity: 1, scale: 1, y: 0 },
-        exit: { opacity: 0, scale: 0.97 },
-        transition: { duration: 0.45, ease: [0.22, 1, 0.36, 1], delay: 0.18 },
-      },
+    function SuccessPane() {
+      return h("div", { className: "success-pane" },
         h("div", { className: "success-card", role: "status", "aria-live": "polite" },
-          h(motion.div, {
-            className: "success-icon",
-            initial: { scale: 0.5, opacity: 0 },
-            animate: { scale: 1, opacity: 1 },
-            transition: { type: "spring", stiffness: 320, damping: 18, delay: 0.32 },
-          },
-            h("svg", { viewBox: "0 0 24 24", "aria-hidden": "true" },
-              h(motion.polyline, {
-                points: "4 12 10 18 20 6",
-                fill: "none",
-                stroke: "currentColor",
-                strokeWidth: "3",
-                strokeLinecap: "round",
-                strokeLinejoin: "round",
-                initial: { pathLength: 0 },
-                animate: { pathLength: 1 },
-                transition: { duration: 0.5, ease: "easeOut", delay: 0.5 },
-              })
-            )
+          h("div", { className: "success-icon" },
+            h(CheckIcon, null)
           ),
-          h(motion.h2, {
-            className: "success-title",
-            initial: { opacity: 0, y: 8 },
-            animate: { opacity: 1, y: 0 },
-            transition: { duration: 0.35, delay: 0.55 },
-          }, "Task complete"),
-          h(motion.p, {
-            className: "success-message",
-            initial: { opacity: 0, y: 8 },
-            animate: { opacity: 1, y: 0 },
-            transition: { duration: 0.35, delay: 0.65 },
-          }, "You can close this tab — Rigkit will pick up from here."),
-          h(motion.span, {
-            className: "success-meta",
-            initial: { opacity: 0 },
-            animate: { opacity: 1 },
-            transition: { duration: 0.35, delay: 0.75 },
-          },
-            h("span", { className: "success-meta-dot", "aria-hidden": "true" }),
-            props.taskTitle,
-          ),
+          h("h2", { className: "success-title" }, "Task complete"),
+          h("p", { className: "success-message" }, "You can close this tab — Rigkit will pick up from here."),
         ),
       );
     }
 
     function App() {
-      const [statusText, setStatusText] = useState(INITIAL_COMPLETED ? "Task complete" : "Starting terminal");
-      const [statusState, setStatusState] = useState(INITIAL_COMPLETED ? "done" : "working");
       const [canFinish, setCanFinish] = useState(false);
       const [done, setDone] = useState(INITIAL_COMPLETED);
 
       useEffect(() => {
         listeners.onStatus = (text, canFinishVal) => {
-          setStatusText(text);
           setCanFinish(canFinishVal);
-          const state = classifyStatus(text, canFinishVal);
-          setStatusState(state);
-          if (state === "done") setDone(true);
-        };
-        listeners.onClose = () => {
-          setStatusText((prev) => prev.toLowerCase().includes("done") ? prev : "Terminal connection closed");
+          if (classifyStatus(text, canFinishVal) === "done") setDone(true);
         };
         if (!INITIAL_COMPLETED) setupSocket();
         return () => {
@@ -1248,36 +1091,24 @@ function renderInteractionPage(
         } else {
           fetch("/complete?token=" + encodeURIComponent(token), { method: "POST" }).catch(() => {});
         }
-        setStatusText("Finishing");
-        setStatusState("working");
         setCanFinish(false);
         setDone(true);
       }, []);
 
       return h(F, null,
-        h(Header, { node: NODE_PATH, text: statusText, state: statusState }),
+        h(Header, { node: NODE_PATH }),
         h("main", { className: "workspace" },
           h(InstructionsPane, {
             title: TASK_TITLE,
             instructions: TASK_INSTRUCTIONS,
-            command: TASK_COMMAND,
             canFinish: canFinish,
             done: done,
             onFinish: handleFinish,
           }),
           h("div", { className: "right-pane" },
-            h(AnimatePresence, { mode: "popLayout", initial: false },
-              !done
-                ? h(motion.div, {
-                    key: "terminal",
-                    className: "terminal-window",
-                    initial: { opacity: 0, x: 24 },
-                    animate: { opacity: 1, x: 0 },
-                    exit: { x: "115%", opacity: 0, scale: 0.96, transition: { duration: 0.6, ease: [0.22, 1, 0.36, 1] } },
-                    transition: { duration: 0.4, ease: [0.22, 1, 0.36, 1] },
-                  }, h(TerminalChrome, null))
-                : h(SuccessPane, { key: "success", taskTitle: TASK_TITLE })
-            )
+            !done
+              ? h("div", { className: "terminal-window" }, h(TerminalChrome, null))
+              : h(SuccessPane, null)
           )
         )
       );

@@ -22,7 +22,7 @@ describe("Freestyle terminal session", () => {
       expect(html).toContain("@wterm/dom");
       expect(html).toContain("@wterm/ghostty");
       expect(html).toContain("terminal-window");
-      expect(html).toContain("light red");
+      expect(html).toContain("freestyle.sh");
       expect(html).toContain("Complete task");
       expect(html).toContain("document.addEventListener(\"keydown\"");
       expect(html).toContain("{ capture: true }");
