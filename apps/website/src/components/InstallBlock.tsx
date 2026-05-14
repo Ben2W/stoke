@@ -1,3 +1,4 @@
+import { AnimatePresence, motion } from "framer-motion";
 import { useState } from "react";
 
 const COMMAND = "curl -fsSL https://rigkit.freestyle.sh/install | sh";
@@ -9,7 +10,7 @@ export function InstallBlock() {
     try {
       await navigator.clipboard.writeText(COMMAND);
       setCopied(true);
-      setTimeout(() => setCopied(false), 1600);
+      window.setTimeout(() => setCopied(false), 1600);
     } catch {
       setCopied(false);
     }
@@ -17,36 +18,77 @@ export function InstallBlock() {
 
   return (
     <div className="w-full">
-      <div className="flex items-stretch gap-2 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-2 shadow-[0_1px_0_rgba(10,10,10,0.04)]">
+      <motion.button
+        type="button"
+        onClick={handleCopy}
+        aria-label="Copy install command"
+        whileTap={{ scale: 0.995 }}
+        transition={{ duration: 0.08 }}
+        className="group flex w-full cursor-pointer items-stretch gap-2 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-2 text-left shadow-[0_1px_0_rgba(10,10,10,0.04)] transition-colors hover:bg-[#fbf9f3]"
+      >
         <div className="flex min-w-0 flex-1 items-center gap-3 px-3 py-2">
-          <span aria-hidden="true" className="font-mono text-sm text-[var(--color-dim)]">
+          <span
+            aria-hidden="true"
+            className="select-none font-mono text-sm text-[var(--color-dim)]"
+          >
             $
           </span>
           <code className="truncate font-mono text-sm text-[var(--color-fg)]">
             {COMMAND}
           </code>
         </div>
-        <button
-          type="button"
-          onClick={handleCopy}
-          aria-label="Copy install command"
-          className="inline-flex shrink-0 items-center gap-2 rounded-lg bg-[var(--color-fg)] px-4 py-2 font-sans text-sm font-semibold text-white transition-colors hover:bg-[#1f1f1f] disabled:opacity-60"
+        <motion.span
+          aria-hidden="true"
+          animate={copied ? { backgroundColor: "#0f9d58" } : { backgroundColor: "#0a0a0a" }}
+          transition={{ duration: 0.18 }}
+          className="inline-flex shrink-0 items-center gap-2 self-stretch rounded-lg px-4 py-2 font-sans text-sm font-semibold text-white"
         >
-          {copied ? (
-            <>
-              <CheckIcon />
-              Copied
-            </>
-          ) : (
-            <>
-              <CopyIcon />
-              Copy
-            </>
-          )}
-        </button>
-      </div>
+          <span className="relative grid h-[14px] w-[14px] place-items-center">
+            <AnimatePresence mode="wait" initial={false}>
+              {copied ? (
+                <motion.span
+                  key="check"
+                  initial={{ scale: 0.4, opacity: 0, rotate: -12 }}
+                  animate={{ scale: 1, opacity: 1, rotate: 0 }}
+                  exit={{ scale: 0.6, opacity: 0 }}
+                  transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+                  className="absolute inset-0 grid place-items-center"
+                >
+                  <CheckIcon />
+                </motion.span>
+              ) : (
+                <motion.span
+                  key="copy"
+                  initial={{ scale: 0.6, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  exit={{ scale: 0.6, opacity: 0 }}
+                  transition={{ duration: 0.14 }}
+                  className="absolute inset-0 grid place-items-center"
+                >
+                  <CopyIcon />
+                </motion.span>
+              )}
+            </AnimatePresence>
+          </span>
+          <span className="relative inline-block min-w-[44px] text-left">
+            <AnimatePresence mode="wait" initial={false}>
+              <motion.span
+                key={copied ? "copied" : "copy"}
+                initial={{ y: 6, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                exit={{ y: -6, opacity: 0 }}
+                transition={{ duration: 0.16, ease: "easeOut" }}
+                className="absolute inset-0"
+              >
+                {copied ? "Copied" : "Copy"}
+              </motion.span>
+            </AnimatePresence>
+            <span className="invisible">{copied ? "Copied" : "Copy"}</span>
+          </span>
+        </motion.span>
+      </motion.button>
       <p className="mt-3 font-mono text-xs text-[var(--color-muted)]">
-        macOS &amp; Linux · darwin/linux · arm64/x64
+        macOS &amp; Linux
       </p>
     </div>
   );
@@ -79,7 +121,7 @@ function CheckIcon() {
       viewBox="0 0 16 16"
       fill="none"
       stroke="currentColor"
-      strokeWidth="2.2"
+      strokeWidth="2.4"
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden="true"

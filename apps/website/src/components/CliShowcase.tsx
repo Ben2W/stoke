@@ -108,40 +108,40 @@ export function CliShowcase() {
         const charDelay = step.typeMs / Math.max(step.text.length, 1);
         for (let i = 0; i < step.text.length; i++) {
           timers.push(
-            setTimeout(() => {
-              if (cancelled) return;
-              setLines((prev) =>
-                prev.map((line) =>
-                  line.id === id
-                    ? { ...line, partial: step.text.slice(0, i + 1) }
-                    : line,
-                ),
-              );
-            }, charDelay * (i + 1)),
+            setTimeout(
+              () => {
+                if (cancelled) return;
+                setLines((prev) =>
+                  prev.map((line) =>
+                    line.id === id
+                      ? { ...line, partial: step.text.slice(0, i + 1) }
+                      : line,
+                  ),
+                );
+              },
+              charDelay * (i + 1),
+            ),
           );
         }
 
         timers.push(
-          setTimeout(
-            () => {
-              if (cancelled) return;
-              setLines((prev) =>
-                prev.map((line) =>
-                  line.id === id
-                    ? {
-                        id: line.id,
-                        tokens: [
-                          { text: PROMPT, tone: "prompt" },
-                          { text: step.text, tone: "default" },
-                        ],
-                      }
-                    : line,
-                ),
-              );
-              setStepIndex((index) => index + 1);
-            },
-            step.typeMs + step.pauseAfterMs,
-          ),
+          setTimeout(() => {
+            if (cancelled) return;
+            setLines((prev) =>
+              prev.map((line) =>
+                line.id === id
+                  ? {
+                      id: line.id,
+                      tokens: [
+                        { text: PROMPT, tone: "prompt" },
+                        { text: step.text, tone: "default" },
+                      ],
+                    }
+                  : line,
+              ),
+            );
+            setStepIndex((index) => index + 1);
+          }, step.typeMs + step.pauseAfterMs),
         );
         return;
       }
@@ -262,22 +262,24 @@ function TerminalLog({ lines, idle }: { lines: Line[]; idle: boolean }) {
     <div className="relative h-full overflow-hidden px-4 py-4 font-mono text-[13px] leading-[1.55] text-[var(--color-fg)]">
       <div className="flex h-full flex-col gap-[2px]">
         <AnimatePresence initial={false}>
-          {lines.slice(0, lines.length - (tailIsCommand ? 1 : 0)).map((line) => (
-            <motion.div
-              key={line.id}
-              initial={{ opacity: 0, y: 4 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.18, ease: "easeOut" }}
-              className="whitespace-pre"
-            >
-              {line.tokens.map((token, i) => (
-                <span key={i} className={toneClass(token.tone)}>
-                  {token.text}
-                </span>
-              ))}
-            </motion.div>
-          ))}
+          {lines
+            .slice(0, lines.length - (tailIsCommand ? 1 : 0))
+            .map((line) => (
+              <motion.div
+                key={line.id}
+                initial={{ opacity: 0, y: 4 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.18, ease: "easeOut" }}
+                className="whitespace-pre"
+              >
+                {line.tokens.map((token, i) => (
+                  <span key={i} className={toneClass(token.tone)}>
+                    {token.text}
+                  </span>
+                ))}
+              </motion.div>
+            ))}
         </AnimatePresence>
         {tail && tailIsCommand && (
           <div className="whitespace-pre">
@@ -573,10 +575,6 @@ function BrowserPane() {
             <span className="text-[var(--color-muted)]">https://</span>
             <span className="text-[var(--color-fg)]">{PREVIEW_HOST}</span>
           </span>
-          <span className="ml-auto flex items-center gap-1 text-[10px] text-[#1f8b4c]">
-            <span className="inline-block h-[5px] w-[5px] rounded-full bg-[#1f8b4c]" />
-            live
-          </span>
         </div>
       </div>
       <div className="relative flex-1 overflow-hidden bg-[var(--color-bg)]">
@@ -594,8 +592,7 @@ function BrowserPane() {
             Hello from workspace-1
           </h2>
           <p className="mt-2 font-mono text-[11.5px] text-[var(--color-muted)]">
-            edit{" "}
-            <code className="text-[var(--color-fg)]">app/page.tsx</code>{" "}
+            edit <code className="text-[var(--color-fg)]">app/page.tsx</code>{" "}
             and save — HMR ships in &lt; 200ms
           </p>
         </motion.div>
