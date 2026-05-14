@@ -15,7 +15,7 @@ import DiscordIcon from "@/components/DiscordIcon.astro";
     <Header />
 
     <main class="flex-1 px-6 pt-10 pb-20 sm:px-10 sm:pt-16">
-      <div class="mx-auto flex w-full max-w-2xl flex-col">
+      <section class="mx-auto flex w-full max-w-2xl flex-col">
         <p
           class="mb-7 inline-flex items-center self-start rounded-lg border-[1.5px] border-[var(--color-accent)] px-3 py-1.5 font-sans text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--color-accent)]"
         >
@@ -69,11 +69,12 @@ import DiscordIcon from "@/components/DiscordIcon.astro";
             github.com/freestyle-sh/rigkit
           </a>
         </div>
+      </section>
 
-        <div class="mt-14">
-          <CodeShowcase />
-        </div>
-      </div>
+      <section class="mx-auto mt-16 flex w-full max-w-4xl flex-col gap-6 sm:mt-20">
+        <CliShowcase client:visible />
+        <CodeShowcase />
+      </section>
     </main>
 
     <footer

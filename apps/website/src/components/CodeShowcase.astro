@@ -1,28 +1,29 @@
 ---
 import { Code } from "astro:components";
 
-const snippet = `import { cmux } from "@rigkit/provider-cmux";
-import { freestyle, VmBaseImage, VmSpec } from "@rigkit/provider-freestyle";
+const snippet = `import { freestyle, VmBaseImage, VmSpec } from "@rigkit/provider-freestyle";
 import { workflow } from "@rigkit/sdk";
 
+const repo = "vercel/next.js-starter";
+const repoPath = "/workspace/app";
+const devPort = 3000;
+
 const vmSpec = new VmSpec()
-  .baseImage(new VmBaseImage("FROM ubuntu:24.04"))
   .idleTimeoutSeconds(3600);
 
 const app = workflow("playground", {
-  providers: {
-    freestyle: freestyle.provider(),
-    cmux: cmux.provider(),
-  },
+  providers: { freestyle: freestyle.provider() },
 });
 
 export default app
   .sequence("playground")
-  .task("create-vm", async ({ freestyle, step }) => {
+  .task("clone-and-install", async ({ freestyle, step }) => {
     const { vm } = await freestyle.client.vms.create({
       spec: vmSpec,
       logger: step.log,
     });
+    await vm.exec(\`git clone https://github.com/\${repo}.git \${repoPath}\`);
+    await vm.exec(\`cd \${repoPath} && bun install\`);
     const snapshot = await vm.snapshot();
     return { ctx: { snapshotId: snapshot.snapshotId } };
   })
@@ -31,19 +32,21 @@ export default app
       const { vmId } = await providers.freestyle.client.vms.create({
         snapshotId: workflow.ctx.snapshotId,
       });
-      return { vmId };
+      return { vmId, repoPath, devPort };
     },
   })
   .workspaceOperation("open", {
-    title: "Open in cmux",
-    run: async ({ providers, workspace }) => {
-      await providers.cmux.open({
-        name: workspace.name,
-        ssh: await providers.freestyle.cmux.createSshOptions({
-          vmId: workspace.ctx.vmId,
-        }),
-        focus: true,
+    title: "Open",
+    run: async ({ providers, workspace, local }) => {
+      const vscode = await providers.freestyle.vscode.createUrl({
+        vmId: workspace.ctx.vmId,
+        cwd: workspace.ctx.repoPath,
       });
+      const preview = await providers.freestyle.forwardPort({
+        vmId: workspace.ctx.vmId,
+        port: workspace.ctx.devPort,
+      });
+      await Promise.all([local.open(vscode), local.open(preview)]);
     },
   });
 `;
