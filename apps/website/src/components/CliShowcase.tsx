@@ -198,7 +198,7 @@ export function CliShowcase() {
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]">
       <div className="overflow-hidden rounded-xl border border-[var(--color-border)] bg-[#faf8f2] shadow-[0_1px_0_rgba(10,10,10,0.04)]">
-        <ChromeBar label="rig — playground" />
+        <ChromeBar label="terminal" />
         <div className="h-[340px] sm:h-[380px]">
           <TerminalLog lines={lines} idle={!showIde} />
         </div>
@@ -245,8 +245,7 @@ export function CliShowcase() {
 
 function ChromeBar({ label }: { label: string }) {
   return (
-    <div className="flex items-center gap-2 border-b border-[var(--color-border)] bg-[#f2efe7] px-4 py-2.5">
-      <span className="inline-block h-[8px] w-[8px] rounded-full bg-[var(--color-border-strong)]" />
+    <div className="flex items-center border-b border-[var(--color-border)] bg-[#f2efe7] px-4 py-2.5">
       <span className="font-mono text-[12px] text-[var(--color-muted)]">
         {label}
       </span>
@@ -512,8 +511,6 @@ const EDITOR_LINES: { tokens: { text: string; cls: string }[] }[] = [
     tokens: [
       { text: "    <", cls: "text-[#800000]" },
       { text: "main", cls: "text-[#800000]" },
-      { text: " className=", cls: "text-[#e50000]" },
-      { text: '"grid place-items-center min-h-screen"', cls: "text-[#a31515]" },
       { text: ">", cls: "text-[#800000]" },
     ],
   },
