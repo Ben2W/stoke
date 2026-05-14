@@ -234,8 +234,16 @@ export function buildInteractiveSshCommand(
   if (command) args.push("-tt", "-q");
   if (connection.port !== undefined) args.push("-p", String(connection.port));
   args.push(destination);
-  if (command) args.push(command);
+  if (command) args.push(withBrowserOpenFallback(command));
   return args.map((arg) => arg === "ssh" || arg.startsWith("-") ? arg : shellQuote(arg)).join(" ");
+}
+
+function withBrowserOpenFallback(command: string): string {
+  return [
+    'export BROWSER="${BROWSER:-true}"',
+    'export GH_BROWSER="${GH_BROWSER:-$BROWSER}"',
+    command,
+  ].join("\n");
 }
 
 function keepOpenAfterCommand(command: string): string {

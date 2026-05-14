@@ -30,6 +30,9 @@ describe("Freestyle terminal session", () => {
       expect(html).toContain("user-select: text");
       expect(html).toContain("keyEventToTerminalInput");
       expect(html).toContain("sendTerminalInput(data)");
+      expect(html).toContain("terminalUrlFromEvent");
+      expect(html).toContain("openPendingBrowserPrompt");
+      expect(html).toContain("window.open(normalized");
       const startupInput = readStartupInput(html);
       expect(startupInput).toBe("printf interactive-ready\n");
 
