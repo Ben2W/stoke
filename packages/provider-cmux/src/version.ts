@@ -1,1 +1,1 @@
-export const RIGKIT_PROVIDER_CMUX_VERSION = "0.2.3";
+export const RIGKIT_PROVIDER_CMUX_VERSION = "0.2.4";
