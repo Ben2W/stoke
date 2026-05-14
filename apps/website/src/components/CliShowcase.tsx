@@ -203,7 +203,7 @@ export function CliShowcase() {
           <TerminalLog lines={lines} idle={!showIde} />
         </div>
       </div>
-      <div className="overflow-hidden rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] shadow-[0_1px_0_rgba(10,10,10,0.04)]">
+      <div className="flex min-h-0 flex-col overflow-hidden rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] shadow-[0_1px_0_rgba(10,10,10,0.04)]">
         <AnimatePresence mode="wait">
           {showIde ? (
             <motion.div
@@ -212,7 +212,7 @@ export function CliShowcase() {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1] }}
-              className="h-[340px] sm:h-[380px]"
+              className="flex min-h-0 flex-1 flex-col"
             >
               <TabbedWindow />
             </motion.div>
@@ -223,7 +223,7 @@ export function CliShowcase() {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.2 }}
-              className="flex h-[340px] flex-col sm:h-[380px]"
+              className="flex min-h-0 flex-1 flex-col"
             >
               <ChromeBar label="workspace · idle" />
               <div className="flex flex-1 items-center justify-center px-6 text-center">
