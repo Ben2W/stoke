@@ -24,7 +24,7 @@ export function InstallBlock() {
         aria-label="Copy install command"
         whileTap={{ scale: 0.995 }}
         transition={{ duration: 0.08 }}
-        className="group flex w-full cursor-pointer items-stretch gap-2 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-2 text-left shadow-[0_1px_0_rgba(10,10,10,0.04)] transition-colors hover:bg-[#fbf9f3]"
+        className="group flex w-full cursor-pointer items-center gap-2 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-1.5 text-left shadow-[0_1px_0_rgba(10,10,10,0.04)] transition-colors hover:bg-[#fbf9f3]"
       >
         <div className="flex min-w-0 flex-1 items-center gap-3 px-3 py-2">
           <span
@@ -41,7 +41,7 @@ export function InstallBlock() {
           aria-hidden="true"
           animate={copied ? { backgroundColor: "#0f9d58" } : { backgroundColor: "#0a0a0a" }}
           transition={{ duration: 0.18 }}
-          className="inline-flex shrink-0 items-center gap-2 self-stretch rounded-lg px-4 py-2 font-sans text-sm font-semibold text-white"
+          className="inline-flex shrink-0 items-center gap-2 rounded-lg px-3.5 py-2 font-sans text-[13px] font-semibold text-white"
         >
           <span className="relative grid h-[14px] w-[14px] place-items-center">
             <AnimatePresence mode="wait" initial={false}>
@@ -87,7 +87,7 @@ export function InstallBlock() {
           </span>
         </motion.span>
       </motion.button>
-      <p className="mt-3 font-mono text-xs text-[var(--color-muted)]">
+      <p className="mt-4 ml-1 font-mono text-xs text-[var(--color-muted)]">
         macOS &amp; Linux
       </p>
     </div>
