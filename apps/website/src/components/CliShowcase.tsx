@@ -397,7 +397,7 @@ function Tab({
       onClick={onClick}
       className={`flex max-w-[200px] items-center gap-1.5 truncate rounded-t-md border border-b-0 px-3 py-1.5 font-mono text-[11.5px] transition-colors ${
         active
-          ? "border-[var(--color-border)] bg-[#0f1115] text-[#dfe7f5]"
+          ? "border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-fg)]"
           : "border-transparent bg-transparent text-[var(--color-muted)] hover:text-[var(--color-fg)]"
       }`}
     >
@@ -442,14 +442,17 @@ function GlobeGlyph() {
 
 function VsCodePane() {
   return (
-    <div className="flex h-full flex-col bg-[#0f1115]">
+    <div className="flex h-full flex-col bg-[var(--color-surface)]">
       <div className="grid flex-1 grid-cols-[124px_minmax(0,1fr)]">
         <FileTree />
         <Editor />
       </div>
-      <div className="flex items-center justify-between border-t border-[#1f242c] bg-[#0a0d12] px-3 py-1.5 font-mono text-[10px] text-[#7a8493]">
-        <span className="text-[#62d77a]">● ssh: workspace-1</span>
-        <span>TypeScript · main</span>
+      <div className="flex items-center justify-between border-t border-[var(--color-border)] bg-[var(--color-accent)] px-3 py-1.5 font-mono text-[10px] text-white">
+        <span className="inline-flex items-center gap-1.5">
+          <span className="inline-block h-[5px] w-[5px] rounded-full bg-[#a7f3a0]" />
+          ssh: workspace-1
+        </span>
+        <span className="text-white/85">TypeScript · main</span>
       </div>
     </div>
   );
@@ -468,8 +471,8 @@ function FileTree() {
     [],
   );
   return (
-    <div className="border-r border-[#1f242c] bg-[#0c0f14] px-2 py-3 font-mono text-[11px]">
-      <div className="mb-2 px-1 text-[10px] uppercase tracking-[0.1em] text-[#5a6473]">
+    <div className="border-r border-[var(--color-border)] bg-[#f6f3eb] px-2 py-3 font-mono text-[11px]">
+      <div className="mb-2 px-1 text-[10px] uppercase tracking-[0.1em] text-[var(--color-dim)]">
         explorer
       </div>
       <ul className="space-y-[3px]">
@@ -477,7 +480,9 @@ function FileTree() {
           <li
             key={item.label}
             className={`truncate rounded px-1.5 py-[2px] ${
-              item.active ? "bg-[#1a2233] text-[#dfe7f5]" : "text-[#7a8493]"
+              item.active
+                ? "bg-[var(--color-accent-soft)] text-[var(--color-fg)]"
+                : "text-[var(--color-muted)]"
             }`}
             style={{ paddingLeft: 6 + item.depth * 10 }}
           >
@@ -492,57 +497,57 @@ function FileTree() {
 const EDITOR_LINES: { tokens: { text: string; cls: string }[] }[] = [
   {
     tokens: [
-      { text: "export default function ", cls: "text-[#c084fc]" },
-      { text: "Page", cls: "text-[#fde68a]" },
-      { text: "() {", cls: "text-[#dfe7f5]" },
+      { text: "export default function ", cls: "text-[#0000ff]" },
+      { text: "Page", cls: "text-[#795e26]" },
+      { text: "() {", cls: "text-[#0a0a0a]" },
     ],
   },
   {
     tokens: [
-      { text: "  return", cls: "text-[#c084fc]" },
-      { text: " (", cls: "text-[#dfe7f5]" },
+      { text: "  return", cls: "text-[#af00db]" },
+      { text: " (", cls: "text-[#0a0a0a]" },
     ],
   },
   {
     tokens: [
-      { text: "    <", cls: "text-[#7a8493]" },
-      { text: "main", cls: "text-[#7dd3fc]" },
-      { text: " className=", cls: "text-[#dfe7f5]" },
-      { text: '"grid place-items-center min-h-screen"', cls: "text-[#a7f3a0]" },
-      { text: ">", cls: "text-[#7a8493]" },
+      { text: "    <", cls: "text-[#800000]" },
+      { text: "main", cls: "text-[#800000]" },
+      { text: " className=", cls: "text-[#e50000]" },
+      { text: '"grid place-items-center min-h-screen"', cls: "text-[#a31515]" },
+      { text: ">", cls: "text-[#800000]" },
     ],
   },
   {
     tokens: [
-      { text: "      <", cls: "text-[#7a8493]" },
-      { text: "h1", cls: "text-[#7dd3fc]" },
-      { text: ">Hello from workspace-1</", cls: "text-[#dfe7f5]" },
-      { text: "h1", cls: "text-[#7dd3fc]" },
-      { text: ">", cls: "text-[#7a8493]" },
+      { text: "      <", cls: "text-[#800000]" },
+      { text: "h1", cls: "text-[#800000]" },
+      { text: ">Hello from workspace-1</", cls: "text-[#0a0a0a]" },
+      { text: "h1", cls: "text-[#800000]" },
+      { text: ">", cls: "text-[#800000]" },
     ],
   },
   {
     tokens: [
-      { text: "    </", cls: "text-[#7a8493]" },
-      { text: "main", cls: "text-[#7dd3fc]" },
-      { text: ">", cls: "text-[#7a8493]" },
+      { text: "    </", cls: "text-[#800000]" },
+      { text: "main", cls: "text-[#800000]" },
+      { text: ">", cls: "text-[#800000]" },
     ],
   },
   {
-    tokens: [{ text: "  );", cls: "text-[#dfe7f5]" }],
+    tokens: [{ text: "  );", cls: "text-[#0a0a0a]" }],
   },
   {
-    tokens: [{ text: "}", cls: "text-[#dfe7f5]" }],
+    tokens: [{ text: "}", cls: "text-[#0a0a0a]" }],
   },
 ];
 
 function Editor() {
   return (
-    <div className="relative overflow-hidden bg-[#0f1115] py-2 pl-2 pr-3 font-mono text-[11.5px] leading-[1.75]">
+    <div className="relative overflow-hidden bg-[var(--color-surface)] py-2 pl-2 pr-3 font-mono text-[11.5px] leading-[1.75]">
       <div className="grid grid-cols-[20px_minmax(0,1fr)] gap-x-2">
         {EDITOR_LINES.map((line, i) => (
           <Fragment key={i}>
-            <span className="select-none text-right text-[#39414e]">
+            <span className="select-none text-right text-[#b8b0a0]">
               {i + 1}
             </span>
             <motion.div
