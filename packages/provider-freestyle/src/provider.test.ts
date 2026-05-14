@@ -160,6 +160,23 @@ describe("Freestyle provider host adapters", () => {
     expect(html).toContain("const canFinishWhileRunning = false;");
   });
 
+  test("sets remote browser open fallbacks for SSH terminal commands", () => {
+    const command = buildInteractiveSshCommand(
+      {
+        kind: "ssh",
+        host: "vm-ssh.freestyle.sh",
+        username: "vm-stream+root",
+        auth: { type: "token", token: "token" },
+        command: "ssh vm-stream+root:token@vm-ssh.freestyle.sh",
+      },
+      "gh auth login --hostname github.com --web",
+    );
+
+    expect(command).toContain('export BROWSER="${BROWSER:-true}"');
+    expect(command).toContain('export GH_BROWSER="${GH_BROWSER:-$BROWSER}"');
+    expect(command).toContain("gh auth login --hostname github.com --web");
+  });
+
   test("can keep an SSH terminal open after a successful remote command", () => {
     const command = buildInteractiveSshCommand(
       {

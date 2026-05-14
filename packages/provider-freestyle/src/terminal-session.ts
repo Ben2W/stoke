@@ -619,6 +619,10 @@ function renderInteractionPage(
       --term-color-15: #0a0a0a;
     }
     .term-host:not(.ready) { visibility: hidden; }
+    .term-host.link-hover,
+    .term-fallback.link-hover {
+      cursor: pointer;
+    }
     .term-fallback {
       position: absolute;
       inset: 0;
@@ -765,6 +769,8 @@ function renderInteractionPage(
     let startupSent = false;
     let startupIdleTimer;
     let startupMaxTimer;
+    let terminalOutputTail = "";
+    let pendingBrowserPromptUrl = null;
     const outputBacklog = [];
     const listeners = {
       onStatus: null,
@@ -790,6 +796,69 @@ function renderInteractionPage(
       clearTimeout(startupIdleTimer);
       startupIdleTimer = setTimeout(sendStartupInput, delay || 350);
       startupMaxTimer = startupMaxTimer || setTimeout(sendStartupInput, 1500);
+    }
+
+    const URL_MATCH_PATTERN = "https?:\\\\/\\\\/[^\\\\s<>\\\"']+";
+
+    function stripAnsi(text) {
+      return text.replace(/[\\u001b\\u009b][[\\]()#;?]*(?:(?:(?:[a-zA-Z\\d]*(?:;[a-zA-Z\\d]*)*)?\\u0007)|(?:(?:\\d{1,4}(?:;\\d{0,4})*)?[\\dA-PR-TZcf-nq-uy=><~]))/g, "");
+    }
+
+    function normalizeHttpUrl(value) {
+      let url = String(value || "").trim();
+      while (/[),.;:!?\\]}]+$/.test(url)) url = url.slice(0, -1);
+      try {
+        const parsed = new URL(url);
+        if (parsed.protocol === "http:" || parsed.protocol === "https:") return parsed.href;
+      } catch {
+        return null;
+      }
+      return null;
+    }
+
+    function urlsInText(text) {
+      const urls = [];
+      const matcher = new RegExp(URL_MATCH_PATTERN, "ig");
+      let match;
+      while ((match = matcher.exec(text)) !== null) {
+        const raw = match[0];
+        const url = normalizeHttpUrl(raw);
+        if (url) urls.push({ url, start: match.index, end: match.index + raw.length });
+      }
+      return urls;
+    }
+
+    function urlAtTextIndex(text, index) {
+      for (const candidate of urlsInText(text)) {
+        if (index >= candidate.start - 1 && index <= candidate.end) return candidate.url;
+      }
+      return null;
+    }
+
+    function findPendingBrowserPromptUrl(text) {
+      const cleaned = stripAnsi(text).replace(/\\r(?!\\n)/g, "\\n");
+      const currentLine = cleaned.split(/\\n/).pop() || "";
+      const match = /Press\\s+Enter\\s+to\\s+open\\s+(https?:\\/\\/\\S+)\\s+in\\s+your\\s+browser/i.exec(currentLine);
+      return match ? normalizeHttpUrl(match[1]) : null;
+    }
+
+    function trackBrowserPrompt(data) {
+      terminalOutputTail = (terminalOutputTail + data).slice(-8000);
+      pendingBrowserPromptUrl = findPendingBrowserPromptUrl(terminalOutputTail);
+    }
+
+    function openExternalUrl(url) {
+      const normalized = normalizeHttpUrl(url);
+      if (!normalized) return false;
+      const opened = window.open(normalized, "_blank", "noopener,noreferrer");
+      return Boolean(opened);
+    }
+
+    function openPendingBrowserPrompt() {
+      if (!pendingBrowserPromptUrl) return false;
+      const url = pendingBrowserPromptUrl;
+      pendingBrowserPromptUrl = null;
+      return openExternalUrl(url);
     }
 
     function isTextEditingTarget(target) {
@@ -869,6 +938,7 @@ function renderInteractionPage(
       event.preventDefault();
       event.stopImmediatePropagation();
       term?.focus();
+      if (data === "\\r") openPendingBrowserPrompt();
       sendTerminalInput(data);
     }, { capture: true });
 
@@ -884,6 +954,7 @@ function renderInteractionPage(
       socket.addEventListener("message", (event) => {
         const message = JSON.parse(event.data);
         if (message.type === "output") {
+          trackBrowserPrompt(message.data);
           outputBacklog.push(message.data);
           if (termReady) {
             term.write(message.data);
@@ -991,10 +1062,12 @@ function renderInteractionPage(
       const fallbackRef = useRef(null);
 
       useEffect(() => {
-        terminalEl = hostRef.current;
-        if (fallbackRef.current) {
+        const host = hostRef.current;
+        const fallback = fallbackRef.current;
+        terminalEl = host;
+        if (fallback) {
           for (const chunk of outputBacklog) {
-            fallbackRef.current.textContent += chunk;
+            fallback.textContent += chunk;
           }
         }
         listeners.onOutput = (data) => {
@@ -1002,6 +1075,33 @@ function renderInteractionPage(
           fallbackRef.current.textContent += data;
           fallbackRef.current.scrollTop = fallbackRef.current.scrollHeight;
         };
+
+        const handleTerminalClick = (event) => {
+          if (event.defaultPrevented || event.button !== 0) return;
+          const selection = window.getSelection();
+          if (selection && selection.toString()) return;
+          const url = terminalUrlFromEvent(event);
+          if (!url) return;
+          event.preventDefault();
+          event.stopPropagation();
+          openExternalUrl(url);
+        };
+        const handleTerminalPointerMove = (event) => {
+          const target = event.currentTarget;
+          if (!(target instanceof HTMLElement)) return;
+          target.classList.toggle("link-hover", Boolean(terminalUrlFromEvent(event)));
+        };
+        const handleTerminalPointerLeave = (event) => {
+          const target = event.currentTarget;
+          if (target instanceof HTMLElement) target.classList.remove("link-hover");
+        };
+
+        host?.addEventListener("click", handleTerminalClick);
+        host?.addEventListener("pointermove", handleTerminalPointerMove);
+        host?.addEventListener("pointerleave", handleTerminalPointerLeave);
+        fallback?.addEventListener("click", handleTerminalClick);
+        fallback?.addEventListener("pointermove", handleTerminalPointerMove);
+        fallback?.addEventListener("pointerleave", handleTerminalPointerLeave);
 
         let cancelled = false;
         (async () => {
@@ -1042,7 +1142,16 @@ function renderInteractionPage(
           }
         })();
 
-        return () => { cancelled = true; };
+        return () => {
+          cancelled = true;
+          terminalEl = null;
+          host?.removeEventListener("click", handleTerminalClick);
+          host?.removeEventListener("pointermove", handleTerminalPointerMove);
+          host?.removeEventListener("pointerleave", handleTerminalPointerLeave);
+          fallback?.removeEventListener("click", handleTerminalClick);
+          fallback?.removeEventListener("pointermove", handleTerminalPointerMove);
+          fallback?.removeEventListener("pointerleave", handleTerminalPointerLeave);
+        };
       }, []);
 
       return h(F, null,
@@ -1067,6 +1176,76 @@ function renderInteractionPage(
           h("p", { className: "success-message" }, "You can close this tab — Rigkit will pick up from here."),
         ),
       );
+    }
+
+    function terminalUrlFromEvent(event) {
+      const target = event.target;
+      if (!(target instanceof Element)) return null;
+
+      const row = target.closest(".term-row");
+      if (row) {
+        return terminalUrlFromRowEvent(row, event);
+      }
+
+      const fallback = target.closest(".term-fallback");
+      if (fallback) {
+        return terminalUrlFromPreEvent(fallback, event);
+      }
+
+      return null;
+    }
+
+    function terminalUrlFromRowEvent(row, event) {
+      const text = row.textContent || "";
+      if (!text) return null;
+
+      const clickedIndex = textIndexFromRowPoint(row, event.clientX);
+      if (clickedIndex !== null) {
+        const exactUrl = urlAtTextIndex(text, clickedIndex);
+        if (exactUrl) return exactUrl;
+      }
+
+      const urls = urlsInText(text);
+      return urls.length === 1 ? urls[0].url : null;
+    }
+
+    function textIndexFromRowPoint(row, clientX) {
+      let offset = 0;
+      const spans = row.querySelectorAll("span");
+      for (const span of spans) {
+        const text = span.textContent || "";
+        if (!text) continue;
+
+        const rect = span.getBoundingClientRect();
+        if (clientX >= rect.left && clientX <= rect.right) {
+          const charWidth = rect.width / Math.max(text.length, 1);
+          if (!Number.isFinite(charWidth) || charWidth <= 0) return offset;
+          const index = Math.floor((clientX - rect.left) / charWidth);
+          return offset + Math.max(0, Math.min(text.length - 1, index));
+        }
+
+        offset += text.length;
+      }
+
+      return null;
+    }
+
+    function terminalUrlFromPreEvent(pre, event) {
+      const text = pre.textContent || "";
+      const rect = pre.getBoundingClientRect();
+      const style = window.getComputedStyle(pre);
+      const lineHeight = parseFloat(style.lineHeight) || 18;
+      const fontSize = parseFloat(style.fontSize) || 13;
+      const charWidth = fontSize * 0.62;
+      const paddingTop = parseFloat(style.paddingTop) || 0;
+      const paddingLeft = parseFloat(style.paddingLeft) || 0;
+      const lineIndex = Math.floor((event.clientY - rect.top + pre.scrollTop - paddingTop) / lineHeight);
+      const colIndex = Math.floor((event.clientX - rect.left + pre.scrollLeft - paddingLeft) / charWidth);
+      const line = text.split("\\n")[lineIndex] || "";
+      const exactUrl = urlAtTextIndex(line, Math.max(0, colIndex));
+      if (exactUrl) return exactUrl;
+      const urls = urlsInText(line);
+      return urls.length === 1 ? urls[0].url : null;
     }
 
     function App() {
