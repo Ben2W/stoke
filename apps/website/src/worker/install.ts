@@ -1,4 +1,4 @@
-type Env = {
+export type InstallEnv = {
   GITHUB_REPO?: string;
   GITHUB_TOKEN?: string;
   PUBLIC_BASE_URL?: string;
@@ -46,31 +46,39 @@ const TARGETS: Target[] = ["darwin-arm64", "darwin-x64", "linux-arm64", "linux-x
 const DEFAULT_REPO = "freestyle-sh/rigkit";
 const DEFAULT_CACHE_TTL_SECONDS = 300;
 
-export default {
-  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-    try {
-      return await handleRequest(request, env, ctx);
-    } catch (error) {
-      const message = error instanceof HttpError ? error.message : "Internal server error";
-      const status = error instanceof HttpError ? error.status : 500;
-      if (!(error instanceof HttpError)) console.error(error);
-      return json({ error: message }, { status, cacheControl: "no-store" });
-    }
-  },
-};
+const INSTALL_PATHS = new Set([
+  "/install",
+  "/latest",
+  "/latest.json",
+]);
 
-export async function handleRequest(request: Request, env: Env, ctx?: ExecutionContext): Promise<Response> {
+export function isInstallPath(pathname: string): boolean {
+  if (INSTALL_PATHS.has(pathname)) return true;
+  if (pathname.startsWith("/download/")) return true;
+  if (pathname.startsWith("/checksums/")) return true;
+  return false;
+}
+
+export async function handleInstallRequest(
+  request: Request,
+  env: InstallEnv,
+  ctx?: ExecutionContext,
+): Promise<Response> {
+  try {
+    return await dispatch(request, env, ctx);
+  } catch (error) {
+    const message = error instanceof HttpError ? error.message : "Internal server error";
+    const status = error instanceof HttpError ? error.status : 500;
+    if (!(error instanceof HttpError)) console.error(error);
+    return json({ error: message }, { status, cacheControl: "no-store" });
+  }
+}
+
+async function dispatch(request: Request, env: InstallEnv, ctx?: ExecutionContext): Promise<Response> {
   const url = new URL(request.url);
 
   if (request.method !== "GET" && request.method !== "HEAD") {
     return json({ error: "Method not allowed" }, { status: 405, cacheControl: "no-store" });
-  }
-
-  if (url.pathname === "/" || url.pathname === "") {
-    return text(renderIndex(resolvePublicBaseUrl(request, env)), {
-      contentType: "text/plain; charset=utf-8",
-      cacheControl: "public, max-age=300",
-    });
   }
 
   if (url.pathname === "/install") {
@@ -109,7 +117,7 @@ export async function handleRequest(request: Request, env: Env, ctx?: ExecutionC
   return json({ error: "Not found" }, { status: 404, cacheControl: "no-store" });
 }
 
-async function getLatestMetadata(request: Request, env: Env, ctx?: ExecutionContext): Promise<LatestMetadata> {
+async function getLatestMetadata(request: Request, env: InstallEnv, ctx?: ExecutionContext): Promise<LatestMetadata> {
   const cacheKey = new Request(new URL(`/__cache/latest/${repo(env)}`, request.url), { method: "GET" });
   const cached = await cacheMatch(cacheKey);
   if (cached) return await cached.json() as LatestMetadata;
@@ -123,12 +131,12 @@ async function getLatestMetadata(request: Request, env: Env, ctx?: ExecutionCont
   return metadata;
 }
 
-async function getReleaseMetadata(request: Request, env: Env, tag: string): Promise<LatestMetadata> {
+async function getReleaseMetadata(request: Request, env: InstallEnv, tag: string): Promise<LatestMetadata> {
   const release = await fetchGithubRelease(env, `tags/${tag}`);
   return await buildMetadata(request, env, release);
 }
 
-async function buildMetadata(request: Request, env: Env, release: GithubRelease): Promise<LatestMetadata> {
+async function buildMetadata(request: Request, env: InstallEnv, release: GithubRelease): Promise<LatestMetadata> {
   const baseUrl = resolvePublicBaseUrl(request, env);
   const version = release.tag_name.startsWith("v") ? release.tag_name.slice(1) : release.tag_name;
   const checksumsAsset = findAsset(release, "checksums.txt");
@@ -165,7 +173,7 @@ async function buildMetadata(request: Request, env: Env, release: GithubRelease)
   };
 }
 
-async function fetchGithubRelease(env: Env, path: "latest" | `tags/${string}`): Promise<GithubRelease> {
+async function fetchGithubRelease(env: InstallEnv, path: "latest" | `tags/${string}`): Promise<GithubRelease> {
   const response = await fetch(`https://api.github.com/repos/${repo(env)}/releases/${path}`, {
     headers: githubApiHeaders(env),
   });
@@ -186,7 +194,7 @@ async function fetchGithubRelease(env: Env, path: "latest" | `tags/${string}`): 
   return await response.json() as GithubRelease;
 }
 
-function githubApiHeaders(env: Env): Headers {
+function githubApiHeaders(env: InstallEnv): Headers {
   const headers = new Headers({
     "Accept": "application/vnd.github+json",
     "User-Agent": "rigkit-install-worker",
@@ -199,7 +207,7 @@ function githubApiHeaders(env: Env): Headers {
   return headers;
 }
 
-function githubToken(env: Env): string | undefined {
+function githubToken(env: InstallEnv): string | undefined {
   const token = env.GITHUB_TOKEN?.trim();
   return token || undefined;
 }
@@ -246,15 +254,15 @@ function assetNameForTarget(target: Target): string {
   return `rig-${target}.tar.gz`;
 }
 
-function repo(env: Env): string {
+function repo(env: InstallEnv): string {
   return env.GITHUB_REPO || DEFAULT_REPO;
 }
 
-function resolvePublicBaseUrl(request: Request, env: Env): string {
+function resolvePublicBaseUrl(request: Request, env: InstallEnv): string {
   return (env.PUBLIC_BASE_URL || new URL(request.url).origin).replace(/\/+$/, "");
 }
 
-function cacheTtl(env: Env): number {
+function cacheTtl(env: InstallEnv): number {
   const parsed = Number(env.CACHE_TTL_SECONDS);
   return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : DEFAULT_CACHE_TTL_SECONDS;
 }
@@ -299,22 +307,6 @@ function text(value: string, options: { status?: number; contentType: string; ca
       "Cache-Control": options.cacheControl ?? "no-store",
     },
   });
-}
-
-function renderIndex(baseUrl: string): string {
-  return [
-    "rigkit distribution worker",
-    "",
-    `Install: curl -fsSL ${baseUrl}/install | sh`,
-    "",
-    "Endpoints:",
-    "  GET /install",
-    "  GET /latest",
-    "  GET /latest.json",
-    "  GET /download/:version/:target",
-    "  GET /checksums/:version",
-    "",
-  ].join("\n");
 }
 
 function renderInstallScript(baseUrl: string): string {

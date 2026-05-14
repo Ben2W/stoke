@@ -7,6 +7,7 @@ import type { BaseProviderPlugin, WorkflowProviderController } from "@rigkit/eng
 import {
   CMUX_OPEN_CAPABILITY_ID,
   type CmuxOpenInput,
+  type CmuxOpenPaneResult,
   type CmuxOpenResult,
   type CmuxOpenSession,
 } from "./capabilities.ts";
@@ -82,11 +83,30 @@ export function parseCmuxOpenResult(value: unknown): CmuxOpenResult {
     sessionId,
     workspaceId,
     ...optionalStringField(value, "workspaceRef"),
-    ...optionalStringField(value, "terminalPaneId"),
-    ...optionalStringField(value, "terminalSurfaceId"),
-    ...optionalStringField(value, "browserPaneId"),
-    ...optionalStringField(value, "browserSurfaceId"),
+    terminalPanes: arrayField(value, "terminalPanes", parseCmuxOpenPaneResult),
+    ...(value.browserPane !== undefined ? { browserPane: parseCmuxOpenPaneResult(value.browserPane) } : {}),
   };
+}
+
+function parseCmuxOpenPaneResult(value: unknown): CmuxOpenPaneResult {
+  if (!isRecord(value)) throw new Error(`cmux.open returned a non-object pane result`);
+  return {
+    ...optionalStringField(value, "paneId"),
+    ...optionalStringField(value, "paneRef"),
+    ...optionalStringField(value, "surfaceId"),
+    ...optionalStringField(value, "surfaceRef"),
+  };
+}
+
+function arrayField<Item>(
+  record: Record<string, unknown>,
+  key: string,
+  parseItem: (value: unknown) => Item,
+): Item[] {
+  const value = record[key];
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) throw new Error(`cmux.open result ${key} must be an array`);
+  return value.map(parseItem);
 }
 
 function optionalStringField(record: Record<string, unknown>, key: string): Record<string, string> {

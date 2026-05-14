@@ -6,6 +6,7 @@ export type CompletionShell = "bash" | "fish" | "zsh";
 export type CompletionItem = {
   value: string;
   description?: string;
+  noSpace?: boolean;
 };
 
 type CompleteRigInput = {
@@ -102,31 +103,10 @@ export async function completeRig(input: CompleteRigInput): Promise<CompletionIt
   if (expectsOptionValue(before)) return [];
 
   if (!command) {
-    const rootOperation = parseRootOperation(before);
-    if (rootOperation.operation) {
-      if (current.startsWith("-")) {
-        const operation = await safeResolveRuntimeOperation(resolveProjectDir(words, cwd), rootOperation.operation);
-        return filterItems([
-          ...(operation?.cli?.options ?? []).flatMap((option) => [
-            { value: option.flag, description: option.name },
-            ...(option.aliases ?? []).map((alias) => ({ value: alias, description: option.name })),
-          ]),
-          ...COMMAND_OPTIONS.operation,
-          ...GLOBAL_OPTIONS,
-        ], current);
-      }
-      const operation = await safeResolveRuntimeOperation(resolveProjectDir(words, cwd), rootOperation.operation);
-      const operationPositionalCount = countRunOperationPositionals(rootOperation.args);
-      const positional = operation?.cli?.positionals?.find((item) => item.index === operationPositionalCount);
-      if (positional && /workspace|vm/i.test(positional.name)) {
-        return filterItems(await workspaceTargets(resolveProjectDir(words, cwd), current, /vm/i.test(positional.name)), current);
-      }
-      return [];
-    }
     return filterItems(
       current.startsWith("-")
         ? GLOBAL_OPTIONS
-        : [...COMMANDS, ...await safeOperationTargets(resolveProjectDir(words, cwd), current), ...GLOBAL_OPTIONS],
+        : [...COMMANDS, ...GLOBAL_OPTIONS],
       current,
     );
   }
@@ -157,6 +137,9 @@ export async function completeRig(input: CompleteRigInput): Promise<CompletionIt
       return filterItems(await safeOperationTargets(resolveProjectDir(words, cwd), current), current);
     }
     const operation = await safeResolveRuntimeOperation(resolveProjectDir(words, cwd), run.operation);
+    if (!operation && run.args.length === 0) {
+      return filterItems(await safeWorkspaceOperationTargets(resolveProjectDir(words, cwd), run.operation), current);
+    }
     const operationPositionalCount = countRunOperationPositionals(run.args);
     const positional = operation?.cli?.positionals?.find((item) => item.index === operationPositionalCount);
     if (positional && /workspace|vm/i.test(positional.name)) {
@@ -178,6 +161,9 @@ export async function completeRig(input: CompleteRigInput): Promise<CompletionIt
 export function formatCompletionItems(items: CompletionItem[], shell: CompletionShell): string {
   const lines = items.map((item) => {
     if (shell === "bash") return item.value;
+    if (shell === "zsh" && item.noSpace) {
+      return `${item.value}\t${item.description ?? ""}\tnospace`;
+    }
     return item.description ? `${item.value}\t${item.description}` : item.value;
   });
   return lines.join("\n");
@@ -217,22 +203,33 @@ complete -c rig -f -a "(__rig_complete)"
 `;
   }
 
-  return `#compdef rig
+return `#compdef rig
 # rig zsh completion
 _rig() {
-  local -a raw completions
-  local line value description
+  local -a raw values descriptions nospace_values nospace_descriptions
+  local line value description rest marker
   raw=("\${(@f)$(command rig __complete --shell zsh --index $((CURRENT - 1)) -- "\${words[@]}" 2>/dev/null)}")
   for line in "\${raw[@]}"; do
     value="\${line%%$'\\t'*}"
+    description=""
+    marker=""
     if [[ "$line" == *$'\\t'* ]]; then
-      description="\${line#*$'\\t'}"
-      completions+=("\${value}:\${description}")
+      rest="\${line#*$'\\t'}"
+      description="\${rest%%$'\\t'*}"
+      if [[ "$rest" == *$'\\t'* ]]; then
+        marker="\${rest#*$'\\t'}"
+      fi
+    fi
+    if [[ "$marker" == "nospace" ]]; then
+      nospace_values+=("\${value}")
+      nospace_descriptions+=("\${description}")
     else
-      completions+=("\${value}")
+      values+=("\${value}")
+      descriptions+=("\${description}")
     fi
   done
-  _describe 'rig' completions
+  (( \${#nospace_values} )) && compadd -S '' -d nospace_descriptions -a nospace_values
+  (( \${#values} )) && compadd -d descriptions -a values
 }
 compdef _rig rig
 `;
@@ -293,21 +290,6 @@ function parseRunCommand(words: string[]): { operation?: string; args: string[] 
       if (word === "run") foundRun = true;
       continue;
     }
-    args.push(word);
-  }
-  return { operation: args[0], args: args.slice(1) };
-}
-
-function parseRootOperation(words: string[]): { operation?: string; args: string[] } {
-  const args: string[] = [];
-  for (let index = 0; index < words.length; index += 1) {
-    const word = words[index]!;
-    if (OPTIONS_WITH_VALUES.has(word)) {
-      index += 1;
-      continue;
-    }
-    if (word.startsWith("--") && word.includes("=")) continue;
-    if (word.startsWith("-")) continue;
     args.push(word);
   }
   return { operation: args[0], args: args.slice(1) };
@@ -392,13 +374,33 @@ async function operationTargets(
     return workspaceOperationTargets(manifest, current);
   }
   const workspaces = await readWorkspaces(paths).catch(() => []);
+  if (workspaces.some((workspace) => workspace.name === current)) {
+    return workspaceOperationTargets(manifest, `${current}/`);
+  }
   return manifest.operations.flatMap((operation) => [
     { value: operation.id, description: operation.description },
     ...(operation.aliases ?? []).map((alias) => ({ value: alias, description: operation.description })),
   ]).concat(workspaces.map((workspace) => ({
-    value: `${workspace.name}/`,
+    value: workspace.name,
     description: `workspace ${workspace.workflow}`,
+    noSpace: true,
   })));
+}
+
+async function safeWorkspaceOperationTargets(
+  paths: { projectDir: string; configPath: string },
+  workspace: string,
+): Promise<CompletionItem[]> {
+  try {
+    const [manifest, workspaces] = await Promise.all([
+      readOperations(paths),
+      readWorkspaces(paths),
+    ]);
+    if (!workspaces.some((item) => item.name === workspace)) return [];
+    return workspaceOperationTargets(manifest, `${workspace}/`);
+  } catch {
+    return [];
+  }
 }
 
 function workspaceOperationTargets(manifest: RuntimeOperationManifest, current: string): CompletionItem[] {

@@ -1,0 +1,46 @@
+---
+import "@/styles/globals.css";
+
+interface Props {
+  title: string;
+  description: string;
+  path?: string;
+}
+
+const {
+  title,
+  description,
+  path = Astro.url.pathname,
+} = Astro.props;
+
+const site = Astro.site ?? new URL("https://rigkit.freestyle.sh");
+const canonical = new URL(path, site).toString();
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="canonical" href={canonical} />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:site_name" content="Rigkit" />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={title} />
+    <meta name="twitter:description" content={description} />
+    <link
+      rel="preconnect"
+      href="https://rsms.me/"
+      crossorigin
+    />
+    <link rel="stylesheet" href="https://rsms.me/inter/inter.css" />
+  </head>
+  <body class="antialiased">
+    <slot />
+  </body>
+</html>

@@ -52,11 +52,16 @@ export default workflow("site", {
           sshOptions: ["ServerAliveInterval=15"],
         },
         cwd: "/workspace/site",
-        command: "pnpm dev",
+        surfaceLayout: "tabs",
+        terminals: [{ command: "pnpm dev" }],
         url: "http://localhost:3000",
       });
     },
   });
 ```
+
+Set `surfaceLayout: "tabs"` to open terminals and the optional browser URL as
+tabs in the same cmux pane. Omit it, or set `"splits"`, to keep the default
+split-pane behavior.
 
 Local hosts can import `@rigkit/provider-cmux/host` to register the trusted `cmux.open` handler. The Rigkit CLI registers this handler automatically.

@@ -50,7 +50,7 @@ export default app
         ssh: await providers.freestyle.cmux.createSshOptions({
           vmId: workspace.ctx.vmId,
         }),
-        command: "echo hello world",
+        terminals: [{ command: "echo hello world" }],
         focus: true,
       });
     },

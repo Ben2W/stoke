@@ -5,19 +5,23 @@ This example builds a Freestyle-backed workflow for `freestyle-sh/freestyle-webs
 The workflow:
 
 - installs Git, GitHub CLI, Bun, and build tools
-- runs the GitHub CLI web login flow in the browser terminal
+- installs Codex CLI
+- runs the GitHub login flow in a browser terminal
 - clones `https://github.com/freestyle-sh/freestyle-website-next`
 - runs `bun install`
+- initializes Codex CLI from inside the cloned repo so its workspace trust and login prompts apply to the project folder
 - passes Freestyle VM snapshot refs through JSON workflow context
-- opens the created workspace in cmux from the `open-cmux` workspace operation
+- opens the created workspace in cmux with localhost and Codex in separate tabs
+- opens the created workspace in VS Code from the `open-vscode` workspace operation
 
 Run from this directory:
 
 ```bash
 pnpm rig:plan
 pnpm rig:apply
-pnpm rig:fork
-pnpm rig:open
+pnpm rig:create
+pnpm rig:open-cmux
+pnpm rig:open-vscode
 ```
 
 Freestyle auth is handled by the provider. By default Rigkit opens the Freestyle browser login.

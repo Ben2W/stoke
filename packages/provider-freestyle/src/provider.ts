@@ -88,6 +88,7 @@ export function createFreestyleTerminalController(): WorkflowProviderController<
             canFinishWhileRunning: options.keepOpenAfterCommand,
             instructions: options.instructions,
             nodePath: context.nodePath,
+            openExternalTarget: (target) => context.local.open(target),
           });
           return await context.interaction.present(session);
         },

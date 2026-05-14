@@ -11,7 +11,7 @@ const repoUrl = `https://github.com/${repo}.git`;
 const repoPath = "/workspace/freestyle-website-next";
 const devPort = 4321;
 const devCommand = `bun run dev -- --host 0.0.0.0 --port ${devPort}`;
-const vmIdleTimeoutSeconds = 3600;
+const vmIdleTimeoutSeconds = 600;
 const vmHome = "/root";
 
 const vmSpec = new VmSpec()
@@ -32,9 +32,25 @@ curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
 apt-get install -y -qq build-essential ca-certificates curl gh git gnupg nodejs pkg-config python3 unzip xz-utils
 
 corepack enable
-curl -fsSL https://bun.sh/install | HOME=/root BUN_INSTALL=/opt/bun bash
+export HOME=/root
+export PATH="/usr/local/bin:/root/.local/bin:/opt/bun/bin:$PATH"
+npm config set prefix /usr/local
+
+curl -fsSL https://bun.sh/install | BUN_INSTALL=/opt/bun bash &
+bun_pid=$!
+
+npm install -g @openai/codex &
+codex_pid=$!
+
+wait "$bun_pid"
+wait "$codex_pid"
+
 ln -sf /opt/bun/bin/bun /usr/local/bin/bun
+mkdir -p /root/.codex
+printf 'cli_auth_credentials_store = "file"\\n' > /root/.codex/config.toml
 git config --system init.defaultBranch main
+bun --version
+codex --version
 
 rm -rf /var/lib/apt/lists/*
 `,
@@ -54,18 +70,22 @@ const app = workflow("freestyle-website-next", {
 
 const websiteSetup = app
   .sequence("website-setup")
-  .task("install-dependencies", async ({ freestyle, step }) => {
-    const { vm, vmId } = await freestyle.client.vms.create({
-      spec: vmSpec,
-      logger: step.log,
-    });
-    try {
-      const snapshot = await vm.snapshot();
-      return { ctx: { snapshotId: snapshot.snapshotId } };
-    } finally {
-      await freestyle.client.vms.delete({ vmId });
-    }
-  })
+  .task(
+    "install-dependencies",
+    { version: "agent-cli-tooling-v4" },
+    async ({ freestyle, step }) => {
+      const { vm, vmId } = await freestyle.client.vms.create({
+        spec: vmSpec,
+        logger: step.log,
+      });
+      try {
+        const snapshot = await vm.snapshot();
+        return { ctx: { snapshotId: snapshot.snapshotId } };
+      } finally {
+        await freestyle.client.vms.delete({ vmId });
+      }
+    },
+  )
   .task(
     "github-auth",
     { version: "github-auth-root-v4" },
@@ -172,7 +192,34 @@ const websiteSetup = app
     } finally {
       await freestyle.client.vms.delete({ vmId });
     }
-  });
+  })
+  .task(
+    "initialize-codex-cli",
+    { version: "codex-cli-initialization-v1" },
+    async ({ step, freestyle, terminal }) => {
+      const created = await freestyle.client.vms.create({
+        snapshotId: step.ctx.snapshotId,
+        idleTimeoutSeconds: vmIdleTimeoutSeconds,
+        logger: step.log,
+      });
+      const { vmId } = created;
+      const { vm } = created;
+      try {
+        await terminal.open("Initialize Codex CLI", {
+          ssh: await freestyle.createSSHOptions({ vmId }),
+          command: agentCliInitCommand("codex"),
+          keepOpenAfterCommand: true,
+          instructions:
+            "Codex CLI is running inside the cloned website repo. Complete the login and workspace trust prompts, then exit Codex or click Complete task.",
+        });
+
+        const snapshot = await vm.snapshot();
+        return { ctx: { ...step.ctx, snapshotId: snapshot.snapshotId } };
+      } finally {
+        await freestyle.client.vms.delete({ vmId });
+      }
+    },
+  );
 
 export default app
   .sequence("website")
@@ -229,7 +276,11 @@ export default app
           vmId: workspace.ctx.vmId,
         }),
         cwd: workspace.ctx.repoPath,
-        command: devCommand,
+        surfaceLayout: "tabs",
+        terminals: [
+          { command: devCommand },
+          { command: "codex", focus: false },
+        ],
         url: `http://localhost:${devPort}`,
         focus: true,
         waitForRemoteReady: {
@@ -238,6 +289,17 @@ export default app
         },
       });
       await waitForLocalhost(vm, devPort);
+    },
+  })
+  .workspaceOperation("open-vscode", {
+    title: "Open VS Code",
+    description: "Open the website workspace in VS Code",
+    run: async ({ providers, workspace, local }) => {
+      const url = await providers.freestyle.vscode.createUrl({
+        vmId: workspace.ctx.vmId,
+        cwd: workspace.ctx.repoPath,
+      });
+      await local.open(url);
     },
   });
 
@@ -249,6 +311,15 @@ function dirname(path: string): string {
 // vm.exec does not have its home directory set to the root user's home, so we need to set HOME explicitly for commands that expect it.
 function withVmHome(command: string): string {
   return `HOME=${shellQuote(vmHome)} ${command}`;
+}
+
+function agentCliInitCommand(command: "codex"): string {
+  return [
+    "set -e",
+    `export HOME=${shellQuote(vmHome)}`,
+    `cd ${shellQuote(repoPath)}`,
+    command,
+  ].join("\n");
 }
 
 async function waitForLocalhost(

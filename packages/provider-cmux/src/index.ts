@@ -103,6 +103,14 @@ export type CmuxNewPaneOptions = {
   focus?: boolean;
 };
 
+export type CmuxNewSurfaceOptions = {
+  workspace?: string;
+  pane?: string;
+  type?: "terminal" | "browser";
+  url?: string;
+  focus?: boolean;
+};
+
 export type CmuxPane = {
   workspace?: string;
   workspaceRef?: string;
@@ -275,6 +283,17 @@ export class CmuxClient {
     if (options.focus !== undefined) params.focus = options.focus;
 
     return paneFromResult(await this.rpc("pane.create", params));
+  }
+
+  async newSurface(options: CmuxNewSurfaceOptions = {}): Promise<CmuxPane> {
+    const params: CmuxRpcParams = {};
+    if (options.type) params.type = options.type;
+    if (options.pane) params.pane_id = options.pane;
+    if (options.workspace) params.workspace_id = options.workspace;
+    if (options.url) params.url = options.url;
+    if (options.focus !== undefined) params.focus = options.focus;
+
+    return paneFromResult(await this.rpc("surface.create", params));
   }
 
   async listWorkspaces(): Promise<CmuxWorkspaceStatus[]> {
@@ -477,9 +496,13 @@ export {
   CMUX_OPEN_CAPABILITY_ID,
   CMUX_OPEN_SCHEMA_HASH,
   type CmuxOpenInput,
+  type CmuxOpenPaneResult,
   type CmuxOpenResult,
   type CmuxOpenSession,
+  type CmuxOpenSurfaceLayout,
   type CmuxOpenSshInput,
+  type CmuxOpenTerminalDirection,
+  type CmuxOpenTerminalInput,
   type CmuxRemoteReadyOptions,
 } from "./capabilities.ts";
 export {

@@ -1,0 +1,53 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "mint",
+  "name": "Rigkit",
+  "description": "Declarative dev environments, in TypeScript.",
+  "banner": {
+    "content": "🚧 Docs are under construction — pages are stubs while the rigkit v0.2 surface stabilizes. [Track progress on GitHub](https://github.com/freestyle-sh/rigkit) or [join the Discord](https://discord.com/invite/v5WT4fbXhc).",
+    "dismissible": false
+  },
+  "colors": {
+    "primary": "#2d4df5",
+    "light": "#5a76ff",
+    "dark": "#1a3ad9"
+  },
+  "background": {
+    "color": {
+      "light": "#efece5",
+      "dark": "#0a0a0a"
+    }
+  },
+  "appearance": {
+    "default": "light",
+    "strict": true
+  },
+  "fonts": {
+    "family": "Inter"
+  },
+  "navbar": {
+    "links": [
+      {
+        "label": "Home",
+        "href": "https://rigkit.freestyle.sh"
+      },
+      {
+        "label": "Discord",
+        "href": "https://discord.com/invite/v5WT4fbXhc"
+      }
+    ],
+    "primary": {
+      "type": "github",
+      "href": "https://github.com/freestyle-sh/rigkit"
+    }
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/freestyle-sh/rigkit",
+      "website": "https://www.freestyle.sh"
+    }
+  },
+  "navigation": {
+    "pages": ["introduction"]
+  }
+}

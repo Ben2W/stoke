@@ -727,7 +727,7 @@ export class DevMachineEngine {
   }
 
   async createWorkspace(input: { workflow?: string; machine?: string; name: string }): Promise<WorkspaceRecord> {
-    if (!input.name) throw new Error(`create requires a workspace name`);
+    assertValidWorkspaceName(input.name);
     if (this.getStateService().getWorkspace(input.name)) {
       throw new Error(`Workspace ${input.name} already exists`);
     }
@@ -1542,6 +1542,17 @@ function parseWorkspaceOperationId(value: string): { workspace: string; operatio
     workspace: value.slice(0, slash),
     operation: value.slice(slash + 1),
   };
+}
+
+const workspaceNamePattern = /^(?!-)[A-Za-z0-9._-]+$/;
+
+function assertValidWorkspaceName(value: string): void {
+  if (!value) throw new Error(`create requires a workspace name`);
+  if (!workspaceNamePattern.test(value)) {
+    throw new Error(
+      `Workspace name "${value}" is invalid. Use only letters, numbers, ".", "_", and "-", and do not start with "-".`,
+    );
+  }
 }
 
 async function resolveProviderDefinition(

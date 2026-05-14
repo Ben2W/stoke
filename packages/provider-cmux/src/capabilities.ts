@@ -1,7 +1,7 @@
 export const CMUX_OPEN_CAPABILITY_ID = "cmux.open";
 
 export const CMUX_OPEN_SCHEMA_HASH =
-  "sha256:671373232fc79a7f75dd01c8c83c0c350af62b349a89bb3cfcc96af2cd76c878";
+  "sha256:3a2975cfe53089c6a607da751b55575dc8806bd90132242d4b7e9065a26ae3af";
 
 export const CMUX_OPEN_CAPABILITY = {
   id: CMUX_OPEN_CAPABILITY_ID,
@@ -29,24 +29,40 @@ export type CmuxRemoteReadyOptions = {
   requireProxy?: boolean;
 };
 
+export type CmuxOpenTerminalDirection = "left" | "right" | "up" | "down";
+export type CmuxOpenSurfaceLayout = "splits" | "tabs";
+
+export type CmuxOpenTerminalInput = {
+  command: string;
+  cwd?: string;
+  direction?: CmuxOpenTerminalDirection;
+  focus?: boolean;
+};
+
 export type CmuxOpenInput = {
   name: string;
   ssh?: CmuxOpenSshInput;
   cwd?: string;
-  command?: string;
+  surfaceLayout?: CmuxOpenSurfaceLayout;
+  terminals?: readonly CmuxOpenTerminalInput[];
   url?: string;
   focus?: boolean;
   waitForRemoteReady?: boolean | CmuxRemoteReadyOptions;
+};
+
+export type CmuxOpenPaneResult = {
+  paneId?: string;
+  paneRef?: string;
+  surfaceId?: string;
+  surfaceRef?: string;
 };
 
 export type CmuxOpenResult = {
   sessionId: string;
   workspaceId: string;
   workspaceRef?: string;
-  terminalPaneId?: string;
-  terminalSurfaceId?: string;
-  browserPaneId?: string;
-  browserSurfaceId?: string;
+  terminalPanes: CmuxOpenPaneResult[];
+  browserPane?: CmuxOpenPaneResult;
 };
 
 export type CmuxOpenSession = CmuxOpenResult & {
