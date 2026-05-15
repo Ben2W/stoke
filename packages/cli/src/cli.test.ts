@@ -23,7 +23,8 @@ describe("CLI entrypoint", () => {
     expect(rootHelp.exitCode).toBe(0);
     expect(rootHelp.stderr).toBe("");
     expect(rootHelp.stdout).toContain("rig ");
-    expect(rootHelp.stdout).toContain("run         Run a project operation exposed by the runtime");
+    expect(rootHelp.stdout).toContain("plan        Plan project workflow changes");
+    expect(rootHelp.stdout).toContain("run         Run a workspace operation");
 
     const version = await runCli(["version"]);
     expect(version.exitCode).toBe(0);
@@ -34,7 +35,8 @@ describe("CLI entrypoint", () => {
     expect(help.exitCode).toBe(0);
     expect(help.stderr).toBe("");
     expect(help.stdout).toContain("rig ");
-    expect(help.stdout).toContain("run         Run a project operation exposed by the runtime");
+    expect(help.stdout).toContain("plan        Plan project workflow changes");
+    expect(help.stdout).toContain("run         Run a workspace operation");
   });
 
   test("rejects operation shorthand at the root", async () => {
@@ -110,7 +112,7 @@ describe("CLI entrypoint", () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-cli-create-name-"));
 
     await withWorkspaceRuntime({ projectDir }, async ({ env }) => {
-      const result = await runCli(["-C", projectDir, "run", "create", "--name", "some workspace", "--json"], { env });
+      const result = await runCli(["-C", projectDir, "create", "--name", "some workspace", "--json"], { env });
 
       expect(result.exitCode).toBe(1);
       expect(result.stdout).toBe("");
@@ -122,7 +124,7 @@ describe("CLI entrypoint", () => {
     const cwd = mkdtempSync(join(tmpdir(), "rigkit-cli-run-all-"));
 
     try {
-      const result = await runCli(["run", "plan", "--all", "--json"], { cwd });
+      const result = await runCli(["plan", "--all", "--json"], { cwd });
 
       expect(result.exitCode).toBe(1);
       expect(result.stdout).toBe("");
@@ -140,7 +142,7 @@ describe("CLI entrypoint", () => {
     writeFileSync(join(cwd, "web", "rig.config.ts"), "export default {}\n");
 
     try {
-      const result = await runCli(["run", "plan", "--discover", "--json"], { cwd });
+      const result = await runCli(["plan", "--discover", "--json"], { cwd });
 
       expect(result.exitCode).toBe(1);
       expect(result.stdout).toBe("");

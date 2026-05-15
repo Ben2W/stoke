@@ -104,6 +104,16 @@ const smoke = sequence("smoke")
     remove: async ({ providers, workspace }) => {
       await providers.freestyle.client.vms.delete({ vmId: workspace.ctx.vmId });
     },
+  })
+  .workspaceOperation("ssh", {
+    title: "SSH",
+    description: "Open an interactive SSH session",
+    run: async ({ providers, workspace }) => {
+      await providers.terminal.open(`SSH ${workspace.name}`, {
+        ssh: await providers.freestyle.createSSHOptions({ vmId: workspace.ctx.vmId }),
+        instructions: "Exit the SSH session when you are done.",
+      });
+    },
   });
 
 export default defineConfig({

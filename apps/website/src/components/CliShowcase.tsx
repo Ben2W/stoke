@@ -57,7 +57,7 @@ const SCRIPT: Step[] = [
   },
   {
     kind: "command",
-    text: "rig run workspace-1/open",
+    text: "rig run workspace-1 open",
     typeMs: 820,
     pauseAfterMs: 200,
   },

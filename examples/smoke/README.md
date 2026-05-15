@@ -9,7 +9,7 @@ pnpm rig:plan
 pnpm rig:apply
 pnpm rig:fork
 pnpm exec rig projects
-pnpm exec rig run ssh smoke-workspace --print
+pnpm exec rig run smoke-workspace ssh --print
 ```
 
 During `pnpm rig:apply`, `rig` opens a local browser terminal for the interactive step. When the terminal work is done, click Finished.

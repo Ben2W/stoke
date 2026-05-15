@@ -2,7 +2,7 @@
 
 Minimal Rigkit workflow for testing local cmux integration.
 
-After `rig run create`, run `rig run cmux-playground/open` to ask the local rigkit host to create a cmux workspace and run:
+After `rig create`, run `rig run cmux-playground open` to ask the local rigkit host to create a cmux workspace and run:
 
 ```bash
 echo hello world
