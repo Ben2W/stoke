@@ -34,6 +34,7 @@ export type RuntimeProjectOptions = {
   projectDir: string;
   configPath: string;
   statePath?: string;
+  globalFragmentRoot?: string;
   source?: unknown;
 };
 
@@ -87,6 +88,9 @@ async function getOrStartRuntimeUnsafe(options: GetOrStartRuntimeOptions): Promi
   const projectDir = resolve(options.projectDir);
   const configPath = resolve(options.configPath);
   const statePath = options.statePath ? resolve(options.statePath) : undefined;
+  const globalFragmentRoot = options.globalFragmentRoot
+    ? resolve(options.globalFragmentRoot)
+    : join(options.rigkitHome ?? defaultRigkitHome(), "fragments");
   const projectId = projectIdFor({
     projectDir,
     configPath,
@@ -97,6 +101,7 @@ async function getOrStartRuntimeUnsafe(options: GetOrStartRuntimeOptions): Promi
     projectDir,
     configPath,
     statePath,
+    ...(options.globalFragmentRoot ? { globalFragmentRoot } : {}),
     source: options.source,
   });
   const paths = runtimePaths(projectId, options.rigkitHome);
@@ -112,6 +117,7 @@ async function getOrStartRuntimeUnsafe(options: GetOrStartRuntimeOptions): Promi
       projectDir,
       configPath,
       statePath,
+      globalFragmentRoot,
       projectId,
       runtimeFingerprint,
       paths,
@@ -145,6 +151,7 @@ export function runtimeFingerprintFor(options: RuntimeProjectOptions): string {
   const projectDir = resolve(options.projectDir);
   const configPath = resolve(options.configPath);
   const statePath = options.statePath ? resolve(options.statePath) : null;
+  const globalFragmentRoot = options.globalFragmentRoot ? resolve(options.globalFragmentRoot) : null;
   const hash = createHash("sha256");
 
   hash.update("project\0");
@@ -153,6 +160,8 @@ export function runtimeFingerprintFor(options: RuntimeProjectOptions): string {
   hash.update(configPath);
   hash.update("\0state\0");
   hash.update(statePath ?? "");
+  hash.update("\0global-fragment-root\0");
+  hash.update(globalFragmentRoot ?? "");
   hash.update("\0source\0");
   hash.update(JSON.stringify(options.source ?? null));
 
@@ -248,6 +257,7 @@ async function startRuntime(input: GetOrStartRuntimeOptions & {
     String(input.idleMs ?? DEFAULT_IDLE_MS),
   ];
   if (input.statePath) args.push("--state", input.statePath);
+  if (input.globalFragmentRoot) args.push("--global-fragment-root", input.globalFragmentRoot);
   if (input.source !== undefined) args.push("--source-json", JSON.stringify(input.source));
 
   const proc = spawn(runtimeBin, args, {

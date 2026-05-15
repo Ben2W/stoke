@@ -36,8 +36,10 @@ import type {
   ProviderRuntimeMap,
   WorkflowInputFieldDefinition,
   WorkflowDefinition,
+  WorkflowCacheScope,
   WorkflowEvent,
   WorkflowLogStream,
+  WorkflowNodeKind,
   WorkflowNodeDefinition,
   WorkflowOperationDefinition,
   WorkflowPlan,
@@ -59,6 +61,7 @@ export type CreateDevMachineEngineOptions = {
   providers?: BaseProviderPlugin[];
   providerFactory?: ProviderFactory;
   stateFactory?: StateServiceFactory;
+  globalFragmentStateLocator?: GlobalFragmentStateLocator;
   hostStorageDir?: string;
   hostStorageFactory?: ProviderHostStorageFactory;
   interaction?: {
@@ -68,6 +71,18 @@ export type CreateDevMachineEngineOptions = {
 };
 
 export type { InteractionPresenter, InteractionPresentationRequest };
+
+export type GlobalFragmentStateLocator = (fragment: GlobalFragmentStateLocationInput) =>
+  | string
+  | { statePath: string };
+
+export type GlobalFragmentStateLocationInput = {
+  hash: string;
+  workflow: string;
+  nodePath: string;
+  nodeName: string;
+  nodeKind: WorkflowNodeKind;
+};
 
 export type EngineLoadResult = {
   workflow: LoadedWorkflow;
@@ -83,6 +98,30 @@ export type EngineProjectInfo = {
   statePath: string;
   workflows: WorkflowSummary[];
   workflow?: WorkflowSummary;
+};
+
+export type EngineCacheScope = WorkflowCacheScope;
+
+export type EngineCacheEntry = {
+  scope: EngineCacheScope;
+  workflow: string;
+  nodePath: string;
+  nodeName: string;
+  nodeKind: string;
+  runId: string;
+  invalidated: boolean;
+  createdAt: string;
+  fragmentHash?: string;
+};
+
+export type EngineCacheList = {
+  entries: EngineCacheEntry[];
+};
+
+export type EngineCacheClearScope = EngineCacheScope | "all";
+
+export type EngineCacheClearResult = {
+  deleted: number;
 };
 
 export type WorkflowSummary = {
@@ -165,6 +204,15 @@ type EvaluationState = {
 type EvaluationPreviousTask = {
   name: string;
   path: string;
+  cache: EvaluationCacheTarget;
+};
+
+type EvaluationCacheTarget = {
+  scope: WorkflowCacheScope;
+  workflow: string;
+  nodePath: string;
+  state: StateService;
+  fragmentHash?: string;
 };
 
 type EvaluationResult = EvaluationState & {
@@ -177,10 +225,14 @@ type EvaluateNodeInput = {
   providers: ProviderControllers;
   providerFingerprint: string;
   mode: EvaluationMode;
+  cache: EvaluationCacheTarget;
+  configStack: JsonObject[];
   state: EvaluationState;
   prefix: string[];
+  cachePrefix: string[];
   root: boolean;
   suppressSequenceName?: string;
+  suppressCacheSequenceName?: string;
   planNodes: WorkflowPlanNode[];
   index: { value: number };
 };
@@ -229,6 +281,9 @@ export class DevMachineEngine {
   private providers: BaseProviderPlugin[];
   private readonly providerFactory: ProviderFactory;
   private readonly stateFactory: StateServiceFactory;
+  private readonly globalFragmentStateLocator: GlobalFragmentStateLocator;
+  private readonly globalFragmentStates = new Map<string, { input: GlobalFragmentStateLocationInput; state: StateService }>();
+  private evaluationFragmentHashes: Set<string> | undefined;
   private readonly hostStorageDir: string;
   private readonly hostStorageFactory: ProviderHostStorageFactory;
   private readonly providerHostStorage = new Map<string, ReturnType<ProviderHostStorageFactory>>();
@@ -247,6 +302,9 @@ export class DevMachineEngine {
     this.providers = options.providers ?? [];
     this.providerFactory = options.providerFactory ?? ((input) => this.createProviderFromPlugin(input));
     this.stateFactory = options.stateFactory ?? createStateStore;
+    this.globalFragmentStateLocator = options.globalFragmentStateLocator ?? ((fragment) => ({
+      statePath: join(this.projectDir, ".rigkit", "fragments", fragment.hash, "state.sqlite"),
+    }));
     this.hostStorageDir = options.hostStorageDir ? resolve(options.hostStorageDir) : defaultProviderHostStorageDir();
     this.hostStorageFactory = options.hostStorageFactory ?? createFileProviderHostStorage;
     this.interactionPresenter = options.interaction?.present ?? defaultInteractionPresenter;
@@ -590,6 +648,64 @@ export class DevMachineEngine {
     return this.getStateService().listNodeRuns();
   }
 
+  async listCache(input: { workflow?: string; machine?: string } = {}): Promise<EngineCacheList> {
+    const workflow = this.getWorkflow(input.workflow ?? input.machine);
+    const providers = await this.createProviders(workflow);
+    const evaluated = await this.evaluate({
+      workflow,
+      providers,
+      mode: "plan",
+    });
+
+    const entries: EngineCacheEntry[] = [
+      ...this.getStateService()
+        .listNodeRuns()
+        .filter((run) => run.workflow === workflow.name)
+        .map((run) => cacheEntryForRun(run, "local")),
+    ];
+
+    for (const fragmentHash of evaluated.fragments) {
+      const fragment = this.globalFragmentStates.get(fragmentHash);
+      if (!fragment) continue;
+      entries.push(
+        ...fragment.state
+          .listNodeRuns()
+          .map((run) => cacheEntryForRun(run, "global", fragmentHash, workflow.name)),
+      );
+    }
+
+    entries.sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+    return { entries };
+  }
+
+  async clearCache(input: {
+    workflow?: string;
+    machine?: string;
+    scope?: EngineCacheClearScope;
+  } = {}): Promise<EngineCacheClearResult> {
+    const scope = input.scope ?? "all";
+    const workflow = this.getWorkflow(input.workflow ?? input.machine);
+    const providers = await this.createProviders(workflow);
+    const evaluated = await this.evaluate({
+      workflow,
+      providers,
+      mode: "plan",
+    });
+
+    let deleted = 0;
+    if (scope === "all" || scope === "local") {
+      deleted += this.getStateService().clearNodeRuns({ workflow: workflow.name });
+    }
+    if (scope === "all" || scope === "global") {
+      for (const fragmentHash of evaluated.fragments) {
+        const fragment = this.globalFragmentStates.get(fragmentHash);
+        if (!fragment) continue;
+        deleted += fragment.state.clearNodeRuns();
+      }
+    }
+    return { deleted };
+  }
+
   hasOperation(operationId: string): boolean {
     return this.listWorkflows().some((workflow) => workflow.operations.some((operation) => operation.id === operationId));
   }
@@ -822,26 +938,42 @@ export class DevMachineEngine {
     workflow: LoadedWorkflow;
     providers: ProviderControllers;
     mode: EvaluationMode;
-  }): Promise<{ context: Record<string, JsonValue>; plan: WorkflowPlan }> {
+  }): Promise<{ context: Record<string, JsonValue>; plan: WorkflowPlan; fragments: Set<string> }> {
     const providerFingerprint = providerFingerprintFor(input.workflow);
     const planNodes: WorkflowPlanNode[] = [];
-    const result = await this.evaluateNode({
-      workflow: input.workflow,
-      providers: input.providers,
-      providerFingerprint,
-      mode: input.mode,
-      node: input.workflow.root,
-      state: {
-        context: {},
-        upstreamRunIds: [],
-        previousTasks: [],
-        known: true,
-      },
-      prefix: [],
-      root: true,
-      planNodes,
-      index: { value: 0 },
-    });
+    const previousEvaluationFragmentHashes = this.evaluationFragmentHashes;
+    const fragments = new Set<string>();
+    this.evaluationFragmentHashes = fragments;
+    let result!: EvaluationResult;
+    try {
+      result = await this.evaluateNode({
+        workflow: input.workflow,
+        providers: input.providers,
+        providerFingerprint,
+        mode: input.mode,
+        node: input.workflow.root,
+        cache: {
+          scope: "local",
+          workflow: input.workflow.name,
+          nodePath: "",
+          state: this.getStateService(),
+        },
+        configStack: [],
+        state: {
+          context: {},
+          upstreamRunIds: [],
+          previousTasks: [],
+          known: true,
+        },
+        prefix: [],
+        cachePrefix: [],
+        root: true,
+        planNodes,
+        index: { value: 0 },
+      });
+    } finally {
+      this.evaluationFragmentHashes = previousEvaluationFragmentHashes;
+    }
     const cachedNodeCount = planNodes.filter((node) => node.status === "cached").length;
     const plan: WorkflowPlan = {
       workflow: input.workflow.name,
@@ -855,29 +987,79 @@ export class DevMachineEngine {
     return {
       context: result.context,
       plan,
+      fragments,
     };
   }
 
   private async evaluateNode(input: EvaluateNodeInput): Promise<EvaluationResult> {
-    if (input.node.nodeKind === "task") {
-      return await this.evaluateTask(input as EvaluateNodeInput & { node: WorkflowTaskNode<any, any, any> });
-    }
-
-    if (input.node.nodeKind === "parallel") {
-      return await this.evaluateParallel(input);
-    }
-
-    const sequencePrefix = input.root || input.suppressSequenceName === input.node.name
-      ? input.prefix
-      : [...input.prefix, input.node.name];
-    let state = input.state;
-
-    for (const child of sequenceChildren(input.node)) {
-      const result = await this.evaluateNode({
+    if (input.node.cacheScope === "global" && input.cache.scope !== "global") {
+      const nodePath = nodeDisplayPath(input.node, input.prefix, input.root, input.suppressSequenceName);
+      const fragmentHash = globalFragmentHashFor({
+        node: input.node,
+        providerFingerprint: input.providerFingerprint,
+      });
+      const fragmentState = await this.getGlobalFragmentState({
+        hash: fragmentHash,
+        workflow: input.workflow.name,
+        nodePath,
+        nodeName: input.node.name,
+        nodeKind: input.node.nodeKind,
+      });
+      return await this.evaluateNode({
         ...input,
+        cache: {
+          scope: "global",
+          workflow: `fragment:${fragmentHash}`,
+          nodePath: "",
+          state: fragmentState,
+          fragmentHash,
+        },
+        cachePrefix: [],
+        suppressCacheSequenceName: undefined,
+      });
+    }
+
+    if (input.node.cacheScope === "local" && input.cache.scope !== "local") {
+      return await this.evaluateNode({
+        ...input,
+        cache: {
+          scope: "local",
+          workflow: input.workflow.name,
+          nodePath: "",
+          state: this.getStateService(),
+        },
+        cachePrefix: input.prefix,
+        suppressCacheSequenceName: input.suppressSequenceName,
+      });
+    }
+
+    const configuredInput = input.node.config
+      ? { ...input, configStack: [...input.configStack, input.node.config] }
+      : input;
+
+    if (configuredInput.node.nodeKind === "task") {
+      return await this.evaluateTask(configuredInput as EvaluateNodeInput & { node: WorkflowTaskNode<any, any, any> });
+    }
+
+    if (configuredInput.node.nodeKind === "parallel") {
+      return await this.evaluateParallel(configuredInput);
+    }
+
+    const sequencePrefix = configuredInput.root || configuredInput.suppressSequenceName === configuredInput.node.name
+      ? configuredInput.prefix
+      : [...configuredInput.prefix, configuredInput.node.name];
+    const cacheSequencePrefix = configuredInput.root || configuredInput.suppressCacheSequenceName === configuredInput.node.name
+      ? configuredInput.cachePrefix
+      : [...configuredInput.cachePrefix, configuredInput.node.name];
+    let state = configuredInput.state;
+
+    for (const child of sequenceChildren(configuredInput.node)) {
+      const result = await this.evaluateNode({
+        ...configuredInput,
         node: child,
         state,
         prefix: sequencePrefix,
+        cachePrefix: cacheSequencePrefix,
         root: false,
       });
       state = {
@@ -889,7 +1071,7 @@ export class DevMachineEngine {
       };
     }
 
-    return { ...state, planNodes: input.planNodes };
+    return { ...state, planNodes: configuredInput.planNodes };
   }
 
   private async evaluateParallel(input: EvaluateNodeInput): Promise<EvaluationResult> {
@@ -916,8 +1098,10 @@ export class DevMachineEngine {
           blockedReason: input.state.blockedReason,
         },
         prefix: [...input.prefix, branchName],
+        cachePrefix: [...input.cachePrefix, branchName],
         root: false,
         suppressSequenceName: branchName,
+        suppressCacheSequenceName: branchName,
       });
 
       if (branchState.known) {
@@ -942,13 +1126,14 @@ export class DevMachineEngine {
 
   private async evaluateTask(input: EvaluateNodeInput & { node: WorkflowTaskNode<any, any, any> }): Promise<EvaluationResult> {
     const nodePath = [...input.prefix, input.node.name].join(".");
+    const cacheNodePath = [...input.cachePrefix, input.node.name].join(".");
     const upstreamRunIds = [...input.state.upstreamRunIds];
     const nodeKey = hash({
-      cache: "task-v3",
+      cache: "task-v4",
       kind: "task",
-      path: nodePath,
+      path: cacheNodePath,
       name: input.node.name,
-      version: input.node.options?.version ?? null,
+      config: input.configStack,
       handler: functionFingerprintFor(input.node.handler),
       output: input.node.options?.output ?? null,
     });
@@ -974,8 +1159,10 @@ export class DevMachineEngine {
     }
 
     const cached = await this.findReusableTaskRun({
-      workflow: input.workflow.name,
-      nodePath,
+      state: input.cache.state,
+      workflow: input.cache.workflow,
+      nodePath: cacheNodePath,
+      displayNodePath: nodePath,
       nodeKey,
       providerFingerprint: input.providerFingerprint,
       upstreamRunIds,
@@ -988,6 +1175,10 @@ export class DevMachineEngine {
       const previousTasks = appendPreviousTask(input.state.previousTasks, {
         name: input.node.name,
         path: nodePath,
+        cache: {
+          ...input.cache,
+          nodePath: cacheNodePath,
+        },
       });
       this.emit({ type: "node.cached", nodePath, runId: cached.id });
       input.planNodes.push({
@@ -1035,6 +1226,7 @@ export class DevMachineEngine {
       nodePath,
       metadata,
     });
+    const config = Object.freeze(mergeConfigStack(input.configStack));
     const step = this.createStepRuntime(
       input.workflow.name,
       nodePath,
@@ -1046,12 +1238,22 @@ export class DevMachineEngine {
       ...runtime,
       providers: runtime,
       step,
+      config,
     });
     if (isStepInvalidation(result)) {
-      const invalidatedRunIds = this.getStateService().invalidateNodeRuns({
-        workflow: input.workflow.name,
-        nodePaths: [result.targetNodePath, nodePath],
-      });
+      const targetTask = input.state.previousTasks.find((task) => task.path === result.targetNodePath);
+      const invalidatedRunIds = targetTask
+        ? this.invalidateTaskCaches([
+          targetTask.cache,
+          {
+            ...input.cache,
+            nodePath: cacheNodePath,
+          },
+        ])
+        : this.invalidateTaskCaches([{
+          ...input.cache,
+          nodePath: cacheNodePath,
+        }]);
       throw new StepInvalidationRestart({
         workflow: input.workflow.name,
         target: result.target,
@@ -1073,8 +1275,8 @@ export class DevMachineEngine {
     const artifacts = collectArtifacts(output);
     const record: WorkflowNodeRunRecord = {
       id: crypto.randomUUID(),
-      workflow: input.workflow.name,
-      nodePath,
+      workflow: input.cache.workflow,
+      nodePath: cacheNodePath,
       nodeName: input.node.name,
       nodeKind: input.node.nodeKind,
       nodeKey,
@@ -1087,7 +1289,7 @@ export class DevMachineEngine {
       metadata,
     };
 
-    this.getStateService().saveNodeRun(record);
+    input.cache.state.saveNodeRun(record);
     for (const artifact of artifacts) {
       const providerId = providerIdOf(artifact);
       this.emit({
@@ -1103,6 +1305,10 @@ export class DevMachineEngine {
     const previousTasks = appendPreviousTask(input.state.previousTasks, {
       name: input.node.name,
       path: nodePath,
+      cache: {
+        ...input.cache,
+        nodePath: cacheNodePath,
+      },
     });
 
     return {
@@ -1115,8 +1321,10 @@ export class DevMachineEngine {
   }
 
   private async findReusableTaskRun(input: {
+    state: StateService;
     workflow: string;
     nodePath: string;
+    displayNodePath: string;
     nodeKey: string;
     providerFingerprint: string;
     upstreamRunIds: readonly string[];
@@ -1124,11 +1332,11 @@ export class DevMachineEngine {
     outputSchema?: OutputSchema;
     cacheTTL?: WorkflowTaskCacheTTL;
   }): Promise<WorkflowNodeRunRecord | undefined> {
-    const cached = this.getStateService().findReusableNodeRun(input);
+    const cached = input.state.findReusableNodeRun(input);
     if (!cached) return undefined;
     if (!isCacheFresh(cached.createdAt, input.cacheTTL)) return undefined;
 
-    const parsed = normalizeTaskOutput(input.nodePath, cached.output, input.outputSchema, "cached");
+    const parsed = normalizeTaskOutput(input.displayNodePath, cached.output, input.outputSchema, "cached");
     if (!parsed) return undefined;
 
     for (const artifact of cached.artifacts) {
@@ -1459,6 +1667,51 @@ export class DevMachineEngine {
     return this.state;
   }
 
+  private async getGlobalFragmentState(input: GlobalFragmentStateLocationInput): Promise<StateService> {
+    this.evaluationFragmentHashes?.add(input.hash);
+    const existing = this.globalFragmentStates.get(input.hash);
+    if (existing) return existing.state;
+
+    const located = this.globalFragmentStateLocator(input);
+    const statePath = typeof located === "string" ? located : located.statePath;
+    const state = this.stateFactory({
+      projectDir: this.projectDir,
+      configPath: this.configPath,
+      statePath,
+      source: {
+        kind: "global-fragment",
+        hash: input.hash,
+        workflow: input.workflow,
+        nodePath: input.nodePath,
+        nodeName: input.nodeName,
+        nodeKind: input.nodeKind,
+      },
+    });
+    await state.syncSchema();
+    this.globalFragmentStates.set(input.hash, { input, state });
+    return state;
+  }
+
+  private invalidateTaskCaches(targets: EvaluationCacheTarget[]): string[] {
+    const grouped = new Map<string, { target: EvaluationCacheTarget; nodePaths: Set<string> }>();
+    for (const target of targets) {
+      const key = `${target.state.path}\0${target.workflow}`;
+      const existing = grouped.get(key);
+      if (existing) {
+        existing.nodePaths.add(target.nodePath);
+      } else {
+        grouped.set(key, { target, nodePaths: new Set([target.nodePath]) });
+      }
+    }
+
+    return [...grouped.values()].flatMap(({ target, nodePaths }) =>
+      target.state.invalidateNodeRuns({
+        workflow: target.workflow,
+        nodePaths: [...nodePaths],
+      })
+    );
+  }
+
   private async createProviders(workflow: LoadedWorkflow): Promise<ProviderControllers> {
     const entries = await Promise.all(
       Object.entries(workflow.providers).map(async ([name, provider]) => {
@@ -1701,6 +1954,88 @@ function providerPluginFingerprint(plugin: unknown): unknown {
     providerId: plugin.providerId,
     createProvider: functionFingerprintFor(plugin.createProvider),
   };
+}
+
+function globalFragmentHashFor(input: {
+  node: WorkflowNodeDefinition<any, any, any>;
+  providerFingerprint: string;
+}): string {
+  return `sha256-${hash({
+    cache: "fragment-v1",
+    graph: graphFingerprintFor(input.node),
+    providerFingerprint: input.providerFingerprint,
+  })}`;
+}
+
+function graphFingerprintFor(node: WorkflowNodeDefinition<any, any, any>): unknown {
+  if (node.nodeKind === "task") {
+    const task = node as WorkflowTaskNode<any, any, any>;
+    return {
+      kind: "task",
+      name: task.name,
+      scope: task.cacheScope ?? null,
+      config: task.config ?? null,
+      handler: functionFingerprintFor(task.handler),
+      output: task.options?.output ?? null,
+      cacheTTL: task.options?.cacheTTL ?? null,
+    };
+  }
+
+  if (node.nodeKind === "parallel") {
+    return {
+      kind: "parallel",
+      name: node.name,
+      scope: node.cacheScope ?? null,
+      config: node.config ?? null,
+      branches: Object.fromEntries(
+        Object.entries(parallelBranches(node)).map(([name, branch]) => [name, graphFingerprintFor(branch)]),
+      ),
+    };
+  }
+
+  return {
+    kind: "sequence",
+    name: node.name,
+    scope: node.cacheScope ?? null,
+    config: node.config ?? null,
+    children: sequenceChildren(node).map((child) => graphFingerprintFor(child)),
+  };
+}
+
+function nodeDisplayPath(
+  node: WorkflowNodeDefinition<any, any, any>,
+  prefix: string[],
+  root: boolean,
+  suppressSequenceName?: string,
+): string {
+  if (node.nodeKind === "task") return [...prefix, node.name].join(".");
+  if (node.nodeKind === "sequence") {
+    return (root || suppressSequenceName === node.name ? prefix : [...prefix, node.name]).join(".");
+  }
+  return [...prefix, node.name].join(".");
+}
+
+function cacheEntryForRun(
+  run: WorkflowNodeRunRecord,
+  scope: WorkflowCacheScope,
+  fragmentHash?: string,
+  workflow?: string,
+): EngineCacheEntry {
+  return {
+    scope,
+    workflow: workflow ?? run.workflow,
+    nodePath: run.nodePath,
+    nodeName: run.nodeName,
+    nodeKind: run.nodeKind,
+    runId: run.id,
+    invalidated: run.invalidated,
+    createdAt: run.createdAt,
+    ...(fragmentHash ? { fragmentHash } : {}),
+  };
+}
+
+function mergeConfigStack(configStack: readonly JsonObject[]): JsonObject {
+  return Object.assign({}, ...configStack);
 }
 
 function functionFingerprintFor(fn: Function): { name: string; length: number; source: string } {

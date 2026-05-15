@@ -158,6 +158,22 @@ importers:
         specifier: latest
         version: 6.0.3
 
+  examples/global-fragments:
+    dependencies:
+      '@rigkit/sdk':
+        specifier: workspace:*
+        version: link:../../packages/sdk
+    devDependencies:
+      '@rigkit/cli':
+        specifier: workspace:*
+        version: link:../../packages/cli
+      '@types/bun':
+        specifier: latest
+        version: 1.3.14
+      typescript:
+        specifier: latest
+        version: 6.0.3
+
   examples/smoke:
     dependencies:
       '@rigkit/provider-freestyle':

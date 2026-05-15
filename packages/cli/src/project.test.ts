@@ -34,6 +34,16 @@ describe("CLI project resolution", () => {
     expect(paths.configPath).toBe(join(cwd, "project", "rig.config.ts"));
   });
 
+  test("reports named configs when the default config is missing", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "rigkit-cli-"));
+    writeFileSync(join(cwd, "api.rig.config.ts"), "export default {}\n");
+    writeFileSync(join(cwd, "web.rig.config.ts"), "export default {}\n");
+
+    expect(() => resolveConfigPaths({ cwd })).toThrow(
+      /Found named Rigkit configs[\s\S]*api\.rig\.config\.ts[\s\S]*web\.rig\.config\.ts[\s\S]*rig -C \. --config api\.rig\.config\.ts <command>/,
+    );
+  });
+
   test("discovers projects downward without entering dependency directories", () => {
     const cwd = mkdtempSync(join(tmpdir(), "rigkit-cli-"));
     mkdirSync(join(cwd, "api"), { recursive: true });
@@ -47,5 +57,25 @@ describe("CLI project resolution", () => {
       projectDir: join(cwd, "api"),
       configPath: join(cwd, "api", "rig.config.ts"),
     }]);
+  });
+
+  test("discovers named configs downward", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "rigkit-cli-"));
+    mkdirSync(join(cwd, "global-fragments"), { recursive: true });
+    writeFileSync(join(cwd, "global-fragments", "api.rig.config.ts"), "export default {}\n");
+    writeFileSync(join(cwd, "global-fragments", "web.rig.config.ts"), "export default {}\n");
+
+    const projects = discoverProjectConfigs({ cwd });
+
+    expect(projects).toEqual([
+      {
+        projectDir: join(cwd, "global-fragments"),
+        configPath: join(cwd, "global-fragments", "api.rig.config.ts"),
+      },
+      {
+        projectDir: join(cwd, "global-fragments"),
+        configPath: join(cwd, "global-fragments", "web.rig.config.ts"),
+      },
+    ]);
   });
 });

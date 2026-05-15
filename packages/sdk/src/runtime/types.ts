@@ -6,6 +6,7 @@ export type ServeRuntimeOptions = {
   projectDir: string;
   configPath: string;
   statePath?: string;
+  globalFragmentRoot?: string;
   source?: JsonValue;
   handlePath: string;
   tokenPath: string;
@@ -28,6 +29,7 @@ export type RuntimeContext = {
   readonly projectDir: string;
   readonly configPath: string;
   readonly statePath?: string;
+  readonly globalFragmentRoot?: string;
   readonly source?: JsonValue;
   readonly token: string;
   readonly startedAt: string;

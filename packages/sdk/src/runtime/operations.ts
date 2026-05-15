@@ -5,6 +5,7 @@ import {
   type JsonValue,
   type LocalHostCapabilityRequestOptions,
 } from "@rigkit/engine";
+import { join } from "node:path";
 import { normalizeRuntimeRunError } from "./errors.ts";
 import {
   HostCommandResultSchema,
@@ -31,6 +32,7 @@ export type EngineLoadOptions = {
   projectDir: string;
   configPath: string;
   statePath?: string;
+  globalFragmentRoot?: string;
   source?: JsonValue;
 };
 
@@ -46,6 +48,11 @@ export async function loadEngine(input: EngineLoadOptions): Promise<DevMachineEn
       runtimeVersion: RIGKIT_RUNTIME_VERSION,
       source: input.source,
     }),
+    globalFragmentStateLocator: input.globalFragmentRoot
+      ? (fragment) => ({
+        statePath: join(input.globalFragmentRoot!, fragment.hash, "state.sqlite"),
+      })
+      : undefined,
   });
   await engine.load();
   return engine;
@@ -67,6 +74,11 @@ async function executeOperation(run: RunRecord, store: RunStore, options: Engine
       runtimeVersion: RIGKIT_RUNTIME_VERSION,
       source: options.source,
     }),
+    globalFragmentStateLocator: options.globalFragmentRoot
+      ? (fragment) => ({
+        statePath: join(options.globalFragmentRoot!, fragment.hash, "state.sqlite"),
+      })
+      : undefined,
     interaction: {
       present: async (request) => {
         await requestHost(store, run, "open.external", {

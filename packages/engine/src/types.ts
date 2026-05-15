@@ -169,6 +169,7 @@ export type WorkflowTaskRuntime<
 > = ProviderRuntimeMap<Providers> & {
   readonly providers: ProviderRuntimeMap<Providers>;
   readonly step: WorkflowStepRuntime<Context, PreviousTaskIds>;
+  readonly config: Readonly<JsonObject>;
 };
 
 export type WorkflowTaskResult =
@@ -424,6 +425,7 @@ export type WorkflowTaskCacheTTL =
     };
 
 export type WorkflowNodeKind = "task" | "sequence" | "parallel";
+export type WorkflowCacheScope = "local" | "global";
 
 export type WorkflowDefinition<
   Name extends string = string,
@@ -490,12 +492,18 @@ export type WorkflowNodeDefinition<
   readonly nodeKind: WorkflowNodeKind;
   readonly name: string;
   readonly workflow: WorkflowDefinition<string, Providers>;
+  readonly cacheScope?: WorkflowCacheScope;
+  readonly config?: JsonObject;
   readonly workspaceDefinition?: WorkflowWorkspaceDefinition<Providers, OutputContext>;
   readonly operations?: readonly WorkflowOperationDefinition<Providers, any>[];
   readonly workspaceOperations?: readonly WorkflowWorkspaceOperationDefinition<Providers, OutputContext, any, any>[];
   readonly __providers?: Providers;
   readonly __input?: InputContext;
   readonly __output?: OutputContext;
+
+  global<Node extends WorkflowNodeDefinition<any, any, any>>(this: Node): Node;
+  local<Node extends WorkflowNodeDefinition<any, any, any>>(this: Node): Node;
+  configure<Node extends WorkflowNodeDefinition<any, any, any>>(this: Node, config: JsonObject): Node;
 };
 
 export type WorkflowTaskNode<
@@ -645,6 +653,36 @@ export type WorkflowSequenceBuilder<
     WorkspaceData,
     OperationIds,
     WorkspaceOperationIds | Id,
+    PreviousTaskIds
+  >;
+
+  global(): WorkflowSequenceBuilder<
+    Providers,
+    InputContext,
+    OutputContext,
+    WorkspaceData,
+    OperationIds,
+    WorkspaceOperationIds,
+    PreviousTaskIds
+  >;
+
+  local(): WorkflowSequenceBuilder<
+    Providers,
+    InputContext,
+    OutputContext,
+    WorkspaceData,
+    OperationIds,
+    WorkspaceOperationIds,
+    PreviousTaskIds
+  >;
+
+  configure(config: JsonObject): WorkflowSequenceBuilder<
+    Providers,
+    InputContext,
+    OutputContext,
+    WorkspaceData,
+    OperationIds,
+    WorkspaceOperationIds,
     PreviousTaskIds
   >;
 };

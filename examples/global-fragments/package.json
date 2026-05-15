@@ -1,16 +1,14 @@
 {
-  "name": "@rigkit/example-smoke",
+  "name": "@rigkit/example-global-fragments",
   "version": "0.0.0",
   "private": true,
   "type": "module",
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "echo no smoke example tests yet"
+    "test": "echo no global fragments example tests yet"
   },
   "dependencies": {
-    "@rigkit/provider-freestyle": "workspace:*",
-    "@rigkit/sdk": "workspace:*",
-    "freestyle": "^0.1.51"
+    "@rigkit/sdk": "workspace:*"
   },
   "devDependencies": {
     "@rigkit/cli": "workspace:*",

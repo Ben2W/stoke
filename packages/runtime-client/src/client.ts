@@ -22,6 +22,9 @@ import {
   runtimeControlApi,
   type RuntimeControlHealth,
   type RuntimeControlHostResponse,
+  type RuntimeControlCacheClearRequest,
+  type RuntimeControlCacheClearResponse,
+  type RuntimeControlCacheResponse,
   type RuntimeControlMetadata,
   type RuntimeControlOkResponse,
   type RuntimeControlOperationsManifest,
@@ -49,6 +52,8 @@ export type RuntimeHttpClient = {
   workflows(): Promise<RuntimeControlWorkflowsResponse>;
   workspaces(): Promise<RuntimeControlWorkspacesResponse>;
   snapshots(): Promise<RuntimeControlSnapshotsResponse>;
+  cache(): Promise<RuntimeControlCacheResponse>;
+  clearCache(body: RuntimeControlCacheClearRequest): Promise<RuntimeControlCacheClearResponse>;
   runs(): Promise<RuntimeControlRunsResponse>;
   startRun(body: RuntimeControlRunOperationRequest): Promise<RuntimeControlRunStarted>;
   run(runId: string): Promise<RuntimeControlRun>;
@@ -125,6 +130,16 @@ function makeRuntimeHttpClient(options: RuntimeHttpClientOptions): RuntimeHttpCl
         method: "GET",
         path: "/snapshots",
       }),
+    cache: () =>
+      runRuntimeHttpRequest(withRuntimeControlClient(options, (client) => client.cache({ withResponse: true })), {
+        method: "GET",
+        path: "/cache",
+      }),
+    clearCache: (body) =>
+      runRuntimeHttpRequest(
+        withRuntimeControlClient(options, (client) => client.clearCache({ payload: body, withResponse: true })),
+        { method: "POST", path: "/cache/clear" },
+      ),
     runs: () =>
       runRuntimeHttpRequest(withRuntimeControlClient(options, (client) => client.runs({ withResponse: true })), {
         method: "GET",

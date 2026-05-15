@@ -17,6 +17,7 @@ import type {
   WorkflowNodeDefinition,
   WorkflowProviderDefinition,
   WorkflowProviderMap,
+  WorkflowCacheScope,
   WorkflowSequenceBuilder,
   WorkflowTaskHandler,
   WorkflowTaskNode,
@@ -25,8 +26,13 @@ import type {
   WorkflowWorkspaceDefinition,
 } from "./types.ts";
 
-const reservedTaskContextKeys = new Set(["ctx", "runtime", "providers", "step"]);
+const reservedTaskContextKeys = new Set(["config", "ctx", "runtime", "providers", "step"]);
 const reservedHostOperationIds = new Set<string>(RESERVED_WORKFLOW_OPERATION_IDS);
+
+type WorkflowNodeAuthoringOptions = {
+  cacheScope?: WorkflowCacheScope;
+  config?: JsonObject;
+};
 
 const readEnv = (name: string, fallback?: string): string => {
   const value = process.env[name];
@@ -143,6 +149,7 @@ function createSequence<
   workspace?: WorkflowWorkspaceDefinition<Providers, OutputContext, any>,
   operations: readonly WorkflowOperationDefinition<Providers, any>[] = [],
   workspaceOperations: readonly WorkflowWorkspaceOperationDefinition<Providers, OutputContext, WorkspaceData, any>[] = [],
+  nodeOptions: WorkflowNodeAuthoringOptions = {},
 ): WorkflowSequenceBuilder<
   Providers,
   InputContext,
@@ -157,6 +164,8 @@ function createSequence<
     nodeKind: "sequence" as const,
     name,
     workflow: app,
+    cacheScope: nodeOptions.cacheScope,
+    config: nodeOptions.config,
     children,
     workspaceDefinition: workspace,
     operations,
@@ -167,7 +176,7 @@ function createSequence<
       maybeHandler?: WorkflowTaskHandler<Providers, OutputContext, PreviousTaskIds, any>,
     ) => {
       const task = createTask(app, taskName, optionsOrHandler as any, maybeHandler as any);
-      return createSequence(app, name, [...children, task], workspace, operations, workspaceOperations);
+      return createSequence(app, name, [...children, task], workspace, operations, workspaceOperations, nodeOptions);
     },
     step: (
       taskName: string,
@@ -175,42 +184,56 @@ function createSequence<
       maybeHandler?: WorkflowTaskHandler<Providers, OutputContext, PreviousTaskIds, any>,
     ) => {
       const task = createTask(app, taskName, optionsOrHandler as any, maybeHandler as any);
-      return createSequence(app, name, [...children, task], workspace, operations, workspaceOperations);
+      return createSequence(app, name, [...children, task], workspace, operations, workspaceOperations, nodeOptions);
     },
     add: (child: WorkflowNodeDefinition<Providers, any, any>) => {
-      assertSameWorkflow(app, child);
-      return createSequence(app, name, [...children, child], workspace, operations, workspaceOperations);
+      return createSequence(
+        app,
+        name,
+        [...children, attachWorkflowForAuthoring(app, child)],
+        workspace,
+        operations,
+        workspaceOperations,
+        nodeOptions,
+      );
     },
     parallel: (branches: Record<string, WorkflowNodeDefinition<Providers, any, any>>) => {
+      const attachedBranches: Record<string, WorkflowNodeDefinition<Providers, any, any>> = {};
       for (const [branchName, branch] of Object.entries(branches)) {
-        assertSameWorkflow(app, branch);
         if (!branchName) throw new Error(`Parallel branch names must be non-empty`);
+        attachedBranches[branchName] = attachWorkflowForAuthoring(app, branch);
       }
 
-      const parallelNode: WorkflowNodeDefinition<Providers, OutputContext, any> & {
-        nodeKind: "parallel";
-        branches: Record<string, WorkflowNodeDefinition<Providers, any, any>>;
-      } = {
-        kind: "rigkit.workflow-node",
-        nodeKind: "parallel",
-        name: "parallel",
-        workflow: app,
-        branches,
-      };
-      return createSequence(app, name, [...children, parallelNode], workspace, operations, workspaceOperations);
+      const parallelNode = createParallel(app, "parallel", attachedBranches);
+      return createSequence(app, name, [...children, parallelNode], workspace, operations, workspaceOperations, nodeOptions);
     },
     workspace: (definition: WorkflowWorkspaceDefinition<Providers, OutputContext, any>) =>
-      createSequence(app, name, children, definition, operations, workspaceOperations),
+      createSequence(app, name, children, definition, operations, workspaceOperations, nodeOptions),
     operation: (id: string, options: WorkflowOperationOptions<Providers, any>) => {
       const operation = createOperation(id, options);
       assertUniqueOperationId(operations, operation.id, "Operation");
-      return createSequence(app, name, children, workspace, [...operations, operation], workspaceOperations);
+      return createSequence(app, name, children, workspace, [...operations, operation], workspaceOperations, nodeOptions);
     },
     workspaceOperation: (id: string, options: WorkflowWorkspaceOperationOptions<Providers, OutputContext, any, any>) => {
       const operation = createWorkspaceOperation(id, options);
       assertUniqueOperationId(workspaceOperations, operation.id, "Workspace operation");
-      return createSequence(app, name, children, workspace, operations, [...workspaceOperations, operation]);
+      return createSequence(app, name, children, workspace, operations, [...workspaceOperations, operation], nodeOptions);
     },
+    global: () =>
+      createSequence(app, name, children, workspace, operations, workspaceOperations, {
+        ...nodeOptions,
+        cacheScope: "global",
+      }),
+    local: () =>
+      createSequence(app, name, children, workspace, operations, workspaceOperations, {
+        ...nodeOptions,
+        cacheScope: "local",
+      }),
+    configure: (config: JsonObject) =>
+      createSequence(app, name, children, workspace, operations, workspaceOperations, {
+        ...nodeOptions,
+        config: mergeConfig(nodeOptions.config, config),
+      }),
   };
 
   return node as unknown as WorkflowSequenceBuilder<
@@ -339,6 +362,7 @@ function createTask<
   name: string,
   optionsOrHandler: WorkflowTaskOptions | WorkflowTaskHandler<Providers, InputContext, PreviousTaskIds, any>,
   maybeHandler?: WorkflowTaskHandler<Providers, InputContext, PreviousTaskIds, any>,
+  nodeOptions: WorkflowNodeAuthoringOptions = {},
 ): WorkflowTaskNode<Providers, InputContext, any> {
   const options = typeof optionsOrHandler === "function" ? undefined : optionsOrHandler;
   const handler = (typeof optionsOrHandler === "function" ? optionsOrHandler : maybeHandler) as
@@ -351,9 +375,98 @@ function createTask<
     nodeKind: "task",
     name,
     workflow: app,
+    cacheScope: nodeOptions.cacheScope,
+    config: nodeOptions.config,
     options,
     handler,
+    global: (() => createTask(app, name, options ?? handler, options ? handler : undefined, {
+      ...nodeOptions,
+      cacheScope: "global",
+    })) as WorkflowTaskNode<Providers, InputContext, any>["global"],
+    local: (() => createTask(app, name, options ?? handler, options ? handler : undefined, {
+      ...nodeOptions,
+      cacheScope: "local",
+    })) as WorkflowTaskNode<Providers, InputContext, any>["local"],
+    configure: ((config: JsonObject) => createTask(app, name, options ?? handler, options ? handler : undefined, {
+      ...nodeOptions,
+      config: mergeConfig(nodeOptions.config, config),
+    })) as WorkflowTaskNode<Providers, InputContext, any>["configure"],
   };
+}
+
+function createParallel<Providers extends WorkflowProviderMap, InputContext extends JsonObject>(
+  app: WorkflowDefinition<string, Providers>,
+  name: string,
+  branches: Record<string, WorkflowNodeDefinition<Providers, any, any>>,
+  nodeOptions: WorkflowNodeAuthoringOptions = {},
+): WorkflowNodeDefinition<Providers, InputContext, any> & {
+  nodeKind: "parallel";
+  branches: Record<string, WorkflowNodeDefinition<Providers, any, any>>;
+} {
+  const node = {
+    kind: "rigkit.workflow-node" as const,
+    nodeKind: "parallel" as const,
+    name,
+    workflow: app,
+    cacheScope: nodeOptions.cacheScope,
+    config: nodeOptions.config,
+    branches,
+    global: () => createParallel(app, name, branches, {
+      ...nodeOptions,
+      cacheScope: "global",
+    }),
+    local: () => createParallel(app, name, branches, {
+      ...nodeOptions,
+      cacheScope: "local",
+    }),
+    configure: (config: JsonObject) => createParallel(app, name, branches, {
+      ...nodeOptions,
+      config: mergeConfig(nodeOptions.config, config),
+    }),
+  };
+  return node as unknown as WorkflowNodeDefinition<Providers, InputContext, any> & {
+    nodeKind: "parallel";
+    branches: Record<string, WorkflowNodeDefinition<Providers, any, any>>;
+  };
+}
+
+function mergeConfig(previous: JsonObject | undefined, next: JsonObject): JsonObject {
+  assertJsonObject(next, "configure input");
+  return previous ? { ...previous, ...next } : { ...next };
+}
+
+function assertJsonObject(value: JsonObject, label: string): void {
+  try {
+    JSON.stringify(value);
+  } catch (cause) {
+    throw new Error(`${label} must be JSON-serializable`, { cause });
+  }
+  assertJsonValue(value, label);
+}
+
+function assertJsonValue(value: unknown, label: string): void {
+  if (
+    value === null ||
+    typeof value === "string" ||
+    typeof value === "boolean" ||
+    typeof value === "number"
+  ) {
+    if (typeof value === "number" && !Number.isFinite(value)) {
+      throw new Error(`${label} must be JSON-serializable`);
+    }
+    return;
+  }
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => assertJsonValue(item, `${label}[${index}]`));
+    return;
+  }
+  if (value && typeof value === "object") {
+    for (const [key, item] of Object.entries(value)) {
+      assertJsonValue(item, `${label}.${key}`);
+    }
+    return;
+  }
+  throw new Error(`${label} must be JSON-serializable`);
 }
 
 function validateProviders(providers: WorkflowProviderMap): void {
@@ -367,13 +480,46 @@ function validateProviders(providers: WorkflowProviderMap): void {
   }
 }
 
-function assertSameWorkflow(
-  app: WorkflowDefinition<string, any>,
-  node: WorkflowNodeDefinition<any, any, any>,
-): void {
-  if (node.workflow !== app) {
-    throw new Error(`Node ${node.name} belongs to a different workflow`);
+function attachWorkflowForAuthoring<Providers extends WorkflowProviderMap>(
+  app: WorkflowDefinition<string, Providers>,
+  node: WorkflowNodeDefinition<Providers, any, any>,
+): WorkflowNodeDefinition<Providers, any, any> {
+  if (node.workflow === app) return node;
+  if (node.nodeKind === "parallel") {
+    return {
+      ...node,
+      workflow: app,
+      branches: Object.fromEntries(
+        Object.entries(parallelBranchesForAuthoring(node)).map(([name, branch]) => [
+          name,
+          attachWorkflowForAuthoring(app, branch),
+        ]),
+      ),
+    } as WorkflowNodeDefinition<Providers, any, any>;
   }
+  if (node.nodeKind === "sequence") {
+    return {
+      ...node,
+      workflow: app,
+      children: sequenceChildrenForAuthoring(node).map((child) => attachWorkflowForAuthoring(app, child)),
+    } as WorkflowNodeDefinition<Providers, any, any>;
+  }
+  return {
+    ...node,
+    workflow: app,
+  } as WorkflowNodeDefinition<Providers, any, any>;
+}
+
+function sequenceChildrenForAuthoring(
+  node: WorkflowNodeDefinition<any, any, any>,
+): readonly WorkflowNodeDefinition<any, any, any>[] {
+  return (node as { children?: readonly WorkflowNodeDefinition<any, any, any>[] }).children ?? [];
+}
+
+function parallelBranchesForAuthoring(
+  node: WorkflowNodeDefinition<any, any, any>,
+): Record<string, WorkflowNodeDefinition<any, any, any>> {
+  return (node as { branches?: Record<string, WorkflowNodeDefinition<any, any, any>> }).branches ?? {};
 }
 
 function getKind(value: object): unknown {

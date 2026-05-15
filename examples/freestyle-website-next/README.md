@@ -18,11 +18,11 @@ The workflow:
 Run from this directory:
 
 ```bash
-pnpm rig:plan
-pnpm rig:apply
-pnpm rig:create
-pnpm rig:open-cmux
-pnpm rig:open-vscode
+rig plan
+rig apply
+rig create --name website-workspace
+rig run website-workspace open-cmux
+rig run website-workspace open-vscode
 ```
 
 Freestyle auth is handled by the provider. By default Rigkit opens the Freestyle browser login.

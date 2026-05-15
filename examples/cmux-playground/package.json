@@ -4,11 +4,6 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "rig:plan": "rig plan",
-    "rig:apply": "rig apply",
-    "rig:fork": "rig create --name cmux-playground",
-    "rig:open": "rig run cmux-playground open",
-    "rig:rm": "rig run cmux-playground remove -y",
     "typecheck": "tsc --noEmit",
     "test": "echo no cmux playground example tests yet"
   },

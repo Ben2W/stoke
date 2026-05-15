@@ -8,6 +8,7 @@ type ServeArgs = {
   projectDir?: string;
   configPath?: string;
   statePath?: string;
+  globalFragmentRoot?: string;
   sourceJson?: string;
   handlePath?: string;
   tokenPath?: string;
@@ -42,6 +43,7 @@ const runtime = await serveRuntime({
   projectDir: resolve(options.projectDir!),
   configPath: resolve(options.configPath!),
   statePath: options.statePath ? resolve(options.statePath) : undefined,
+  globalFragmentRoot: options.globalFragmentRoot ? resolve(options.globalFragmentRoot) : undefined,
   source: options.sourceJson ? JSON.parse(options.sourceJson) : undefined,
   handlePath: resolve(options.handlePath!),
   tokenPath: resolve(options.tokenPath!),
@@ -94,6 +96,9 @@ function parseServeArgs(args: string[]): ServeArgs {
       case "--state":
       case "--state-path":
         parsed.statePath = readValue();
+        break;
+      case "--global-fragment-root":
+        parsed.globalFragmentRoot = readValue();
         break;
       case "--source-json":
         parsed.sourceJson = readValue();
