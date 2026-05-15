@@ -44,7 +44,7 @@ type LatestMetadata = {
 
 const TARGETS: Target[] = ["darwin-arm64", "darwin-x64", "linux-arm64", "linux-x64"];
 const DEFAULT_REPO = "freestyle-sh/rigkit";
-const DEFAULT_CACHE_TTL_SECONDS = 300;
+const DEFAULT_CACHE_TTL_SECONDS = 30;
 
 const INSTALL_PATHS = new Set([
   "/install",
@@ -90,7 +90,7 @@ async function dispatch(request: Request, env: InstallEnv, ctx?: ExecutionContex
 
   if (url.pathname === "/latest" || url.pathname === "/latest.json") {
     const metadata = await getLatestMetadata(request, env, ctx);
-    return json(metadata, { cacheControl: `public, max-age=60, s-maxage=${cacheTtl(env)}` });
+    return json(metadata, { cacheControl: latestMetadataCacheControl(env) });
   }
 
   const downloadMatch = url.pathname.match(/^\/download\/([^/]+)\/([^/]+)$/);
@@ -102,7 +102,7 @@ async function dispatch(request: Request, env: InstallEnv, ctx?: ExecutionContex
       : await getReleaseMetadata(request, env, normalizeVersion(version));
     const download = metadata.downloads[target];
     if (!download) throw new HttpError(404, `No ${target} asset for ${metadata.tag}`);
-    return redirect(download.githubUrl, version === "latest" ? 302 : 307, version === "latest" ? "public, max-age=60" : "public, max-age=31536000, immutable");
+    return redirect(download.githubUrl, version === "latest" ? 302 : 307, version === "latest" ? latestRedirectCacheControl(env) : "public, max-age=31536000, immutable");
   }
 
   const checksumsMatch = url.pathname.match(/^\/checksums\/([^/]+)$/);
@@ -111,7 +111,7 @@ async function dispatch(request: Request, env: InstallEnv, ctx?: ExecutionContex
     const metadata = version === "latest"
       ? await getLatestMetadata(request, env, ctx)
       : await getReleaseMetadata(request, env, normalizeVersion(version));
-    return redirect(metadata.checksums.githubUrl, version === "latest" ? 302 : 307, version === "latest" ? "public, max-age=60" : "public, max-age=31536000, immutable");
+    return redirect(metadata.checksums.githubUrl, version === "latest" ? 302 : 307, version === "latest" ? latestRedirectCacheControl(env) : "public, max-age=31536000, immutable");
   }
 
   return json({ error: "Not found" }, { status: 404, cacheControl: "no-store" });
@@ -265,6 +265,15 @@ function resolvePublicBaseUrl(request: Request, env: InstallEnv): string {
 function cacheTtl(env: InstallEnv): number {
   const parsed = Number(env.CACHE_TTL_SECONDS);
   return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : DEFAULT_CACHE_TTL_SECONDS;
+}
+
+function latestMetadataCacheControl(env: InstallEnv): string {
+  const ttl = cacheTtl(env);
+  return `public, max-age=${ttl}, s-maxage=${ttl}`;
+}
+
+function latestRedirectCacheControl(env: InstallEnv): string {
+  return `public, max-age=${cacheTtl(env)}`;
 }
 
 async function cacheMatch(request: Request): Promise<Response | undefined> {

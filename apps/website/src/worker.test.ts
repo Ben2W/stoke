@@ -45,6 +45,7 @@ describe("website worker · install routes", () => {
 
     const response = await dispatch("https://rigkit.freestyle.sh/latest.json");
     expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("public, max-age=30, s-maxage=30");
 
     const body = await response.json() as MetadataBody;
     expect(body.version).toBe("0.1.6");
@@ -63,6 +64,7 @@ describe("website worker · install routes", () => {
     const response = await dispatch("https://rigkit.freestyle.sh/download/latest/darwin-arm64");
     expect(response.status).toBe(302);
     expect(response.headers.get("location")).toBe("https://github.com/freestyle-sh/rigkit/releases/download/v0.1.6/rig-darwin-arm64.tar.gz");
+    expect(response.headers.get("cache-control")).toBe("public, max-age=30");
   });
 
   test("uses the GitHub token for release API requests when configured", async () => {
@@ -129,7 +131,7 @@ describe("website worker · install routes", () => {
     const env: Env = {
       GITHUB_REPO: "freestyle-sh/rigkit",
       PUBLIC_BASE_URL: "https://rigkit.freestyle.sh",
-      CACHE_TTL_SECONDS: "300",
+      CACHE_TTL_SECONDS: "30",
       ASSETS: {
         async fetch(request: Request) {
           assetCalls.push(new URL(request.url).pathname);
@@ -160,7 +162,7 @@ function dispatch(url: string, overrides: Partial<Record<"GITHUB_TOKEN", string>
   const env: Env = {
     GITHUB_REPO: "freestyle-sh/rigkit",
     PUBLIC_BASE_URL: "https://rigkit.freestyle.sh",
-    CACHE_TTL_SECONDS: "300",
+    CACHE_TTL_SECONDS: "30",
     ASSETS: {
       async fetch() {
         throw new Error("ASSETS.fetch should not be called for install paths");

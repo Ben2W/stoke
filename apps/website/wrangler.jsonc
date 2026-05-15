@@ -16,7 +16,7 @@
   "vars": {
     "GITHUB_REPO": "freestyle-sh/rigkit",
     "PUBLIC_BASE_URL": "https://rigkit.freestyle.sh",
-    "CACHE_TTL_SECONDS": "300",
+    "CACHE_TTL_SECONDS": "30",
   },
   "secrets": {
     "required": ["GITHUB_TOKEN"],
