@@ -1,0 +1,82 @@
+---
+import Header from "@/components/Header.astro";
+import SiteLayout from "@/layouts/SiteLayout.astro";
+
+const examples = [
+  {
+    title: "Freestyle website",
+    description: "A full workflow that creates a VM, clones a Next.js app, installs dependencies, and opens the workspace in cmux or VS Code.",
+    href: "https://github.com/freestyle-sh/rigkit/tree/main/examples/freestyle-website-next",
+  },
+  {
+    title: "Smoke workflow",
+    description: "A compact Rigkit example that creates a Freestyle VM and runs an interactive browser-terminal setup task.",
+    href: "https://github.com/freestyle-sh/rigkit/tree/main/examples/smoke",
+  },
+  {
+    title: "gcloud injection",
+    description: "Copies local Google Cloud CLI auth into a workspace so agents can use your existing gcloud session.",
+    href: "https://github.com/freestyle-sh/rigkit/tree/main/examples/gcloud-on-open",
+  },
+];
+---
+
+<SiteLayout
+  title="Rigkit Docs"
+  description="Rigkit docs are under construction. Browse examples while the docs are being written."
+  path="/docs"
+>
+  <div class="flex min-h-screen flex-col">
+    <Header />
+
+    <main class="flex flex-1 px-6 py-12 sm:px-10 sm:py-16">
+      <section class="mx-auto flex w-full max-w-4xl flex-col">
+        <a
+          href="/"
+          class="inline-flex w-fit items-center gap-2 rounded-md border border-[var(--color-border-strong)] px-3 py-2 font-mono text-[13px] text-[var(--color-muted)] transition-colors hover:border-[var(--color-fg)] hover:text-[var(--color-fg)]"
+        >
+          <span aria-hidden="true">&larr;</span>
+          Back
+        </a>
+
+        <div class="mt-12 max-w-2xl">
+          <p class="font-mono text-[12px] font-semibold uppercase tracking-[0.12em] text-[var(--color-accent)]">
+            Docs
+          </p>
+          <h1 class="mt-4 font-sans text-[40px] font-extrabold leading-[1.05] tracking-[-0.035em] text-[var(--color-fg)] sm:text-[52px]">
+            Under construction.
+          </h1>
+          <p class="mt-5 font-sans text-[17px] leading-[1.6] text-[#2a2a2a]">
+            Docs will come in a few days. Check out these examples in the mean time.
+          </p>
+        </div>
+
+        <div class="mt-10 grid gap-3">
+          {
+            examples.map((example) => (
+              <a
+                href={example.href}
+                class="group flex flex-col gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-4 transition-colors hover:border-[var(--color-accent)] sm:px-5"
+              >
+                <span class="flex items-center justify-between gap-4">
+                  <span class="font-mono text-[14px] font-semibold text-[var(--color-fg)]">
+                    {example.title}
+                  </span>
+                  <span
+                    aria-hidden="true"
+                    class="font-mono text-[14px] text-[var(--color-dim)] transition-colors group-hover:text-[var(--color-accent)]"
+                  >
+                    -&gt;
+                  </span>
+                </span>
+                <span class="max-w-2xl font-sans text-[14px] leading-[1.55] text-[var(--color-muted)]">
+                  {example.description}
+                </span>
+              </a>
+            ))
+          }
+        </div>
+      </section>
+    </main>
+  </div>
+</SiteLayout>

@@ -11,6 +11,12 @@ function redirectToHttps(url: URL): Response {
   return Response.redirect(url.toString(), 308);
 }
 
+function assetRequest(request: Request, url: URL, pathname: string): Request {
+  const assetUrl = new URL(url);
+  assetUrl.pathname = pathname;
+  return new Request(assetUrl, request);
+}
+
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
@@ -21,6 +27,10 @@ export default {
 
     if (isInstallPath(url.pathname)) {
       return handleInstallRequest(request, env, ctx);
+    }
+
+    if (url.pathname === "/docs") {
+      return env.ASSETS.fetch(assetRequest(request, url, "/docs.html"));
     }
 
     return env.ASSETS.fetch(request);

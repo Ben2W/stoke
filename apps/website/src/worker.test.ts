@@ -148,6 +148,29 @@ describe("website worker · install routes", () => {
     expect(await response.text()).toBe("<html>hello</html>");
     expect(assetCalls).toEqual(["/"]);
   });
+
+  test("serves the docs page from the extensionless /docs path", async () => {
+    const assetCalls: string[] = [];
+    const env: Env = {
+      GITHUB_REPO: "freestyle-sh/rigkit",
+      PUBLIC_BASE_URL: "https://rigkit.freestyle.sh",
+      CACHE_TTL_SECONDS: "30",
+      ASSETS: {
+        async fetch(request: Request) {
+          assetCalls.push(new URL(request.url).pathname);
+          return new Response("<html>docs</html>", {
+            status: 200,
+            headers: { "content-type": "text/html" },
+          });
+        },
+      },
+    };
+
+    const response = await worker.fetch(new Request("https://rig.freestyle.sh/docs"), env, ctx());
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe("<html>docs</html>");
+    expect(assetCalls).toEqual(["/docs.html"]);
+  });
 });
 
 type Env = {
