@@ -1,1 +1,1 @@
-export const RIGKIT_RUNTIME_CLIENT_VERSION = "0.2.4";
+export const RIGKIT_RUNTIME_CLIENT_VERSION = "0.2.5";
