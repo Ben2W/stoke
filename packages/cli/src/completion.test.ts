@@ -16,7 +16,7 @@ describe("CLI completion", () => {
       });
 
       expect(items.map((item) => item.value)).toEqual(["api", "web"]);
-      expect(items[0]?.description).toBe("smoke - 2h old");
+      expect(items[0]?.description).toBe("created 2h ago");
     });
   });
 
@@ -56,7 +56,7 @@ describe("CLI completion", () => {
         currentIndex: 2,
       });
       expect(roots.map((item) => item.value)).toEqual(["api", "web"]);
-      expect(roots[0]).toMatchObject({ description: "smoke - 2h old" });
+      expect(roots[0]).toMatchObject({ description: "created 2h ago" });
 
       const exactWorkspace = await completeRig({
         cwd: projectDir,
@@ -102,17 +102,19 @@ describe("CLI completion", () => {
     expect(formatCompletionItems([{ value: "api", description: "workspace smoke", noSpace: true }], "zsh"))
       .toBe("api\tworkspace smoke\tnospace");
     expect(renderCompletionScript("zsh")).toContain("rig __complete");
-    expect(renderCompletionScript("zsh")).toContain("compadd -S ''");
+    expect(renderCompletionScript("zsh")).toContain("compadd -ld displays -a values");
+    expect(renderCompletionScript("zsh")).toContain("compadd -S '' -ld nospace_displays -a nospace_values");
     expect(renderCompletionScript("zsh")).toContain('display="${value} -- ${description}"');
+    expect(renderCompletionScript("zsh")).not.toContain("_describe");
   });
 
   test("formats workspace ages", () => {
     const now = Date.parse("2026-05-14T12:00:00.000Z");
 
     expect(formatWorkspaceAge("2026-05-14T11:59:45.000Z", now)).toBe("just now");
-    expect(formatWorkspaceAge("2026-05-14T11:30:00.000Z", now)).toBe("30m old");
-    expect(formatWorkspaceAge("2026-05-14T09:00:00.000Z", now)).toBe("3h old");
-    expect(formatWorkspaceAge("2026-05-11T12:00:00.000Z", now)).toBe("3d old");
+    expect(formatWorkspaceAge("2026-05-14T11:30:00.000Z", now)).toBe("30m ago");
+    expect(formatWorkspaceAge("2026-05-14T09:00:00.000Z", now)).toBe("3h ago");
+    expect(formatWorkspaceAge("2026-05-11T12:00:00.000Z", now)).toBe("3d ago");
     expect(formatWorkspaceAge("not-a-date", now)).toBeUndefined();
   });
 

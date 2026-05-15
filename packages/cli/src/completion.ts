@@ -256,8 +256,8 @@ _rig() {
       displays+=("\${display}")
     fi
   done
-  (( \${#nospace_values} )) && compadd -S '' -d nospace_displays -a nospace_values
-  (( \${#values} )) && compadd -d displays -a values
+  (( \${#nospace_values} )) && compadd -S '' -ld nospace_displays -a nospace_values
+  (( \${#values} )) && compadd -ld displays -a values
 }
 compdef _rig rig
 `;
@@ -361,7 +361,7 @@ async function workspaceTargets(
   const workspaces = await readWorkspaces(paths);
   const items = workspaces.map((workspace) => ({
     value: workspace.name,
-    description: workspaceDescription(workspace, { prefix: false }),
+    description: workspaceDescription(workspace),
   }));
 
   return dedupeItems(items);
@@ -461,10 +461,9 @@ function dedupeItems(items: CompletionItem[]): CompletionItem[] {
   return deduped;
 }
 
-function workspaceDescription(workspace: RuntimeWorkspaceCompletion, options: { prefix: boolean }): string {
-  const label = options.prefix ? `workspace ${workspace.workflow}` : workspace.workflow;
+function workspaceDescription(workspace: RuntimeWorkspaceCompletion): string {
   const age = formatWorkspaceAge(workspace.createdAt);
-  return age ? `${label} - ${age}` : label;
+  return age ? `created ${age}` : "created date unknown";
 }
 
 export function formatWorkspaceAge(createdAt: string, nowMs = Date.now()): string | undefined {
@@ -475,16 +474,16 @@ export function formatWorkspaceAge(createdAt: string, nowMs = Date.now()): strin
   if (elapsedSeconds < 60) return "just now";
 
   const elapsedMinutes = Math.floor(elapsedSeconds / 60);
-  if (elapsedMinutes < 60) return `${elapsedMinutes}m old`;
+  if (elapsedMinutes < 60) return `${elapsedMinutes}m ago`;
 
   const elapsedHours = Math.floor(elapsedMinutes / 60);
-  if (elapsedHours < 48) return `${elapsedHours}h old`;
+  if (elapsedHours < 48) return `${elapsedHours}h ago`;
 
   const elapsedDays = Math.floor(elapsedHours / 24);
-  if (elapsedDays < 30) return `${elapsedDays}d old`;
+  if (elapsedDays < 30) return `${elapsedDays}d ago`;
 
   const elapsedMonths = Math.floor(elapsedDays / 30);
-  if (elapsedMonths < 24) return `${elapsedMonths}mo old`;
+  if (elapsedMonths < 24) return `${elapsedMonths}mo ago`;
 
-  return `${Math.floor(elapsedMonths / 12)}y old`;
+  return `${Math.floor(elapsedMonths / 12)}y ago`;
 }
