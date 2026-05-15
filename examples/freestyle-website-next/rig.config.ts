@@ -88,7 +88,7 @@ const websiteSetup = app
   )
   .task(
     "github-auth",
-    { version: "github-auth-root-v4" },
+    { version: "github-auth-root-v6" },
     async ({ step, freestyle, terminal }) => {
       const created = await freestyle.client.vms.create({
         snapshotId: step.ctx.snapshotId,
@@ -122,6 +122,17 @@ const websiteSetup = app
               `GitHub CLI is not authenticated:\n${status.stdout || status.stderr}`.trim(),
             );
           }
+        }
+
+        step.log("configuring Git author identity from GitHub account");
+        const gitIdentity = await vm.exec({
+          command: configureGitIdentityCommand(),
+          timeoutMs: 60 * 1000,
+        });
+        if ((gitIdentity.statusCode ?? 0) !== 0) {
+          throw new Error(
+            `Git author identity configuration failed:\n${gitIdentity.stdout ?? ""}${gitIdentity.stderr ?? ""}`.trim(),
+          );
         }
 
         const snapshot = await vm.snapshot();
@@ -301,6 +312,20 @@ export default app
       });
       await local.open(url);
     },
+  })
+  .workspaceOperation("ssh", {
+    title: "SSH",
+    description: "Open an interactive SSH session",
+    run: async ({ providers, workspace }) => {
+      await providers.terminal.open(`SSH ${workspace.name}`, {
+        ssh: await providers.freestyle.createSSHOptions({
+          vmId: workspace.ctx.vmId,
+        }),
+        command: `cd ${shellQuote(workspace.ctx.repoPath)} && exec bash -l`,
+        keepOpenAfterCommand: true,
+        instructions: "Exit the SSH session when you are done.",
+      });
+    },
   });
 
 function dirname(path: string): string {
@@ -319,6 +344,21 @@ function agentCliInitCommand(command: "codex"): string {
     `export HOME=${shellQuote(vmHome)}`,
     `cd ${shellQuote(repoPath)}`,
     command,
+  ].join("\n");
+}
+
+function configureGitIdentityCommand(): string {
+  return [
+    "set -e",
+    `export HOME=${shellQuote(vmHome)}`,
+    "login=$(gh api user --jq '.login')",
+    "name=$(gh api user --jq '.name // empty')",
+    "id=$(gh api user --jq '.id')",
+    "email=$(gh api user --jq '.email // empty')",
+    'if [ -z "$name" ]; then name="$login"; fi',
+    'if [ -z "$email" ]; then email="${id}+${login}@users.noreply.github.com"; fi',
+    'git config --global user.name "$name"',
+    'git config --global user.email "$email"',
   ].join("\n");
 }
 

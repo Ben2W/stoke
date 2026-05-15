@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { projectIdFor, runtimeFingerprintFor, runtimePaths, SUPPORTED_RUNTIME_API_VERSION } from "@rigkit/runtime-client";
-import { completeRig, formatCompletionItems, renderCompletionScript } from "./completion.ts";
+import { completeRig, formatCompletionItems, formatWorkspaceAge, renderCompletionScript } from "./completion.ts";
 
 describe("CLI completion", () => {
   test("completes workspace targets from the runtime", async () => {
@@ -11,12 +11,12 @@ describe("CLI completion", () => {
     await withWorkspaceRuntime({ projectDir }, async () => {
       const items = await completeRig({
         cwd: projectDir,
-        words: ["rig", "run", "ssh", ""],
-        currentIndex: 3,
+        words: ["rig", "run", ""],
+        currentIndex: 2,
       });
 
       expect(items.map((item) => item.value)).toEqual(["api", "web"]);
-      expect(items[0]?.description).toBe("smoke");
+      expect(items[0]?.description).toBe("smoke - 2h old");
     });
   });
 
@@ -25,8 +25,8 @@ describe("CLI completion", () => {
     await withWorkspaceRuntime({ projectDir }, async () => {
       const items = await completeRig({
         cwd: projectDir,
-        words: ["rig", "run", "ssh", "vm-"],
-        currentIndex: 3,
+        words: ["rig", "run", "vm-"],
+        currentIndex: 2,
       });
 
       expect(items).toEqual([]);
@@ -39,8 +39,8 @@ describe("CLI completion", () => {
     await withWorkspaceRuntime({ projectDir, cleanupDir: parentDir }, async () => {
       const items = await completeRig({
         cwd: parentDir,
-        words: ["rig", "-C", "project", "run", "ssh", ""],
-        currentIndex: 5,
+        words: ["rig", "-C", "project", "run", ""],
+        currentIndex: 4,
       });
 
       expect(items.map((item) => item.value)).toEqual(["api", "web"]);
@@ -55,42 +55,42 @@ describe("CLI completion", () => {
         words: ["rig", "run", ""],
         currentIndex: 2,
       });
-      expect(roots.map((item) => item.value)).toContain("api");
-      expect(roots.map((item) => item.value)).toContain("ssh");
+      expect(roots.map((item) => item.value)).toEqual(["api", "web"]);
+      expect(roots[0]).toMatchObject({ description: "smoke - 2h old" });
 
       const exactWorkspace = await completeRig({
         cwd: projectDir,
         words: ["rig", "run", "api"],
         currentIndex: 2,
       });
-      expect(exactWorkspace.map((item) => item.value)).toEqual(["api/remove", "api/open-cmux"]);
+      expect(exactWorkspace.map((item) => item.value)).toEqual(["api"]);
 
       const workspaceAfterSpace = await completeRig({
         cwd: projectDir,
         words: ["rig", "run", "api", ""],
         currentIndex: 3,
       });
-      expect(workspaceAfterSpace.map((item) => item.value)).toEqual(["api/remove", "api/open-cmux"]);
+      expect(workspaceAfterSpace.map((item) => item.value)).toEqual(["remove", "open-cmux"]);
 
-      const slashWorkspace = await completeRig({
+      const operationPrefix = await completeRig({
         cwd: projectDir,
-        words: ["rig", "run", "api/"],
-        currentIndex: 2,
+        words: ["rig", "run", "api", "open"],
+        currentIndex: 3,
       });
-      expect(slashWorkspace.map((item) => item.value)).toEqual(["api/remove", "api/open-cmux"]);
+      expect(operationPrefix.map((item) => item.value)).toEqual(["open-cmux"]);
     });
   });
 
-  test("does not complete runtime operations at the root command position", async () => {
+  test("completes top-level project commands at the root command position", async () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-completion-"));
     await withWorkspaceRuntime({ projectDir }, async () => {
       const items = await completeRig({
         cwd: projectDir,
-        words: ["rig", "s"],
+        words: ["rig", "p"],
         currentIndex: 1,
       });
 
-      expect(items.map((item) => item.value)).not.toContain("ssh");
+      expect(items.map((item) => item.value)).toEqual(["plan", "projects"]);
     });
   });
 
@@ -103,6 +103,17 @@ describe("CLI completion", () => {
       .toBe("api\tworkspace smoke\tnospace");
     expect(renderCompletionScript("zsh")).toContain("rig __complete");
     expect(renderCompletionScript("zsh")).toContain("compadd -S ''");
+    expect(renderCompletionScript("zsh")).toContain('display="${value} -- ${description}"');
+  });
+
+  test("formats workspace ages", () => {
+    const now = Date.parse("2026-05-14T12:00:00.000Z");
+
+    expect(formatWorkspaceAge("2026-05-14T11:59:45.000Z", now)).toBe("just now");
+    expect(formatWorkspaceAge("2026-05-14T11:30:00.000Z", now)).toBe("30m old");
+    expect(formatWorkspaceAge("2026-05-14T09:00:00.000Z", now)).toBe("3h old");
+    expect(formatWorkspaceAge("2026-05-11T12:00:00.000Z", now)).toBe("3d old");
+    expect(formatWorkspaceAge("not-a-date", now)).toBeUndefined();
   });
 
   test("completes ls targets", async () => {
@@ -154,7 +165,10 @@ async function withWorkspaceRuntime(
         });
       }
       if (pathname === "/workspaces") {
-        const now = new Date(0).toISOString();
+        const nowMs = Date.now();
+        const apiCreatedAt = new Date(nowMs - 2 * 60 * 60 * 1000).toISOString();
+        const webCreatedAt = new Date(nowMs - 5 * 60 * 1000).toISOString();
+        const updatedAt = new Date(nowMs).toISOString();
         return runtimeJson({
           workspaces: [
             {
@@ -162,16 +176,16 @@ async function withWorkspaceRuntime(
               name: "api",
               workflow: "smoke",
               ctx: {},
-              createdAt: now,
-              updatedAt: now,
+              createdAt: apiCreatedAt,
+              updatedAt,
             },
             {
               id: "workspace-web",
               name: "web",
               workflow: "smoke",
               ctx: {},
-              createdAt: now,
-              updatedAt: now,
+              createdAt: webCreatedAt,
+              updatedAt,
             },
           ],
         });

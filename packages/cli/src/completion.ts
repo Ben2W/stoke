@@ -18,7 +18,10 @@ type CompleteRigInput = {
 const COMMANDS: CompletionItem[] = [
   { value: "help", description: "show CLI help" },
   { value: "init", description: "initialize a Rigkit project" },
-  { value: "run", description: "run a project operation" },
+  { value: "plan", description: "plan project workflow changes" },
+  { value: "apply", description: "apply project workflow changes" },
+  { value: "create", description: "create a workspace" },
+  { value: "run", description: "run a workspace operation" },
   { value: "ls", description: "list project workspaces" },
   { value: "projects", description: "discover Rigkit projects" },
   { value: "doctor", description: "show runtime diagnostics" },
@@ -46,9 +49,20 @@ const COMMAND_OPTIONS: Record<string, CompletionItem[]> = {
     { value: "--force", description: "overwrite existing config" },
     { value: "--json", description: "print JSON" },
   ],
-  operation: [
+  plan: [
     { value: "--all", description: "run against every discovered project" },
     { value: "--discover", description: "discover projects below the selected directory" },
+    { value: "--json", description: "print JSON" },
+  ],
+  apply: [
+    { value: "--all", description: "run against every discovered project" },
+    { value: "--discover", description: "discover projects below the selected directory" },
+    { value: "--json", description: "print JSON" },
+  ],
+  create: [
+    { value: "--json", description: "print JSON" },
+  ],
+  run: [
     { value: "--json", description: "print JSON" },
   ],
   ls: [
@@ -66,6 +80,8 @@ const COMMAND_OPTIONS: Record<string, CompletionItem[]> = {
     { value: "zsh", description: "zsh completion" },
   ],
 };
+
+const PROJECT_OPERATION_COMMANDS = new Set(["plan", "apply", "create"]);
 
 const OPTIONS_WITH_VALUES = new Set([
   "-C",
@@ -92,6 +108,13 @@ type RuntimeOperationDefinition = {
   };
 };
 
+type RuntimeWorkspaceCompletion = {
+  name: string;
+  workflow: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export async function completeRig(input: CompleteRigInput): Promise<CompletionItem[]> {
   const cwd = input.cwd ?? process.cwd();
   const words = input.words.length > 0 ? input.words : ["rig"];
@@ -113,18 +136,29 @@ export async function completeRig(input: CompleteRigInput): Promise<CompletionIt
 
   if (current.startsWith("-")) {
     if (command === "run") {
-      const run = parseRunCommand(before);
-      if (run.operation) {
-        const operation = await safeResolveRuntimeOperation(resolveProjectDir(words, cwd), run.operation);
+      const run = parseWorkspaceRunCommand(before);
+      if (run.workspace && run.operation) {
+        const operation = await safeResolveWorkspaceOperation(resolveProjectDir(words, cwd), run.operation);
         return filterItems([
           ...(operation?.cli?.options ?? []).flatMap((option) => [
             { value: option.flag, description: option.name },
             ...(option.aliases ?? []).map((alias) => ({ value: alias, description: option.name })),
           ]),
-          ...COMMAND_OPTIONS.operation,
+          ...COMMAND_OPTIONS.run,
           ...GLOBAL_OPTIONS,
         ], current);
       }
+    }
+    if (PROJECT_OPERATION_COMMANDS.has(command)) {
+      const operation = await safeResolveRuntimeOperation(resolveProjectDir(words, cwd), command);
+      return filterItems([
+        ...(operation?.cli?.options ?? []).flatMap((option) => [
+          { value: option.flag, description: option.name },
+          ...(option.aliases ?? []).map((alias) => ({ value: alias, description: option.name })),
+        ]),
+        ...(COMMAND_OPTIONS[command] ?? []),
+        ...GLOBAL_OPTIONS,
+      ], current);
     }
     return filterItems([...(COMMAND_OPTIONS[command] ?? []), ...GLOBAL_OPTIONS], current);
   }
@@ -132,19 +166,9 @@ export async function completeRig(input: CompleteRigInput): Promise<CompletionIt
   const positionalCount = countPositionals(before, command);
 
   if (command === "run") {
-    const run = parseRunCommand(before);
-    if (!run.operation) {
-      return filterItems(await safeOperationTargets(resolveProjectDir(words, cwd), current), current);
-    }
-    const operation = await safeResolveRuntimeOperation(resolveProjectDir(words, cwd), run.operation);
-    if (!operation && run.args.length === 0) {
-      return filterItems(await safeWorkspaceOperationTargets(resolveProjectDir(words, cwd), run.operation), current);
-    }
-    const operationPositionalCount = countRunOperationPositionals(run.args);
-    const positional = operation?.cli?.positionals?.find((item) => item.index === operationPositionalCount);
-    if (positional && /workspace|vm/i.test(positional.name)) {
-      return filterItems(await workspaceTargets(resolveProjectDir(words, cwd), current, /vm/i.test(positional.name)), current);
-    }
+    const run = parseWorkspaceRunCommand(before);
+    if (!run.workspace) return filterItems(await workspaceTargets(resolveProjectDir(words, cwd)), current);
+    if (!run.operation) return filterItems(await safeWorkspaceOperationTargets(resolveProjectDir(words, cwd)), current);
   }
 
   if (command === "completion" && positionalCount === 0) {
@@ -206,8 +230,8 @@ complete -c rig -f -a "(__rig_complete)"
 return `#compdef rig
 # rig zsh completion
 _rig() {
-  local -a raw values descriptions nospace_values nospace_descriptions
-  local line value description rest marker
+  local -a raw values displays nospace_values nospace_displays
+  local line value description rest marker display
   raw=("\${(@f)$(command rig __complete --shell zsh --index $((CURRENT - 1)) -- "\${words[@]}" 2>/dev/null)}")
   for line in "\${raw[@]}"; do
     value="\${line%%$'\\t'*}"
@@ -220,16 +244,20 @@ _rig() {
         marker="\${rest#*$'\\t'}"
       fi
     fi
+    display="\${value}"
+    if [[ -n "$description" ]]; then
+      display="\${value} -- \${description}"
+    fi
     if [[ "$marker" == "nospace" ]]; then
       nospace_values+=("\${value}")
-      nospace_descriptions+=("\${description}")
+      nospace_displays+=("\${display}")
     else
       values+=("\${value}")
-      descriptions+=("\${description}")
+      displays+=("\${display}")
     fi
   done
-  (( \${#nospace_values} )) && compadd -S '' -d nospace_descriptions -a nospace_values
-  (( \${#values} )) && compadd -d descriptions -a values
+  (( \${#nospace_values} )) && compadd -S '' -d nospace_displays -a nospace_values
+  (( \${#values} )) && compadd -d displays -a values
 }
 compdef _rig rig
 `;
@@ -275,7 +303,7 @@ function countPositionals(words: string[], command: string): number {
   return count;
 }
 
-function parseRunCommand(words: string[]): { operation?: string; args: string[] } {
+function parseWorkspaceRunCommand(words: string[]): { workspace?: string; operation?: string; args: string[] } {
   let foundRun = false;
   const args: string[] = [];
   for (let index = 0; index < words.length; index += 1) {
@@ -292,22 +320,7 @@ function parseRunCommand(words: string[]): { operation?: string; args: string[] 
     }
     args.push(word);
   }
-  return { operation: args[0], args: args.slice(1) };
-}
-
-function countRunOperationPositionals(args: string[]): number {
-  let count = 0;
-  for (let index = 0; index < args.length; index += 1) {
-    const arg = args[index]!;
-    if (OPTIONS_WITH_VALUES.has(arg)) {
-      index += 1;
-      continue;
-    }
-    if (arg.startsWith("--") && arg.includes("=")) continue;
-    if (arg.startsWith("-")) continue;
-    count += 1;
-  }
-  return count;
+  return { workspace: args[0], operation: args[1], args: args.slice(2) };
 }
 
 function expectsOptionValue(words: string[]): boolean {
@@ -344,88 +357,46 @@ function projectPaths(projectDir: string): { projectDir: string; configPath: str
 
 async function workspaceTargets(
   paths: { projectDir: string; configPath: string },
-  _current: string,
-  _includeVmIds: boolean,
 ): Promise<CompletionItem[]> {
   const workspaces = await readWorkspaces(paths);
   const items = workspaces.map((workspace) => ({
     value: workspace.name,
-    description: workspace.workflow,
+    description: workspaceDescription(workspace, { prefix: false }),
   }));
 
   return dedupeItems(items);
 }
 
-async function readWorkspaces(paths: { projectDir: string; configPath: string }): Promise<Array<{ name: string; workflow: string }>> {
+async function readWorkspaces(paths: { projectDir: string; configPath: string }): Promise<RuntimeWorkspaceCompletion[]> {
   const runtime = await getOrStartRuntime(paths);
   const { workspaces } = await runtime.control.workspaces();
   return workspaces.map((workspace) => ({
     name: workspace.name,
     workflow: workspace.workflow,
+    createdAt: workspace.createdAt,
+    updatedAt: workspace.updatedAt,
   }));
-}
-
-async function operationTargets(
-  paths: { projectDir: string; configPath: string },
-  current: string,
-): Promise<CompletionItem[]> {
-  const manifest = await readOperations(paths);
-  if (current.includes("/")) {
-    return workspaceOperationTargets(manifest, current);
-  }
-  const workspaces = await readWorkspaces(paths).catch(() => []);
-  if (workspaces.some((workspace) => workspace.name === current)) {
-    return workspaceOperationTargets(manifest, `${current}/`);
-  }
-  return manifest.operations.flatMap((operation) => [
-    { value: operation.id, description: operation.description },
-    ...(operation.aliases ?? []).map((alias) => ({ value: alias, description: operation.description })),
-  ]).concat(workspaces.map((workspace) => ({
-    value: workspace.name,
-    description: `workspace ${workspace.workflow}`,
-    noSpace: true,
-  })));
 }
 
 async function safeWorkspaceOperationTargets(
   paths: { projectDir: string; configPath: string },
-  workspace: string,
 ): Promise<CompletionItem[]> {
   try {
-    const [manifest, workspaces] = await Promise.all([
-      readOperations(paths),
-      readWorkspaces(paths),
-    ]);
-    if (!workspaces.some((item) => item.name === workspace)) return [];
-    return workspaceOperationTargets(manifest, `${workspace}/`);
+    const manifest = await readOperations(paths);
+    return workspaceOperationTargets(manifest);
   } catch {
     return [];
   }
 }
 
-function workspaceOperationTargets(manifest: RuntimeOperationManifest, current: string): CompletionItem[] {
-  const slash = current.indexOf("/");
-  if (slash < 0) return [];
-  const workspace = current.slice(0, slash);
-  if (!workspace) return [];
+function workspaceOperationTargets(manifest: RuntimeOperationManifest): CompletionItem[] {
   return (manifest.workspaceOperations ?? []).flatMap((operation) => [
-    { value: `${workspace}/${operation.id}`, description: operation.description ?? "workspace operation" },
+    { value: operation.id, description: operation.description ?? "workspace operation" },
     ...(operation.aliases ?? []).map((alias) => ({
-      value: `${workspace}/${alias}`,
+      value: alias,
       description: operation.description ?? "workspace operation",
     })),
   ]);
-}
-
-async function safeOperationTargets(
-  paths: { projectDir: string; configPath: string },
-  current: string,
-): Promise<CompletionItem[]> {
-  try {
-    return await operationTargets(paths, current);
-  } catch {
-    return [];
-  }
 }
 
 async function resolveRuntimeOperation(
@@ -433,12 +404,6 @@ async function resolveRuntimeOperation(
   operationId: string,
 ): Promise<RuntimeOperationDefinition | undefined> {
   const manifest = await readOperations(paths);
-  const workspaceOperation = parseWorkspaceOperationId(operationId);
-  if (workspaceOperation) {
-    return (manifest.workspaceOperations ?? []).find((operation) =>
-      operation.id === workspaceOperation.operation || operation.aliases?.includes(workspaceOperation.operation)
-    );
-  }
   return manifest.operations.find((operation) =>
     operation.id === operationId || operation.aliases?.includes(operationId)
   );
@@ -455,18 +420,30 @@ async function safeResolveRuntimeOperation(
   }
 }
 
+async function resolveWorkspaceOperation(
+  paths: { projectDir: string; configPath: string },
+  operationId: string,
+): Promise<RuntimeOperationDefinition | undefined> {
+  const manifest = await readOperations(paths);
+  return (manifest.workspaceOperations ?? []).find((operation) =>
+    operation.id === operationId || operation.aliases?.includes(operationId)
+  );
+}
+
+async function safeResolveWorkspaceOperation(
+  paths: { projectDir: string; configPath: string },
+  operationId: string,
+): Promise<RuntimeOperationDefinition | undefined> {
+  try {
+    return await resolveWorkspaceOperation(paths, operationId);
+  } catch {
+    return undefined;
+  }
+}
+
 async function readOperations(paths: { projectDir: string; configPath: string }): Promise<RuntimeOperationManifest> {
   const runtime = await getOrStartRuntime(paths);
   return await runtime.control.operations() as unknown as RuntimeOperationManifest;
-}
-
-function parseWorkspaceOperationId(value: string): { workspace: string; operation: string } | undefined {
-  const slash = value.indexOf("/");
-  if (slash <= 0 || slash === value.length - 1) return undefined;
-  return {
-    workspace: value.slice(0, slash),
-    operation: value.slice(slash + 1),
-  };
 }
 
 function filterItems(items: CompletionItem[], current: string): CompletionItem[] {
@@ -482,4 +459,32 @@ function dedupeItems(items: CompletionItem[]): CompletionItem[] {
     deduped.push(item);
   }
   return deduped;
+}
+
+function workspaceDescription(workspace: RuntimeWorkspaceCompletion, options: { prefix: boolean }): string {
+  const label = options.prefix ? `workspace ${workspace.workflow}` : workspace.workflow;
+  const age = formatWorkspaceAge(workspace.createdAt);
+  return age ? `${label} - ${age}` : label;
+}
+
+export function formatWorkspaceAge(createdAt: string, nowMs = Date.now()): string | undefined {
+  const createdAtMs = Date.parse(createdAt);
+  if (!Number.isFinite(createdAtMs)) return undefined;
+
+  const elapsedSeconds = Math.max(0, Math.floor((nowMs - createdAtMs) / 1000));
+  if (elapsedSeconds < 60) return "just now";
+
+  const elapsedMinutes = Math.floor(elapsedSeconds / 60);
+  if (elapsedMinutes < 60) return `${elapsedMinutes}m old`;
+
+  const elapsedHours = Math.floor(elapsedMinutes / 60);
+  if (elapsedHours < 48) return `${elapsedHours}h old`;
+
+  const elapsedDays = Math.floor(elapsedHours / 24);
+  if (elapsedDays < 30) return `${elapsedDays}d old`;
+
+  const elapsedMonths = Math.floor(elapsedDays / 30);
+  if (elapsedMonths < 24) return `${elapsedMonths}mo old`;
+
+  return `${Math.floor(elapsedMonths / 12)}y old`;
 }

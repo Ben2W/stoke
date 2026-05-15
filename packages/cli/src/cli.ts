@@ -36,6 +36,7 @@ import {
   resolveCompletionShell,
   type CompletionShell,
 } from "./completion.ts";
+import { generateWorkspaceName } from "./workspace-name.ts";
 
 type GlobalOptions = {
   project?: string;
@@ -196,22 +197,46 @@ async function runCli(argv: string[]): Promise<void> {
       });
     });
 
+  for (const operation of ["plan", "apply"] as const) {
+    program
+      .command(`${operation} [args...]`)
+      .description(operation === "plan" ? "Plan project workflow changes" : "Apply project workflow changes")
+      .allowUnknownOption(true)
+      .option("--all", "Run against every discovered project")
+      .option("--discover", "Discover projects below the selected directory")
+      .option("--json", "Print machine-readable JSON")
+      .action(async (args: string[], options: { all?: boolean; discover?: boolean; json?: boolean }) => {
+        await runProjectOperation(makeInvocation(rootOptions(program), options.json), operation, args ?? [], {
+          all: Boolean(options.all),
+          discover: Boolean(options.discover),
+        });
+      });
+  }
+
   program
-    .command("run <operation> [args...]")
-    .description("Run a project operation exposed by the runtime")
+    .command("create [args...]")
+    .description("Create a workspace")
     .allowUnknownOption(true)
-    .option("--all", "Run against every discovered project")
-    .option("--discover", "Discover projects below the selected directory")
+    .option("--json", "Print machine-readable JSON")
+    .action(async (args: string[], options: { json?: boolean }) => {
+      await runProjectOperation(makeInvocation(rootOptions(program), options.json), "create", args ?? [], {
+        all: false,
+        discover: false,
+      });
+    });
+
+  program
+    .command("run <workspace> <operation> [args...]")
+    .description("Run a workspace operation")
+    .allowUnknownOption(true)
     .option("--json", "Print machine-readable JSON")
     .action(async (
+      workspace: string,
       operation: string,
       args: string[],
-      options: { all?: boolean; discover?: boolean; json?: boolean },
+      options: { json?: boolean },
     ) => {
-      await runProjectOperation(makeInvocation(rootOptions(program), options.json), operation, args ?? [], {
-        all: Boolean(options.all),
-        discover: Boolean(options.discover),
-      });
+      await runWorkspaceOperation(makeInvocation(rootOptions(program), options.json), workspace, operation, args ?? []);
     });
 
   program
@@ -468,11 +493,12 @@ async function promptPackageManager(defaultValue: PackageManager): Promise<Packa
   return answers.packageManager;
 }
 
-async function promptWorkspaceName(): Promise<string> {
+async function promptWorkspaceName(defaultValue: string): Promise<string> {
   const answers = await inquirer.prompt<{ name: string }>([{
     type: "input",
     name: "name",
     message: "Workspace name:",
+    default: defaultValue,
     validate(value: string) {
       return validateWorkspaceName(value.trim());
     },
@@ -497,21 +523,11 @@ function assertValidWorkspaceName(value: unknown): void {
   if (valid !== true) throw new Error(`Invalid workspace name "${value}". ${valid}`);
 }
 
-async function promptWorkspaceOperation(
-  workspace: string,
-  operations: RuntimeOperationDefinition[],
-): Promise<string> {
-  const answers = await inquirer.prompt<{ operation: string }>([{
-    type: "select",
-    name: "operation",
-    message: `Operation for ${workspace}:`,
-    choices: operations.map((operation) => ({
-      name: operation.id,
-      value: operation.id,
-      description: operation.description || operation.title || "workspace operation",
-    })),
-  }]);
-  return answers.operation;
+async function defaultWorkspaceName(runtime: RuntimeClient): Promise<string> {
+  const existingNames = await runtime.control.workspaces()
+    .then((response) => response.workspaces.map((workspace) => workspace.name))
+    .catch(() => []);
+  return generateWorkspaceName(existingNames);
 }
 
 async function runPackageManagerInstall(
@@ -595,7 +611,7 @@ function printInitResult(result: InitProjectResult, install: InitInstallResult):
   if (install.skipped) {
     console.log(`  ${detectInstallCommand(result.packageJsonPath)}`);
   }
-  console.log("  rig run plan");
+  console.log("  rig plan");
 }
 
 function displayProjectDir(projectDir: string): string {
@@ -656,6 +672,47 @@ async function runProjectOperation(
     runtime,
     requestedOperation,
     remote.args,
+  );
+
+  if (wantsJson(invocation)) {
+    printJson(result);
+    return;
+  }
+
+  await renderOperationResult(operation, result, parsed.hostOptions);
+  printInteractiveOutputGap(invocation);
+}
+
+async function runWorkspaceOperation(
+  invocation: CliInvocation,
+  workspaceName: string,
+  requestedOperation: string,
+  args: string[],
+): Promise<void> {
+  const runtime = await loadRuntime(invocation);
+  const manifest = await readRuntimeOperations(runtime);
+  const operation = (manifest.workspaceOperations ?? []).find((item) =>
+    item.id === requestedOperation || item.aliases?.includes(requestedOperation)
+  );
+  if (!operation) {
+    throw new Error(`This project does not define a workspace operation named "${requestedOperation}".`);
+  }
+
+  const workspaces = await runtime.control.workspaces()
+    .then((response) => response.workspaces as WorkspaceRecord[])
+    .catch(() => []);
+  if (!workspaces.some((workspace) => workspace.name === workspaceName)) {
+    throw new Error(`This project does not have a workspace named "${workspaceName}".`);
+  }
+
+  const parsed = parseOperationArgs(operation, args);
+  enforceHostOnlyBooleanGuards(operation, parsed);
+
+  const result = await runRuntimeOperation<unknown>(
+    runtime,
+    `${workspaceName}/${operation.id}`,
+    parsed.input,
+    { renderEvents: !wantsJson(invocation) },
   );
 
   if (wantsJson(invocation)) {
@@ -791,13 +848,13 @@ async function executeRuntimeOperation(
   result: unknown;
 }> {
   const manifest = await readRuntimeOperations(runtime);
-  const resolved = await resolveRequestedRuntimeOperation(invocation, runtime, manifest, requestedOperation);
+  const resolved = findRuntimeOperation(manifest, requestedOperation);
   if (!resolved) {
     throw new Error(`This project does not define a Rigkit operation named "${requestedOperation}".`);
   }
   const { operation, runOperation } = resolved;
 
-  const parsed = await parseOperationArgsWithPrompts(invocation, operation, args);
+  const parsed = await parseOperationArgsWithPrompts(invocation, runtime, operation, args);
   enforceHostOnlyBooleanGuards(operation, parsed);
 
   const result = await runRuntimeOperation<unknown>(
@@ -810,55 +867,19 @@ async function executeRuntimeOperation(
   return { operation, parsed, result };
 }
 
-async function resolveRequestedRuntimeOperation(
-  invocation: CliInvocation,
-  runtime: RuntimeClient,
-  manifest: RuntimeOperationManifest,
-  requestedOperation: string,
-): Promise<{ operation: RuntimeOperationDefinition; runOperation: string } | undefined> {
-  const resolved = findRuntimeOperation(manifest, requestedOperation);
-  if (resolved) return resolved;
-
-  if (requestedOperation.includes("/") || wantsJson(invocation) || !canPrompt()) return undefined;
-
-  const workspaces = await runtime.control.workspaces()
-    .then((response) => response.workspaces as WorkspaceRecord[])
-    .catch(() => []);
-  const workspace = workspaces.find((item) => item.name === requestedOperation);
-  if (!workspace || (manifest.workspaceOperations ?? []).length === 0) return undefined;
-
-  const operationId = await promptWorkspaceOperation(workspace.name, manifest.workspaceOperations ?? []);
-  const operation = (manifest.workspaceOperations ?? []).find((item) => item.id === operationId);
-  return operation ? { operation, runOperation: `${workspace.name}/${operation.id}` } : undefined;
-}
-
 function findRuntimeOperation(
   manifest: RuntimeOperationManifest,
   requestedOperation: string,
 ): { operation: RuntimeOperationDefinition; runOperation: string } | undefined {
-  const workspaceOperation = parseWorkspaceOperationId(requestedOperation);
-  if (workspaceOperation) {
-    const operation = (manifest.workspaceOperations ?? []).find((item) => item.id === workspaceOperation.operation);
-    return operation ? { operation, runOperation: requestedOperation } : undefined;
-  }
-
   const operation = manifest.operations.find((operation) =>
     operation.id === requestedOperation || operation.aliases?.includes(requestedOperation)
   );
   return operation ? { operation, runOperation: operation.id } : undefined;
 }
 
-function parseWorkspaceOperationId(value: string): { workspace: string; operation: string } | undefined {
-  const slash = value.indexOf("/");
-  if (slash <= 0 || slash === value.length - 1) return undefined;
-  return {
-    workspace: value.slice(0, slash),
-    operation: value.slice(slash + 1),
-  };
-}
-
 async function parseOperationArgsWithPrompts(
   invocation: CliInvocation,
+  runtime: RuntimeClient,
   operation: RuntimeOperationDefinition,
   args: string[],
 ): Promise<ParsedOperationInput> {
@@ -872,7 +893,7 @@ async function parseOperationArgsWithPrompts(
     !wantsJson(invocation) &&
     canPrompt()
   ) {
-    parsed.input.name = await promptWorkspaceName();
+    parsed.input.name = await promptWorkspaceName(await defaultWorkspaceName(runtime));
   }
   if (operation.createsWorkspace && parsed.input.name !== undefined) {
     assertValidWorkspaceName(parsed.input.name);
@@ -1148,7 +1169,10 @@ async function runHelp(invocation: CliInvocation): Promise<void> {
       commands: [
         { name: "help", description: "Show Rigkit CLI help" },
         { name: "init", description: "Initialize a Rigkit project" },
-        { name: "run", description: "Run a project operation exposed by the runtime" },
+        { name: "plan", description: "Plan project workflow changes" },
+        { name: "apply", description: "Apply project workflow changes" },
+        { name: "create", description: "Create a workspace" },
+        { name: "run", description: "Run a workspace operation" },
         { name: "ls", description: "List project workspaces" },
         { name: "projects", description: "Discover Rigkit projects below the current directory" },
         { name: "doctor", description: "Show Rigkit runtime diagnostics" },
@@ -1167,7 +1191,10 @@ async function runHelp(invocation: CliInvocation): Promise<void> {
     "Commands:",
     "  help        Show Rigkit CLI help",
     "  init        Initialize a Rigkit project",
-    "  run         Run a project operation exposed by the runtime",
+    "  plan        Plan project workflow changes",
+    "  apply       Apply project workflow changes",
+    "  create      Create a workspace",
+    "  run         Run a workspace operation",
     "  ls          List project workspaces",
     "  projects    Discover Rigkit projects below the current directory",
     "  doctor      Show Rigkit runtime diagnostics",

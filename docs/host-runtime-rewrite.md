@@ -57,9 +57,9 @@ runs project behavior.
   runtime protocol.
 - Expose discoverable operations and schemas so hosts can render commands,
   forms, tree views, tab completion, and workspace actions generically.
-- Make project behavior run through `rig run <operation>`. `apply`, `plan`,
-  `fork`, `ssh`, and any future project behavior should exist because the
-  runtime exposes that operation, not because the CLI hardcodes it.
+- Keep project setup behavior on top-level commands such as `rig plan`,
+  `rig apply`, and `rig create`; keep workspace behavior under
+  `rig run <workspace> <operation>`.
 - Keep host interactions small: messages, prompts, external opens, explicit
   local command execution, and locally registered trusted capabilities such as
   `cmux.open`.
@@ -397,7 +397,7 @@ For a normal local project operation, assuming the runtime exposes an `apply`
 operation:
 
 ```text
-rig run apply
+rig apply
   -> CLI discovers project/config
   -> CLI calls getOrStartRuntime(project)
   -> runtime manager reuses or starts the project daemon
@@ -437,7 +437,7 @@ Project discovery:
 3. Otherwise search upward from `cwd` for the nearest `rig.config.ts`.
 4. If none is found, fail clearly.
 
-Default project operations such as `rig run apply` should not search downward
+Default project operations such as `rig apply` should not search downward
 and run every config below cwd. That is surprising and risky because configs
 are executable code.
 
@@ -445,8 +445,8 @@ Downward discovery should be explicit:
 
 ```bash
 rig projects
-rig run <operation> --all
-rig run <operation> --discover
+rig plan --all
+rig plan --discover
 ```
 
 If multiple configs are found, the host should show candidates and require
@@ -709,7 +709,8 @@ const website = sequence("website")
 
 The exact authoring API can change. The boundary should not: project behavior
 is registered by config, exposed by the runtime manifest, executed by the
-runtime, and invoked by hosts through `rig run <operation>`.
+runtime, and invoked by hosts through top-level project commands or
+`rig run <workspace> <operation>`.
 
 ## Expected Config Example
 
@@ -956,11 +957,11 @@ on the user's machine.
 Expected CLI shape:
 
 ```bash
-rig run apply --workflow website
-rig run create --workflow website --name ben-test
-rig run open ben-test
-rig run delete ben-test
-rig run fork ben-test ben-copy
+rig apply --workflow website
+rig create --workflow website --name ben-test
+rig run ben-test open
+rig run ben-test delete
+rig run ben-test fork ben-copy
 ```
 
 Example `GET /operations` response:
@@ -1202,7 +1203,8 @@ Response:
 
 Hosts can use the same operations differently:
 
-- CLI renders runtime operations under `rig run <operation>`.
+- CLI renders project operations as top-level commands and workspace operations
+  under `rig run <workspace> <operation>`.
 - VS Code renders config-defined operations as buttons/forms.
 - cmux renders config-defined operations in its workspace UI.
 - Shell completion calls `GET /workspaces` or `GET /operations`.
@@ -1221,10 +1223,10 @@ doctor
 run
 ```
 
-Project behavior lives under `run`:
+Workspace behavior lives under `run`:
 
 ```text
-rig run <operation> [...args]
+rig run <workspace> <operation> [...args]
 ```
 
 Dispatch flow:
@@ -1258,12 +1260,11 @@ Operation "open" requires host capability "cmux.open".
 Install or enable @rigkit/provider-cmux locally to use it from this host.
 ```
 
-`apply` and `plan` should not be top-level CLI commands. They are core
-operation ids exposed by the runtime and invoked through:
+`apply` and `plan` are top-level CLI commands backed by runtime operations:
 
 ```bash
-rig run plan
-rig run apply
+rig plan
+rig apply
 ```
 
 The SDK should reserve names that would collide with host-level commands. If a
@@ -2112,7 +2113,7 @@ Remote repo support should use the same architecture.
 Example:
 
 ```bash
-rig run <operation> github:owner/repo
+rig <operation> github:owner/repo
 ```
 
 Flow:
@@ -2259,11 +2260,12 @@ This should be treated as a rewrite, not an incremental compatibility project.
 - Build command parsing/help/execution with Effect CLI.
 - Discover projects/configs.
 - Use the runtime manager for all project commands.
-- Render runtime operations under `rig run <operation>`.
-- Treat `apply`, `plan`, `create`, `open`, `delete`, `fork`, and similar verbs as runtime
+- Render project operations as top-level commands and workspace operations under
+  `rig run <workspace> <operation>`.
+- Treat `open`, `delete`, `fork`, and similar workspace verbs as runtime
   operation ids from `/operations`, not static CLI subcommands.
-- Remove hardcoded project commands such as built-in `apply`, `plan`, `create`,
-  `open`, `delete`, and `fork`; those exist only when the runtime reports
+- Keep built-in project commands such as `apply`, `plan`, and `create` as thin
+  aliases for runtime operations.
   matching operations.
 - Reserve host-level command names such as `init`, `doctor`, `projects`, `run`,
   `help`, and `version` so configs cannot define conflicting operation ids.
@@ -2383,7 +2385,7 @@ Use Effect HTTP/OpenAPI plus WebSocket for the runtime protocol:
 HTTP/OpenAPI control plane for workflows/workspaces/snapshots/runs
 WebSocket run sessions for active runs
 config-defined operations with schemas for commands and actions
-CLI project behavior through rig run <operation>
+CLI project behavior through top-level commands and rig run <workspace> <operation>
 run events, prompts, external opens, host capabilities, cancellation, heartbeat
 long-lived sessions are acceptable for operations awaiting host-owned resources
 hello/hello.ack negotiates host methods, command modes, and capability schemas

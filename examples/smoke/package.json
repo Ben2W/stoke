@@ -4,11 +4,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "rig:plan": "rig run plan",
-    "rig:apply": "rig run apply",
-    "rig:fork": "rig run create --name smoke-workspace",
-    "rig:ssh": "rig run ssh smoke-workspace",
-    "rig:rm": "rig run smoke-workspace/remove -y",
+    "rig:plan": "rig plan",
+    "rig:apply": "rig apply",
+    "rig:fork": "rig create --name smoke-workspace",
+    "rig:ssh": "rig run smoke-workspace ssh",
+    "rig:rm": "rig run smoke-workspace remove -y",
     "typecheck": "tsc --noEmit",
     "test": "echo no smoke example tests yet"
   },

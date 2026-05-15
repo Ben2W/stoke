@@ -7,6 +7,7 @@ The workflow:
 - installs Git, GitHub CLI, Bun, and build tools
 - installs Codex CLI
 - runs the GitHub login flow in a browser terminal
+- configures Git commit author identity from the authenticated GitHub account
 - clones `https://github.com/freestyle-sh/freestyle-website-next`
 - runs `bun install`
 - initializes Codex CLI from inside the cloned repo so its workspace trust and login prompts apply to the project folder

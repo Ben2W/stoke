@@ -229,7 +229,7 @@ function ensureProjectPackageJson(
   }
 
   const scripts = pkg.scripts as Record<string, string>;
-  for (const [key, value] of Object.entries({ plan: "rig run plan", apply: "rig run apply" })) {
+  for (const [key, value] of Object.entries({ plan: "rig plan", apply: "rig apply" })) {
     if (scripts[key] !== value) {
       scripts[key] = value;
       updated = true;

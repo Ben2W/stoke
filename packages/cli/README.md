@@ -5,9 +5,9 @@ Global `rig` CLI.
 ```bash
 npm i -g @rigkit/cli
 rig init
-rig run plan
+rig plan
 rig ls
-rig run plan github:owner/repo
+rig plan github:owner/repo
 ```
 
 `rig init` asks for a project name, Freestyle API key, and package manager. It creates a project folder containing a workflow-based `rig.config.ts`, `.env`, `.env.example`, `package.json`, and local ignore rules.
@@ -16,7 +16,7 @@ Interactive terminals use Inquirer prompts and a chalk/log-update run timeline. 
 
 Interactive providers can ask the CLI to open provider-owned URLs. For example, Freestyle terminal sessions are served by the Freestyle provider, while the CLI only opens the presented URL in a browser.
 
-Workspace-specific operations run as `rig run <workspace>/<operation>`, for example `rig run website-workspace/open-cmux` or `rig run website-workspace/remove -y`.
+Workspace-specific operations run as `rig run <workspace> <operation>`, for example `rig run website-workspace open-cmux` or `rig run website-workspace remove -y`.
 
 `rig ls` lists workspaces for the selected project. `rig ls snapshots` lists cached snapshot runs, and `rig ls config` shows the resolved project paths.
 
