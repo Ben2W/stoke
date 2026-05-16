@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { existsSync } from "node:fs";
+import { existsSync, rmSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import chalk from "chalk";
 import { Command, CommanderError } from "commander";
@@ -7,6 +7,7 @@ import inquirer from "inquirer";
 import ora from "ora";
 import {
   getOrStartRuntime,
+  defaultRigkitHome,
   type RuntimeClient,
 } from "@rigkit/runtime-client";
 import {
@@ -73,6 +74,12 @@ type RunOptions = {
 
 type ListOptions = {
   target?: string;
+};
+
+type CacheClearOptions = {
+  local: boolean;
+  global: boolean;
+  all: boolean;
 };
 
 type PackageManager = "npm" | "bun" | "pnpm" | "skip";
@@ -165,7 +172,7 @@ async function runCli(argv: string[]): Promise<void> {
     .showHelpAfterError()
     .exitOverride()
     .argument("[command]")
-    .option("-C, --project <project>", `Project directory containing ${DEFAULT_CONFIG_FILE}`)
+    .option("-C, --project <project>", `Project directory containing ${DEFAULT_CONFIG_FILE}, or a base directory for --config`)
     .option("--config <config>", "Exact config file to load")
     .option("--state <state>", "Local runtime state database path")
     .option("--json", "Print machine-readable JSON where supported")
@@ -245,6 +252,33 @@ async function runCli(argv: string[]): Promise<void> {
     .option("--json", "Print machine-readable JSON")
     .action(async (target: string | undefined, options: { json?: boolean }) => {
       await runList(makeInvocation(rootOptions(program), options.json), { target });
+    });
+
+  const cache = program
+    .command("cache")
+    .description("Inspect and clear Rigkit cache");
+
+  cache
+    .command("ls")
+    .description("List cache entries for the selected project config")
+    .option("--json", "Print machine-readable JSON")
+    .action(async (options: { json?: boolean }) => {
+      await runCacheList(makeInvocation(rootOptions(program), options.json));
+    });
+
+  cache
+    .command("clear")
+    .description("Clear cache entries")
+    .option("--local", "Clear local cache entries for the selected config")
+    .option("--global", "Clear global cache fragments")
+    .option("--all", "With --global, clear every global fragment without loading a config")
+    .option("--json", "Print machine-readable JSON")
+    .action(async (options: { local?: boolean; global?: boolean; all?: boolean; json?: boolean }) => {
+      await runCacheClear(makeInvocation(rootOptions(program), options.json), {
+        local: Boolean(options.local),
+        global: Boolean(options.global),
+        all: Boolean(options.all),
+      });
     });
 
   program
@@ -837,6 +871,48 @@ async function runList(invocation: CliInvocation, options: ListOptions): Promise
   printConfig(project);
 }
 
+async function runCacheList(invocation: CliInvocation): Promise<void> {
+  const runtime = await loadRuntime(invocation);
+  const cache = await runtime.control.cache();
+  if (wantsJson(invocation)) {
+    printJson(cache);
+    return;
+  }
+  printCacheEntries(cache.entries);
+}
+
+async function runCacheClear(invocation: CliInvocation, options: CacheClearOptions): Promise<void> {
+  if (options.all && !options.global) {
+    throw new Error(`rig cache clear --all must be combined with --global`);
+  }
+  if (options.local && options.global && !options.all) {
+    throw new Error(`Choose --local or --global, not both`);
+  }
+
+  if (options.global && options.all) {
+    if (invocation.global.project || invocation.global.config || invocation.global.state) {
+      throw new Error(`rig cache clear --global --all cannot be combined with -C/--project, --config, or --state`);
+    }
+    const fragmentRoot = join(defaultRigkitHome(), "fragments");
+    rmSync(fragmentRoot, { recursive: true, force: true });
+    if (wantsJson(invocation)) {
+      printJson({ ok: true, deleted: null, scope: "global-all", fragmentRoot });
+      return;
+    }
+    console.log(`Cleared global fragment cache at ${fragmentRoot}`);
+    return;
+  }
+
+  const scope = options.local ? "local" : options.global ? "global" : "all";
+  const runtime = await loadRuntime(invocation);
+  const result = await runtime.control.clearCache({ scope });
+  if (wantsJson(invocation)) {
+    printJson(result);
+    return;
+  }
+  console.log(`Cleared ${result.deleted} cache ${result.deleted === 1 ? "entry" : "entries"}.`);
+}
+
 async function executeRuntimeOperation(
   invocation: CliInvocation,
   runtime: RuntimeClient,
@@ -1174,6 +1250,7 @@ async function runHelp(invocation: CliInvocation): Promise<void> {
         { name: "create", description: "Create a workspace" },
         { name: "run", description: "Run a workspace operation" },
         { name: "ls", description: "List project workspaces" },
+        { name: "cache", description: "Inspect and clear Rigkit cache" },
         { name: "projects", description: "Discover Rigkit projects below the current directory" },
         { name: "doctor", description: "Show Rigkit runtime diagnostics" },
         { name: "version", description: "Show Rigkit CLI version" },
@@ -1196,13 +1273,14 @@ async function runHelp(invocation: CliInvocation): Promise<void> {
     "  create      Create a workspace",
     "  run         Run a workspace operation",
     "  ls          List project workspaces",
+    "  cache       Inspect and clear Rigkit cache",
     "  projects    Discover Rigkit projects below the current directory",
     "  doctor      Show Rigkit runtime diagnostics",
     "  version     Show Rigkit CLI version",
     "  completion  Generate shell completion script",
     "",
     "Options:",
-    "  -C, --project <dir>  Project directory containing rig.config.ts",
+    "  -C, --project <dir>  Project directory, or a base directory for --config",
     "  --config <file>      Exact config file to load",
     "  --state <file>       Local runtime state database path",
     "  --json               Print machine-readable JSON where supported",
@@ -1945,6 +2023,33 @@ function printSnapshots(snapshots: SnapshotRecord[]): void {
       snapshot.nodePath,
       typeof snapshot.metadata.snapshotId === "string" ? snapshot.metadata.snapshotId : "",
       snapshot.createdAt,
+    ]),
+  );
+}
+
+function printCacheEntries(entries: ReadonlyArray<{
+  scope: "local" | "global";
+  workflow: string;
+  nodePath: string;
+  nodeName: string;
+  createdAt: string;
+  invalidated: boolean;
+  fragmentHash?: string;
+}>): void {
+  if (entries.length === 0) {
+    console.log("No cache entries.");
+    return;
+  }
+
+  printTable(
+    ["scope", "workflow", "node", "status", "fragment", "created"],
+    entries.map((entry) => [
+      entry.scope,
+      entry.workflow,
+      entry.nodePath || entry.nodeName,
+      entry.invalidated ? "invalidated" : "valid",
+      entry.fragmentHash ? entry.fragmentHash.slice(0, 19) : "",
+      entry.createdAt,
     ]),
   );
 }

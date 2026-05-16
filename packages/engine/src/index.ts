@@ -10,6 +10,13 @@ export type {
   EngineOperationKind,
   EngineOperationSource,
   EngineOperationSummary,
+  EngineCacheClearResult,
+  EngineCacheClearScope,
+  EngineCacheEntry,
+  EngineCacheList,
+  EngineCacheScope,
+  GlobalFragmentStateLocationInput,
+  GlobalFragmentStateLocator,
   InteractionPresenter,
   InteractionPresentationRequest,
 } from "./engine.ts";

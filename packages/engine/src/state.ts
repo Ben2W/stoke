@@ -60,6 +60,10 @@ export interface StateService {
     upstreamRunIds: readonly string[];
   }): WorkflowNodeRunRecord | undefined;
   saveNodeRun(run: WorkflowNodeRunRecord): void;
+  clearNodeRuns(input?: {
+    workflow?: string;
+    nodePaths?: readonly string[];
+  }): number;
   invalidateNodeRuns(input: {
     workflow: string;
     nodePaths: readonly string[];
@@ -172,6 +176,27 @@ export class StateStore implements StateService {
 
   saveNodeRun(run: WorkflowNodeRunRecord): void {
     this.db.insert(workflowNodeRuns).values(run).run();
+  }
+
+  clearNodeRuns(input: {
+    workflow?: string;
+    nodePaths?: readonly string[];
+  } = {}): number {
+    const nodePaths = input.nodePaths ? new Set(input.nodePaths) : undefined;
+    const rows = this.db
+      .select({ id: workflowNodeRuns.id, workflow: workflowNodeRuns.workflow, nodePath: workflowNodeRuns.nodePath })
+      .from(workflowNodeRuns)
+      .all()
+      .filter((row) =>
+        (input.workflow === undefined || row.workflow === input.workflow) &&
+        (nodePaths === undefined || nodePaths.has(row.nodePath))
+      );
+
+    for (const row of rows) {
+      this.db.delete(workflowNodeRuns).where(eq(workflowNodeRuns.id, row.id)).run();
+    }
+
+    return rows.length;
   }
 
   invalidateNodeRuns(input: {

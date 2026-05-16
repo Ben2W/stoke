@@ -39,6 +39,7 @@ export function runtimeHealth(context: RuntimeContext) {
     projectDir: context.projectDir,
     configPath: context.configPath,
     statePath: context.statePath,
+    globalFragmentRoot: context.globalFragmentRoot,
     engineVersion: RIGKIT_ENGINE_VERSION,
     runtimeVersion: RIGKIT_RUNTIME_VERSION,
     expiresAt: context.getExpiresAt(),
@@ -77,6 +78,17 @@ export async function runtimeWorkspaces(context: RuntimeContext) {
 export async function runtimeSnapshots(context: RuntimeContext) {
   const engine = await loadEngine(context);
   return { snapshots: engine.listSnapshots() };
+}
+
+export async function runtimeCache(context: RuntimeContext) {
+  const engine = await loadEngine(context);
+  return await engine.listCache();
+}
+
+export async function clearRuntimeCache(context: RuntimeContext, body: { scope?: "local" | "global" | "all" }) {
+  const engine = await loadEngine(context);
+  const result = await engine.clearCache({ scope: body.scope });
+  return { ok: true, deleted: result.deleted };
 }
 
 export function runtimeRuns(store: RunStore) {

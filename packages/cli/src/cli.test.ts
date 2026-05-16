@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { projectIdFor, runtimeFingerprintFor, runtimePaths, SUPPORTED_RUNTIME_API_VERSION } from "@rigkit/runtime-client";
@@ -25,6 +25,7 @@ describe("CLI entrypoint", () => {
     expect(rootHelp.stdout).toContain("rig ");
     expect(rootHelp.stdout).toContain("plan        Plan project workflow changes");
     expect(rootHelp.stdout).toContain("run         Run a workspace operation");
+    expect(rootHelp.stdout).toContain("cache       Inspect and clear Rigkit cache");
 
     const version = await runCli(["version"]);
     expect(version.exitCode).toBe(0);
@@ -37,6 +38,7 @@ describe("CLI entrypoint", () => {
     expect(help.stdout).toContain("rig ");
     expect(help.stdout).toContain("plan        Plan project workflow changes");
     expect(help.stdout).toContain("run         Run a workspace operation");
+    expect(help.stdout).toContain("cache       Inspect and clear Rigkit cache");
   });
 
   test("rejects operation shorthand at the root", async () => {
@@ -74,6 +76,49 @@ describe("CLI entrypoint", () => {
       });
     } finally {
       rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("shows named config choices when the default config is missing", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "rigkit-cli-named-configs-"));
+    writeFileSync(join(cwd, "api.rig.config.ts"), "export default {}\n");
+    writeFileSync(join(cwd, "web.rig.config.ts"), "export default {}\n");
+
+    try {
+      const result = await runCli(["create", "--json"], { cwd });
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toContain("No Rigkit config found from");
+      expect(result.stderr).toContain("Found named Rigkit configs");
+      expect(result.stderr).toContain("api.rig.config.ts");
+      expect(result.stderr).toContain("web.rig.config.ts");
+      expect(result.stderr).toContain("rig -C . --config api.rig.config.ts <command>");
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("clears all global fragment cache without loading a config", async () => {
+    const rigkitHome = mkdtempSync(join(tmpdir(), "rigkit-cli-cache-"));
+    const fragmentDir = join(rigkitHome, "fragments", "sha256-test");
+    mkdirSync(fragmentDir, { recursive: true });
+    writeFileSync(join(fragmentDir, "state.sqlite"), "");
+
+    try {
+      const result = await runCli(["cache", "clear", "--global", "--all", "--json"], {
+        env: { RIGKIT_HOME: rigkitHome },
+      });
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stderr).toBe("");
+      expect(JSON.parse(result.stdout)).toMatchObject({
+        ok: true,
+        scope: "global-all",
+      });
+      expect(existsSync(fragmentDir)).toBe(false);
+    } finally {
+      rmSync(rigkitHome, { recursive: true, force: true });
     }
   });
 

@@ -18,6 +18,7 @@ export const RuntimeControlHealthEffectSchema = Schema.Struct({
   projectDir: Schema.String,
   configPath: Schema.String,
   statePath: OptionalString,
+  globalFragmentRoot: OptionalString,
   engineVersion: Schema.String,
   runtimeVersion: Schema.String,
   expiresAt: Schema.String,
@@ -99,6 +100,31 @@ export const RuntimeControlSnapshotsResponseEffectSchema = Schema.Struct({
   snapshots: Schema.Array(Schema.Unknown),
 }).annotations({ identifier: "SnapshotsResponse" });
 
+export const RuntimeControlCacheEntryEffectSchema = Schema.Struct({
+  scope: Schema.Literal("local", "global"),
+  workflow: Schema.String,
+  nodePath: Schema.String,
+  nodeName: Schema.String,
+  nodeKind: Schema.String,
+  runId: Schema.String,
+  invalidated: Schema.Boolean,
+  createdAt: Schema.String,
+  fragmentHash: Schema.optional(Schema.String),
+}).annotations({ identifier: "CacheEntry" });
+
+export const RuntimeControlCacheResponseEffectSchema = Schema.Struct({
+  entries: Schema.Array(RuntimeControlCacheEntryEffectSchema),
+}).annotations({ identifier: "CacheResponse" });
+
+export const RuntimeControlCacheClearRequestEffectSchema = Schema.Struct({
+  scope: Schema.optional(Schema.Literal("local", "global", "all")),
+}).annotations({ identifier: "CacheClearRequest" });
+
+export const RuntimeControlCacheClearResponseEffectSchema = Schema.Struct({
+  ok: Schema.Boolean,
+  deleted: Schema.Number,
+}).annotations({ identifier: "CacheClearResponse" });
+
 export const RuntimeControlRunEffectSchema = Schema.Struct({
   runId: Schema.String,
   operation: Schema.String,
@@ -157,6 +183,10 @@ export type RuntimeControlWorkflowsResponse = Schema.Schema.Type<typeof RuntimeC
 export type RuntimeControlWorkspace = Schema.Schema.Type<typeof RuntimeControlWorkspaceEffectSchema>;
 export type RuntimeControlWorkspacesResponse = Schema.Schema.Type<typeof RuntimeControlWorkspacesResponseEffectSchema>;
 export type RuntimeControlSnapshotsResponse = Schema.Schema.Type<typeof RuntimeControlSnapshotsResponseEffectSchema>;
+export type RuntimeControlCacheEntry = Schema.Schema.Type<typeof RuntimeControlCacheEntryEffectSchema>;
+export type RuntimeControlCacheResponse = Schema.Schema.Type<typeof RuntimeControlCacheResponseEffectSchema>;
+export type RuntimeControlCacheClearRequest = Schema.Schema.Type<typeof RuntimeControlCacheClearRequestEffectSchema>;
+export type RuntimeControlCacheClearResponse = Schema.Schema.Type<typeof RuntimeControlCacheClearResponseEffectSchema>;
 export type RuntimeControlRunOperationRequest = Schema.Schema.Type<typeof RuntimeControlRunOperationRequestEffectSchema>;
 export type RuntimeControlRun = Schema.Schema.Type<typeof RuntimeControlRunEffectSchema>;
 export type RuntimeControlRunsResponse = Schema.Schema.Type<typeof RuntimeControlRunsResponseEffectSchema>;
@@ -180,6 +210,10 @@ export const runtimeControlApi = HttpApi.make("rigkit-runtime")
       .add(HttpApiEndpoint.get("workflows", "/workflows").addSuccess(RuntimeControlWorkflowsResponseEffectSchema))
       .add(HttpApiEndpoint.get("workspaces", "/workspaces").addSuccess(RuntimeControlWorkspacesResponseEffectSchema))
       .add(HttpApiEndpoint.get("snapshots", "/snapshots").addSuccess(RuntimeControlSnapshotsResponseEffectSchema))
+      .add(HttpApiEndpoint.get("cache", "/cache").addSuccess(RuntimeControlCacheResponseEffectSchema))
+      .add(HttpApiEndpoint.post("clearCache", "/cache/clear")
+        .setPayload(RuntimeControlCacheClearRequestEffectSchema)
+        .addSuccess(RuntimeControlCacheClearResponseEffectSchema))
       .add(HttpApiEndpoint.get("runs", "/runs").addSuccess(RuntimeControlRunsResponseEffectSchema))
       .add(HttpApiEndpoint.post("startRun", "/runs")
         .setPayload(RuntimeControlRunOperationRequestEffectSchema)

@@ -29,6 +29,8 @@ import {
   shutdownRuntime,
   startRuntimeRun,
   submitHostResponse,
+  runtimeCache,
+  clearRuntimeCache,
   type RuntimeAppState,
 } from "./control.ts";
 import type { RunStore } from "./runs.ts";
@@ -57,6 +59,9 @@ export const runtimeControlApiHandlersLayer = HttpApiBuilder.group(
       .handle("workflows", (request) => handleControlRequest(request, (state) => runtimeWorkflows(state.context)))
       .handle("workspaces", (request) => handleControlRequest(request, (state) => runtimeWorkspaces(state.context)))
       .handle("snapshots", (request) => handleControlRequest(request, (state) => runtimeSnapshots(state.context)))
+      .handle("cache", (request) => handleControlRequest(request, (state) => runtimeCache(state.context)))
+      .handle("clearCache", (request) =>
+        handleControlRequest(request, (state) => clearRuntimeCache(state.context, request.payload)))
       .handle("runs", (request) => handleControlRequest(request, (state) => runtimeRuns(state.store)))
       .handle("startRun", (request) =>
         handleControlRequest(request, (state) => startRuntimeRun(state, request.payload)))

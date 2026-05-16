@@ -9,6 +9,7 @@ packages/sdk/          project authoring API and project-local runtime binary
 packages/engine/   authoring API, config loader, workflow engine, provider contracts, state
 packages/runtime-client/ shared daemon lifecycle client
 packages/provider-freestyle/ Freestyle provider implementation
+packages/fragments/ reusable workflow fragments for configs
 packages/provider-gcloud-cli/    local Google Cloud CLI auth provider
 packages/provider-vscode/   VS Code host package
 packages/cli/      global `rig` command
@@ -17,6 +18,7 @@ apps/website/           Astro marketing site + install Worker (rigkit.freestyle.
 apps/docs/              Mintlify docs site (docs.rigkit.freestyle.sh)
 examples/smoke/         runnable smoke workflow
 examples/gcloud-on-open/ copy local gcloud config files with a workspace operation
+examples/base-freestyle-fragment/ consume a reusable Freestyle company base fragment
 docs/                   design docs
 ```
 
@@ -35,6 +37,40 @@ Install dependencies:
 pnpm install
 ```
 
+### Local example CLI
+
+The `examples/` directory has a shared `.envrc` that puts an example-aware `rig`
+shim first on `PATH`. With direnv enabled, plain `rig ...` inside an example
+delegates to that example's `node_modules/.bin/rig` instead of a globally
+installed `~/.rigkit/bin/rig`.
+
+Install direnv and enable the shell hook once:
+
+```bash
+brew install direnv
+echo 'eval "$(direnv hook zsh)"' >> ~/.zshrc
+exec zsh
+```
+
+Then allow the examples directory once:
+
+```bash
+cd examples
+direnv allow
+cd global-fragments
+which rig
+rig --version
+```
+
+`which rig` should point at `examples/bin/rig`. If your shell still reports a
+global install after `direnv allow`, run `rehash` and check again.
+If you do not use direnv, use the manual fallback:
+
+```bash
+export PATH="$PWD/node_modules/.bin:$PATH"
+rehash
+```
+
 ## Commands
 
 ```bash
@@ -42,18 +78,20 @@ pnpm typecheck
 pnpm test
 pnpm release:check
 pnpm build:cli-binaries
-pnpm smoke:plan
-pnpm smoke:apply
-pnpm --filter @rigkit/cli rig -C ../../examples/smoke create --name my-workspace
-pnpm --filter @rigkit/cli rig -C ../../examples/smoke projects
-pnpm --filter @rigkit/cli rig -C ../../examples/smoke run my-workspace ssh --print
+
+cd examples/smoke
+rig plan
+rig apply
+rig create --name my-workspace
+rig projects
+rig run my-workspace ssh --print
 ```
 
 The CLI also has built-in help:
 
 ```bash
-pnpm --filter @rigkit/cli rig help
-pnpm --filter @rigkit/cli rig run --help
+rig help
+rig run --help
 ```
 
 Enable shell completion:

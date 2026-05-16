@@ -20,10 +20,10 @@ gcloud auth login
 Run from this directory:
 
 ```bash
-pnpm rig:plan
-pnpm rig:apply
-pnpm rig:fork
-pnpm rig:ssh
+rig plan
+rig apply
+rig create --name gcloud-workspace
+rig run gcloud-workspace ssh
 ```
 
 Inside the VM, verify the synced auth with:

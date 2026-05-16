@@ -502,6 +502,70 @@ describe("DevMachineEngine workflow runtime", () => {
     expect(second.listNodeRuns()).toHaveLength(2);
   });
 
+  test("stores globally scoped sequence runs in fragment state and busts downstream local cache", async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-global-fragment-"));
+    const statePath = join(projectDir, ".rigkit", "state.sqlite");
+    const fragmentRoot = join(projectDir, "fragments");
+    mkdirSync(join(projectDir, ".rigkit"));
+
+    const writeConfig = (configPath: string, value: string) =>
+      writeFileSync(
+        configPath,
+        `
+          import { sequence } from "${import.meta.dir}/index.ts";
+
+          const deps = sequence("deps")
+            .configure({ value: "${value}" })
+            .task("prepare", async ({ config }) => ({ ctx: { value: String(config.value) } }))
+            .global();
+
+          export default sequence("site")
+            .add(deps)
+            .task("install", async ({ step }) => ({ ctx: { installed: step.ctx.value } }));
+        `,
+      );
+
+    const firstConfigPath = join(projectDir, "rig.one.config.ts");
+    const secondConfigPath = join(projectDir, "rig.two.config.ts");
+    writeConfig(firstConfigPath, "one");
+    writeConfig(secondConfigPath, "two");
+
+    const engineOptions = {
+      projectDir,
+      statePath,
+      globalFragmentStateLocator: (fragment: { hash: string }) => ({
+        statePath: join(fragmentRoot, fragment.hash, "state.sqlite"),
+      }),
+    };
+
+    const first = await createDevMachineEngine({ ...engineOptions, configPath: firstConfigPath });
+    await first.load();
+    await first.apply();
+    expect((await first.plan()).cachedNodeCount).toBe(2);
+    expect(first.listNodeRuns().map((run) => run.nodePath)).toEqual(["install"]);
+
+    const fragmentHashes = readdirSync(fragmentRoot);
+    expect(fragmentHashes).toHaveLength(1);
+    const fragmentDb = new Database(join(fragmentRoot, fragmentHashes[0]!, "state.sqlite"));
+    const fragmentRuns = fragmentDb
+      .query<{ node_path: string }, []>("select node_path from workflow_node_runs order by node_path")
+      .all();
+    fragmentDb.close();
+    expect(fragmentRuns.map((run) => run.node_path)).toEqual(["deps.prepare"]);
+
+    const cache = await first.listCache();
+    expect(cache.entries.map((entry) => entry.scope).sort()).toEqual(["global", "local"]);
+
+    const second = await createDevMachineEngine({ ...engineOptions, configPath: secondConfigPath });
+    await second.load();
+    const changed = await second.plan();
+    expect(changed.cachedNodeCount).toBe(0);
+
+    const reapplied = await second.apply();
+    expect(reapplied.context.installed).toBe("two");
+    expect(readdirSync(fragmentRoot)).toHaveLength(2);
+  });
+
   test("stores provider JSON state in Rigkit-owned provider storage", async () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-"));
     const plugin: BaseProviderPlugin = {

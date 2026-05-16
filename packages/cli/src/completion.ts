@@ -1,5 +1,7 @@
+import { readdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { getOrStartRuntime } from "@rigkit/runtime-client";
+import { isRigConfigFileName } from "./project.ts";
 
 export type CompletionShell = "bash" | "fish" | "zsh";
 
@@ -23,6 +25,7 @@ const COMMANDS: CompletionItem[] = [
   { value: "create", description: "create a workspace" },
   { value: "run", description: "run a workspace operation" },
   { value: "ls", description: "list project workspaces" },
+  { value: "cache", description: "inspect and clear Rigkit cache" },
   { value: "projects", description: "discover Rigkit projects" },
   { value: "doctor", description: "show runtime diagnostics" },
   { value: "version", description: "show CLI version" },
@@ -74,10 +77,26 @@ const COMMAND_OPTIONS: Record<string, CompletionItem[]> = {
   projects: [
     { value: "--json", description: "print JSON" },
   ],
+  cache: [
+    { value: "ls", description: "list cache entries" },
+    { value: "clear", description: "clear cache entries" },
+  ],
   completion: [
     { value: "bash", description: "Bash completion" },
     { value: "fish", description: "fish completion" },
     { value: "zsh", description: "zsh completion" },
+  ],
+};
+
+const CACHE_SUBCOMMAND_OPTIONS: Record<string, CompletionItem[]> = {
+  ls: [
+    { value: "--json", description: "print JSON" },
+  ],
+  clear: [
+    { value: "--local", description: "clear local cache entries" },
+    { value: "--global", description: "clear global cache fragments" },
+    { value: "--all", description: "clear every global fragment" },
+    { value: "--json", description: "print JSON" },
   ],
 };
 
@@ -123,7 +142,26 @@ export async function completeRig(input: CompleteRigInput): Promise<CompletionIt
   const before = words.slice(1, currentIndex);
   const command = findCommand(before);
 
-  if (expectsOptionValue(before)) return [];
+  const inlineOption = parseInlineValueOption(current);
+  if (inlineOption) {
+    return await completeOptionValue({
+      option: inlineOption.option,
+      current: inlineOption.value,
+      cwd,
+      words,
+      inlinePrefix: inlineOption.prefix,
+    });
+  }
+
+  const valueOption = optionExpectingValue(before);
+  if (valueOption) {
+    return await completeOptionValue({
+      option: valueOption,
+      current,
+      cwd,
+      words,
+    });
+  }
 
   if (!command) {
     return filterItems(
@@ -160,6 +198,12 @@ export async function completeRig(input: CompleteRigInput): Promise<CompletionIt
         ...GLOBAL_OPTIONS,
       ], current);
     }
+    if (command === "cache") {
+      return filterItems([
+        ...cacheOptionTargets(before),
+        ...GLOBAL_OPTIONS,
+      ], current);
+    }
     return filterItems([...(COMMAND_OPTIONS[command] ?? []), ...GLOBAL_OPTIONS], current);
   }
 
@@ -177,6 +221,12 @@ export async function completeRig(input: CompleteRigInput): Promise<CompletionIt
 
   if (command === "ls" && positionalCount === 0) {
     return filterItems(COMMAND_OPTIONS.ls, current);
+  }
+
+  if (command === "cache") {
+    const cache = parseCacheCommand(before);
+    if (!cache.subcommand) return filterItems(COMMAND_OPTIONS.cache ?? [], current);
+    return filterItems(cacheOptionTargets(before), current);
   }
 
   return [];
@@ -323,9 +373,84 @@ function parseWorkspaceRunCommand(words: string[]): { workspace?: string; operat
   return { workspace: args[0], operation: args[1], args: args.slice(2) };
 }
 
-function expectsOptionValue(words: string[]): boolean {
+function parseCacheCommand(words: string[]): { subcommand?: string; args: string[] } {
+  let foundCache = false;
+  const args: string[] = [];
+  for (let index = 0; index < words.length; index += 1) {
+    const word = words[index]!;
+    if (OPTIONS_WITH_VALUES.has(word)) {
+      index += 1;
+      continue;
+    }
+    if (word.startsWith("--") && word.includes("=")) continue;
+    if (word.startsWith("-")) continue;
+    if (!foundCache) {
+      if (word === "cache") foundCache = true;
+      continue;
+    }
+    args.push(word);
+  }
+  return { subcommand: args[0], args: args.slice(1) };
+}
+
+function cacheOptionTargets(words: string[]): CompletionItem[] {
+  const subcommand = parseCacheCommand(words).subcommand;
+  return subcommand ? CACHE_SUBCOMMAND_OPTIONS[subcommand] ?? [] : [];
+}
+
+function optionExpectingValue(words: string[]): string | undefined {
   const previous = words.at(-1);
-  return Boolean(previous && OPTIONS_WITH_VALUES.has(previous));
+  return previous && OPTIONS_WITH_VALUES.has(previous) ? previous : undefined;
+}
+
+async function completeOptionValue(input: {
+  option: string;
+  current: string;
+  cwd: string;
+  words: string[];
+  inlinePrefix?: string;
+}): Promise<CompletionItem[]> {
+  let items: CompletionItem[];
+  switch (input.option) {
+    case "-C":
+    case "--project":
+      items = completeDirectories(input.cwd, input.current);
+      break;
+    case "--config":
+      items = completeConfigPaths(projectBaseDir(input.words, input.cwd), input.current);
+      break;
+    case "--package-manager":
+      items = filterItems([
+        { value: "npm" },
+        { value: "bun" },
+        { value: "pnpm" },
+        { value: "skip" },
+      ], input.current);
+      break;
+    case "--state":
+      items = completeFilesystemPaths(input.cwd, input.current);
+      break;
+    default:
+      items = [];
+  }
+
+  if (!input.inlinePrefix) return items;
+  return items.map((item) => ({
+    ...item,
+    value: `${input.inlinePrefix}${item.value}`,
+  }));
+}
+
+function parseInlineValueOption(current: string): { option: string; value: string; prefix: string } | undefined {
+  const index = current.indexOf("=");
+  if (index < 0) return undefined;
+  const option = current.slice(0, index);
+  if (!OPTIONS_WITH_VALUES.has(option)) return undefined;
+  return {
+    option,
+    value: current.slice(index + 1),
+    prefix: current.slice(0, index + 1),
+  };
 }
 
 function resolveProjectDir(words: string[], cwd: string): { projectDir: string; configPath: string } {
@@ -351,8 +476,119 @@ function resolveProjectDir(words: string[], cwd: string): { projectDir: string; 
   return projectPaths(cwd);
 }
 
+function projectBaseDir(words: string[], cwd: string): string {
+  for (let index = 0; index < words.length; index += 1) {
+    const word = words[index]!;
+    if (word === "-C" || word === "--project") {
+      const value = words[index + 1];
+      if (value) return resolve(cwd, value);
+    }
+    if (word.startsWith("--project=")) {
+      return resolve(cwd, word.slice("--project=".length));
+    }
+  }
+  return cwd;
+}
+
 function projectPaths(projectDir: string): { projectDir: string; configPath: string } {
   return { projectDir, configPath: join(projectDir, "rig.config.ts") };
+}
+
+function completeDirectories(baseDir: string, current: string): CompletionItem[] {
+  return completePathEntries(baseDir, current, {
+    includeFiles: false,
+    includeDirectories: true,
+  });
+}
+
+function completeConfigPaths(baseDir: string, current: string): CompletionItem[] {
+  return completePathEntries(baseDir, current, {
+    includeFiles: true,
+    includeDirectories: true,
+    fileFilter: isRigConfigFileName,
+  });
+}
+
+function completeFilesystemPaths(baseDir: string, current: string): CompletionItem[] {
+  return completePathEntries(baseDir, current, {
+    includeFiles: true,
+    includeDirectories: true,
+  });
+}
+
+function completePathEntries(
+  baseDir: string,
+  current: string,
+  options: {
+    includeFiles: boolean;
+    includeDirectories: boolean;
+    fileFilter?: (name: string) => boolean;
+  },
+): CompletionItem[] {
+  const { dirPart, namePrefix, dir } = splitCompletionPath(baseDir, current);
+  let entries;
+  try {
+    entries = readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+
+  const items = entries
+    .filter((entry) => entry.name.startsWith(namePrefix))
+    .flatMap((entry): CompletionItem[] => {
+      if (entry.isDirectory()) {
+        if (!options.includeDirectories) return [];
+        if (shouldSkipCompletionDirectory(entry.name, namePrefix)) return [];
+        return [{
+          value: `${dirPart}${entry.name}/`,
+          description: "directory",
+          noSpace: true,
+        }];
+      }
+
+      if (!entry.isFile() || !options.includeFiles) return [];
+      if (options.fileFilter && !options.fileFilter(entry.name)) return [];
+      return [{
+        value: `${dirPart}${entry.name}`,
+        description: "config",
+      }];
+    })
+    .sort((left, right) => {
+      if (left.noSpace && !right.noSpace) return -1;
+      if (!left.noSpace && right.noSpace) return 1;
+      return left.value.localeCompare(right.value);
+    });
+
+  return dedupeItems(items);
+}
+
+function shouldSkipCompletionDirectory(name: string, namePrefix: string): boolean {
+  if (
+    name === ".git" ||
+    name === ".rigkit" ||
+    name === ".turbo" ||
+    name === "node_modules" ||
+    name === "dist" ||
+    name === "build"
+  ) {
+    return true;
+  }
+  return name.startsWith(".") && !namePrefix.startsWith(".");
+}
+
+function splitCompletionPath(baseDir: string, current: string): {
+  dirPart: string;
+  namePrefix: string;
+  dir: string;
+} {
+  const slashIndex = current.lastIndexOf("/");
+  const dirPart = slashIndex >= 0 ? current.slice(0, slashIndex + 1) : "";
+  const namePrefix = slashIndex >= 0 ? current.slice(slashIndex + 1) : current;
+  return {
+    dirPart,
+    namePrefix,
+    dir: resolve(baseDir, dirPart || "."),
+  };
 }
 
 async function workspaceTargets(

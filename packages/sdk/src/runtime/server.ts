@@ -41,6 +41,7 @@ export async function serveRuntime(options: ServeRuntimeOptions): Promise<Runtim
   const projectDir = resolve(options.projectDir);
   const configPath = resolve(options.configPath);
   const statePath = options.statePath ? resolve(options.statePath) : undefined;
+  const globalFragmentRoot = options.globalFragmentRoot ? resolve(options.globalFragmentRoot) : undefined;
   const host = options.host ?? "127.0.0.1";
   const token = options.token ?? readOrCreateToken(options.tokenPath);
   const idleMs = options.idleMs ?? DEFAULT_IDLE_MS;
@@ -65,6 +66,7 @@ export async function serveRuntime(options: ServeRuntimeOptions): Promise<Runtim
         projectDir,
         configPath,
         statePath,
+        globalFragmentRoot,
         pid: process.pid,
         url,
         tokenPath: options.tokenPath,
@@ -82,6 +84,7 @@ export async function serveRuntime(options: ServeRuntimeOptions): Promise<Runtim
     projectDir,
     configPath,
     statePath,
+    globalFragmentRoot,
     source: options.source,
     token,
     startedAt,

@@ -11,10 +11,10 @@ echo hello world
 Run from this directory:
 
 ```bash
-pnpm rig:plan
-pnpm rig:apply
-pnpm rig:fork
-pnpm rig:open
+rig plan
+rig apply
+rig create --name cmux-playground
+rig run cmux-playground open
 ```
 
 Freestyle auth is handled by the provider. By default Rigkit opens the Freestyle browser login. The local `cmux` CLI/app must be installed.

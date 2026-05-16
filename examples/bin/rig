@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+script_dir="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+examples_dir="$(CDPATH= cd -- "$script_dir/.." && pwd -P)"
+repo_dir="$(CDPATH= cd -- "$examples_dir/.." && pwd -P)"
+
+current="$(pwd -P)"
+while :; do
+  case "$current" in
+    "$examples_dir"|"$examples_dir"/*)
+      candidate="$current/node_modules/.bin/rig"
+      if [ -x "$candidate" ]; then
+        exec "$candidate" "$@"
+      fi
+      if [ "$current" = "$examples_dir" ]; then
+        break
+      fi
+      current="$(dirname -- "$current")"
+      ;;
+    *)
+      break
+      ;;
+  esac
+done
+
+exec bun "$repo_dir/packages/cli/src/cli.ts" "$@"
