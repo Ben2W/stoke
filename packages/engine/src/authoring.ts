@@ -142,6 +142,7 @@ function createSequence<
   OperationIds extends string = never,
   WorkspaceOperationIds extends string = never,
   PreviousTaskIds extends string = never,
+  Config extends JsonObject = {},
 >(
   app: WorkflowDefinition<string, Providers>,
   name: string,
@@ -157,7 +158,8 @@ function createSequence<
   WorkspaceData,
   OperationIds,
   WorkspaceOperationIds,
-  PreviousTaskIds
+  PreviousTaskIds,
+  Config
 > {
   const node = {
     kind: "rigkit.workflow-node" as const,
@@ -243,7 +245,8 @@ function createSequence<
     WorkspaceData,
     OperationIds,
     WorkspaceOperationIds,
-    PreviousTaskIds
+    PreviousTaskIds,
+    Config
   >;
 }
 

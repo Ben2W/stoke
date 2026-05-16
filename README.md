@@ -9,6 +9,7 @@ packages/sdk/          project authoring API and project-local runtime binary
 packages/engine/   authoring API, config loader, workflow engine, provider contracts, state
 packages/runtime-client/ shared daemon lifecycle client
 packages/provider-freestyle/ Freestyle provider implementation
+packages/fragments/ reusable workflow fragments for configs
 packages/provider-gcloud-cli/    local Google Cloud CLI auth provider
 packages/provider-vscode/   VS Code host package
 packages/cli/      global `rig` command
@@ -17,6 +18,7 @@ apps/website/           Astro marketing site + install Worker (rigkit.freestyle.
 apps/docs/              Mintlify docs site (docs.rigkit.freestyle.sh)
 examples/smoke/         runnable smoke workflow
 examples/gcloud-on-open/ copy local gcloud config files with a workspace operation
+examples/base-freestyle-fragment/ consume a reusable Freestyle company base fragment
 docs/                   design docs
 ```
 

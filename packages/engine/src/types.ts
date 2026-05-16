@@ -166,10 +166,11 @@ export type WorkflowTaskRuntime<
   Providers extends WorkflowProviderMap,
   Context extends JsonObject,
   PreviousTaskIds extends string = string,
+  Config extends JsonObject = JsonObject,
 > = ProviderRuntimeMap<Providers> & {
   readonly providers: ProviderRuntimeMap<Providers>;
   readonly step: WorkflowStepRuntime<Context, PreviousTaskIds>;
-  readonly config: Readonly<JsonObject>;
+  readonly config: Readonly<Config>;
 };
 
 export type WorkflowTaskResult =
@@ -183,7 +184,8 @@ export type WorkflowTaskHandler<
   Context extends JsonObject,
   PreviousTaskIds extends string = string,
   Result extends WorkflowTaskResult = WorkflowTaskResult,
-> = (context: WorkflowTaskRuntime<Providers, Context, PreviousTaskIds>) => MaybePromise<Result>;
+  Config extends JsonObject = JsonObject,
+> = (context: WorkflowTaskRuntime<Providers, Context, PreviousTaskIds, Config>) => MaybePromise<Result>;
 
 export type WorkflowInputFieldKind = "workspace" | "string" | "boolean" | "number";
 
@@ -500,20 +502,23 @@ export type WorkflowNodeDefinition<
   readonly __providers?: Providers;
   readonly __input?: InputContext;
   readonly __output?: OutputContext;
-
-  global<Node extends WorkflowNodeDefinition<any, any, any>>(this: Node): Node;
-  local<Node extends WorkflowNodeDefinition<any, any, any>>(this: Node): Node;
-  configure<Node extends WorkflowNodeDefinition<any, any, any>>(this: Node, config: JsonObject): Node;
 };
 
 export type WorkflowTaskNode<
   Providers extends WorkflowProviderMap,
   InputContext extends JsonObject,
   OutputContext extends JsonObject,
+  Config extends JsonObject = {},
 > = WorkflowNodeDefinition<Providers, InputContext, OutputContext> & {
   readonly nodeKind: "task";
   readonly options?: WorkflowTaskOptions;
-  readonly handler: WorkflowTaskHandler<Providers, InputContext, string, any>;
+  readonly handler: WorkflowTaskHandler<Providers, InputContext, string, any, Config>;
+
+  global(): WorkflowTaskNode<Providers, InputContext, OutputContext, Config>;
+  local(): WorkflowTaskNode<Providers, InputContext, OutputContext, Config>;
+  configure<const NextConfig extends JsonObject>(
+    config: NextConfig,
+  ): WorkflowTaskNode<Providers, InputContext, OutputContext, Merge<Config, NextConfig>>;
 };
 
 export type WorkflowSequenceBuilder<
@@ -524,13 +529,14 @@ export type WorkflowSequenceBuilder<
   OperationIds extends string = never,
   WorkspaceOperationIds extends string = never,
   PreviousTaskIds extends string = never,
+  Config extends JsonObject = {},
 > = WorkflowNodeDefinition<Providers, InputContext, OutputContext> & {
   readonly nodeKind: "sequence";
   readonly children: readonly WorkflowNodeDefinition<Providers, any, any>[];
 
   task<const Id extends string, Result extends WorkflowTaskResult>(
     name: Id & WorkflowTaskIdConstraint<Id, PreviousTaskIds>,
-    handler: WorkflowTaskHandler<Providers, OutputContext, PreviousTaskIds, Result>,
+    handler: WorkflowTaskHandler<Providers, OutputContext, PreviousTaskIds, Result, Config>,
   ): WorkflowSequenceBuilder<
     Providers,
     InputContext,
@@ -538,7 +544,8 @@ export type WorkflowSequenceBuilder<
     WorkspaceData,
     OperationIds,
     WorkspaceOperationIds,
-    PreviousTaskIds | Id
+    PreviousTaskIds | Id,
+    Config
   >;
 
   task<
@@ -548,7 +555,7 @@ export type WorkflowSequenceBuilder<
   >(
     name: Id & WorkflowTaskIdConstraint<Id, PreviousTaskIds>,
     options: WorkflowTaskOptions<OutputSchemaValue<Schema>>,
-    handler: WorkflowTaskHandler<Providers, OutputContext, PreviousTaskIds, Awaited<Result> & WorkflowTaskResult>,
+    handler: WorkflowTaskHandler<Providers, OutputContext, PreviousTaskIds, Awaited<Result> & WorkflowTaskResult, Config>,
   ): WorkflowSequenceBuilder<
     Providers,
     InputContext,
@@ -556,12 +563,13 @@ export type WorkflowSequenceBuilder<
     WorkspaceData,
     OperationIds,
     WorkspaceOperationIds,
-    PreviousTaskIds | Id
+    PreviousTaskIds | Id,
+    Config
   >;
 
   step<const Id extends string, Result extends WorkflowTaskResult>(
     name: Id & WorkflowTaskIdConstraint<Id, PreviousTaskIds>,
-    handler: WorkflowTaskHandler<Providers, OutputContext, PreviousTaskIds, Result>,
+    handler: WorkflowTaskHandler<Providers, OutputContext, PreviousTaskIds, Result, Config>,
   ): WorkflowSequenceBuilder<
     Providers,
     InputContext,
@@ -569,7 +577,8 @@ export type WorkflowSequenceBuilder<
     WorkspaceData,
     OperationIds,
     WorkspaceOperationIds,
-    PreviousTaskIds | Id
+    PreviousTaskIds | Id,
+    Config
   >;
 
   step<
@@ -579,7 +588,7 @@ export type WorkflowSequenceBuilder<
   >(
     name: Id & WorkflowTaskIdConstraint<Id, PreviousTaskIds>,
     options: WorkflowTaskOptions<OutputSchemaValue<Schema>>,
-    handler: WorkflowTaskHandler<Providers, OutputContext, PreviousTaskIds, Awaited<Result> & WorkflowTaskResult>,
+    handler: WorkflowTaskHandler<Providers, OutputContext, PreviousTaskIds, Awaited<Result> & WorkflowTaskResult, Config>,
   ): WorkflowSequenceBuilder<
     Providers,
     InputContext,
@@ -587,7 +596,8 @@ export type WorkflowSequenceBuilder<
     WorkspaceData,
     OperationIds,
     WorkspaceOperationIds,
-    PreviousTaskIds | Id
+    PreviousTaskIds | Id,
+    Config
   >;
 
   add<Node extends WorkflowNodeDefinition<Providers, any, any>>(
@@ -599,7 +609,8 @@ export type WorkflowSequenceBuilder<
     WorkspaceData,
     OperationIds,
     WorkspaceOperationIds,
-    PreviousTaskIds
+    PreviousTaskIds,
+    Config
   >;
 
   parallel<const Branches extends Record<string, WorkflowNodeDefinition<Providers, any, any>>>(
@@ -615,7 +626,8 @@ export type WorkflowSequenceBuilder<
     WorkspaceData,
     OperationIds,
     WorkspaceOperationIds,
-    PreviousTaskIds
+    PreviousTaskIds,
+    Config
   >;
 
   workspace<Data extends JsonObject>(
@@ -627,7 +639,8 @@ export type WorkflowSequenceBuilder<
     ReadonlyWorkspaceContext<Data>,
     OperationIds,
     WorkspaceOperationIds,
-    PreviousTaskIds
+    PreviousTaskIds,
+    Config
   >;
 
   operation<const Id extends string, Input extends object = {}>(
@@ -640,7 +653,8 @@ export type WorkflowSequenceBuilder<
     WorkspaceData,
     OperationIds | Id,
     WorkspaceOperationIds,
-    PreviousTaskIds
+    PreviousTaskIds,
+    Config
   >;
 
   workspaceOperation<const Id extends string, Input extends object = {}>(
@@ -653,7 +667,8 @@ export type WorkflowSequenceBuilder<
     WorkspaceData,
     OperationIds,
     WorkspaceOperationIds | Id,
-    PreviousTaskIds
+    PreviousTaskIds,
+    Config
   >;
 
   global(): WorkflowSequenceBuilder<
@@ -663,7 +678,8 @@ export type WorkflowSequenceBuilder<
     WorkspaceData,
     OperationIds,
     WorkspaceOperationIds,
-    PreviousTaskIds
+    PreviousTaskIds,
+    Config
   >;
 
   local(): WorkflowSequenceBuilder<
@@ -673,17 +689,19 @@ export type WorkflowSequenceBuilder<
     WorkspaceData,
     OperationIds,
     WorkspaceOperationIds,
-    PreviousTaskIds
+    PreviousTaskIds,
+    Config
   >;
 
-  configure(config: JsonObject): WorkflowSequenceBuilder<
+  configure<const NextConfig extends JsonObject>(config: NextConfig): WorkflowSequenceBuilder<
     Providers,
     InputContext,
     OutputContext,
     WorkspaceData,
     OperationIds,
     WorkspaceOperationIds,
-    PreviousTaskIds
+    PreviousTaskIds,
+    Merge<Config, NextConfig>
   >;
 };
 

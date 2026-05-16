@@ -165,6 +165,44 @@ describe("CLI completion", () => {
     });
   });
 
+  test("completes cache at the root command position after global options", async () => {
+    const items = await completeRig({
+      cwd: process.cwd(),
+      words: ["rig", "--config", "api.rig.config.ts", "c"],
+      currentIndex: 3,
+    });
+
+    expect(items.map((item) => item.value)).toEqual(["create", "cache", "completion"]);
+  });
+
+  test("completes cache subcommands and flags", async () => {
+    const subcommands = await completeRig({
+      cwd: process.cwd(),
+      words: ["rig", "cache", ""],
+      currentIndex: 2,
+    });
+
+    expect(subcommands.map((item) => item.value)).toEqual(["ls", "clear"]);
+
+    const clearFlags = await completeRig({
+      cwd: process.cwd(),
+      words: ["rig", "cache", "clear", "--"],
+      currentIndex: 3,
+    });
+
+    expect(clearFlags.map((item) => item.value)).toEqual([
+      "--local",
+      "--global",
+      "--all",
+      "--json",
+      "--project",
+      "--config",
+      "--state",
+      "--help",
+      "--version",
+    ]);
+  });
+
   test("formats shell completion items", () => {
     const items = [{ value: "api", description: "vm-api" }];
 

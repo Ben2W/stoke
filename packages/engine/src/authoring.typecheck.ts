@@ -59,6 +59,33 @@ sequence("typed-step-invalidation-targets")
     return step.invalidate("missing-auth");
   });
 
+sequence("typed-config")
+  .configure({
+    nodeMajor: 22,
+    tools: {
+      codex: true,
+      claude: false,
+    },
+  })
+  .step("read-config", async ({ config }) => {
+    const nodeMajor: number = config.nodeMajor;
+    const codex: boolean = config.tools.codex;
+    void nodeMajor;
+    void codex;
+    // @ts-expect-error missing config keys are rejected
+    config.missing;
+    return { ctx: { ready: true } };
+  })
+  .configure({
+    tools: {
+      claude: true,
+    },
+  })
+  .step("merged-config", async ({ config }) => {
+    const claude: boolean = config.tools.claude;
+    void claude;
+  });
+
 sequence("duplicate-step-id")
   .step("prepare" as const, async () => ({ ctx: { snapshotId: "snap-1" } }))
   // @ts-expect-error duplicate task ids are rejected for literal ids

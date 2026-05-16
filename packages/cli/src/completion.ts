@@ -25,6 +25,7 @@ const COMMANDS: CompletionItem[] = [
   { value: "create", description: "create a workspace" },
   { value: "run", description: "run a workspace operation" },
   { value: "ls", description: "list project workspaces" },
+  { value: "cache", description: "inspect and clear Rigkit cache" },
   { value: "projects", description: "discover Rigkit projects" },
   { value: "doctor", description: "show runtime diagnostics" },
   { value: "version", description: "show CLI version" },
@@ -76,10 +77,26 @@ const COMMAND_OPTIONS: Record<string, CompletionItem[]> = {
   projects: [
     { value: "--json", description: "print JSON" },
   ],
+  cache: [
+    { value: "ls", description: "list cache entries" },
+    { value: "clear", description: "clear cache entries" },
+  ],
   completion: [
     { value: "bash", description: "Bash completion" },
     { value: "fish", description: "fish completion" },
     { value: "zsh", description: "zsh completion" },
+  ],
+};
+
+const CACHE_SUBCOMMAND_OPTIONS: Record<string, CompletionItem[]> = {
+  ls: [
+    { value: "--json", description: "print JSON" },
+  ],
+  clear: [
+    { value: "--local", description: "clear local cache entries" },
+    { value: "--global", description: "clear global cache fragments" },
+    { value: "--all", description: "clear every global fragment" },
+    { value: "--json", description: "print JSON" },
   ],
 };
 
@@ -181,6 +198,12 @@ export async function completeRig(input: CompleteRigInput): Promise<CompletionIt
         ...GLOBAL_OPTIONS,
       ], current);
     }
+    if (command === "cache") {
+      return filterItems([
+        ...cacheOptionTargets(before),
+        ...GLOBAL_OPTIONS,
+      ], current);
+    }
     return filterItems([...(COMMAND_OPTIONS[command] ?? []), ...GLOBAL_OPTIONS], current);
   }
 
@@ -198,6 +221,12 @@ export async function completeRig(input: CompleteRigInput): Promise<CompletionIt
 
   if (command === "ls" && positionalCount === 0) {
     return filterItems(COMMAND_OPTIONS.ls, current);
+  }
+
+  if (command === "cache") {
+    const cache = parseCacheCommand(before);
+    if (!cache.subcommand) return filterItems(COMMAND_OPTIONS.cache ?? [], current);
+    return filterItems(cacheOptionTargets(before), current);
   }
 
   return [];
@@ -342,6 +371,31 @@ function parseWorkspaceRunCommand(words: string[]): { workspace?: string; operat
     args.push(word);
   }
   return { workspace: args[0], operation: args[1], args: args.slice(2) };
+}
+
+function parseCacheCommand(words: string[]): { subcommand?: string; args: string[] } {
+  let foundCache = false;
+  const args: string[] = [];
+  for (let index = 0; index < words.length; index += 1) {
+    const word = words[index]!;
+    if (OPTIONS_WITH_VALUES.has(word)) {
+      index += 1;
+      continue;
+    }
+    if (word.startsWith("--") && word.includes("=")) continue;
+    if (word.startsWith("-")) continue;
+    if (!foundCache) {
+      if (word === "cache") foundCache = true;
+      continue;
+    }
+    args.push(word);
+  }
+  return { subcommand: args[0], args: args.slice(1) };
+}
+
+function cacheOptionTargets(words: string[]): CompletionItem[] {
+  const subcommand = parseCacheCommand(words).subcommand;
+  return subcommand ? CACHE_SUBCOMMAND_OPTIONS[subcommand] ?? [] : [];
 }
 
 function optionExpectingValue(words: string[]): string | undefined {

@@ -1,4 +1,8 @@
-import { sequence, type WorkflowNodeOutput, type WorkflowProviderMap } from "@rigkit/sdk";
+import {
+  sequence,
+  type WorkflowNodeOutput,
+  type WorkflowProviderMap,
+} from "@rigkit/sdk";
 import { baseDependencies } from "./base-dependencies.ts";
 
 type BaseDependenciesContext = WorkflowNodeOutput<typeof baseDependencies>;
@@ -11,7 +15,9 @@ export type ServiceWorkflowOptions = {
 };
 
 export function serviceWorkflow(options: ServiceWorkflowOptions) {
-  const serviceSetup = sequence<WorkflowProviderMap, BaseDependenciesContext>(`${options.id}-setup`)
+  const serviceSetup = sequence<WorkflowProviderMap, BaseDependenciesContext>(
+    `${options.id}-setup`,
+  )
     .configure({
       packageName: options.packageName,
       sourceDir: options.sourceDir,
@@ -39,7 +45,7 @@ export function serviceWorkflow(options: ServiceWorkflowOptions) {
     });
 
   return sequence(options.id)
-    .add(baseDependencies)
+    .add(baseDependencies.global())
     .add(serviceSetup)
     .workspace({
       create: async ({ workflow, workspace }) => ({
