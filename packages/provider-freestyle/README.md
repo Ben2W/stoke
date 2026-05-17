@@ -14,4 +14,4 @@ This package supplies:
 
 Pass Rigkit's `step.log` to Freestyle SDK calls that accept `logger` to stream SDK progress into the CLI.
 
-By default the provider authenticates through a browser login and stores Freestyle credentials in Rigkit's provider host storage, outside project `.rigkit/state.sqlite`. Pass `auth: { apiKey }` to use API-key auth instead.
+By default the provider authenticates through a browser login and stores Freestyle credentials in Rigkit's provider host storage, outside project `.rigkit/state.sqlite`. Pass `freestyle.provider({ apiKey })` or `freestyle.provider(apiKey)` to use API-key auth instead.

@@ -24,7 +24,7 @@ docs/                   design docs
 
 ## Setup
 
-Freestyle auth is handled by the provider. By default Rigkit opens the Freestyle browser login and stores provider-owned host credentials outside project state. To use API-key auth, pass `auth: { apiKey: env("FREESTYLE_API_KEY") }` in the provider config.
+Freestyle auth is handled by the provider. By default Rigkit opens the Freestyle browser login and stores provider-owned host credentials outside project state. To use API-key auth, pass `freestyle.provider({ apiKey: env("FREESTYLE_API_KEY") })` or `freestyle.provider(env("FREESTYLE_API_KEY"))`.
 
 ```bash
 # Optional, only used by configs that opt into API-key auth.

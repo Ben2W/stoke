@@ -1,10 +1,9 @@
 #!/usr/bin/env bun
 import { existsSync, rmSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
-import chalk from "chalk";
 import { Command, CommanderError, Option } from "commander";
 import inquirer from "inquirer";
-import ora from "ora";
+import * as ui from "./ui.ts";
 import {
   getOrStartRuntime,
   defaultRigkitHome,
@@ -25,6 +24,7 @@ import { RIGKIT_CLI_VERSION } from "./version.ts";
 import { initProject, normalizeMachineName, type InitProjectResult } from "./init.ts";
 import { openExternalTarget } from "./interaction.ts";
 import { createRunPresenter, type RunPresenter } from "./run-presenter.ts";
+import { createRunLogger, type RunLogger } from "./run-logger.ts";
 import {
   completeRig,
   formatCompletionItems,
@@ -448,9 +448,23 @@ function parseCompletionEndpointArgs(args: string[]): CompletionOptions & { word
   return { ...options, words };
 }
 
+// Errors already rendered to the user (via printRunFailure or similar) carry
+// this sentinel so handleCliError doesn't re-print the message a second time.
+class DisplayedCliError extends Error {
+  readonly displayed = true as const;
+  constructor(message: string) {
+    super(message);
+    this.name = "DisplayedCliError";
+  }
+}
+
 function handleCliError(error: unknown): void {
   if (error instanceof CommanderError) {
     process.exitCode = error.exitCode;
+    return;
+  }
+  if (error instanceof DisplayedCliError) {
+    process.exitCode = 1;
     return;
   }
   console.error(error instanceof Error ? error.message : String(error));
@@ -499,8 +513,7 @@ async function resolveInitAnswers(
   }
 
   if (!jsonMode) {
-    console.log(chalk.bold("Initialize Rigkit"));
-    console.log(chalk.dim("This creates a project folder with rig.config.ts, package.json, and local ignore rules."));
+    console.log(`${ui.bold("rig")} ${ui.dim("· initialize")}`);
     console.log("");
   }
 
@@ -626,35 +639,8 @@ async function runPackageManagerInstall(
   }
 
   const command = packageManagerInstallCommand(packageManager);
-  if (!jsonMode && process.stderr.isTTY) {
-    const spinner = ora({
-      text: `installing ${command.join(" ")}`,
-      stream: process.stderr,
-    }).start();
-    const proc = Bun.spawn(command, {
-      cwd: projectDir,
-      stdin: "inherit",
-      stdout: "pipe",
-      stderr: "pipe",
-    });
-    const [exitCode, stdout, stderr] = await Promise.all([
-      proc.exited,
-      new Response(proc.stdout).text(),
-      new Response(proc.stderr).text(),
-    ]);
-    if (exitCode !== 0) {
-      spinner.fail(`${command.join(" ")} failed`);
-      if (stdout) process.stdout.write(stdout);
-      if (stderr) process.stderr.write(stderr);
-      throw new Error(`${command.join(" ")} failed with exit code ${exitCode}`);
-    }
-    spinner.succeed(`installed ${command.join(" ")}`);
-    return { packageManager, command: command.join(" "), skipped: false, reported: true };
-  }
-
   if (!jsonMode) {
-    console.log("");
-    console.log(`${chalk.cyan("installing")} ${command.join(" ")}`);
+    process.stderr.write(`${ui.accent(ui.sym.active)} ${ui.dim(`$ ${command.join(" ")}`)}\n`);
   }
 
   const proc = Bun.spawn(command, {
@@ -673,41 +659,48 @@ async function runPackageManagerInstall(
 }
 
 function printInitResult(result: InitProjectResult, install: InitInstallResult): void {
+  console.log(`${ui.ok(ui.sym.ok)} ${ui.bold(result.name)} ${ui.dim("ready")}`);
   console.log("");
-  console.log(`${chalk.green("Rigkit initialized")} ${chalk.bold(result.name)}`);
-  printInitLine(result.created.config ? "created" : "updated", result.configPath);
-  printInitLine(result.created.env ? "created" : result.updated.envApiKey ? "updated" : "kept", result.envPath);
-  printInitLine(result.created.envExample ? "created" : "kept", result.envExamplePath);
-  printInitLine(result.created.packageJson ? "created" : result.updated.packageJson ? "updated" : "kept", result.packageJsonPath);
-  printInitLine(result.created.gitignore ? "created" : result.updated.gitignore ? "updated" : "kept", result.gitignorePath);
 
+  const fileLines = [
+    ui.fileStatus(initStatus(result.created.config, false), shortPath(result.configPath)),
+    ui.fileStatus(initStatus(result.created.env, result.updated.envApiKey), shortPath(result.envPath)),
+    ui.fileStatus(initStatus(result.created.envExample, false), shortPath(result.envExamplePath)),
+    ui.fileStatus(initStatus(result.created.packageJson, result.updated.packageJson), shortPath(result.packageJsonPath)),
+    ui.fileStatus(initStatus(result.created.gitignore, result.updated.gitignore), shortPath(result.gitignorePath)),
+  ];
   if (result.updated.sdkDependency) {
-    console.log(`${chalk.green("pinned")} ${PROJECT_PACKAGE_NAME}@${RIGKIT_CLI_VERSION}`);
+    fileLines.push(ui.fileStatus("pinned", `${PROJECT_PACKAGE_NAME}@${RIGKIT_CLI_VERSION}`));
   }
+  for (const line of fileLines) console.log(line);
 
-  if (install.skipped) {
-    console.log(`${chalk.dim("install")} skipped`);
-  } else if (install.command && !install.reported) {
-    console.log(`${chalk.green("installed")} ${install.command}`);
+  if (!install.skipped && install.command && !install.reported) {
+    console.log(ui.fileStatus("created", install.command));
   }
 
   console.log("");
-  console.log(chalk.bold("Next steps"));
-  console.log(`  cd ${displayProjectDir(result.projectDir)}`);
+  console.log(ui.bold("Next"));
+  console.log(ui.hint(`cd ${displayProjectDir(result.projectDir)}`));
   if (install.skipped) {
-    console.log(`  ${detectInstallCommand(result.packageJsonPath)}`);
+    console.log(ui.hint(detectInstallCommand(result.packageJsonPath)));
   }
-  console.log("  rig plan");
+  console.log(ui.hint("rig plan"));
+}
+
+function initStatus(created: boolean, updated: boolean): ui.FileStatus {
+  if (created) return "created";
+  if (updated) return "updated";
+  return "kept";
+}
+
+function shortPath(path: string): string {
+  const rel = relative(process.cwd(), path);
+  return rel && !rel.startsWith("..") ? rel : path;
 }
 
 function displayProjectDir(projectDir: string): string {
   const path = relative(process.cwd(), projectDir);
   return path && !path.startsWith("..") ? path : projectDir;
-}
-
-function printInitLine(status: "created" | "updated" | "kept", path: string): void {
-  const color = status === "kept" ? chalk.dim : status === "updated" ? chalk.yellow : chalk.green;
-  console.log(`${color(status.padEnd(7))} ${path}`);
 }
 
 function detectInstallCommand(packageJsonPath: string): string {
@@ -900,7 +893,7 @@ async function runDiscoveredProjectOperation(
 
     if (!wantsJson(invocation)) {
       if (projects.length > 1) {
-        console.log(chalk.bold(displayProjectDir(project.projectDir)));
+        console.log(ui.bold(displayProjectDir(project.projectDir)));
       }
       await renderOperationResult(operation, result, parsed.hostOptions);
       printInteractiveOutputGap(invocation);
@@ -922,13 +915,14 @@ async function runProjects(invocation: CliInvocation): Promise<void> {
     return;
   }
   if (projects.length === 0) {
-    console.log("No Rigkit projects found.");
+    console.log(ui.dim("no Rigkit projects found"));
     return;
   }
-  printTable(["project", "config"], projects.map((project) => [
-    project.projectDir,
-    project.configPath,
-  ]));
+  const rows = projects.map((project) => [
+    { text: project.projectDir, style: ui.bold },
+    { text: project.configPath, style: ui.dim },
+  ]);
+  console.log(ui.columns(["project", "config"], rows));
 }
 
 async function runList(invocation: CliInvocation, options: ListOptions): Promise<void> {
@@ -1272,12 +1266,12 @@ async function runDoctor(invocation: CliInvocation, options: DoctorOptions): Pro
       printJson(diagnostics);
       return;
     }
-    printTable(["key", "value"], [
+    console.log(ui.kvList([
       ["cli", diagnostics.cliVersion],
       ["binary", diagnostics.binary ?? ""],
       ["node", diagnostics.node],
       ["bun", diagnostics.bun ?? ""],
-    ]);
+    ]));
     return;
   }
 
@@ -1305,7 +1299,7 @@ async function runDoctor(invocation: CliInvocation, options: DoctorOptions): Pro
     return;
   }
 
-  printTable(["key", "value"], [
+  console.log(ui.kvList([
     ["cli", RIGKIT_CLI_VERSION],
     ["project", project.projectDir],
     ["config", project.configPath],
@@ -1318,7 +1312,7 @@ async function runDoctor(invocation: CliInvocation, options: DoctorOptions): Pro
     ["protocol", runtimeInfo.protocolHash],
     ["state", project.statePath ?? ""],
     ["expires", health.expiresAt ?? runtime.handle.expiresAt ?? ""],
-  ]);
+  ]));
 }
 
 async function runVersion(invocation: CliInvocation): Promise<void> {
@@ -1352,32 +1346,37 @@ async function runHelp(invocation: CliInvocation): Promise<void> {
     });
     return;
   }
+  const cmd = (name: string, description: string): string =>
+    `  ${ui.bold(name.padEnd(10))}  ${description}`;
+  const opt = (flag: string, description: string): string =>
+    `  ${ui.bold(flag.padEnd(12))}  ${description}`;
+
   console.log([
-    `rig ${RIGKIT_CLI_VERSION}`,
+    `${ui.bold("rig")} ${ui.dim(RIGKIT_CLI_VERSION)}`,
     "",
-    "Usage:",
-    "  rig [global options] <command> [args]",
+    ui.dim("Usage:"),
+    `  ${ui.accent(ui.sym.prompt)} rig [global options] <command> [args]`,
     "",
-    "Commands:",
-    "  help        Show Rigkit CLI help",
-    "  init        Initialize a Rigkit project",
-    "  plan        Plan project workflow changes",
-    "  apply       Apply project workflow changes",
-    "  create      Create a workspace",
-    "  rm          Remove a workspace",
-    "  run         Run a workspace operation",
-    "  ls          List project workspaces",
-    "  cache       Inspect and clear Rigkit cache",
-    "  projects    Discover Rigkit projects below the current directory",
-    "  doctor      Show Rigkit runtime diagnostics",
-    "  version     Show Rigkit CLI version",
-    "  completion  Generate shell completion script",
+    ui.dim("Commands:"),
+    cmd("help",       "Show Rigkit CLI help"),
+    cmd("init",       "Initialize a Rigkit project"),
+    cmd("plan",       "Plan project workflow changes"),
+    cmd("apply",      "Apply project workflow changes"),
+    cmd("create",     "Create a workspace"),
+    cmd("rm",         "Remove a workspace"),
+    cmd("run",        "Run a workspace operation"),
+    cmd("ls",         "List project workspaces"),
+    cmd("cache",      "Inspect and clear Rigkit cache"),
+    cmd("projects",   "Discover Rigkit projects below the current directory"),
+    cmd("doctor",     "Show Rigkit runtime diagnostics"),
+    cmd("version",    "Show Rigkit CLI version"),
+    cmd("completion", "Generate shell completion script"),
     "",
-    "Options:",
-    "  -chdir=DIR    Switch to a directory containing rig.config.ts before running the command",
-    "  -config=FILE  Config file to load, relative to -chdir when set",
-    "  -state=FILE   Local runtime state database path",
-    "  -json         Print machine-readable JSON where supported",
+    ui.dim("Options:"),
+    opt("-chdir=DIR",   "Switch to a directory containing rig.config.ts before running the command"),
+    opt("-config=FILE", "Config file to load, relative to -chdir when set"),
+    opt("-state=FILE",  "Local runtime state database path"),
+    opt("-json",        "Print machine-readable JSON where supported"),
   ].join("\n"));
 }
 
@@ -1404,14 +1403,33 @@ async function runRuntimeOperation<T>(
   let presenter: RunPresenter | undefined = options.renderEvents
     ? createRunPresenter(operation)
     : undefined;
+  const logger: RunLogger | undefined = createRunLogger({
+    projectDir: runtime.handle.projectDir,
+    operation,
+    daemonStderrPath: runtime.paths.runtimeLogPath,
+  });
+  if (logger) {
+    logger.append({ type: "run.started", runId: started.runId, operation, input });
+  }
   let result: T | undefined;
   let failure: Error | undefined;
+  let failureCode: string | undefined;
+  let activeNodePath: string | undefined;
 
   const handleEvent = async (
     event: unknown,
     respond?: (id: string, response: unknown) => void | Promise<void>,
     sendSession?: (message: unknown) => void | Promise<void>,
   ) => {
+    logger?.append(event);
+    if (isRecord(event)) {
+      if (event.type === "node.started" && typeof event.nodePath === "string") {
+        activeNodePath = event.nodePath;
+      }
+      if (event.type === "node.completed" && event.nodePath === activeNodePath) {
+        activeNodePath = undefined;
+      }
+    }
     if (isHostRequestEvent(event)) {
       const suspendPresenter = hostRequestNeedsTerminal(event);
       if (suspendPresenter) presenter?.pause();
@@ -1459,6 +1477,9 @@ async function runRuntimeOperation<T>(
         ? event.error.message
         : "Runtime operation failed";
       failure = new Error(message);
+      failureCode = isRecord(event.error) && typeof event.error.code === "string"
+        ? event.error.code
+        : undefined;
       presenter?.render({ ...event, type: "run.failed" });
       return;
     }
@@ -1507,12 +1528,51 @@ async function runRuntimeOperation<T>(
     }
   } finally {
     presenter?.close();
+    if (logger) {
+      logger.finish({
+        status: failure ? "failed" : "completed",
+        error: failure,
+        result,
+      });
+      logger.close();
+    }
     uninstallRunCancelHandler();
   }
 
-  if (failure) throw failure;
+  if (failure) {
+    printRunFailure({
+      operation,
+      node: activeNodePath,
+      code: failureCode,
+      message: failure.message,
+      logPath: logger?.path,
+    });
+    throw new DisplayedCliError(failure.message);
+  }
   if (result === undefined) throw new Error(`Runtime operation ${operation} finished without a result`);
   return result;
+}
+
+function printRunFailure(input: {
+  operation: string;
+  node: string | undefined;
+  code: string | undefined;
+  message: string;
+  logPath: string | undefined;
+}): void {
+  const pairs: Array<[string, string]> = [];
+  if (input.node) pairs.push(["node", input.node]);
+  if (input.code) pairs.push(["code", ui.bold(input.code)]);
+  pairs.push(["reason", input.message]);
+
+  process.stderr.write("\n");
+  process.stderr.write(`${ui.err(ui.sym.err)} ${ui.bold(`${input.operation} failed`)}\n`);
+  process.stderr.write(`${ui.kvList(pairs)}\n`);
+  if (input.logPath) {
+    process.stderr.write("\n");
+    process.stderr.write(`${ui.dim("full log")}  ${shortPath(input.logPath)}\n`);
+    process.stderr.write(`${ui.dim("        ")}  ${ui.dim("daemon stderr appended on failure")}\n`);
+  }
 }
 
 let uninstallActiveRunCancelHandler: (() => void) | undefined;
@@ -1930,15 +1990,21 @@ async function confirmHostCommand(input: {
     throw new Error(`Host command requires confirmation in an interactive terminal`);
   }
 
-  console.error("");
-  console.error(chalk.yellow("This Rigkit config is asking to run a command on this machine."));
-  console.error(`${chalk.bold("Command:")} ${input.argv.map(shellDisplay).join(" ")}`);
-  console.error(`${chalk.bold("Mode:")} ${input.mode}`);
-  if (input.cwd) console.error(`${chalk.bold("cwd:")} ${input.cwd}`);
+  const pairs: Array<[string, string]> = [
+    ["command", input.argv.map(shellDisplay).join(" ")],
+    ["mode", input.mode],
+  ];
+  if (input.cwd) pairs.push(["cwd", input.cwd]);
   if (input.env && Object.keys(input.env).length > 0) {
-    console.error(`${chalk.bold("env:")} ${Object.keys(input.env).join(", ")}`);
+    pairs.push(["env", Object.keys(input.env).join(", ")]);
   }
-  if (input.reason) console.error(`${chalk.bold("Reason:")} ${input.reason}`);
+  if (input.reason) pairs.push(["reason", input.reason]);
+
+  console.error("");
+  console.error(`${ui.warn("!")} ${ui.bold("this config wants to run a command on your machine")}`);
+  console.error("");
+  console.error(ui.kvList(pairs));
+  console.error("");
   return await promptHostConfirm({ message: "Allow?", defaultValue: false });
 }
 
@@ -2014,71 +2080,87 @@ function printInteractiveOutputGap(invocation: CliInvocation): void {
 }
 
 function printPlan(plan: WorkflowPlan): void {
-  console.log(`${plan.workflow}: ${plan.cachedNodeCount}/${plan.nodeCount} nodes cached`);
+  console.log(`${ui.bold(plan.workflow)}  ${ui.dim(`${plan.cachedNodeCount}/${plan.nodeCount} cached`)}`);
+  console.log("");
 
   const rows = plan.nodes.map((node) => [
-    String(node.index + 1),
-    node.status,
-    node.path,
-    node.reason ?? "",
+    { text: String(node.index + 1), style: ui.dim },
+    { text: node.status, style: planStatusStyle(node.status) },
+    { text: node.path },
+    { text: node.reason ?? "", style: ui.dim },
   ]);
-  printTable(["#", "status", "node", "reason"], rows);
+  console.log(ui.columns(["#", "status", "node", "reason"], rows));
+}
+
+function planStatusStyle(status: string): (text: string) => string {
+  switch (status) {
+    case "cached":
+    case "skipped":
+      return ui.dim;
+    case "pending":
+      return ui.warn;
+    case "completed":
+    case "ready":
+    case "applied":
+      return ui.ok;
+    case "failed":
+    case "error":
+      return ui.err;
+    default:
+      return ui.accent;
+  }
 }
 
 function printWorkspaces(
   workspaces: ReadonlyArray<Pick<WorkspaceRecord, "name" | "workflow" | "createdAt">>,
 ): void {
   if (workspaces.length === 0) {
-    console.log("No workspaces.");
+    console.log(ui.dim("no workspaces"));
     return;
   }
 
-  printTable(
-    ["name", "workflow", "created", "age"],
-    workspaces.map((workspace) => [
-      workspace.name,
-      workspace.workflow,
-      workspace.createdAt,
-      formatWorkspaceAge(workspace.createdAt),
-    ]),
-  );
+  const rows = workspaces.map((workspace) => [
+    { text: workspace.name, style: ui.bold },
+    { text: workspace.workflow },
+    { text: workspace.createdAt, style: ui.dim },
+    formatWorkspaceAge(workspace.createdAt),
+  ]);
+  console.log(ui.columns(["name", "workflow", "created", "age"], rows));
 }
 
-function formatWorkspaceAge(createdAt: string): string {
+function formatWorkspaceAge(createdAt: string): { text: string; style: (text: string) => string } {
   const createdTime = Date.parse(createdAt);
-  if (Number.isNaN(createdTime)) return chalk.dim("unknown");
+  if (Number.isNaN(createdTime)) return { text: "unknown", style: ui.dim };
 
   const ageMs = Math.max(0, Date.now() - createdTime);
   const minute = 60 * 1000;
   const hour = 60 * minute;
   const day = 24 * hour;
-  const label = ageMs < hour
+  const text = ageMs < hour
     ? `${Math.max(1, Math.floor(ageMs / minute))}m`
     : ageMs < day
       ? `${Math.floor(ageMs / hour)}h`
       : `${Math.floor(ageMs / day)}d`;
 
-  if (ageMs < day) return chalk.green(label);
-  if (ageMs <= 3 * day) return chalk.yellow(label);
-  return chalk.red(label);
+  if (ageMs < day) return { text, style: ui.ok };
+  if (ageMs <= 3 * day) return { text, style: ui.warn };
+  return { text, style: ui.dim };
 }
 
 function printSnapshots(snapshots: SnapshotRecord[]): void {
   if (snapshots.length === 0) {
-    console.log("No snapshots.");
+    console.log(ui.dim("no snapshots"));
     return;
   }
 
-  printTable(
-    ["run", "workflow", "node", "snapshot", "created"],
-    snapshots.map((snapshot) => [
-      snapshot.id,
-      snapshot.workflow,
-      snapshot.nodePath,
-      typeof snapshot.metadata.snapshotId === "string" ? snapshot.metadata.snapshotId : "",
-      snapshot.createdAt,
-    ]),
-  );
+  const rows = snapshots.map((snapshot) => [
+    { text: snapshot.id, style: ui.dim },
+    { text: snapshot.workflow },
+    { text: snapshot.nodePath, style: ui.bold },
+    { text: typeof snapshot.metadata.snapshotId === "string" ? snapshot.metadata.snapshotId : "" },
+    { text: snapshot.createdAt, style: ui.dim },
+  ]);
+  console.log(ui.columns(["run", "workflow", "node", "snapshot", "created"], rows));
 }
 
 function printCacheEntries(entries: ReadonlyArray<{
@@ -2091,32 +2173,32 @@ function printCacheEntries(entries: ReadonlyArray<{
   fragmentHash?: string;
 }>): void {
   if (entries.length === 0) {
-    console.log("No cache entries.");
+    console.log(ui.dim("no cache entries"));
     return;
   }
 
-  printTable(
-    ["scope", "workflow", "node", "status", "fragment", "created"],
-    entries.map((entry) => [
-      entry.scope,
-      entry.workflow,
-      entry.nodePath || entry.nodeName,
-      entry.invalidated ? "invalidated" : "valid",
-      entry.fragmentHash ? entry.fragmentHash.slice(0, 19) : "",
-      entry.createdAt,
-    ]),
-  );
+  const rows = entries.map((entry) => [
+    { text: entry.scope, style: ui.dim },
+    { text: entry.workflow },
+    { text: entry.nodePath || entry.nodeName, style: ui.bold },
+    {
+      text: entry.invalidated ? "invalidated" : "valid",
+      style: entry.invalidated ? ui.warn : ui.ok,
+    },
+    { text: entry.fragmentHash ? entry.fragmentHash.slice(0, 19) : "", style: ui.dim },
+    { text: entry.createdAt, style: ui.dim },
+  ]);
+  console.log(ui.columns(["scope", "workflow", "node", "status", "fragment", "created"], rows));
 }
 
 function printConfig(info: EngineProjectInfo): void {
-  const rows = [
+  console.log(ui.kvList([
     ["config", info.configPath],
     ["project", info.projectDir],
-    ["state", info.statePath],
-    ["workflow", info.workflow?.name ?? "(not loaded)"],
+    ["state", info.statePath ?? ""],
+    ["workflow", info.workflow?.name ?? ui.dim("(not loaded)")],
     ["providers", info.workflow?.providers.join(", ") ?? ""],
-  ];
-  printTable(["key", "value"], rows);
+  ]));
 }
 
 function normalizeListTarget(target: string | undefined): "workspaces" | "snapshots" | "config" {
@@ -2128,62 +2210,53 @@ function normalizeListTarget(target: string | undefined): "workspaces" | "snapsh
   throw new Error(`Unknown ls target ${target}. Expected workspaces, snapshots, or config.`);
 }
 
-function printTable(headers: string[], rows: string[][]): void {
-  const widths = headers.map((header, index) =>
-    Math.max(header.length, ...rows.map((row) => String(row[index] ?? "").length)),
-  );
-  const format = (row: string[]) =>
-    row.map((value, index) => String(value ?? "").padEnd(widths[index] ?? 0)).join("  ").trimEnd();
-
-  console.log(format(headers));
-  console.log(format(widths.map((width) => "-".repeat(width))));
-  for (const row of rows) console.log(format(row));
-}
-
 function renderEvent(event: DevMachineEvent): void {
+  const write = (line: string) => process.stderr.write(`${line}\n`);
   switch (event.type) {
     case "definition.loaded":
-      console.error(`loaded ${event.workflow}`);
+      write(`${ui.dim(ui.sym.dot)} ${ui.dim(`loaded ${event.workflow}`)}`);
       return;
     case "plan.created":
-      console.error(`plan ${event.workflow}: ${event.cachedNodeCount}/${event.nodeCount} cached`);
+      write(`${ui.accent(ui.sym.active)} ${ui.bold(event.workflow)}  ${ui.dim(`${event.cachedNodeCount}/${event.nodeCount} cached`)}`);
       return;
     case "node.cached":
-      console.error(`node ${event.nodePath} cached`);
+      write(`  ${ui.dim(ui.sym.ok)} ${ui.dim(`${event.nodePath}  cached`)}`);
       return;
     case "vm.created":
-      console.error(event.fromSnapshotId ? `vm ${event.vmId} from ${event.fromSnapshotId}` : `vm ${event.vmId} created`);
+      write(`  ${ui.dim(event.fromSnapshotId ? `vm ${event.vmId} from ${event.fromSnapshotId}` : `vm ${event.vmId} created`)}`);
       return;
     case "node.started":
-      console.error(`node ${event.nodePath}`);
+      write(`  ${ui.accent(ui.sym.active)} ${ui.bold(String(event.nodePath))}`);
       return;
     case "node.completed":
-      console.error(`node ${event.nodePath} completed`);
+      write(`  ${ui.ok(ui.sym.ok)} ${event.nodePath}`);
       return;
     case "command.started":
-      console.error(`command ${event.commandName}`);
+      write(`    ${ui.dim(`$ ${event.commandName}`)}`);
       return;
     case "command.output":
       process.stderr.write(event.data);
       return;
     case "command.completed":
-      console.error(`command ${event.commandName} exited ${event.exitCode}`);
+      if (event.exitCode !== 0) {
+        write(`    ${ui.err(`${event.commandName} exited ${event.exitCode}`)}`);
+      }
       return;
     case "log.output":
       process.stderr.write(event.data);
       return;
     case "interaction.awaiting_user":
-      console.error(`interaction ${event.label}`);
-      console.error(`open ${event.url}`);
+      write(`  ${ui.accent(ui.sym.arrow)} waiting on ${ui.bold(event.label)}`);
+      write(`    ${ui.dim(event.url)}`);
       return;
     case "interaction.completed":
-      console.error(`interaction ${event.label} completed`);
+      write(`  ${ui.ok(ui.sym.ok)} ${ui.dim(`${event.label} completed`)}`);
       return;
     case "artifact.created":
-      console.error(`artifact ${event.providerId}:${event.kind}`);
+      write(`    ${ui.dim(`+ ${event.providerId}:${event.kind}`)}`);
       return;
     case "workspace.ready":
-      console.error(`workspace ${event.workspaceId} ready`);
+      write(`  ${ui.ok(ui.sym.ok)} ${ui.bold(String(event.workspaceId))} ${ui.dim("ready")}`);
       return;
     default:
       return;

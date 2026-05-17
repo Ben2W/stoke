@@ -1,4 +1,4 @@
-import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { spawn, type ChildProcessByStdio } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
@@ -68,6 +68,9 @@ export type RuntimePaths = {
   handlePath: string;
   tokenPath: string;
   lockPath: string;
+  // Where the daemon's stderr is captured. The CLI tails this on run failure
+  // so users see real stack traces instead of "Internal server error".
+  runtimeLogPath: string;
 };
 
 const DEFAULT_IDLE_MS = 30 * 60 * 1000;
@@ -181,6 +184,7 @@ export function runtimePaths(projectId: string, rigkitHome = defaultRigkitHome()
     handlePath: join(root, `${projectId}.json`),
     tokenPath: join(root, `${projectId}.token`),
     lockPath: join(root, `${projectId}.lock`),
+    runtimeLogPath: join(root, `${projectId}.log`),
   };
 }
 
@@ -260,11 +264,19 @@ async function startRuntime(input: GetOrStartRuntimeOptions & {
   if (input.globalFragmentRoot) args.push("--global-fragment-root", input.globalFragmentRoot);
   if (input.source !== undefined) args.push("--source-json", JSON.stringify(input.source));
 
+  mkdirSync(input.paths.root, { recursive: true });
+  const stderrFd = openSync(input.paths.runtimeLogPath, "a");
   const proc = spawn(runtimeBin, args, {
     detached: true,
-    stdio: ["ignore", "pipe", "inherit"],
+    stdio: ["ignore", "pipe", stderrFd],
     env: process.env,
-  });
+  }) as ChildProcessByStdio<null, Readable, null>;
+  // The child inherits the fd; the parent can release its own handle.
+  try {
+    closeSync(stderrFd);
+  } catch {
+    // best-effort
+  }
 
   const line = await readReadyLine(proc, input.paths, input.projectDir);
   let ready: ReturnType<typeof RuntimeReadySchema.parse>;

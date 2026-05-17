@@ -9,6 +9,7 @@ export type CompletionItem = {
   value: string;
   description?: string;
   noSpace?: boolean;
+  group?: string;
 };
 
 type CompleteRigInput = {
@@ -17,7 +18,18 @@ type CompleteRigInput = {
   cwd?: string;
 };
 
-const COMMANDS: CompletionItem[] = [
+const GROUP_COMMANDS = "Commands";
+const GROUP_SUBCOMMANDS = "Subcommands";
+const GROUP_FLAGS = "Flags";
+const GROUP_GLOBAL = "Global flags";
+const GROUP_TARGETS = "Targets";
+const GROUP_WORKSPACES = "Workspaces";
+const GROUP_OPERATIONS = "Operations";
+const GROUP_VALUES = "Values";
+const GROUP_PATHS = "Paths";
+const GROUP_SHELLS = "Shells";
+
+const COMMANDS: CompletionItem[] = withGroup(GROUP_COMMANDS, [
   { value: "help", description: "show CLI help" },
   { value: "init", description: "initialize a Rigkit project" },
   { value: "plan", description: "plan project workflow changes" },
@@ -31,79 +43,87 @@ const COMMANDS: CompletionItem[] = [
   { value: "doctor", description: "show runtime diagnostics" },
   { value: "version", description: "show CLI version" },
   { value: "completion", description: "generate shell completion" },
-];
+]);
 
 const COMMAND_ALIASES = new Map<string, string>();
 
-const GLOBAL_OPTIONS: CompletionItem[] = [
+const GLOBAL_OPTIONS: CompletionItem[] = withGroup(GROUP_GLOBAL, [
   { value: "-chdir=", description: "working directory", noSpace: true },
   { value: "-config=", description: "config file", noSpace: true },
   { value: "-state=", description: "state database path", noSpace: true },
   { value: "-json", description: "print JSON" },
   { value: "-help", description: "show help" },
   { value: "-version", description: "show version" },
-];
+]);
 
 const COMMAND_OPTIONS: Record<string, CompletionItem[]> = {
-  init: [
+  init: withGroup(GROUP_FLAGS, [
     { value: "--name", description: "project and workflow name" },
     { value: "--api-key", description: "Freestyle API key" },
     { value: "--package-manager", description: "npm, bun, pnpm, or skip" },
     { value: "--force", description: "overwrite existing config" },
     { value: "--json", description: "print JSON" },
-  ],
-  plan: [
+  ]),
+  plan: withGroup(GROUP_FLAGS, [
     { value: "--all", description: "run against every discovered project" },
     { value: "--discover", description: "discover projects below the selected directory" },
     { value: "--json", description: "print JSON" },
-  ],
-  apply: [
+  ]),
+  apply: withGroup(GROUP_FLAGS, [
     { value: "--all", description: "run against every discovered project" },
     { value: "--discover", description: "discover projects below the selected directory" },
     { value: "--json", description: "print JSON" },
-  ],
-  create: [
+  ]),
+  create: withGroup(GROUP_FLAGS, [
     { value: "--json", description: "print JSON" },
-  ],
-  rm: [
+  ]),
+  rm: withGroup(GROUP_FLAGS, [
     { value: "-y", description: "skip confirmation" },
     { value: "--yes", description: "skip confirmation" },
     { value: "--json", description: "print JSON" },
-  ],
-  run: [
+  ]),
+  run: withGroup(GROUP_FLAGS, [
     { value: "--json", description: "print JSON" },
-  ],
+  ]),
   ls: [
-    { value: "workspaces", description: "list workspaces" },
-    { value: "snapshots", description: "list snapshots" },
-    { value: "config", description: "show project config" },
-    { value: "--json", description: "print JSON" },
+    ...withGroup(GROUP_TARGETS, [
+      { value: "workspaces", description: "list workspaces" },
+      { value: "snapshots", description: "list snapshots" },
+      { value: "config", description: "show project config" },
+    ]),
+    ...withGroup(GROUP_FLAGS, [
+      { value: "--json", description: "print JSON" },
+    ]),
   ],
-  projects: [
+  projects: withGroup(GROUP_FLAGS, [
     { value: "--json", description: "print JSON" },
-  ],
-  cache: [
+  ]),
+  cache: withGroup(GROUP_SUBCOMMANDS, [
     { value: "ls", description: "list cache entries" },
     { value: "clear", description: "clear cache entries" },
-  ],
-  completion: [
+  ]),
+  completion: withGroup(GROUP_SHELLS, [
     { value: "bash", description: "Bash completion" },
     { value: "fish", description: "fish completion" },
     { value: "zsh", description: "zsh completion" },
-  ],
+  ]),
 };
 
 const CACHE_SUBCOMMAND_OPTIONS: Record<string, CompletionItem[]> = {
-  ls: [
+  ls: withGroup(GROUP_FLAGS, [
     { value: "--json", description: "print JSON" },
-  ],
-  clear: [
+  ]),
+  clear: withGroup(GROUP_FLAGS, [
     { value: "--local", description: "clear local cache entries" },
     { value: "--global", description: "clear global cache fragments" },
     { value: "--all", description: "clear every global fragment" },
     { value: "--json", description: "print JSON" },
-  ],
+  ]),
 };
+
+function withGroup(group: string, items: Omit<CompletionItem, "group">[]): CompletionItem[] {
+  return items.map((item) => ({ ...item, group }));
+}
 
 const PROJECT_OPERATION_COMMANDS = new Set(["plan", "apply", "create"]);
 
@@ -186,8 +206,8 @@ export async function completeRig(input: CompleteRigInput): Promise<CompletionIt
         const operation = await safeResolveWorkspaceOperation(resolveProjectDir(words, cwd), "remove");
         return filterItems([
           ...(operation?.cli?.options ?? []).flatMap((option) => [
-            { value: option.flag, description: option.name },
-            ...(option.aliases ?? []).map((alias) => ({ value: alias, description: option.name })),
+            { value: option.flag, description: option.name, group: GROUP_FLAGS },
+            ...(option.aliases ?? []).map((alias) => ({ value: alias, description: option.name, group: GROUP_FLAGS })),
           ]),
           ...COMMAND_OPTIONS.rm,
           ...GLOBAL_OPTIONS,
@@ -200,8 +220,8 @@ export async function completeRig(input: CompleteRigInput): Promise<CompletionIt
         const operation = await safeResolveWorkspaceOperation(resolveProjectDir(words, cwd), run.operation);
         return filterItems([
           ...(operation?.cli?.options ?? []).flatMap((option) => [
-            { value: option.flag, description: option.name },
-            ...(option.aliases ?? []).map((alias) => ({ value: alias, description: option.name })),
+            { value: option.flag, description: option.name, group: GROUP_FLAGS },
+            ...(option.aliases ?? []).map((alias) => ({ value: alias, description: option.name, group: GROUP_FLAGS })),
           ]),
           ...COMMAND_OPTIONS.run,
           ...GLOBAL_OPTIONS,
@@ -261,9 +281,13 @@ export async function completeRig(input: CompleteRigInput): Promise<CompletionIt
 export function formatCompletionItems(items: CompletionItem[], shell: CompletionShell): string {
   const lines = items.map((item) => {
     if (shell === "bash") return item.value;
-    if (shell === "zsh" && item.noSpace) {
-      return `${item.value}\t${item.description ?? ""}\tnospace`;
+    if (shell === "zsh") {
+      const description = item.description ?? "";
+      const marker = item.noSpace ? "nospace" : "";
+      const group = item.group ?? "";
+      return `${item.value}\t${description}\t${marker}\t${group}`;
     }
+    // fish: legacy two-column format works fine; descriptions render dim by default
     return item.description ? `${item.value}\t${item.description}` : item.value;
   });
   return lines.join("\n");
@@ -304,37 +328,55 @@ complete -c rig -f -a "(__rig_complete)"
   }
 
 return `#compdef rig
-# rig zsh completion
+# rig zsh completion — auto-generated by \`rig completion zsh\`.
+# Visual defaults are scoped to :completion:*:rig:* so they don't override your
+# global completion theme. Group headers render bold blue; descriptions inherit
+# your usual style.
+
+() {
+  zstyle ':completion:*:rig:*:descriptions' format $'\\e[1;34m%d\\e[0m'
+  zstyle ':completion:*:rig:*' group-name ''
+  zstyle ':completion:*:rig:*' verbose true
+}
+
 _rig() {
-  local -a raw values displays nospace_values nospace_displays
-  local line value description rest marker display
+  local raw line value description marker group key tag
+  local -A bucket_specs bucket_groups bucket_data
   raw=("\${(@f)$(command rig __complete --shell zsh --index $((CURRENT - 1)) -- "\${words[@]}" 2>/dev/null)}")
+
   for line in "\${raw[@]}"; do
-    value="\${line%%$'\\t'*}"
-    description=""
-    marker=""
-    if [[ "$line" == *$'\\t'* ]]; then
-      rest="\${line#*$'\\t'}"
-      description="\${rest%%$'\\t'*}"
-      if [[ "$rest" == *$'\\t'* ]]; then
-        marker="\${rest#*$'\\t'}"
-      fi
-    fi
-    display="\${value}"
+    [[ -z "$line" ]] && continue
+    local -a parts
+    parts=("\${(@s:	:)line}")
+    value="\${parts[1]}"
+    description="\${parts[2]:-}"
+    marker="\${parts[3]:-}"
+    group="\${parts[4]:-}"
+    [[ -z "$group" ]] && group="rig"
+    key="\${group}|\${marker}"
+    bucket_groups[$key]="$group"
+    bucket_specs[$key]="$marker"
     if [[ -n "$description" ]]; then
-      display="\${value} -- \${description}"
-    fi
-    if [[ "$marker" == "nospace" ]]; then
-      nospace_values+=("\${value}")
-      nospace_displays+=("\${display}")
+      bucket_data[$key]+="\${value}:\${description}"$'\\n'
     else
-      values+=("\${value}")
-      displays+=("\${display}")
+      bucket_data[$key]+="\${value}"$'\\n'
     fi
   done
-  (( \${#nospace_values} )) && compadd -S '' -ld nospace_displays -a nospace_values
-  (( \${#values} )) && compadd -ld displays -a values
+
+  for key in "\${(@k)bucket_data}"; do
+    local -a matches
+    matches=("\${(@f)bucket_data[$key]}")
+    matches=("\${(@)matches:#}")
+    tag="\${bucket_groups[$key]//[^A-Za-z0-9]/_}"
+    [[ -z "$tag" ]] && tag="rig"
+    if [[ "\${bucket_specs[$key]}" == "nospace" ]]; then
+      _describe -t "$tag" "\${bucket_groups[$key]}" matches -S ''
+    else
+      _describe -t "$tag" "\${bucket_groups[$key]}" matches
+    fi
+  done
 }
+
 compdef _rig rig
 `;
 }
@@ -468,10 +510,10 @@ async function completeOptionValue(input: {
       break;
     case "--package-manager":
       items = filterItems([
-        { value: "npm" },
-        { value: "bun" },
-        { value: "pnpm" },
-        { value: "skip" },
+        { value: "npm", group: GROUP_VALUES },
+        { value: "bun", group: GROUP_VALUES },
+        { value: "pnpm", group: GROUP_VALUES },
+        { value: "skip", group: GROUP_VALUES },
       ], input.current);
       break;
     case "-state":
@@ -612,6 +654,7 @@ function completePathEntries(
           value: `${dirPart}${entry.name}/`,
           description: "directory",
           noSpace: true,
+          group: GROUP_PATHS,
         }];
       }
 
@@ -620,6 +663,7 @@ function completePathEntries(
       return [{
         value: `${dirPart}${entry.name}`,
         description: "config",
+        group: GROUP_PATHS,
       }];
     })
     .sort((left, right) => {
@@ -667,6 +711,7 @@ async function workspaceTargets(
   const items = workspaces.map((workspace) => ({
     value: workspace.name,
     description: workspaceDescription(workspace),
+    group: GROUP_WORKSPACES,
   }));
 
   return dedupeItems(items);
@@ -696,10 +741,15 @@ async function safeWorkspaceOperationTargets(
 
 function workspaceOperationTargets(manifest: RuntimeOperationManifest): CompletionItem[] {
   return (manifest.workspaceOperations ?? []).flatMap((operation) => [
-    { value: operation.id, description: operation.description ?? "workspace operation" },
+    {
+      value: operation.id,
+      description: operation.description ?? "workspace operation",
+      group: GROUP_OPERATIONS,
+    },
     ...(operation.aliases ?? []).map((alias) => ({
       value: alias,
       description: operation.description ?? "workspace operation",
+      group: GROUP_OPERATIONS,
     })),
   ]);
 }

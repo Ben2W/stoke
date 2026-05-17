@@ -56,7 +56,7 @@ describe("CLI entrypoint", () => {
 
     expect(result.exitCode).toBe(0);
     expect(result.stderr).toBe("");
-    expect(result.stdout.trim()).toBe("version\tshow CLI version");
+    expect(result.stdout.trim()).toBe("version\tshow CLI version\t\tCommands");
   });
 
   test("discovers projects without starting a runtime", async () => {

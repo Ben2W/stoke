@@ -8,7 +8,7 @@ import { freestyleIdentityId, freestyleToken, freestyleTokenId } from "./auth.ts
 import {
   createFreestyleAuthenticatedClient,
   createFreestyleProxyFetch,
-  type FreestyleProviderAuthConfig,
+  type FreestyleProviderConfig,
 } from "./host-auth.ts";
 import {
   FREESTYLE_PROVIDER_ID,
@@ -18,28 +18,25 @@ import {
 } from "./provider.ts";
 import type { FreestyleRuntime, FreestyleTerminalRuntime } from "./provider.ts";
 
-const freestyleProviderConfigSchema = z.object({
-  auth: z.optional(z.object({
-    apiKey: z.optional(z.string().check(z.minLength(1))),
-    profile: z.optional(z.string().check(z.minLength(1))),
-    teamId: z.optional(z.string().check(z.minLength(1))),
-    apiUrl: z.optional(z.string().check(z.minLength(1))),
-    dashboardUrl: z.optional(z.string().check(z.minLength(1))),
-    stackApiUrl: z.optional(z.string().check(z.minLength(1))),
-    stackAppUrl: z.optional(z.string().check(z.minLength(1))),
-    stackProjectId: z.optional(z.string().check(z.minLength(1))),
-    stackPublishableClientKey: z.optional(z.string().check(z.minLength(1))),
-  })),
+const freestyleProviderConfigSchema = z.strictObject({
+  apiKey: z.optional(z.string().check(z.minLength(1))),
+  profile: z.optional(z.string().check(z.minLength(1))),
+  teamId: z.optional(z.string().check(z.minLength(1))),
+  apiUrl: z.optional(z.string().check(z.minLength(1))),
+  dashboardUrl: z.optional(z.string().check(z.minLength(1))),
 });
 
-export type FreestyleProviderConfig = z.output<typeof freestyleProviderConfigSchema>;
-export type { FreestyleProviderAuthConfig };
+export type { FreestyleProviderConfig };
 
 export type FreestyleProviderDefinition = WorkflowProviderDefinition<
   typeof FREESTYLE_PROVIDER_ID,
   FreestyleProviderConfig,
   FreestyleRuntime
 >;
+
+export type FreestyleProviderOptions =
+  | string
+  | FreestyleProviderDefinition["config"];
 
 export type FreestyleTerminalProviderDefinition = WorkflowProviderDefinition<
   typeof FREESTYLE_TERMINAL_PROVIDER_ID,
@@ -48,9 +45,9 @@ export type FreestyleTerminalProviderDefinition = WorkflowProviderDefinition<
 >;
 
 export function provider(
-  config: FreestyleProviderDefinition["config"] = {},
+  config: FreestyleProviderOptions = {},
 ): FreestyleProviderDefinition {
-  return defineProvider(FREESTYLE_PROVIDER_ID, config, freestyleProviderPlugin);
+  return defineProvider(FREESTYLE_PROVIDER_ID, normalizeFreestyleProviderOptions(config), freestyleProviderPlugin);
 }
 
 export function terminal(): FreestyleTerminalProviderDefinition {
@@ -69,7 +66,7 @@ export const freestyleProviderPlugin: BaseProviderPlugin = {
   async createProvider({ provider, hostStorage, local }) {
     const config = parseFreestyleProviderConfig(provider.config);
     const authenticated = await createFreestyleAuthenticatedClient({
-      auth: config.auth,
+      config,
       hostStorage,
       local,
     });
@@ -91,6 +88,7 @@ export const freestyleTerminalPlugin: BaseProviderPlugin = {
 export {
   createFreestyleAuthenticatedClient,
   createFreestyleProxyFetch,
+  createFreestyleSdkFetch,
 } from "./host-auth.ts";
 export {
   freestyleIdentityId,
@@ -124,9 +122,16 @@ export type {
 export type { FreestyleGitRelationship, FreestyleIdentity } from "./store.ts";
 
 function parseFreestyleProviderConfig(value: unknown): FreestyleProviderConfig {
-  const result = z.safeParse(freestyleProviderConfigSchema, value);
+  const result = z.safeParse(freestyleProviderConfigSchema, normalizeFreestyleProviderOptions(value));
   if (!result.success) {
     throw new Error(`Invalid Freestyle provider config:\n${z.prettifyError(result.error)}`);
   }
   return result.data;
+}
+
+function normalizeFreestyleProviderOptions(value: unknown): FreestyleProviderDefinition["config"] {
+  if (typeof value === "string") {
+    return { apiKey: value };
+  }
+  return value as FreestyleProviderDefinition["config"];
 }

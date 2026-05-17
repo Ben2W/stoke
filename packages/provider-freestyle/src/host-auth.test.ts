@@ -7,9 +7,10 @@ import type {
   WorkflowProviderController,
   WorkflowEvent,
 } from "@rigkit/engine";
-import { FREESTYLE_PROVIDER_ID, freestyleProviderPlugin } from "./index.ts";
+import { FREESTYLE_PROVIDER_ID, freestyle, freestyleProviderPlugin } from "./index.ts";
 import { createFreestyleProxyFetch } from "./host-auth.ts";
 import type { FreestyleRuntime } from "./provider.ts";
+import { RIGKIT_PROVIDER_FREESTYLE_VERSION } from "./version.ts";
 
 const originalFreestyleApiKey = process.env.FREESTYLE_API_KEY;
 const originalFreestyleTeamId = process.env.FREESTYLE_TEAM_ID;
@@ -20,19 +21,54 @@ afterEach(() => {
 });
 
 describe("Freestyle provider host auth", () => {
+  test("accepts an API key as the provider shorthand", () => {
+    expect(freestyle.provider("shorthand-api-key").config).toEqual({
+      apiKey: "shorthand-api-key",
+    });
+  });
+
+  test("rejects the old nested auth config shape", async () => {
+    const projectStorage = new MemoryProviderStorage(FREESTYLE_PROVIDER_ID);
+    const hostStorage = new MemoryProviderStorage(FREESTYLE_PROVIDER_ID);
+
+    await expect(freestyleProviderPlugin.createProvider({
+      provider: {
+        providerId: FREESTYLE_PROVIDER_ID,
+        config: {
+          auth: { apiKey: "nested-api-key" },
+        },
+      },
+      storage: projectStorage,
+      hostStorage,
+      local: { open: async () => {} },
+    })).rejects.toThrow("Invalid Freestyle provider config");
+  });
+
   test("uses explicit API-key auth and stores identity tokens in host storage", async () => {
     process.env.FREESTYLE_API_KEY = "ignored-env-api-key";
     delete process.env.FREESTYLE_TEAM_ID;
 
     const projectStorage = new MemoryProviderStorage(FREESTYLE_PROVIDER_ID);
     const hostStorage = new MemoryProviderStorage(FREESTYLE_PROVIDER_ID);
-    const requests: Array<{ url: string; method: string; authorization: string | null }> = [];
+    const requests: Array<{
+      url: string;
+      method: string;
+      authorization: string | null;
+      rigkit: string | null;
+      rigkitVersion: string | null;
+    }> = [];
     const previousFetch = globalThis.fetch;
     globalThis.fetch = testFetch((resource, init) => {
       const url = resourceUrl(resource);
       const method = init?.method ?? "GET";
-      const authorization = new Headers(init?.headers).get("authorization");
-      requests.push({ url: url.href, method, authorization });
+      const headers = new Headers(init?.headers);
+      requests.push({
+        url: url.href,
+        method,
+        authorization: headers.get("authorization"),
+        rigkit: headers.get("x-rigkit"),
+        rigkitVersion: headers.get("x-rigkit-version"),
+      });
       if (url.pathname === "/identity/v1/identities" && method === "POST") {
         return Response.json({ id: "identity-api-key" });
       }
@@ -47,7 +83,7 @@ describe("Freestyle provider host auth", () => {
         provider: {
           providerId: FREESTYLE_PROVIDER_ID,
           config: {
-            auth: { apiKey: "object-api-key" },
+            apiKey: "object-api-key",
           },
         },
         storage: projectStorage,
@@ -72,11 +108,15 @@ describe("Freestyle provider host auth", () => {
           url: "https://api.freestyle.sh/identity/v1/identities",
           method: "POST",
           authorization: "Bearer object-api-key",
+          rigkit: "true",
+          rigkitVersion: RIGKIT_PROVIDER_FREESTYLE_VERSION,
         },
         {
           url: "https://api.freestyle.sh/identity/v1/identities/identity-api-key/tokens",
           method: "POST",
           authorization: "Bearer object-api-key",
+          rigkit: "true",
+          rigkitVersion: RIGKIT_PROVIDER_FREESTYLE_VERSION,
         },
       ]);
     } finally {
@@ -122,9 +162,7 @@ describe("Freestyle provider host auth", () => {
         provider: {
           providerId: FREESTYLE_PROVIDER_ID,
           config: {
-            auth: {
-              teamId: "team_123",
-            },
+            teamId: "team_123",
           },
         },
         storage: projectStorage,
@@ -160,7 +198,10 @@ describe("Freestyle provider host auth", () => {
             teamId: "team_123",
             path: "identity/v1/identities",
             method: "POST",
-            headers: expect.any(Object),
+            headers: expect.objectContaining({
+              "x-rigkit": "true",
+              "x-rigkit-version": RIGKIT_PROVIDER_FREESTYLE_VERSION,
+            }),
           },
         },
         {
@@ -169,7 +210,10 @@ describe("Freestyle provider host auth", () => {
             teamId: "team_123",
             path: "identity/v1/identities/identity-browser/tokens",
             method: "POST",
-            headers: expect.any(Object),
+            headers: expect.objectContaining({
+              "x-rigkit": "true",
+              "x-rigkit-version": RIGKIT_PROVIDER_FREESTYLE_VERSION,
+            }),
           },
         },
       ]);
@@ -258,6 +302,8 @@ describe("Freestyle provider proxy fetch", () => {
         const url = resourceUrl(resource);
         expect(url.href).toBe("https://dash.freestyle.sh/api/proxy/request");
         expect(init?.method).toBe("POST");
+        expect(new Headers(init?.headers).get("x-rigkit")).toBe("true");
+        expect(new Headers(init?.headers).get("x-rigkit-version")).toBe(RIGKIT_PROVIDER_FREESTYLE_VERSION);
 
         const body = JSON.parse(String(init?.body));
         expect(body).toMatchObject({
@@ -266,6 +312,10 @@ describe("Freestyle provider proxy fetch", () => {
             teamId: "team_123",
             path: "v1/vms",
             method: "POST",
+            headers: {
+              "x-rigkit": "true",
+              "x-rigkit-version": RIGKIT_PROVIDER_FREESTYLE_VERSION,
+            },
           },
         });
 
@@ -288,6 +338,65 @@ describe("Freestyle provider proxy fetch", () => {
     await expect(response.json()).resolves.toMatchObject({
       requestId: "ri_test_123",
       status: "pending",
+    });
+  });
+
+  test("preserves proxy error details for run logs", async () => {
+    const proxyFetch = createFreestyleProxyFetch({
+      dashboardUrl: "https://dash.freestyle.sh",
+      accessToken: "stack-access-token",
+      teamId: "team_123",
+      fetch: testFetch(async () =>
+        Response.json({
+          error: "VM setup failed",
+          requestId: "req_123",
+          logs: ["failed to boot base image"],
+          accessToken: "secret-token",
+        }, { status: 500 })
+      ),
+    });
+
+    const response = await proxyFetch("https://api.freestyle.sh/v1/vms", {
+      method: "POST",
+      body: "{}",
+    });
+
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toEqual({
+      code: "INTERNAL_ERROR",
+      message: "VM setup failed",
+      details: {
+        error: "VM setup failed",
+        requestId: "req_123",
+        logs: ["failed to boot base image"],
+        accessToken: "[redacted]",
+      },
+    });
+  });
+
+  test("redacts sensitive fields on coded proxy errors", async () => {
+    const proxyFetch = createFreestyleProxyFetch({
+      dashboardUrl: "https://dash.freestyle.sh",
+      accessToken: "stack-access-token",
+      teamId: "team_123",
+      fetch: testFetch(async () =>
+        Response.json({
+          code: "INTERNAL_ERROR",
+          message: "Internal server error",
+          requestId: "req_123",
+          accessToken: "secret-token",
+        }, { status: 500 })
+      ),
+    });
+
+    const response = await proxyFetch("https://api.freestyle.sh/v1/vms");
+
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toEqual({
+      code: "INTERNAL_ERROR",
+      message: "Internal server error",
+      requestId: "req_123",
+      accessToken: "[redacted]",
     });
   });
 });

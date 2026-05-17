@@ -1,14 +1,12 @@
 import { cmux } from "@rigkit/provider-cmux";
-import { freestyle, VmBaseImage, VmSpec } from "@rigkit/provider-freestyle";
+import { freestyle, VmBaseImage } from "@rigkit/provider-freestyle";
 import { workflow } from "@rigkit/sdk";
-
-const vmSpec = new VmSpec()
-  .baseImage(new VmBaseImage("FROM ubuntu:24.04"))
-  .idleTimeoutSeconds(3600);
 
 const app = workflow("cmux-playground", {
   providers: {
-    freestyle: freestyle.provider(),
+    freestyle: freestyle.provider({
+      apiKey: process.env.FREESTYLE_API_KEY,
+    }),
     cmux: cmux.provider(),
   },
 });
@@ -17,7 +15,7 @@ export default app
   .sequence("cmux-playground")
   .task("create-vm", async ({ freestyle, step }) => {
     const { vm, vmId } = await freestyle.client.vms.create({
-      spec: vmSpec,
+      idleTimeoutSeconds: 3600,
       logger: step.log,
     });
 

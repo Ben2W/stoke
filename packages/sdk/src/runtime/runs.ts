@@ -1,6 +1,7 @@
 import type { RuntimeEvent, RuntimeOperation } from "./protocol.ts";
 import {
   RuntimeHostRequestError,
+  type RuntimeFailureBody,
   runtimeFailureBody,
 } from "./errors.ts";
 
@@ -33,7 +34,7 @@ export type RunRecord = {
   status: RunStatus;
   events: RuntimeEvent[];
   result?: unknown;
-  error?: { code: string; message: string };
+  error?: RuntimeFailureBody;
   pendingHostRequestIds: Set<string>;
   pendingHostCapabilityResourceIds: Set<string>;
   subscribers: Set<ReadableStreamDefaultController<Uint8Array>>;
@@ -48,7 +49,7 @@ export type RuntimeRunSummary = {
   input: unknown;
   status: RunStatus;
   result?: unknown;
-  error?: { code: string; message: string };
+  error?: RuntimeFailureBody;
   createdAt: string;
   updatedAt: string;
 };

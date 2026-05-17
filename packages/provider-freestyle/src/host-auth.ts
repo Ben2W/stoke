@@ -4,6 +4,7 @@ import type { LocalWorkspaceRuntime, ProviderStorage } from "@rigkit/engine";
 import type { JsonValue } from "@rigkit/sdk";
 import { freestyleIdentityId, freestyleToken, freestyleTokenId } from "./auth.ts";
 import { createFreestyleStore } from "./store.ts";
+import { RIGKIT_PROVIDER_FREESTYLE_VERSION } from "./version.ts";
 
 const DEFAULT_STACK_API_URL = "https://api.stack-auth.com";
 const DEFAULT_STACK_APP_URL = "https://dash.freestyle.sh";
@@ -11,17 +12,15 @@ const DEFAULT_STACK_PROJECT_ID = "0edf478c-f123-46fb-818f-34c0024a9f35";
 const DEFAULT_STACK_PUBLISHABLE_CLIENT_KEY = "pck_h2aft7g9pqjzrkdnzs199h1may5wjtdtdxeex7m2wzp1r";
 const DEFAULT_CLI_AUTH_TIMEOUT_MILLIS = 10 * 60 * 1000;
 const DEFAULT_POLL_INTERVAL_MILLIS = 2000;
+const RIGKIT_HEADER = "x-rigkit";
+const RIGKIT_VERSION_HEADER = "x-rigkit-version";
 
-export type FreestyleProviderAuthConfig = {
+export type FreestyleProviderConfig = {
   apiKey?: string;
   profile?: string;
   teamId?: string;
   apiUrl?: string;
   dashboardUrl?: string;
-  stackApiUrl?: string;
-  stackAppUrl?: string;
-  stackProjectId?: string;
-  stackPublishableClientKey?: string;
 };
 
 export type FreestyleAuthenticatedClient = {
@@ -32,7 +31,7 @@ export type FreestyleAuthenticatedClient = {
 };
 
 type CreateFreestyleAuthenticatedClientInput = {
-  auth?: FreestyleProviderAuthConfig;
+  config?: FreestyleProviderConfig;
   hostStorage: ProviderStorage;
   local: LocalWorkspaceRuntime;
   fetch?: typeof fetch;
@@ -119,16 +118,16 @@ export function createFreestyleProxyFetch(input: {
     const path = `${url.pathname}${url.search}`.replace(/^\/+/, "");
     const proxyResponse = await fetchFn(`${dashboardUrl}/api/proxy/request`, {
       method: "POST",
-      headers: {
+      headers: withRigkitHeaders({
         "Content-Type": "application/json",
-      },
+      }),
       body: JSON.stringify({
         data: {
           accessToken: input.accessToken,
           teamId: input.teamId,
           path,
           method: init?.method ?? "GET",
-          headers: init?.headers ? Object.fromEntries(new Headers(init.headers).entries()) : {},
+          headers: Object.fromEntries(withRigkitHeaders(init?.headers).entries()),
           body: init?.body ? String(init.body) : undefined,
         },
       }),
@@ -162,9 +161,20 @@ export function createFreestyleProxyFetch(input: {
   }) as typeof fetch;
 }
 
+export function createFreestyleSdkFetch(fetchFn: typeof fetch = globalThis.fetch): typeof fetch {
+  const rigkitFetch = (async (resource, init) =>
+    await fetchFn(resource, {
+      ...init,
+      headers: withRigkitHeaders(init?.headers),
+    })) as typeof fetch;
+  return Object.assign(rigkitFetch, {
+    preconnect: fetchFn.preconnect?.bind(fetchFn) ?? (() => {}),
+  }) as typeof fetch;
+}
+
 async function resolveClientAuth(input: CreateFreestyleAuthenticatedClientInput): Promise<ResolvedClientAuth> {
-  const apiKey = nonEmpty(input.auth?.apiKey);
-  const apiUrl = nonEmpty(input.auth?.apiUrl) ?? nonEmpty(process.env.FREESTYLE_API_URL);
+  const apiKey = nonEmpty(input.config?.apiKey);
+  const apiUrl = nonEmpty(input.config?.apiUrl) ?? nonEmpty(process.env.FREESTYLE_API_URL);
   const fetchFn = input.fetch ?? globalThis.fetch;
 
   if (apiKey) {
@@ -172,13 +182,13 @@ async function resolveClientAuth(input: CreateFreestyleAuthenticatedClientInput)
       client: new Freestyle({
         apiKey,
         ...(apiUrl ? { baseUrl: apiUrl } : {}),
-        fetch: fetchFn,
+        fetch: createFreestyleSdkFetch(fetchFn),
       }),
       identityKey: `api-key:${fingerprint({ apiUrl: apiUrl ?? "default", apiKey })}`,
     };
   }
 
-  const stack = resolveStackAuthConfig(input.auth);
+  const stack = resolveStackAuthConfig(input.config);
   const stackStateKey = stackAuthStateKey(stack);
   const stored = readStackAuthState(input.hostStorage.get(stackStateKey)?.value);
   const refreshed = await resolveStackAccessToken({
@@ -192,7 +202,7 @@ async function resolveClientAuth(input: CreateFreestyleAuthenticatedClientInput)
     pollIntervalMs: input.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MILLIS,
   });
   const teamId = await resolveTeamId({
-    configuredTeamId: input.auth?.teamId,
+    configuredTeamId: input.config?.teamId,
     stored: readStackAuthState(input.hostStorage.get(stackStateKey)?.value) ?? stored,
     accessToken: refreshed.accessToken,
     config: stack,
@@ -222,7 +232,7 @@ async function resolveClientAuth(input: CreateFreestyleAuthenticatedClientInput)
   };
 }
 
-function resolveStackAuthConfig(auth: FreestyleProviderAuthConfig | undefined): StackAuthConfig {
+function resolveStackAuthConfig(auth: FreestyleProviderConfig | undefined): StackAuthConfig {
   const dashboardUrl = trimTrailingSlash(
     nonEmpty(auth?.dashboardUrl) ??
       nonEmpty(process.env.FREESTYLE_DASHBOARD_URL) ??
@@ -230,30 +240,33 @@ function resolveStackAuthConfig(auth: FreestyleProviderAuthConfig | undefined): 
   );
   return {
     stackApiUrl: trimTrailingSlash(
-      nonEmpty(auth?.stackApiUrl) ??
-        nonEmpty(process.env.FREESTYLE_STACK_API_URL) ??
+      nonEmpty(process.env.FREESTYLE_STACK_API_URL) ??
         DEFAULT_STACK_API_URL,
     ),
     appUrl: trimTrailingSlash(
-      nonEmpty(auth?.stackAppUrl) ??
-        nonEmpty(process.env.FREESTYLE_STACK_APP_URL) ??
+      nonEmpty(process.env.FREESTYLE_STACK_APP_URL) ??
         dashboardUrl,
     ),
     dashboardUrl,
     projectId:
-      nonEmpty(auth?.stackProjectId) ??
-        nonEmpty(process.env.FREESTYLE_STACK_PROJECT_ID) ??
+      nonEmpty(process.env.FREESTYLE_STACK_PROJECT_ID) ??
         nonEmpty(process.env.NEXT_PUBLIC_STACK_PROJECT_ID) ??
         nonEmpty(process.env.VITE_STACK_PROJECT_ID) ??
         DEFAULT_STACK_PROJECT_ID,
     publishableClientKey:
-      nonEmpty(auth?.stackPublishableClientKey) ??
-        nonEmpty(process.env.FREESTYLE_STACK_PUBLISHABLE_CLIENT_KEY) ??
+      nonEmpty(process.env.FREESTYLE_STACK_PUBLISHABLE_CLIENT_KEY) ??
         nonEmpty(process.env.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY) ??
         nonEmpty(process.env.VITE_STACK_PUBLISHABLE_CLIENT_KEY) ??
         DEFAULT_STACK_PUBLISHABLE_CLIENT_KEY,
     profile: nonEmpty(auth?.profile) ?? "default",
   };
+}
+
+function withRigkitHeaders(headers: HeadersInit | undefined): Headers {
+  const next = new Headers(headers);
+  next.set(RIGKIT_HEADER, "true");
+  next.set(RIGKIT_VERSION_HEADER, RIGKIT_PROVIDER_FREESTYLE_VERSION);
+  return next;
 }
 
 async function resolveStackAccessToken(input: {
@@ -432,7 +445,7 @@ async function resolveTeamId(input: {
 
   const choices = teams.map((team) => `${team.displayName ?? team.id} (${team.id})`).join(", ");
   throw new Error(
-    `Freestyle authentication found multiple teams. Set freestyle.provider({ auth: { teamId } }) or FREESTYLE_TEAM_ID. Teams: ${choices}`,
+    `Freestyle authentication found multiple teams. Set freestyle.provider({ teamId }) or FREESTYLE_TEAM_ID. Teams: ${choices}`,
   );
 }
 
@@ -515,14 +528,14 @@ function normalizeProxyError(errorText: string, status: number): { body: string;
   try {
     const parsed = JSON.parse(errorText) as Record<string, unknown>;
     if (typeof parsed.code === "string" && typeof parsed.message === "string") {
-      return { body: JSON.stringify(parsed), contentType: "application/json" };
+      return { body: JSON.stringify(redactProxyErrorDetails(parsed)), contentType: "application/json" };
     }
     const message = [parsed.error, parsed.message, parsed.reason].find((value) =>
       typeof value === "string" && value.length > 0
     );
     if (typeof message === "string") {
       return {
-        body: JSON.stringify({ code: fallbackCode, message }),
+        body: JSON.stringify({ code: fallbackCode, message, details: redactProxyErrorDetails(parsed) }),
         contentType: "application/json",
       };
     }
@@ -533,6 +546,17 @@ function normalizeProxyError(errorText: string, status: number): { body: string;
     body: JSON.stringify({ code: fallbackCode, message: errorText || "Request failed" }),
     contentType: "application/json",
   };
+}
+
+function redactProxyErrorDetails(value: Record<string, unknown>): Record<string, unknown> {
+  const details: Record<string, unknown> = {};
+  for (const [key, field] of Object.entries(value)) {
+    details[key] = /authorization|api[-_]?key|access[-_]?token|refresh[-_]?token|password|secret|credential|cookie/i
+      .test(key)
+      ? "[redacted]"
+      : field;
+  }
+  return details;
 }
 
 function isBackgroundRequestPending(value: unknown): boolean {

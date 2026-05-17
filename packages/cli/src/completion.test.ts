@@ -62,6 +62,7 @@ describe("CLI completion", () => {
         value: "-chdir=examples/",
         description: "directory",
         noSpace: true,
+        group: "Paths",
       });
 
       const nested = await completeRig({
@@ -74,6 +75,7 @@ describe("CLI completion", () => {
         value: "-chdir=examples/global-fragments/",
         description: "directory",
         noSpace: true,
+        group: "Paths",
       });
     } finally {
       rmSync(cwd, { recursive: true, force: true });
@@ -222,14 +224,17 @@ describe("CLI completion", () => {
     const items = [{ value: "api", description: "vm-api" }];
 
     expect(formatCompletionItems(items, "bash")).toBe("api");
-    expect(formatCompletionItems(items, "zsh")).toBe("api\tvm-api");
-    expect(formatCompletionItems([{ value: "api", description: "workspace smoke", noSpace: true }], "zsh"))
-      .toBe("api\tworkspace smoke\tnospace");
+    // zsh wire format is `value\tdescription\tmarker\tgroup`. Empty trailing
+    // fields are kept so the shell-side parser can index positionally.
+    expect(formatCompletionItems(items, "zsh")).toBe("api\tvm-api\t\t");
+    expect(formatCompletionItems(
+      [{ value: "api", description: "workspace smoke", noSpace: true, group: "Workspaces" }],
+      "zsh",
+    )).toBe("api\tworkspace smoke\tnospace\tWorkspaces");
     expect(renderCompletionScript("zsh")).toContain("rig __complete");
-    expect(renderCompletionScript("zsh")).toContain("compadd -ld displays -a values");
-    expect(renderCompletionScript("zsh")).toContain("compadd -S '' -ld nospace_displays -a nospace_values");
-    expect(renderCompletionScript("zsh")).toContain('display="${value} -- ${description}"');
-    expect(renderCompletionScript("zsh")).not.toContain("_describe");
+    expect(renderCompletionScript("zsh")).toContain("_describe");
+    expect(renderCompletionScript("zsh")).toContain(":completion:*:rig:*:descriptions");
+    expect(renderCompletionScript("zsh")).toContain("compdef _rig rig");
   });
 
   test("formats workspace ages", () => {

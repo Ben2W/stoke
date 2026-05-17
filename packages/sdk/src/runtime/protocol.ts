@@ -113,7 +113,7 @@ export type RunCompletedEvent = {
 export type RunFailedEvent = {
   type: "run.failed";
   runId: string;
-  error: { code?: string; message: string };
+  error: { code?: string; message: string; details?: Record<string, unknown> };
 };
 
 export type RuntimeEvent =
