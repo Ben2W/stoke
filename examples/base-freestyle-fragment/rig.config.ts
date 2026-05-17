@@ -32,7 +32,7 @@ const projectSetup = app
     const created = await freestyle.client.vms.create({
       snapshotId: step.ctx.snapshotId,
       idleTimeoutSeconds: step.ctx.freestyleCompanyBase.idleTimeoutSeconds,
-      logger: step.log,
+      logger: console.log,
     });
     const { vm, vmId } = created;
     try {
@@ -83,9 +83,7 @@ const projectSetup = app
     }
   })
   .task("marker", async ({ step }) => {
-    step.log(
-      "project setup complete, snapshot with project files is ready to be used by workspaces",
-    );
+    console.log("project setup complete, snapshot with project files is ready to be used by workspaces");
     return {
       ctx: step.ctx,
     };
@@ -100,7 +98,7 @@ export default app
         snapshotId: workflow.ctx.snapshotId,
         idleTimeoutSeconds:
           workflow.ctx.freestyleCompanyBase.idleTimeoutSeconds,
-        logger: step.log,
+        logger: console.log,
       });
       const { vmId } = created;
       try {

@@ -76,7 +76,7 @@ const websiteSetup = app
     async ({ freestyle, step }) => {
       const { vm, vmId } = await freestyle.client.vms.create({
         spec: vmSpec,
-        logger: step.log,
+        logger: console.log,
       });
       try {
         const snapshot = await vm.snapshot();
@@ -93,7 +93,7 @@ const websiteSetup = app
       const created = await freestyle.client.vms.create({
         snapshotId: step.ctx.snapshotId,
         idleTimeoutSeconds: vmIdleTimeoutSeconds,
-        logger: step.log,
+        logger: console.log,
       });
       const { vmId } = created;
       const { vm } = created;
@@ -124,7 +124,7 @@ const websiteSetup = app
           }
         }
 
-        step.log("configuring Git author identity from GitHub account");
+        console.log("configuring Git author identity from GitHub account");
         const gitIdentity = await vm.exec({
           command: configureGitIdentityCommand(),
           timeoutMs: 60 * 1000,
@@ -146,7 +146,7 @@ const websiteSetup = app
     const created = await freestyle.client.vms.create({
       snapshotId: step.ctx.snapshotId,
       idleTimeoutSeconds: vmIdleTimeoutSeconds,
-      logger: step.log,
+      logger: console.log,
     });
     const { vmId } = created;
     const { vm } = created;
@@ -154,7 +154,7 @@ const websiteSetup = app
       const cloned = await vm.exec(`test -d ${shellQuote(repoPath + "/.git")}`);
 
       if ((cloned.statusCode ?? 0) !== 0) {
-        step.log("cloning website repo");
+        console.log("cloning website repo");
         const clone = await vm.exec({
           command: [
             "set -e",
@@ -171,7 +171,7 @@ const websiteSetup = app
         }
       }
 
-      step.log("installing website dependencies");
+      console.log("installing website dependencies");
       const install = await vm.exec({
         command: [
           "set -e",
@@ -211,7 +211,7 @@ const websiteSetup = app
       const created = await freestyle.client.vms.create({
         snapshotId: step.ctx.snapshotId,
         idleTimeoutSeconds: vmIdleTimeoutSeconds,
-        logger: step.log,
+        logger: console.log,
       });
       const { vmId } = created;
       const { vm } = created;
@@ -240,7 +240,7 @@ export default app
       const created = await providers.freestyle.client.vms.create({
         snapshotId: workflow.ctx.snapshotId,
         idleTimeoutSeconds: vmIdleTimeoutSeconds,
-        logger: step.log,
+        logger: console.log,
       });
       const { vmId } = created;
       const { vm } = created;

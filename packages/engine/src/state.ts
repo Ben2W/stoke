@@ -64,6 +64,7 @@ export interface StateService {
     workflow?: string;
     nodePaths?: readonly string[];
   }): number;
+  deleteNodeRunsById(ids: readonly string[]): number;
   invalidateNodeRuns(input: {
     workflow: string;
     nodePaths: readonly string[];
@@ -197,6 +198,16 @@ export class StateStore implements StateService {
     }
 
     return rows.length;
+  }
+
+  deleteNodeRunsById(ids: readonly string[]): number {
+    if (ids.length === 0) return 0;
+    let deleted = 0;
+    for (const id of ids) {
+      this.db.delete(workflowNodeRuns).where(eq(workflowNodeRuns.id, id)).run();
+      deleted += 1;
+    }
+    return deleted;
   }
 
   invalidateNodeRuns(input: {

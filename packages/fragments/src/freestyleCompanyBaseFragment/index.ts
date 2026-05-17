@@ -161,7 +161,7 @@ export function freestyleCompanyBaseFragment(options: FreestyleCompanyBaseFragme
       async ({ config, freestyle, step }) => {
         const { vm, vmId } = await freestyle.client.vms.create({
           spec: createVmSpec(config),
-          logger: step.log,
+          logger: console.log,
         });
         try {
           const snapshot = await vm.snapshot();
@@ -203,7 +203,7 @@ export function freestyleCompanyBaseFragment(options: FreestyleCompanyBaseFragme
         const created = await freestyle.client.vms.create({
           snapshotId: step.ctx.snapshotId,
           idleTimeoutSeconds: config.vm.idleTimeoutSeconds,
-          logger: step.log,
+          logger: console.log,
         });
         const { vm, vmId } = created;
         try {
@@ -252,7 +252,7 @@ export function freestyleCompanyBaseFragment(options: FreestyleCompanyBaseFragme
         const { vm, vmId } = await freestyle.client.vms.create({
           snapshotId: step.ctx.snapshotId,
           idleTimeoutSeconds: config.vm.idleTimeoutSeconds,
-          logger: step.log,
+          logger: console.log,
         });
         try {
           await terminal.open("Initialize Codex CLI", {
@@ -279,7 +279,7 @@ export function freestyleCompanyBaseFragment(options: FreestyleCompanyBaseFragme
         const { vm, vmId } = await freestyle.client.vms.create({
           snapshotId: step.ctx.snapshotId,
           idleTimeoutSeconds: config.vm.idleTimeoutSeconds,
-          logger: step.log,
+          logger: console.log,
         });
         try {
           await terminal.open("Initialize Claude CLI", {
@@ -318,7 +318,7 @@ function freestyleCompanyBaseAuthCheckFragment<Context extends FreestyleCompanyB
     const { vm, vmId } = await freestyle.client.vms.create({
       snapshotId: step.ctx.snapshotId,
       idleTimeoutSeconds: step.ctx.freestyleCompanyBase.idleTimeoutSeconds,
-      logger: step.log,
+      logger: console.log,
     });
     try {
       if (options.github ?? true) {

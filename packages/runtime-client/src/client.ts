@@ -24,6 +24,8 @@ import {
   type RuntimeControlHostResponse,
   type RuntimeControlCacheClearRequest,
   type RuntimeControlCacheClearResponse,
+  type RuntimeControlCacheInvalidateRequest,
+  type RuntimeControlCacheInvalidateResponse,
   type RuntimeControlCacheResponse,
   type RuntimeControlMetadata,
   type RuntimeControlOkResponse,
@@ -54,6 +56,7 @@ export type RuntimeHttpClient = {
   snapshots(): Promise<RuntimeControlSnapshotsResponse>;
   cache(): Promise<RuntimeControlCacheResponse>;
   clearCache(body: RuntimeControlCacheClearRequest): Promise<RuntimeControlCacheClearResponse>;
+  invalidateCache(body: RuntimeControlCacheInvalidateRequest): Promise<RuntimeControlCacheInvalidateResponse>;
   runs(): Promise<RuntimeControlRunsResponse>;
   startRun(body: RuntimeControlRunOperationRequest): Promise<RuntimeControlRunStarted>;
   run(runId: string): Promise<RuntimeControlRun>;
@@ -139,6 +142,11 @@ function makeRuntimeHttpClient(options: RuntimeHttpClientOptions): RuntimeHttpCl
       runRuntimeHttpRequest(
         withRuntimeControlClient(options, (client) => client.clearCache({ payload: body, withResponse: true })),
         { method: "POST", path: "/cache/clear" },
+      ),
+    invalidateCache: (body) =>
+      runRuntimeHttpRequest(
+        withRuntimeControlClient(options, (client) => client.invalidateCache({ payload: body, withResponse: true })),
+        { method: "POST", path: "/cache/invalidate" },
       ),
     runs: () =>
       runRuntimeHttpRequest(withRuntimeControlClient(options, (client) => client.runs({ withResponse: true })), {

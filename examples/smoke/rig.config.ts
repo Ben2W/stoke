@@ -2,20 +2,14 @@ import { defineConfig, sequence } from "@rigkit/sdk";
 import { freestyle, VmBaseImage, VmSpec } from "@rigkit/provider-freestyle";
 
 const smoke = sequence("smoke")
-  .step("create-workflow", async ({ providers, step }) => {
+  .step("create-workflow", async () => {
     console.log("Create Workflow Step");
-
     const randomNumber = Math.floor(Math.random() * 1000);
-
     return { ctx: { randomNumber } };
   })
   .workspace({
-    create: async ({ workflow, providers, step }) => {
-      console.log("Create Workspace Step");
-
-      const { randomNumber } = workflow.ctx;
-
-      step.log(`Random number generated in workflow: ${randomNumber}`);
+    create: async ({ workflow }) => {
+      console.log(`Random number generated in workflow: ${workflow.ctx.randomNumber}`);
       return {};
     },
     remove: async () => {},
@@ -23,8 +17,8 @@ const smoke = sequence("smoke")
   .workspaceOperation("ssh", {
     title: "SSH",
     description: "Open an interactive SSH session",
-    run: async ({ providers, workspace, step }) => {
-      step.log(`Ran Create`);
+    run: async () => {
+      console.log("Ran Create");
     },
   });
 

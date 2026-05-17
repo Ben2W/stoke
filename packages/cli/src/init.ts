@@ -113,10 +113,11 @@ const vmSpec = new VmSpec()
 const freestyleProvider = freestyle.provider();
 
 const dev = sequence(${workflowName})
-  .step("verify-node-22", async ({ providers, step }) => {
+  .step("verify-node-22", async ({ providers }) => {
+    console.log("creating verification vm");
     const { vm, vmId } = await providers.freestyle.client.vms.create({
       spec: vmSpec,
-      logger: step.log,
+      logger: console.log,
     });
     try {
       const result = await vm.exec("node --version");
@@ -130,11 +131,12 @@ const dev = sequence(${workflowName})
     }
   })
   .workspace({
-    create: async ({ workflow, providers, step }) => {
+    create: async ({ workflow, providers }) => {
+      console.log("booting workspace vm");
       const { vmId } = await providers.freestyle.client.vms.create({
         snapshotId: workflow.ctx.snapshotId,
         idleTimeoutSeconds: vmIdleTimeoutSeconds,
-        logger: step.log,
+        logger: console.log,
       });
       return {
         vmId,

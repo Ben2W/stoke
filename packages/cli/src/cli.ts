@@ -272,15 +272,19 @@ async function runCli(argv: string[]): Promise<void> {
     });
 
   program
-    .command("rm <workspace>")
-    .description("Remove a workspace")
+    .command("rm [workspace]")
+    .description("Remove one workspace, several via multi-select, or every workspace")
     .option("-y, --yes", "Remove without confirmation")
+    .option("--all", "Remove every workspace in this project")
     .option("--json", "Print machine-readable JSON")
-    .action(async (workspace: string, options: { yes?: boolean; json?: boolean }) => {
-      await runRemoveWorkspaceOperation(
+    .action(async (workspace: string | undefined, options: { yes?: boolean; all?: boolean; json?: boolean }) => {
+      await runRemove(
         makeInvocation(rootOptions(program), options.json),
-        workspace,
-        { yes: Boolean(options.yes) },
+        {
+          workspace,
+          yes: Boolean(options.yes),
+          all: Boolean(options.all),
+        },
       );
     });
 
@@ -330,6 +334,20 @@ async function runCli(argv: string[]): Promise<void> {
         local: Boolean(options.local),
         global: Boolean(options.global),
         all: Boolean(options.all),
+      });
+    });
+
+  cache
+    .command("invalidate [step]")
+    .description("Invalidate cached task outputs so they re-run on next plan/apply")
+    .option("--all", "Invalidate every cached task in this project's workflow")
+    .option("-y, --yes", "Skip confirmation when invalidating --all")
+    .option("--json", "Print machine-readable JSON")
+    .action(async (step: string | undefined, options: { all?: boolean; yes?: boolean; json?: boolean }) => {
+      await runCacheInvalidate(makeInvocation(rootOptions(program), options.json), {
+        step,
+        all: Boolean(options.all),
+        yes: Boolean(options.yes),
       });
     });
 
@@ -752,6 +770,9 @@ async function runProjectOperation(
   }
 
   await renderOperationResult(operation, result, parsed.hostOptions);
+  if (operation.createsWorkspace && isWorkspaceRecord(result)) {
+    await printWorkspaceNextSteps(runtime, result.name);
+  }
   printInteractiveOutputGap(invocation);
 }
 
@@ -794,6 +815,76 @@ async function runWorkspaceOperation(
 
   await renderOperationResult(operation, result, parsed.hostOptions);
   printInteractiveOutputGap(invocation);
+}
+
+async function runRemove(
+  invocation: CliInvocation,
+  options: { workspace?: string; yes: boolean; all: boolean },
+): Promise<void> {
+  if (options.workspace && options.all) {
+    throw new Error(`rig rm accepts either a workspace name or --all, not both`);
+  }
+
+  if (options.workspace) {
+    await runRemoveWorkspaceOperation(invocation, options.workspace, { yes: options.yes });
+    return;
+  }
+
+  const runtime = await loadRuntime(invocation);
+  const workspaces = await runtime.control.workspaces()
+    .then((response) => response.workspaces as WorkspaceRecord[])
+    .catch(() => []);
+  if (workspaces.length === 0) {
+    if (wantsJson(invocation)) {
+      printJson({ removed: [] });
+      return;
+    }
+    console.log(ui.dim("no workspaces"));
+    return;
+  }
+
+  let targets: string[];
+  if (options.all) {
+    if (!options.yes && !wantsJson(invocation) && canPrompt()) {
+      const confirmed = await promptHostConfirm({
+        message: `Remove all ${workspaces.length} workspaces?`,
+        defaultValue: false,
+      });
+      if (!confirmed) throw new Error("Remove cancelled");
+    } else if (!options.yes && !canPrompt()) {
+      throw new Error(`rig rm --all needs --yes when not running in an interactive terminal`);
+    }
+    targets = workspaces.map((workspace) => workspace.name);
+  } else {
+    if (wantsJson(invocation) || !canPrompt()) {
+      throw new Error(`rig rm needs a workspace name or --all when not running in an interactive terminal`);
+    }
+    targets = await promptWorkspaceRemoveSelection(workspaces);
+    if (targets.length === 0) throw new Error("Nothing selected");
+  }
+
+  const removed: string[] = [];
+  for (const name of targets) {
+    await runRemoveWorkspaceOperation(invocation, name, { yes: true });
+    removed.push(name);
+  }
+  if (wantsJson(invocation)) printJson({ removed });
+}
+
+async function promptWorkspaceRemoveSelection(
+  workspaces: ReadonlyArray<Pick<WorkspaceRecord, "name" | "workflow">>,
+): Promise<string[]> {
+  const answers = await inquirer.prompt<{ names: string[] }>([{
+    type: "checkbox",
+    name: "names",
+    message: "Select workspaces to remove",
+    choices: workspaces.map((workspace) => ({
+      name: workspace.name,
+      value: workspace.name,
+      description: workspace.workflow ? `workflow ${workspace.workflow}` : undefined,
+    })),
+  }]);
+  return answers.names;
 }
 
 async function runRemoveWorkspaceOperation(
@@ -997,6 +1088,81 @@ async function runCacheClear(invocation: CliInvocation, options: CacheClearOptio
     return;
   }
   console.log(`Cleared ${result.deleted} cache ${result.deleted === 1 ? "entry" : "entries"}.`);
+}
+
+type CacheInvalidateOptions = {
+  step?: string;
+  all: boolean;
+  yes: boolean;
+};
+
+async function runCacheInvalidate(invocation: CliInvocation, options: CacheInvalidateOptions): Promise<void> {
+  if (options.step && options.all) {
+    throw new Error(`rig cache invalidate accepts either a step or --all, not both`);
+  }
+
+  const runtime = await loadRuntime(invocation);
+  let targets: string[] = [];
+
+  if (options.step) {
+    targets = [options.step];
+  } else if (options.all) {
+    if (!options.yes && !wantsJson(invocation) && canPrompt()) {
+      const confirmed = await promptHostConfirm({
+        message: "Invalidate every cached task in this project?",
+        defaultValue: false,
+      });
+      if (!confirmed) throw new Error("Invalidate cancelled");
+    } else if (!options.yes && !canPrompt()) {
+      throw new Error(`rig cache invalidate --all needs --yes when not running in an interactive terminal`);
+    }
+    targets = []; // empty = engine invalidates everything for the workflow
+  } else {
+    // Interactive: multi-select among currently-valid cache entries.
+    const cache = await runtime.control.cache();
+    const candidates = cache.entries
+      .filter((entry) => !entry.invalidated && entry.scope === "local")
+      .map((entry) => ({ path: entry.nodePath || entry.nodeName, workflow: entry.workflow }));
+    if (candidates.length === 0) {
+      if (wantsJson(invocation)) {
+        printJson({ ok: true, invalidated: 0 });
+        return;
+      }
+      console.log(ui.dim("no valid cache entries to invalidate"));
+      return;
+    }
+    if (wantsJson(invocation) || !canPrompt()) {
+      throw new Error(`rig cache invalidate needs a step name or --all when not running in an interactive terminal`);
+    }
+    const picked = await promptCacheInvalidateSelection(candidates);
+    if (picked.length === 0) throw new Error("Nothing selected");
+    targets = picked;
+  }
+
+  const result = await runtime.control.invalidateCache({ nodePaths: targets });
+  if (wantsJson(invocation)) {
+    printJson(result);
+    return;
+  }
+  console.log(
+    `${ui.ok(ui.sym.ok)} invalidated ${result.invalidated} cache ${result.invalidated === 1 ? "entry" : "entries"}`,
+  );
+}
+
+async function promptCacheInvalidateSelection(
+  candidates: Array<{ path: string; workflow: string }>,
+): Promise<string[]> {
+  const answers = await inquirer.prompt<{ paths: string[] }>([{
+    type: "checkbox",
+    name: "paths",
+    message: "Select tasks to invalidate",
+    choices: candidates.map((c) => ({
+      name: c.path,
+      value: c.path,
+      description: c.workflow ? `workflow ${c.workflow}` : undefined,
+    })),
+  }]);
+  return answers.paths;
 }
 
 async function executeRuntimeOperation(
@@ -1231,7 +1397,9 @@ async function renderOperationResult(
   }
 
   if (operation.createsWorkspace && isWorkspaceRecord(result)) {
-    console.log(result.name);
+    // Only emit the bareword name when stdout is piped, so scripts can do
+    // `name=$(rig create)` while TTY users aren't shown a redundant line.
+    if (!process.stdout.isTTY) console.log(result.name);
     return;
   }
 
@@ -1247,7 +1415,7 @@ async function renderOperationResult(
   }
 
   if (isWorkspaceRecord(result)) {
-    console.log(result.name);
+    if (!process.stdout.isTTY) console.log(result.name);
     return;
   }
 
@@ -1572,6 +1740,38 @@ function printRunFailure(input: {
     process.stderr.write("\n");
     process.stderr.write(`${ui.dim("full log")}  ${shortPath(input.logPath)}\n`);
     process.stderr.write(`${ui.dim("        ")}  ${ui.dim("daemon stderr appended on failure")}\n`);
+  }
+}
+
+// After a successful `rig create`, list the workspace's available operations so
+// the user doesn't have to guess what to do next. TTY-only — JSON consumers and
+// pipes get clean output.
+async function printWorkspaceNextSteps(runtime: RuntimeClient, workspaceName: string): Promise<void> {
+  if (!process.stderr.isTTY) return;
+
+  let manifest: RuntimeOperationManifest;
+  try {
+    manifest = await readRuntimeOperations(runtime);
+  } catch {
+    return;
+  }
+
+  const ops = (manifest.workspaceOperations ?? []).filter((op) => op.id !== "remove");
+  const invocations: Array<{ command: string; description: string }> = ops.map((op) => ({
+    command: `rig run ${workspaceName} ${op.id}`,
+    description: op.description ?? op.title ?? "",
+  }));
+  invocations.push({ command: `rig rm ${workspaceName}`, description: "Remove this workspace" });
+
+  const commandWidth = invocations.reduce((max, item) => Math.max(max, item.command.length), 0);
+
+  process.stderr.write("\n");
+  process.stderr.write(`${ui.bold("Next")}\n`);
+  for (const item of invocations) {
+    const command = `${ui.bold("rig")}${item.command.slice("rig".length)}`;
+    const padding = " ".repeat(Math.max(0, commandWidth - item.command.length));
+    const tail = item.description ? `  ${ui.dim(item.description)}` : "";
+    process.stderr.write(`${ui.dim(ui.sym.arrow)} ${command}${padding}${tail}\n`);
   }
 }
 
@@ -2219,6 +2419,16 @@ function renderEvent(event: DevMachineEvent): void {
     case "plan.created":
       write(`${ui.accent(ui.sym.active)} ${ui.bold(event.workflow)}  ${ui.dim(`${event.cachedNodeCount}/${event.nodeCount} cached`)}`);
       return;
+    case "workflow.apply.started":
+      write(`${ui.accent(ui.sym.active)} workflow ${ui.bold(event.workflow)}`);
+      return;
+    case "workflow.apply.completed": {
+      const summary = event.nodeCount > 0
+        ? `  ${ui.dim(`${event.cachedNodeCount}/${event.nodeCount} cached`)}`
+        : "";
+      write(`${ui.ok(ui.sym.ok)} ${ui.bold(event.workflow)} ${ui.dim("prepared")}${summary}`);
+      return;
+    }
     case "node.cached":
       write(`  ${ui.dim(ui.sym.ok)} ${ui.dim(`${event.nodePath}  cached`)}`);
       return;
@@ -2242,9 +2452,16 @@ function renderEvent(event: DevMachineEvent): void {
         write(`    ${ui.err(`${event.commandName} exited ${event.exitCode}`)}`);
       }
       return;
-    case "log.output":
-      process.stderr.write(event.data);
+    case "log.output": {
+      const prefix = event.stream && event.stream !== "info" && event.stream !== "stdout"
+        ? `[${event.stream}] `
+        : "";
+      for (const line of event.data.replace(/\r/g, "").split("\n")) {
+        if (!line) continue;
+        process.stderr.write(`${prefix}${line}\n`);
+      }
       return;
+    }
     case "interaction.awaiting_user":
       write(`  ${ui.accent(ui.sym.arrow)} waiting on ${ui.bold(event.label)}`);
       write(`    ${ui.dim(event.url)}`);
@@ -2255,8 +2472,23 @@ function renderEvent(event: DevMachineEvent): void {
     case "artifact.created":
       write(`    ${ui.dim(`+ ${event.providerId}:${event.kind}`)}`);
       return;
+    case "workspace.create.started":
+      write(`${ui.accent(ui.sym.active)} creating workspace ${ui.bold(String(event.workspaceName))}`);
+      return;
     case "workspace.ready":
-      write(`  ${ui.ok(ui.sym.ok)} ${ui.bold(String(event.workspaceId))} ${ui.dim("ready")}`);
+      write(`${ui.ok(ui.sym.ok)} ${ui.bold(String(event.workspaceId))} ${ui.dim("ready")}`);
+      return;
+    case "workspace.remove.started":
+      write(`${ui.accent(ui.sym.active)} removing workspace ${ui.bold(String(event.workspaceName))}`);
+      return;
+    case "workspace.remove.completed":
+      write(`${ui.ok(ui.sym.ok)} removed ${ui.bold(String(event.workspaceName))}`);
+      return;
+    case "workspace.operation.started":
+      write(`${ui.accent(ui.sym.active)} running ${ui.bold(String(event.operationId))} on ${ui.bold(String(event.workspaceName))}`);
+      return;
+    case "workspace.operation.completed":
+      write(`${ui.ok(ui.sym.ok)} ran ${ui.bold(String(event.operationId))} on ${ui.bold(String(event.workspaceName))}`);
       return;
     default:
       return;

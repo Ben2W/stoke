@@ -28,7 +28,7 @@ describe("DevMachineEngine workflow runtime", () => {
         });
 
         const base = app.sequence("base").task("first", async ({ step, test }) => {
-          step.log("preparing base\\n", { label: "setup" });
+          console.log("preparing base");
           const vm = await test.createVm();
           await vm.exec("touch /tmp/first", { name: "touch first" });
           if (!(await vm.exists("/tmp/first"))) throw new Error("first was not created");
@@ -138,8 +138,7 @@ describe("DevMachineEngine workflow runtime", () => {
       type: "log.output",
       nodePath: "base.first",
       stream: "info",
-      label: "setup",
-      data: "preparing base\n",
+      data: "preparing base",
     });
     expect(provider.snapshots).toHaveLength(2);
     expect(engine.listNodeRuns()).toHaveLength(4);

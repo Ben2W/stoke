@@ -40,7 +40,7 @@ const repoSetup = app
     const created = await freestyle.client.vms.create({
       snapshotId: step.ctx.snapshotId,
       idleTimeoutSeconds: step.ctx.freestyleCompanyBase.idleTimeoutSeconds,
-      logger: step.log,
+      logger: console.log,
     });
     const { vm, vmId } = created;
     try {

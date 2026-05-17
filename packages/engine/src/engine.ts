@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { isRigkitConfig, isProviderDefinition, isWorkflowNode } from "./authoring.ts";
+import { runWithStepConsole, type ConsoleLevel, type StepConsoleSink } from "./console-intercept.ts";
 import { loadDotEnv } from "./env-file.ts";
 import { hash } from "./hash.ts";
 import {
@@ -273,6 +274,8 @@ class StepInvalidationRestart extends Error {
 
 let configImportCounter = 0;
 
+// The engine owns the workflow graph, cache, and event emission for one
+// project. The runtime daemon hosts a single long-lived instance per project.
 export class DevMachineEngine {
   private readonly projectDir: string;
   private readonly configPath: string;
@@ -651,7 +654,11 @@ export class DevMachineEngine {
     return this.getStateService().listNodeRuns();
   }
 
-  async listCache(input: { workflow?: string; machine?: string } = {}): Promise<EngineCacheList> {
+  async listCache(input: {
+    workflow?: string;
+    machine?: string;
+    includeUnreachable?: boolean;
+  } = {}): Promise<EngineCacheList> {
     const workflow = this.getWorkflow(input.workflow ?? input.machine);
     const providers = await this.createProviders(workflow);
     const evaluated = await this.evaluate({
@@ -660,12 +667,49 @@ export class DevMachineEngine {
       mode: "plan",
     });
 
-    const entries: EngineCacheEntry[] = [
-      ...this.getStateService()
-        .listNodeRuns()
-        .filter((run) => run.workflow === workflow.name)
-        .map((run) => cacheEntryForRun(run, "local")),
-    ];
+    // The plan tells us which row (by runId) would satisfy each cached node
+    // under the *current* code. Those are the only cache rows that matter.
+    const reachableRunIds = new Set<string>();
+    for (const node of evaluated.plan.nodes) {
+      if (node.status === "cached" && node.runId) reachableRunIds.add(node.runId);
+    }
+
+    if (input.includeUnreachable) {
+      const entries: EngineCacheEntry[] = [
+        ...this.getStateService()
+          .listNodeRuns()
+          .filter((run) => run.workflow === workflow.name)
+          .map((run) => cacheEntryForRun(run, "local")),
+      ];
+      for (const fragmentHash of evaluated.fragments) {
+        const fragment = this.globalFragmentStates.get(fragmentHash);
+        if (!fragment) continue;
+        entries.push(
+          ...fragment.state
+            .listNodeRuns()
+            .map((run) => cacheEntryForRun(run, "global", fragmentHash, workflow.name)),
+        );
+      }
+      entries.sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+      return { entries };
+    }
+
+    // Local state is per-project — anything not reachable is dead weight, so
+    // prune as a side effect. Global fragments are shared across projects;
+    // another project might still reach the row we'd consider unreachable
+    // here, so we only filter the display for globals — never delete.
+    const localRuns = this.getStateService().listNodeRuns()
+      .filter((run) => run.workflow === workflow.name);
+    const localStaleIds = localRuns
+      .filter((run) => !reachableRunIds.has(run.id))
+      .map((run) => run.id);
+    if (localStaleIds.length > 0) {
+      this.getStateService().deleteNodeRunsById(localStaleIds);
+    }
+
+    const entries: EngineCacheEntry[] = localRuns
+      .filter((run) => reachableRunIds.has(run.id))
+      .map((run) => cacheEntryForRun(run, "local"));
 
     for (const fragmentHash of evaluated.fragments) {
       const fragment = this.globalFragmentStates.get(fragmentHash);
@@ -673,12 +717,31 @@ export class DevMachineEngine {
       entries.push(
         ...fragment.state
           .listNodeRuns()
+          .filter((run) => reachableRunIds.has(run.id))
           .map((run) => cacheEntryForRun(run, "global", fragmentHash, workflow.name)),
       );
     }
 
     entries.sort((left, right) => right.createdAt.localeCompare(left.createdAt));
     return { entries };
+  }
+
+  async invalidateCache(input: {
+    workflow?: string;
+    machine?: string;
+    nodePaths?: readonly string[];
+  } = {}): Promise<{ invalidated: number }> {
+    const workflow = this.getWorkflow(input.workflow ?? input.machine);
+    const state = this.getStateService();
+    // If no explicit paths, invalidate every cached node for this workflow.
+    const paths = input.nodePaths && input.nodePaths.length > 0
+      ? [...input.nodePaths]
+      : [...new Set(state.listNodeRuns()
+          .filter((run) => run.workflow === workflow.name && !run.invalidated)
+          .map((run) => run.nodePath))];
+    if (paths.length === 0) return { invalidated: 0 };
+    const ids = state.invalidateNodeRuns({ workflow: workflow.name, nodePaths: paths });
+    return { invalidated: ids.length };
   }
 
   async clearCache(input: {
@@ -739,14 +802,15 @@ export class DevMachineEngine {
       metadata,
     });
     const operationInput = this.resolveOperationInput(workflow, operation, input.input ?? {});
-    const result = await operation.run({
+    const operationNodePath = `operation.${operation.id}`;
+    const result = await this.withStepConsole(operationNodePath, () => operation.run({
       ...runtime,
       input: Object.freeze(operationInput),
       providers: runtime,
       local: this.local,
       workflow: workflow.name,
-      step: this.createStepRuntime(workflow.name, `operation.${operation.id}`, metadata),
-    });
+      step: this.createStepRuntime(workflow.name, operationNodePath, metadata),
+    }));
     if (result !== undefined) assertJsonValue(result, `Operation ${operation.id} result`);
     return result ?? null;
   }
@@ -813,6 +877,8 @@ export class DevMachineEngine {
   }> {
     const workflow = this.getWorkflow(input.workflow ?? input.machine);
     const providers = await this.createProviders(workflow);
+    const startedAt = Date.now();
+    this.emit({ type: "workflow.apply.started", workflow: workflow.name });
     let result: { context: Record<string, JsonValue>; plan: WorkflowPlan } | undefined;
     const maxRestarts = 8;
     for (let attempt = 0; attempt <= maxRestarts; attempt++) {
@@ -834,6 +900,14 @@ export class DevMachineEngine {
       }
     }
     if (!result) throw new Error(`Workflow ${workflow.name} did not produce an apply result`);
+
+    this.emit({
+      type: "workflow.apply.completed",
+      workflow: workflow.name,
+      nodeCount: result.plan.nodeCount,
+      cachedNodeCount: result.plan.cachedNodeCount,
+      durationMs: Date.now() - startedAt,
+    });
 
     return {
       context: result.context,
@@ -870,6 +944,7 @@ export class DevMachineEngine {
     };
 
     this.getStateService().saveWorkspace(workspace);
+    this.emit({ type: "workspace.create.started", workspaceName: input.name });
     try {
       await this.runWorkspaceCreate({
         workflow,
@@ -921,7 +996,10 @@ export class DevMachineEngine {
     const draft = cloneWorkspace(workspace);
     const workspaceRuntime = this.createWorkspaceRuntime(draft);
 
-    await workflow.workspace.remove({
+    const removeNodePath = `workspace.${workspace.name}.remove`;
+    const workspaceDef = workflow.workspace;
+    this.emit({ type: "workspace.remove.started", workspaceName: workspace.name });
+    await this.withStepConsole(removeNodePath, () => workspaceDef.remove({
       ...runtime,
       workflow: {
         name: workflow.name,
@@ -930,10 +1008,11 @@ export class DevMachineEngine {
       workspace: workspaceRuntime,
       providers: runtime,
       local: this.local,
-      step: this.createStepRuntime(workflow.name, `workspace.${workspace.name}.remove`, metadata),
-    });
+      step: this.createStepRuntime(workflow.name, removeNodePath, metadata),
+    }));
 
     this.getStateService().deleteWorkspace(input.workspace);
+    this.emit({ type: "workspace.remove.completed", workspaceName: workspace.name });
     return workspace;
   }
 
@@ -1237,12 +1316,12 @@ export class DevMachineEngine {
       input.state.context,
       input.state.previousTasks,
     );
-    const result = await input.node.handler({
+    const result = await this.withStepConsole(nodePath, () => input.node.handler({
       ...runtime,
       providers: runtime,
       step,
       config,
-    });
+    }));
     if (isStepInvalidation(result)) {
       const targetTask = input.state.previousTasks.find((task) => task.path === result.targetNodePath);
       const invalidatedRunIds = targetTask
@@ -1434,8 +1513,10 @@ export class DevMachineEngine {
       metadata,
     });
 
+    const createNodePath = `workspace.${input.name}.create`;
+    const workspaceDef = input.workflow.workspace;
     try {
-      const data = await input.workflow.workspace.create({
+      const data = await this.withStepConsole(createNodePath, () => workspaceDef.create({
         ...providers,
         workflow: {
           name: input.workflow.name,
@@ -1446,8 +1527,8 @@ export class DevMachineEngine {
         },
         providers,
         local: this.local,
-        step: this.createStepRuntime(input.workflow.name, `workspace.${input.name}.create`, metadata),
-      });
+        step: this.createStepRuntime(input.workflow.name, createNodePath, metadata),
+      }));
       assertJsonValue(data, `Workflow ${input.workflow.name} workspace create result`);
       if (!isPlainObject(data)) {
         throw new Error(`Workflow ${input.workflow.name} workspace create result must be an object`);
@@ -1477,7 +1558,13 @@ export class DevMachineEngine {
     const workspace = this.createWorkspaceRuntime(draft);
     const operationInput = this.resolveOperationInput(input.workflow, input.operation, input.rawInput ?? {});
 
-    const result = await input.operation.run({
+    const workspaceOperationNodePath = `workspace.${input.workspace.name}.${input.operation.id}`;
+    this.emit({
+      type: "workspace.operation.started",
+      workspaceName: input.workspace.name,
+      operationId: input.operation.id,
+    });
+    const result = await this.withStepConsole(workspaceOperationNodePath, () => input.operation.run({
       ...providers,
       workflow: {
         name: input.workflow.name,
@@ -1489,11 +1576,16 @@ export class DevMachineEngine {
       local: this.local,
       step: this.createStepRuntime(
         input.workflow.name,
-        `workspace.${input.workspace.name}.${input.operation.id}`,
+        workspaceOperationNodePath,
         metadata,
       ),
-    });
+    }));
     if (result !== undefined) assertJsonValue(result, `Workspace operation ${input.operation.id} result`);
+    this.emit({
+      type: "workspace.operation.completed",
+      workspaceName: input.workspace.name,
+      operationId: input.operation.id,
+    });
     return result ?? null;
   }
 
@@ -1502,6 +1594,22 @@ export class DevMachineEngine {
       name: draft.name,
       ctx: Object.freeze({ ...draft.ctx }) as Data,
     }) as WorkspaceRuntimeRecord<Data>;
+  }
+
+  // Wraps a user step handler in an AsyncLocalStorage scope so that any
+  // console.log / debug / warn / error invoked inside (transitively, through
+  // any helper or third-party SDK) is captured and emitted as a log.output
+  // event tied to this step's node path.
+  private withStepConsole<T>(nodePath: string, fn: () => Promise<T> | T): Promise<T> | T {
+    const sink: StepConsoleSink = ({ level, message }) => {
+      this.emit({
+        type: "log.output",
+        nodePath,
+        stream: consoleLevelToLogStream(level),
+        data: message,
+      });
+    };
+    return runWithStepConsole(sink, fn);
   }
 
   private createStepRuntime<Context extends JsonObject = JsonObject>(
@@ -1517,15 +1625,6 @@ export class DevMachineEngine {
       ctx: Object.freeze({ ...context }) as Readonly<Context>,
       metadata: (value: JsonObject) => {
         Object.assign(metadata, value);
-      },
-      log: (data: string, options: { stream?: WorkflowLogStream; label?: string } = {}) => {
-        this.emit({
-          type: "log.output",
-          nodePath,
-          stream: options.stream ?? "info",
-          label: options.label,
-          data,
-        });
       },
       invalidate: <Target extends string>(target: Target) => {
         const matches = previousTasks.filter((task) => task.name === target || task.path === target);
@@ -2491,4 +2590,15 @@ async function defaultInteractionPresenter(request: InteractionPresentationReque
   console.error(`\nInteractive task: ${request.title}`);
   if (request.instructions) console.error(request.instructions);
   console.error(`Open ${request.url}`);
+}
+
+function consoleLevelToLogStream(level: ConsoleLevel): WorkflowLogStream {
+  switch (level) {
+    case "debug": return "debug";
+    case "warn":  return "warn";
+    case "error": return "stderr";
+    case "info":
+    case "log":
+    default:      return "info";
+  }
 }

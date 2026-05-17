@@ -125,6 +125,16 @@ export const RuntimeControlCacheClearResponseEffectSchema = Schema.Struct({
   deleted: Schema.Number,
 }).annotations({ identifier: "CacheClearResponse" });
 
+export const RuntimeControlCacheInvalidateRequestEffectSchema = Schema.Struct({
+  workflow: Schema.optional(Schema.String),
+  nodePaths: Schema.optional(Schema.Array(Schema.String)),
+}).annotations({ identifier: "CacheInvalidateRequest" });
+
+export const RuntimeControlCacheInvalidateResponseEffectSchema = Schema.Struct({
+  ok: Schema.Boolean,
+  invalidated: Schema.Number,
+}).annotations({ identifier: "CacheInvalidateResponse" });
+
 export const RuntimeControlRunEffectSchema = Schema.Struct({
   runId: Schema.String,
   operation: Schema.String,
@@ -187,6 +197,8 @@ export type RuntimeControlCacheEntry = Schema.Schema.Type<typeof RuntimeControlC
 export type RuntimeControlCacheResponse = Schema.Schema.Type<typeof RuntimeControlCacheResponseEffectSchema>;
 export type RuntimeControlCacheClearRequest = Schema.Schema.Type<typeof RuntimeControlCacheClearRequestEffectSchema>;
 export type RuntimeControlCacheClearResponse = Schema.Schema.Type<typeof RuntimeControlCacheClearResponseEffectSchema>;
+export type RuntimeControlCacheInvalidateRequest = Schema.Schema.Type<typeof RuntimeControlCacheInvalidateRequestEffectSchema>;
+export type RuntimeControlCacheInvalidateResponse = Schema.Schema.Type<typeof RuntimeControlCacheInvalidateResponseEffectSchema>;
 export type RuntimeControlRunOperationRequest = Schema.Schema.Type<typeof RuntimeControlRunOperationRequestEffectSchema>;
 export type RuntimeControlRun = Schema.Schema.Type<typeof RuntimeControlRunEffectSchema>;
 export type RuntimeControlRunsResponse = Schema.Schema.Type<typeof RuntimeControlRunsResponseEffectSchema>;
@@ -214,6 +226,9 @@ export const runtimeControlApi = HttpApi.make("rigkit-runtime")
       .add(HttpApiEndpoint.post("clearCache", "/cache/clear")
         .setPayload(RuntimeControlCacheClearRequestEffectSchema)
         .addSuccess(RuntimeControlCacheClearResponseEffectSchema))
+      .add(HttpApiEndpoint.post("invalidateCache", "/cache/invalidate")
+        .setPayload(RuntimeControlCacheInvalidateRequestEffectSchema)
+        .addSuccess(RuntimeControlCacheInvalidateResponseEffectSchema))
       .add(HttpApiEndpoint.get("runs", "/runs").addSuccess(RuntimeControlRunsResponseEffectSchema))
       .add(HttpApiEndpoint.post("startRun", "/runs")
         .setPayload(RuntimeControlRunOperationRequestEffectSchema)

@@ -13,10 +13,10 @@ const app = workflow("cmux-playground", {
 
 export default app
   .sequence("cmux-playground")
-  .task("create-vm", async ({ freestyle, step }) => {
+  .task("create-snapshot", async ({ freestyle, step }) => {
     const { vm, vmId } = await freestyle.client.vms.create({
       idleTimeoutSeconds: 3600,
-      logger: step.log,
+      logger: console.log,
     });
 
     try {
@@ -28,11 +28,15 @@ export default app
   })
   .workspace({
     create: async ({ workflow, providers, step }) => {
+      console.log("creating cmux workspace");
       const { vmId } = await providers.freestyle.client.vms.create({
         snapshotId: workflow.ctx.snapshotId,
         idleTimeoutSeconds: 3600,
-        logger: step.log,
+        logger: console.log,
       });
+      await new Promise((resolve) => setTimeout(resolve, 5000));
+
+      console.log("created");
       return { vmId };
     },
     remove: async ({ providers, workspace }) => {

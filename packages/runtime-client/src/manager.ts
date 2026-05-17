@@ -1,4 +1,4 @@
-import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { spawn, type ChildProcessByStdio } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
@@ -557,16 +557,38 @@ function updateProjectSurfaceFingerprint(hash: ReturnType<typeof createHash>, pr
 }
 
 function updateRigkitPackageFingerprint(hash: ReturnType<typeof createHash>, scopeDir: string): void {
-  if (!existsSync(scopeDir)) return;
-  const packageDirs = readdirSync(scopeDir, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory() || entry.isSymbolicLink())
-    .map((entry) => join(scopeDir, entry.name))
-    .sort();
+  // Walk every @rigkit scope reachable from the project's node_modules. We
+  // recurse into each package's own `node_modules/@rigkit` so that nested
+  // installs (e.g. @rigkit/engine living under @rigkit/sdk/node_modules) are
+  // hashed too. Without this, edits to a transitive @rigkit package wouldn't
+  // shift the runtime fingerprint and the daemon wouldn't auto-restart.
+  const visited = new Set<string>();
+  const stack: string[] = [scopeDir];
 
-  for (const packageDir of packageDirs) {
-    updateFileFingerprint(hash, "rigkit-package", join(packageDir, "package.json"));
-    for (const file of collectFiles(join(packageDir, "src"))) {
-      updateFileFingerprint(hash, "rigkit-source", file);
+  while (stack.length > 0) {
+    const dir = stack.pop()!;
+    if (!existsSync(dir)) continue;
+    let canonical: string;
+    try {
+      canonical = realpathSync(dir);
+    } catch {
+      continue;
+    }
+    if (visited.has(canonical)) continue;
+    visited.add(canonical);
+
+    const packageDirs = readdirSync(dir, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() || entry.isSymbolicLink())
+      .map((entry) => join(dir, entry.name))
+      .sort();
+
+    for (const packageDir of packageDirs) {
+      updateFileFingerprint(hash, "rigkit-package", join(packageDir, "package.json"));
+      for (const file of collectFiles(join(packageDir, "src"))) {
+        updateFileFingerprint(hash, "rigkit-source", file);
+      }
+      // Recurse into this package's own @rigkit scope, if it has nested deps.
+      stack.push(join(packageDir, "node_modules", "@rigkit"));
     }
   }
 }

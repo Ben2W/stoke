@@ -35,7 +35,7 @@ const baseVm = app
   .task("create", async ({ freestyle, step }) => {
     const { vm, vmId } = await freestyle.client.vms.create({
       spec: vmSpec,
-      logger: step.log,
+      logger: console.log,
     });
     try {
       const snapshot = await vm.snapshot();
@@ -48,10 +48,10 @@ const baseVm = app
     const { vm, vmId } = await freestyle.client.vms.create({
       snapshotId: step.ctx.snapshotId,
       idleTimeoutSeconds: vmIdleTimeoutSeconds,
-      logger: step.log,
+      logger: console.log,
     });
     try {
-      step.log("installing gcloud cli");
+      console.log("installing gcloud cli");
       const result = await vm.exec({
         command: installGcloudCliCommand(),
         timeoutMs: 10 * 60 * 1000,
@@ -84,11 +84,11 @@ export default app
       const { vm, vmId } = await providers.freestyle.client.vms.create({
         snapshotId: workflow.ctx.snapshotId,
         idleTimeoutSeconds: vmIdleTimeoutSeconds,
-        logger: step.log,
+        logger: console.log,
       });
 
       try {
-        step.log("copying local gcloud config");
+        console.log("copying local gcloud config");
         await vm.fs.remove("/root/.config/gcloud", true).catch(() => {});
         await vm.fs.mkdir("/root/.config/gcloud", true);
         for (const file of gcloudConfigFiles.files) {

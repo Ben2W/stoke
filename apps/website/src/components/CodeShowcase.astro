@@ -17,10 +17,10 @@ const app = workflow("playground", {
 
 export default app
   .sequence("playground")
-  .task("clone-and-install", async ({ freestyle, step }) => {
+  .task("clone-and-install", async ({ freestyle }) => {
     const { vm } = await freestyle.client.vms.create({
       spec: vmSpec,
-      logger: step.log,
+      logger: console.log,
     });
     await vm.exec(\`git clone https://github.com/\${repo}.git \${repoPath}\`);
     await vm.exec(\`cd \${repoPath} && bun install\`);

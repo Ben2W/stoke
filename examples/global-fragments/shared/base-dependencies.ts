@@ -6,14 +6,12 @@ export const baseDependencies = sequence("base-dependencies")
     packageManager: "pnpm@9.15.9",
     osImage: "ubuntu-24.04",
   })
-  .task("resolve-toolchain", async ({ config, step }) => {
+  .task("resolve-toolchain", async ({ config }) => {
     const node = String(config.node);
     const packageManager = String(config.packageManager);
     const osImage = String(config.osImage);
 
-    step.log(
-      `resolved shared toolchain ${node} / ${packageManager} on ${osImage}`,
-    );
+    console.log(`resolved shared toolchain ${node} / ${packageManager} on ${osImage}`);
 
     return {
       ctx: {
@@ -33,7 +31,7 @@ export const baseDependencies = sequence("base-dependencies")
       String(config.packageManager),
     ].join(":");
 
-    step.log(`warmed shared package store ${storeKey}`);
+    console.log(`warmed shared package store ${storeKey}`);
 
     return {
       ctx: {

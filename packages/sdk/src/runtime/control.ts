@@ -91,6 +91,18 @@ export async function clearRuntimeCache(context: RuntimeContext, body: { scope?:
   return { ok: true, deleted: result.deleted };
 }
 
+export async function invalidateRuntimeCache(
+  context: RuntimeContext,
+  body: { workflow?: string; nodePaths?: readonly string[] },
+) {
+  const engine = await loadEngine(context);
+  const result = await engine.invalidateCache({
+    workflow: body.workflow,
+    nodePaths: body.nodePaths,
+  });
+  return { ok: true, invalidated: result.invalidated };
+}
+
 export function runtimeRuns(store: RunStore) {
   return {
     runs: [...store.runs.values()].map((run) => summarizeRun(run)),

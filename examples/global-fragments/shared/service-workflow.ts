@@ -28,7 +28,7 @@ export function serviceWorkflow(options: ServiceWorkflowOptions) {
       const sourceDir = String(config.sourceDir);
       const devCommand = String(config.devCommand);
 
-      step.log(`installing ${packageName} from ${sourceDir}`);
+      console.log(`installing ${packageName} from ${sourceDir}`);
 
       return {
         ctx: {

@@ -2,7 +2,7 @@
 // stderr. No spinners, no re-renders. Looks the same in a TTY, a CI log, and an
 // LLM transcript — and it pipes cleanly.
 
-import { accent, bold, clip, dim, err, ok, sym, termWidth } from "./ui.ts";
+import { accent, bold, clip, dim, err, ok, sym, termWidth, warn } from "./ui.ts";
 
 export type RunPresenter = {
   render(event: { type: string; [key: string]: unknown }): void;
@@ -49,6 +49,19 @@ export function createRunPresenter(operation: string): RunPresenter | undefined 
           cachedNodes = numberField(event.cachedNodeCount) ?? cachedNodes;
           write(headerLine());
           write(indent(dim(planSummary(totalNodes, cachedNodes))));
+          break;
+        }
+        case "workflow.apply.started": {
+          workflow = stringField(event.workflow) ?? workflow;
+          write(`${accent(sym.active)} workflow ${bold(workflow || operation)}`);
+          break;
+        }
+        case "workflow.apply.completed": {
+          const name = stringField(event.workflow) ?? workflow;
+          totalNodes = numberField(event.nodeCount) ?? totalNodes;
+          cachedNodes = numberField(event.cachedNodeCount) ?? cachedNodes;
+          const summary = totalNodes > 0 ? `  ${dim(planSummary(totalNodes, cachedNodes))}` : "";
+          write(`${ok(sym.ok)} ${bold(name || "workflow")} ${dim("prepared")}${summary}`);
           break;
         }
         case "node.cached": {
@@ -109,11 +122,16 @@ export function createRunPresenter(operation: string): RunPresenter | undefined 
         case "log.output": {
           const data = stringField(event.data);
           if (!data) break;
-          const label = stringField(event.label) ?? stringField(event.stream);
+          const stream = stringField(event.stream);
+          // console.debug is intentionally silent at the terminal — it lives
+          // in the run log file only. Surface it live with RIGKIT_DEBUG=1.
+          if (stream === "debug" && process.env.RIGKIT_DEBUG !== "1") break;
+          const label = stringField(event.label);
+          const { icon, style } = logStreamPresentation(stream);
           for (const line of data.replace(/\r/g, "").split("\n")) {
             if (!line) continue;
             const prefix = label ? `${dim(`[${label}]`)} ` : "";
-            write(indent(`  ${prefix}${dim(trim(line))}`));
+            write(indent(`  ${icon} ${prefix}${style(trim(line))}`));
           }
           break;
         }
@@ -136,9 +154,36 @@ export function createRunPresenter(operation: string): RunPresenter | undefined 
           write(indent(`  ${dim(`+ ${label}`)}`));
           break;
         }
+        case "workspace.create.started": {
+          const name = stringField(event.workspaceName) ?? "workspace";
+          write(`${accent(sym.active)} creating workspace ${bold(name)}`);
+          break;
+        }
         case "workspace.ready": {
           const id = stringField(event.workspaceId) ?? "workspace";
-          write(indent(`${ok(sym.ok)} ${bold(id)} ${dim("ready")}`));
+          write(`${ok(sym.ok)} ${bold(id)} ${dim("ready")}`);
+          break;
+        }
+        case "workspace.remove.started": {
+          const name = stringField(event.workspaceName) ?? "workspace";
+          write(`${accent(sym.active)} removing workspace ${bold(name)}`);
+          break;
+        }
+        case "workspace.remove.completed": {
+          const name = stringField(event.workspaceName) ?? "workspace";
+          write(`${ok(sym.ok)} removed ${bold(name)}`);
+          break;
+        }
+        case "workspace.operation.started": {
+          const name = stringField(event.workspaceName) ?? "workspace";
+          const op = stringField(event.operationId) ?? "operation";
+          write(`${accent(sym.active)} running ${bold(op)} on ${bold(name)}`);
+          break;
+        }
+        case "workspace.operation.completed": {
+          const name = stringField(event.workspaceName) ?? "workspace";
+          const op = stringField(event.operationId) ?? "operation";
+          write(`${ok(sym.ok)} ran ${bold(op)} on ${bold(name)}`);
           break;
         }
         case "run.completed":
@@ -181,5 +226,25 @@ function stringField(value: unknown): string | undefined {
 
 function numberField(value: unknown): number | undefined {
   return typeof value === "number" ? value : undefined;
+}
+
+function logStreamPresentation(stream: string | undefined): {
+  icon: string;
+  style: (text: string) => string;
+} {
+  switch (stream) {
+    case "warn":
+      return { icon: warn("!"), style: warn };
+    case "stderr":
+    case "error":
+      return { icon: err(sym.err), style: err };
+    case "debug":
+      return { icon: dim("·"), style: (text: string) => dim(`${dim("debug")} ${text}`) };
+    case "stdout":
+    case "info":
+    case "log":
+    default:
+      return { icon: dim(sym.dot), style: dim };
+  }
 }
 

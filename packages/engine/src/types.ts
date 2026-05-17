@@ -95,7 +95,7 @@ export type LocalCommandResult = {
   stderr: string | null;
 };
 
-export type WorkflowLogStream = "stdout" | "stderr" | "info";
+export type WorkflowLogStream = "stdout" | "stderr" | "info" | "debug" | "warn";
 
 export type WorkflowProviderDefinition<
   ProviderId extends string = string,
@@ -139,7 +139,6 @@ export type WorkflowRuntimeHelpers = {
   readonly workflow: string;
   readonly nodePath: string;
   metadata(metadata: JsonObject): void;
-  log(data: string, options?: { stream?: WorkflowLogStream; label?: string }): void;
 };
 
 export const STEP_INVALIDATION_KIND = "rigkit.step.invalidate" as const;
@@ -860,7 +859,14 @@ export type WorkflowEvent =
       title: string;
     }
   | { type: "artifact.created"; nodePath: string; providerId: string; kind: string; ref: JsonValue }
-  | { type: "workspace.ready"; workspaceId: string };
+  | { type: "workflow.apply.started"; workflow: string }
+  | { type: "workflow.apply.completed"; workflow: string; nodeCount: number; cachedNodeCount: number; durationMs: number }
+  | { type: "workspace.create.started"; workspaceName: string }
+  | { type: "workspace.ready"; workspaceId: string }
+  | { type: "workspace.remove.started"; workspaceName: string }
+  | { type: "workspace.remove.completed"; workspaceName: string }
+  | { type: "workspace.operation.started"; workspaceName: string; operationId: string }
+  | { type: "workspace.operation.completed"; workspaceName: string; operationId: string };
 
 export type DevMachineEvent = WorkflowEvent;
 
