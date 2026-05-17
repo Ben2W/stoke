@@ -23,6 +23,7 @@ const COMMANDS: CompletionItem[] = [
   { value: "plan", description: "plan project workflow changes" },
   { value: "apply", description: "apply project workflow changes" },
   { value: "create", description: "create a workspace" },
+  { value: "rm", description: "remove a workspace" },
   { value: "run", description: "run a workspace operation" },
   { value: "ls", description: "list project workspaces" },
   { value: "cache", description: "inspect and clear Rigkit cache" },
@@ -35,13 +36,12 @@ const COMMANDS: CompletionItem[] = [
 const COMMAND_ALIASES = new Map<string, string>();
 
 const GLOBAL_OPTIONS: CompletionItem[] = [
-  { value: "-C", description: "project directory" },
-  { value: "--project", description: "project directory" },
-  { value: "--config", description: "exact config file" },
-  { value: "--state", description: "local state database path" },
-  { value: "--json", description: "print JSON" },
-  { value: "--help", description: "show help" },
-  { value: "--version", description: "show version" },
+  { value: "-chdir=", description: "working directory", noSpace: true },
+  { value: "-config=", description: "config file", noSpace: true },
+  { value: "-state=", description: "state database path", noSpace: true },
+  { value: "-json", description: "print JSON" },
+  { value: "-help", description: "show help" },
+  { value: "-version", description: "show version" },
 ];
 
 const COMMAND_OPTIONS: Record<string, CompletionItem[]> = {
@@ -63,6 +63,11 @@ const COMMAND_OPTIONS: Record<string, CompletionItem[]> = {
     { value: "--json", description: "print JSON" },
   ],
   create: [
+    { value: "--json", description: "print JSON" },
+  ],
+  rm: [
+    { value: "-y", description: "skip confirmation" },
+    { value: "--yes", description: "skip confirmation" },
     { value: "--json", description: "print JSON" },
   ],
   run: [
@@ -103,9 +108,11 @@ const CACHE_SUBCOMMAND_OPTIONS: Record<string, CompletionItem[]> = {
 const PROJECT_OPERATION_COMMANDS = new Set(["plan", "apply", "create"]);
 
 const OPTIONS_WITH_VALUES = new Set([
-  "-C",
-  "--project",
+  "-chdir",
+  "--chdir",
+  "-config",
   "--config",
+  "-state",
   "--state",
   "--name",
   "--api-key",
@@ -173,6 +180,20 @@ export async function completeRig(input: CompleteRigInput): Promise<CompletionIt
   }
 
   if (current.startsWith("-")) {
+    if (command === "rm") {
+      const remove = parseRemoveCommand(before);
+      if (remove.workspace) {
+        const operation = await safeResolveWorkspaceOperation(resolveProjectDir(words, cwd), "remove");
+        return filterItems([
+          ...(operation?.cli?.options ?? []).flatMap((option) => [
+            { value: option.flag, description: option.name },
+            ...(option.aliases ?? []).map((alias) => ({ value: alias, description: option.name })),
+          ]),
+          ...COMMAND_OPTIONS.rm,
+          ...GLOBAL_OPTIONS,
+        ], current);
+      }
+    }
     if (command === "run") {
       const run = parseWorkspaceRunCommand(before);
       if (run.workspace && run.operation) {
@@ -213,6 +234,11 @@ export async function completeRig(input: CompleteRigInput): Promise<CompletionIt
     const run = parseWorkspaceRunCommand(before);
     if (!run.workspace) return filterItems(await workspaceTargets(resolveProjectDir(words, cwd)), current);
     if (!run.operation) return filterItems(await safeWorkspaceOperationTargets(resolveProjectDir(words, cwd)), current);
+  }
+
+  if (command === "rm") {
+    const remove = parseRemoveCommand(before);
+    if (!remove.workspace) return filterItems(await workspaceTargets(resolveProjectDir(words, cwd)), current);
   }
 
   if (command === "completion" && positionalCount === 0) {
@@ -373,6 +399,26 @@ function parseWorkspaceRunCommand(words: string[]): { workspace?: string; operat
   return { workspace: args[0], operation: args[1], args: args.slice(2) };
 }
 
+function parseRemoveCommand(words: string[]): { workspace?: string; args: string[] } {
+  let foundRemove = false;
+  const args: string[] = [];
+  for (let index = 0; index < words.length; index += 1) {
+    const word = words[index]!;
+    if (OPTIONS_WITH_VALUES.has(word)) {
+      index += 1;
+      continue;
+    }
+    if (word.includes("=") && OPTIONS_WITH_VALUES.has(word.slice(0, word.indexOf("=")))) continue;
+    if (word.startsWith("-")) continue;
+    if (!foundRemove) {
+      if (word === "rm") foundRemove = true;
+      continue;
+    }
+    args.push(word);
+  }
+  return { workspace: args[0], args: args.slice(1) };
+}
+
 function parseCacheCommand(words: string[]): { subcommand?: string; args: string[] } {
   let foundCache = false;
   const args: string[] = [];
@@ -412,10 +458,11 @@ async function completeOptionValue(input: {
 }): Promise<CompletionItem[]> {
   let items: CompletionItem[];
   switch (input.option) {
-    case "-C":
-    case "--project":
+    case "-chdir":
+    case "--chdir":
       items = completeDirectories(input.cwd, input.current);
       break;
+    case "-config":
     case "--config":
       items = completeConfigPaths(projectBaseDir(input.words, input.cwd), input.current);
       break;
@@ -427,6 +474,7 @@ async function completeOptionValue(input: {
         { value: "skip" },
       ], input.current);
       break;
+    case "-state":
     case "--state":
       items = completeFilesystemPaths(input.cwd, input.current);
       break;
@@ -454,37 +502,58 @@ function parseInlineValueOption(current: string): { option: string; value: strin
 }
 
 function resolveProjectDir(words: string[], cwd: string): { projectDir: string; configPath: string } {
+  let chdir: string | undefined;
+  let config: string | undefined;
   for (let index = 0; index < words.length; index += 1) {
     const word = words[index]!;
-    if (word === "-C" || word === "--project") {
-      const value = words[index + 1];
-      if (value) return projectPaths(resolve(cwd, value));
+    if (word === "-chdir" || word === "--chdir") {
+      chdir = words[index + 1];
+      index += 1;
+      continue;
     }
-    if (word.startsWith("--project=")) {
-      return projectPaths(resolve(cwd, word.slice("--project=".length)));
+    if (word.startsWith("-chdir=")) {
+      chdir = word.slice("-chdir=".length);
+      continue;
     }
-    if (word === "--config") {
-      const value = words[index + 1];
-      if (value) return { projectDir: dirname(resolve(cwd, value)), configPath: resolve(cwd, value) };
+    if (word.startsWith("--chdir=")) {
+      chdir = word.slice("--chdir=".length);
+      continue;
+    }
+    if (word === "-config" || word === "--config") {
+      config = words[index + 1];
+      index += 1;
+      continue;
+    }
+    if (word.startsWith("-config=")) {
+      config = word.slice("-config=".length);
+      continue;
     }
     if (word.startsWith("--config=")) {
-      const configPath = resolve(cwd, word.slice("--config=".length));
-      return { projectDir: dirname(configPath), configPath };
+      config = word.slice("--config=".length);
+      continue;
     }
   }
 
-  return projectPaths(cwd);
+  const baseDir = resolve(cwd, chdir ?? ".");
+  if (config) {
+    const configPath = resolve(baseDir, config);
+    return { projectDir: dirname(configPath), configPath };
+  }
+  return projectPaths(baseDir);
 }
 
 function projectBaseDir(words: string[], cwd: string): string {
   for (let index = 0; index < words.length; index += 1) {
     const word = words[index]!;
-    if (word === "-C" || word === "--project") {
+    if (word === "-chdir" || word === "--chdir") {
       const value = words[index + 1];
       if (value) return resolve(cwd, value);
     }
-    if (word.startsWith("--project=")) {
-      return resolve(cwd, word.slice("--project=".length));
+    if (word.startsWith("-chdir=")) {
+      return resolve(cwd, word.slice("-chdir=".length));
+    }
+    if (word.startsWith("--chdir=")) {
+      return resolve(cwd, word.slice("--chdir=".length));
     }
   }
   return cwd;

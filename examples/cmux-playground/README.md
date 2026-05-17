@@ -13,7 +13,7 @@ Run from this directory:
 ```bash
 rig plan
 rig apply
-rig create --name cmux-playground
+rig create cmux-playground
 rig run cmux-playground open
 ```
 

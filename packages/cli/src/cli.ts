@@ -2,7 +2,7 @@
 import { existsSync, rmSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import chalk from "chalk";
-import { Command, CommanderError } from "commander";
+import { Command, CommanderError, Option } from "commander";
 import inquirer from "inquirer";
 import ora from "ora";
 import {
@@ -21,11 +21,6 @@ import {
   type CmuxHostCapabilityHandler,
 } from "@rigkit/provider-cmux/host";
 import { DEFAULT_CONFIG_FILE, discoverProjectConfigs, resolveConfigPaths, PROJECT_PACKAGE_NAME } from "./project.ts";
-import {
-  materializeGithubProject,
-  splitGithubProjectTarget,
-  type GithubProjectTarget,
-} from "./remote-project.ts";
 import { RIGKIT_CLI_VERSION } from "./version.ts";
 import { initProject, normalizeMachineName, type InitProjectResult } from "./init.ts";
 import { openExternalTarget } from "./interaction.ts";
@@ -40,7 +35,7 @@ import {
 import { generateWorkspaceName } from "./workspace-name.ts";
 
 type GlobalOptions = {
-  project?: string;
+  chdir?: string;
   config?: string;
   state?: string;
   json: boolean;
@@ -156,10 +151,46 @@ const CLI_HOST_CAPABILITIES: Array<{ id: string; schemaHash?: string }> = [
   ...(capability.schemaHash ? { schemaHash: capability.schemaHash } : {}),
 }));
 
+const TERRAFORM_STYLE_GLOBAL_OPTIONS = new Set(["chdir", "config", "state", "json", "help", "version"]);
+const STATIC_COMMANDS = new Set([
+  "init",
+  "plan",
+  "apply",
+  "create",
+  "rm",
+  "run",
+  "ls",
+  "cache",
+  "projects",
+  "doctor",
+  "version",
+  "help",
+  "completion",
+]);
+
 if (process.argv[2] === "__complete") {
   runCompletionEndpoint(process.argv.slice(3)).catch(handleCliError);
 } else {
-  runCli(process.argv).catch(handleCliError);
+  runCli(normalizeCliArgv(process.argv)).catch(handleCliError);
+}
+
+function normalizeCliArgv(argv: string[]): string[] {
+  const normalized = argv.slice();
+  for (let index = 2; index < normalized.length; index += 1) {
+    const arg = normalized[index]!;
+    if (arg === "--") break;
+    if (!arg.startsWith("-")) {
+      if (STATIC_COMMANDS.has(arg)) break;
+      continue;
+    }
+
+    const match = /^-([A-Za-z][A-Za-z0-9-]*)(=.*)?$/.exec(arg);
+    if (!match) continue;
+    const name = match[1]!;
+    if (!TERRAFORM_STYLE_GLOBAL_OPTIONS.has(name)) continue;
+    normalized[index] = `--${name}${match[2] ?? ""}`;
+  }
+  return normalized;
 }
 
 async function runCli(argv: string[]): Promise<void> {
@@ -167,15 +198,23 @@ async function runCli(argv: string[]): Promise<void> {
   program
     .name("rig")
     .description("Rigkit workflow CLI")
-    .usage("[options] <command>")
+    .usage("[global options] <command> [args]")
     .version(RIGKIT_CLI_VERSION, "-v, --version", "Show Rigkit CLI version")
     .showHelpAfterError()
     .exitOverride()
     .argument("[command]")
-    .option("-C, --project <project>", `Project directory containing ${DEFAULT_CONFIG_FILE}, or a base directory for --config`)
-    .option("--config <config>", "Exact config file to load")
-    .option("--state <state>", "Local runtime state database path")
-    .option("--json", "Print machine-readable JSON where supported")
+    .addOption(new Option("--chdir <dir>", `Switch to a directory containing ${DEFAULT_CONFIG_FILE} before running the command`).hideHelp())
+    .addOption(new Option("--config <file>", "Config file to load, relative to -chdir when set").hideHelp())
+    .addOption(new Option("--state <file>", "Local runtime state database path").hideHelp())
+    .addOption(new Option("--json", "Print machine-readable JSON where supported").hideHelp())
+    .addHelpText("after", [
+      "",
+      "Global Options:",
+      "  -chdir=DIR    Switch to a directory containing rig.config.ts before running the command",
+      "  -config=FILE  Config file to load, relative to -chdir when set",
+      "  -state=FILE   Local runtime state database path",
+      "  -json         Print machine-readable JSON where supported",
+    ].join("\n"))
     .action(async (command?: string) => {
       if (command) program.error(`unknown command '${command}'`);
       await runHelp(makeInvocation(rootOptions(program)));
@@ -230,6 +269,19 @@ async function runCli(argv: string[]): Promise<void> {
         all: false,
         discover: false,
       });
+    });
+
+  program
+    .command("rm <workspace>")
+    .description("Remove a workspace")
+    .option("-y, --yes", "Remove without confirmation")
+    .option("--json", "Print machine-readable JSON")
+    .action(async (workspace: string, options: { yes?: boolean; json?: boolean }) => {
+      await runRemoveWorkspaceOperation(
+        makeInvocation(rootOptions(program), options.json),
+        workspace,
+        { yes: Boolean(options.yes) },
+      );
     });
 
   program
@@ -325,13 +377,13 @@ async function runCli(argv: string[]): Promise<void> {
 
 function rootOptions(program: Command): GlobalOptions {
   const options = program.opts<{
-    project?: string;
+    chdir?: string;
     config?: string;
     state?: string;
     json?: boolean;
   }>();
   return {
-    project: options.project,
+    chdir: options.chdir,
     config: options.config,
     state: options.state,
     json: Boolean(options.json),
@@ -477,10 +529,10 @@ function canPrompt(): boolean {
 function resolveInitProjectPaths(invocation: CliInvocation, name: string): { projectDir: string; configPath: string } {
   const options = invocation.global;
   if (options.config) {
-    throw new Error(`rig init does not support --config. Use -C/--project to choose the parent directory.`);
+    throw new Error(`rig init does not support -config. Use -chdir to choose the parent directory.`);
   }
 
-  const parentDir = resolve(process.cwd(), options.project ?? ".");
+  const parentDir = resolve(process.cwd(), options.chdir ?? ".");
   const projectDir = resolve(parentDir, name);
   return {
     projectDir,
@@ -688,24 +740,17 @@ async function runProjectOperation(
   args: string[],
   options: RunOptions,
 ): Promise<void> {
-  const remote = splitGithubProjectTarget(args);
-  if ((options.all || options.discover) && remote.target) {
-    throw new Error(`Remote GitHub project targets cannot be combined with --all or --discover`);
-  }
-
   if (options.all || options.discover) {
-    await runDiscoveredProjectOperation(invocation, requestedOperation, remote.args, { all: options.all });
+    await runDiscoveredProjectOperation(invocation, requestedOperation, args, { all: options.all });
     return;
   }
 
-  const runtime = remote.target
-    ? await loadGithubRuntime(invocation, remote.target)
-    : await loadRuntime(invocation);
+  const runtime = await loadRuntime(invocation);
   const { operation, parsed, result } = await executeRuntimeOperation(
     invocation,
     runtime,
     requestedOperation,
-    remote.args,
+    args,
   );
 
   if (wantsJson(invocation)) {
@@ -758,6 +803,53 @@ async function runWorkspaceOperation(
   printInteractiveOutputGap(invocation);
 }
 
+async function runRemoveWorkspaceOperation(
+  invocation: CliInvocation,
+  workspaceName: string,
+  options: { yes: boolean },
+): Promise<void> {
+  const runtime = await loadRuntime(invocation);
+  const manifest = await readRuntimeOperations(runtime);
+  const operation = (manifest.workspaceOperations ?? []).find((item) => item.id === "remove");
+  if (!operation) {
+    throw new Error(`This project does not define a removable workspace.`);
+  }
+
+  const workspaces = await runtime.control.workspaces()
+    .then((response) => response.workspaces as WorkspaceRecord[])
+    .catch(() => []);
+  if (!workspaces.some((workspace) => workspace.name === workspaceName)) {
+    throw new Error(`This project does not have a workspace named "${workspaceName}".`);
+  }
+
+  if (!options.yes && !wantsJson(invocation) && canPrompt()) {
+    const confirmed = await promptHostConfirm({
+      message: `Remove workspace ${workspaceName}?`,
+      defaultValue: false,
+    });
+    if (!confirmed) throw new Error("Remove cancelled");
+    options = { yes: true };
+  }
+
+  const parsed = parseOperationArgs(operation, options.yes ? ["--yes"] : []);
+  enforceHostOnlyBooleanGuards(operation, parsed);
+
+  const result = await runRuntimeOperation<unknown>(
+    runtime,
+    `${workspaceName}/remove`,
+    parsed.input,
+    { renderEvents: !wantsJson(invocation) },
+  );
+
+  if (wantsJson(invocation)) {
+    printJson(result);
+    return;
+  }
+
+  await renderOperationResult(operation, result, parsed.hostOptions);
+  printInteractiveOutputGap(invocation);
+}
+
 async function runDiscoveredProjectOperation(
   invocation: CliInvocation,
   requestedOperation: string,
@@ -765,7 +857,7 @@ async function runDiscoveredProjectOperation(
   options: { all: boolean },
 ): Promise<void> {
   const projects = discoverProjectConfigs({
-    project: invocation.global.project,
+    chdir: invocation.global.chdir,
     config: invocation.global.config,
   });
   if (projects.length === 0) {
@@ -774,7 +866,7 @@ async function runDiscoveredProjectOperation(
   if (!options.all && projects.length > 1) {
     throw new Error([
       "Multiple Rigkit projects found.",
-      "Use `rig projects` to list candidates, pass -C/--project or --config to select one, or pass --all to run every discovered project.",
+      "Use `rig projects` to list candidates, pass -chdir or -config to select one, or pass --all to run every discovered project.",
       ...projects.map((project) => `- ${project.configPath}`),
     ].join("\n"));
   }
@@ -792,7 +884,7 @@ async function runDiscoveredProjectOperation(
     const runtime = await getOrStartRuntime({
       projectDir: project.projectDir,
       configPath: project.configPath,
-      statePath: invocation.global.state ? resolve(process.cwd(), invocation.global.state) : undefined,
+      statePath: invocation.global.state ? resolveGlobalPath(invocation, invocation.global.state) : undefined,
     });
     const { operation, parsed, result } = await executeRuntimeOperation(
       invocation,
@@ -822,7 +914,7 @@ async function runDiscoveredProjectOperation(
 
 async function runProjects(invocation: CliInvocation): Promise<void> {
   const projects = discoverProjectConfigs({
-    project: invocation.global.project,
+    chdir: invocation.global.chdir,
     config: invocation.global.config,
   });
   if (wantsJson(invocation)) {
@@ -890,8 +982,8 @@ async function runCacheClear(invocation: CliInvocation, options: CacheClearOptio
   }
 
   if (options.global && options.all) {
-    if (invocation.global.project || invocation.global.config || invocation.global.state) {
-      throw new Error(`rig cache clear --global --all cannot be combined with -C/--project, --config, or --state`);
+    if (invocation.global.chdir || invocation.global.config || invocation.global.state) {
+      throw new Error(`rig cache clear --global --all cannot be combined with -chdir, -config, or -state`);
     }
     const fragmentRoot = join(defaultRigkitHome(), "fragments");
     rmSync(fragmentRoot, { recursive: true, force: true });
@@ -1248,6 +1340,7 @@ async function runHelp(invocation: CliInvocation): Promise<void> {
         { name: "plan", description: "Plan project workflow changes" },
         { name: "apply", description: "Apply project workflow changes" },
         { name: "create", description: "Create a workspace" },
+        { name: "rm", description: "Remove a workspace" },
         { name: "run", description: "Run a workspace operation" },
         { name: "ls", description: "List project workspaces" },
         { name: "cache", description: "Inspect and clear Rigkit cache" },
@@ -1263,7 +1356,7 @@ async function runHelp(invocation: CliInvocation): Promise<void> {
     `rig ${RIGKIT_CLI_VERSION}`,
     "",
     "Usage:",
-    "  rig [options] <command>",
+    "  rig [global options] <command> [args]",
     "",
     "Commands:",
     "  help        Show Rigkit CLI help",
@@ -1271,6 +1364,7 @@ async function runHelp(invocation: CliInvocation): Promise<void> {
     "  plan        Plan project workflow changes",
     "  apply       Apply project workflow changes",
     "  create      Create a workspace",
+    "  rm          Remove a workspace",
     "  run         Run a workspace operation",
     "  ls          List project workspaces",
     "  cache       Inspect and clear Rigkit cache",
@@ -1280,60 +1374,16 @@ async function runHelp(invocation: CliInvocation): Promise<void> {
     "  completion  Generate shell completion script",
     "",
     "Options:",
-    "  -C, --project <dir>  Project directory, or a base directory for --config",
-    "  --config <file>      Exact config file to load",
-    "  --state <file>       Local runtime state database path",
-    "  --json               Print machine-readable JSON where supported",
+    "  -chdir=DIR    Switch to a directory containing rig.config.ts before running the command",
+    "  -config=FILE  Config file to load, relative to -chdir when set",
+    "  -state=FILE   Local runtime state database path",
+    "  -json         Print machine-readable JSON where supported",
   ].join("\n"));
 }
 
 async function loadRuntime(invocation: CliInvocation): Promise<RuntimeClient> {
   const engineOptions = resolveEngineOptions(invocation);
   return await getOrStartRuntime(engineOptions);
-}
-
-async function loadGithubRuntime(invocation: CliInvocation, target: GithubProjectTarget): Promise<RuntimeClient> {
-  if (invocation.global.project || invocation.global.config || invocation.global.state) {
-    throw new Error(`Remote GitHub project targets cannot be combined with -C/--project, --config, or --state`);
-  }
-
-  await confirmGithubProjectTarget(target);
-  const project = await materializeGithubProject(target);
-  if (!wantsJson(invocation)) {
-    console.error(`github ${target.owner}/${target.repo}@${project.commitSha.slice(0, 12)}`);
-  }
-  return await getOrStartRuntime({
-    projectDir: project.projectDir,
-    configPath: project.configPath,
-    statePath: project.statePath,
-    source: {
-      kind: "github",
-      target: target.raw,
-      repoUrl: project.repoUrl,
-      ref: project.ref,
-      commitSha: project.commitSha,
-    },
-  });
-}
-
-async function confirmGithubProjectTarget(target: GithubProjectTarget): Promise<void> {
-  if (process.env.RIGKIT_TRUST_REMOTE_CONFIGS === "1") return;
-  const repo = `https://github.com/${target.owner}/${target.repo}`;
-  const ref = target.ref ? ` at ${target.ref}` : "";
-  const message = `Run and install dependencies for ${repo}${ref}?`;
-
-  if (!canPrompt()) {
-    throw new Error(
-      `Remote GitHub project ${target.raw} executes code on this machine. ` +
-        `Run from an interactive terminal or set RIGKIT_TRUST_REMOTE_CONFIGS=1 to allow it explicitly.`,
-    );
-  }
-
-  console.error("");
-  console.error(chalk.yellow("Remote Rigkit configs execute code on this machine."));
-  console.error(`Project: ${repo}${ref}`);
-  const allowed = await promptHostConfirm({ message, defaultValue: false });
-  if (!allowed) throw new Error(`Remote GitHub project denied`);
 }
 
 async function readRuntimeProject(runtime: RuntimeClient): Promise<EngineProjectInfo> {
@@ -1496,13 +1546,17 @@ function resolveEngineOptions(invocation: CliInvocation): { projectDir: string; 
   return {
     projectDir: paths.projectDir,
     configPath: paths.configPath,
-    statePath: options.state ? resolve(process.cwd(), options.state) : undefined,
+    statePath: options.state ? resolveGlobalPath(invocation, options.state) : undefined,
   };
 }
 
 function resolveCommandConfigPaths(invocation: CliInvocation): { projectDir: string; configPath: string } {
   const options = invocation.global;
-  return resolveConfigPaths({ project: options.project, config: options.config });
+  return resolveConfigPaths({ chdir: options.chdir, config: options.config });
+}
+
+function resolveGlobalPath(invocation: CliInvocation, path: string): string {
+  return resolve(process.cwd(), invocation.global.chdir ?? ".", path);
 }
 
 type HostRequestEvent = {

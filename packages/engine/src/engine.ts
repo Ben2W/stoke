@@ -326,7 +326,7 @@ export class DevMachineEngine {
 
     if (!existsSync(this.configPath)) {
       throw new Error(
-        `No Rigkit config found at ${this.configPath}. Create one with "rig init" or pass --config <file>.`,
+        `No Rigkit config found at ${this.configPath}. Create one with "rig init" or pass -config=<file>.`,
       );
     }
 
@@ -592,6 +592,9 @@ export class DevMachineEngine {
                 stringField({ name: "name", required: true }),
               ],
               cli: {
+                positionals: [
+                  { name: "name", index: 0 },
+                ],
                 options: [
                   { name: "workflow", flag: "--workflow" },
                   { name: "name", flag: "--name", required: true },

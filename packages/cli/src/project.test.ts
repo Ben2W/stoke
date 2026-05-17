@@ -5,17 +5,17 @@ import { join } from "node:path";
 import { discoverProjectConfigs, resolveConfigPaths } from "./project.ts";
 
 describe("CLI project resolution", () => {
-  test("resolves -C to that directory's rig.config.ts", () => {
+  test("resolves -chdir to that directory's rig.config.ts", () => {
     const cwd = mkdtempSync(join(tmpdir(), "rigkit-cli-"));
     mkdirSync(join(cwd, "example"));
     writeFileSync(join(cwd, "example", "rig.config.ts"), "export default {}\n");
-    const paths = resolveConfigPaths({ cwd, project: "example" });
+    const paths = resolveConfigPaths({ cwd, chdir: "example" });
 
     expect(paths.projectDir).toBe(join(cwd, "example"));
     expect(paths.configPath).toBe(join(cwd, "example", "rig.config.ts"));
   });
 
-  test("resolves --config project root from the config dirname", () => {
+  test("resolves -config project root from the config dirname", () => {
     const cwd = mkdtempSync(join(tmpdir(), "rigkit-cli-"));
     const paths = resolveConfigPaths({ cwd, config: "machines/platform.ts" });
 
@@ -40,7 +40,7 @@ describe("CLI project resolution", () => {
     writeFileSync(join(cwd, "web.rig.config.ts"), "export default {}\n");
 
     expect(() => resolveConfigPaths({ cwd })).toThrow(
-      /Found named Rigkit configs[\s\S]*api\.rig\.config\.ts[\s\S]*web\.rig\.config\.ts[\s\S]*rig -C \. --config api\.rig\.config\.ts <command>/,
+      /Found named Rigkit configs[\s\S]*api\.rig\.config\.ts[\s\S]*web\.rig\.config\.ts[\s\S]*rig -chdir=\. -config=api\.rig\.config\.ts <command>/,
     );
   });
 

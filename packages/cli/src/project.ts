@@ -8,7 +8,7 @@ export const FREESTYLE_SDK_PACKAGE_NAME = "freestyle";
 export const FREESTYLE_SDK_PACKAGE_VERSION = "^0.1.51";
 
 export type ConfigPathOptions = {
-  project?: string;
+  chdir?: string;
   config?: string;
   cwd?: string;
 };
@@ -22,16 +22,16 @@ export type DiscoveredProject = ResolvedConfigPaths;
 
 export function resolveConfigPaths(options: ConfigPathOptions): ResolvedConfigPaths {
   const cwd = resolve(options.cwd ?? process.cwd());
+  const workingDir = options.chdir ? resolve(cwd, options.chdir) : cwd;
   if (options.config) {
-    const projectBase = options.project ? resolve(cwd, options.project) : cwd;
-    const configPath = resolve(projectBase, options.config);
+    const configPath = resolve(workingDir, options.config);
     return {
       projectDir: dirname(configPath),
       configPath,
     };
   }
 
-  const projectDir = options.project ? resolve(cwd, options.project) : findNearestProjectDir(cwd);
+  const projectDir = options.chdir ? workingDir : findNearestProjectDir(workingDir);
   const configPath = join(projectDir, DEFAULT_CONFIG_FILE);
 
   if (!existsSync(configPath)) {
@@ -51,7 +51,7 @@ export function discoverProjectConfigs(options: ConfigPathOptions = {}): Discove
   if (options.config) return [resolveConfigPaths(options)];
 
   const cwd = resolve(options.cwd ?? process.cwd());
-  const root = resolve(cwd, options.project ?? ".");
+  const root = resolve(cwd, options.chdir ?? ".");
   const projects: DiscoveredProject[] = [];
   visitProjectDirs(root, projects);
   return projects.sort((left, right) => left.configPath.localeCompare(right.configPath));
@@ -159,7 +159,7 @@ function appendConfigFilesHint(
   options: { commandCwd: string; hint?: ConfigFilesHint },
 ): string {
   const hint = options.hint;
-  if (!hint) return `${message} Run "rig init" or pass --config <file>.`;
+  if (!hint) return `${message} Run "rig init" or pass -config=<file>.`;
 
   const configFile = hint.files[0]!;
   const configPath = displayPath(options.commandCwd, join(hint.dir, configFile));
@@ -171,8 +171,8 @@ function appendConfigFilesHint(
     ...hint.files.map((file) => `- ${file}`),
     "",
     "Choose one explicitly:",
-    `  rig --config ${configPath} <command>`,
-    `  rig -C ${projectDir} --config ${configFile} <command>`,
+    `  rig -config=${configPath} <command>`,
+    `  rig -chdir=${projectDir} -config=${configFile} <command>`,
   ].join("\n");
 }
 

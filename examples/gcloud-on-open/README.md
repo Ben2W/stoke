@@ -22,7 +22,7 @@ Run from this directory:
 ```bash
 rig plan
 rig apply
-rig create --name gcloud-workspace
+rig create gcloud-workspace
 rig run gcloud-workspace ssh
 ```
 

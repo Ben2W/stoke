@@ -6,6 +6,8 @@ import {
 import {
   sequence,
   type JsonObject,
+  type WorkflowNodeInput,
+  type WorkflowNodeOutput,
   type WorkflowNodeDefinition,
   type WorkflowProviderMap,
 } from "@rigkit/sdk";
@@ -70,6 +72,35 @@ export type FreestyleCompanyBaseFragmentContext = JsonObject & {
 };
 
 export type FreestyleCompanyBaseFragment = WorkflowNodeDefinition<FreestyleCompanyBaseFragmentProviderMap, {}, FreestyleCompanyBaseFragmentContext>;
+
+/**
+ * `withFreestyleCompanyBase` is an intentionally advanced wrapper pattern.
+ *
+ * A company base fragment usually needs to do two things that are easy to lose
+ * in simpler examples:
+ *
+ * - seed the workflow with a global, shared base snapshot
+ * - let repo-specific setup add fields to ctx while preserving the base ctx
+ *   needed by later company checks
+ *
+ * The types below encode that contract. They reject a child setup that drops
+ * `freestyleCompanyBase`, but keep any extra fields the child adds so callers
+ * can continue with their repo-specific ctx shape.
+ */
+export type FreestyleCompanyBaseWrappedFragment<Context extends FreestyleCompanyBaseFragmentContext> =
+  WorkflowNodeDefinition<FreestyleCompanyBaseFragmentProviderMap, {}, Context>;
+
+type FreestyleCompanyBasePreservingChild<Child extends WorkflowNodeDefinition<FreestyleCompanyBaseFragmentProviderMap, any, any>> =
+  FreestyleCompanyBaseFragmentContext extends WorkflowNodeInput<Child>
+    ? WorkflowNodeOutput<Child> extends FreestyleCompanyBaseFragmentContext
+      ? Child
+      : never
+    : never;
+
+type FreestyleCompanyBasePreservedOutput<Child extends WorkflowNodeDefinition<FreestyleCompanyBaseFragmentProviderMap, any, any>> =
+  WorkflowNodeOutput<Child> extends FreestyleCompanyBaseFragmentContext
+    ? WorkflowNodeOutput<Child>
+    : never;
 
 const defaultSystemPackages = [
   "build-essential",
@@ -266,6 +297,46 @@ export function freestyleCompanyBaseFragment(options: FreestyleCompanyBaseFragme
         }
       },
     ) as unknown as FreestyleCompanyBaseFragment;
+}
+
+export function withFreestyleCompanyBase<
+  Child extends WorkflowNodeDefinition<FreestyleCompanyBaseFragmentProviderMap, any, any>,
+>(
+  child: FreestyleCompanyBasePreservingChild<Child>,
+  options: FreestyleCompanyBaseFragmentOptions = {},
+): FreestyleCompanyBaseWrappedFragment<FreestyleCompanyBasePreservedOutput<Child>> {
+  return sequence<FreestyleCompanyBaseFragmentProviderMap, {}>("with-freestyle-company-base")
+    .add(freestyleCompanyBaseFragment(options))
+    .add(child as any)
+    .add(freestyleCompanyBaseAuthCheckFragment<FreestyleCompanyBasePreservedOutput<Child>>(options) as any) as unknown as FreestyleCompanyBaseWrappedFragment<FreestyleCompanyBasePreservedOutput<Child>>;
+}
+
+function freestyleCompanyBaseAuthCheckFragment<Context extends FreestyleCompanyBaseFragmentContext>(
+  options: FreestyleCompanyBaseFragmentOptions,
+): WorkflowNodeDefinition<FreestyleCompanyBaseFragmentProviderMap, Context, Context> {
+  const handler = async ({ freestyle, step }: any) => {
+    const { vm, vmId } = await freestyle.client.vms.create({
+      snapshotId: step.ctx.snapshotId,
+      idleTimeoutSeconds: step.ctx.freestyleCompanyBase.idleTimeoutSeconds,
+      logger: step.log,
+    });
+    try {
+      if (options.github ?? true) {
+        const github = await vm.exec(withHome(step.ctx.freestyleCompanyBase.home, "gh auth status -h github.com >/dev/null 2>&1"));
+        if ((github.statusCode ?? 0) !== 0) {
+          return step.invalidate("github-auth" as never);
+        }
+      }
+
+      return { ctx: { ...step.ctx } as Context };
+    } finally {
+      await freestyle.client.vms.delete({ vmId });
+    }
+  };
+
+  return sequence<FreestyleCompanyBaseFragmentProviderMap, Context>("freestyle-company-base-auth-check")
+    .local()
+    .task("check-auth", { cacheTTL: 0 }, handler as any) as unknown as WorkflowNodeDefinition<FreestyleCompanyBaseFragmentProviderMap, Context, Context>;
 }
 
 function createVmSpec(config: FreestyleCompanyBaseFragmentConfig): VmSpec {

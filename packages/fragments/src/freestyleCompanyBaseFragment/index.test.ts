@@ -1,7 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { freestyle } from "@rigkit/provider-freestyle";
 import { workflow } from "@rigkit/sdk";
-import { freestyleCompanyBaseFragment, type FreestyleCompanyBaseFragmentContext } from "./index.ts";
+import {
+  freestyleCompanyBaseFragment,
+  withFreestyleCompanyBase,
+  type FreestyleCompanyBaseFragmentContext,
+} from "./index.ts";
 
 describe("freestyleCompanyBaseFragment", () => {
   test("creates a global fragment with resolved tool config", () => {
@@ -76,4 +80,62 @@ describe("freestyleCompanyBaseFragment", () => {
       "repo-setup",
     ]);
   });
+
+  test("wraps a dependent sequence with the base fragment and auth check", () => {
+    const app = workflow("wrapped-example", {
+      providers: {
+        freestyle: freestyle.provider(),
+        terminal: freestyle.terminal(),
+      },
+    });
+
+    const repoSetup = app
+      .sequence<FreestyleCompanyBaseFragmentContext>("repo-setup")
+      .task("repo-ready", async ({ step }) => ({
+        ctx: {
+          ...step.ctx,
+          repoPath: "/workspace/app",
+        },
+      }));
+
+    const wrapped = withFreestyleCompanyBase(repoSetup, { claude: false });
+
+    expect(wrapped.name).toBe("with-freestyle-company-base");
+    expect(wrapped.nodeKind).toBe("sequence");
+    expect((wrapped as any).children.map((child: { name: string }) => child.name)).toEqual([
+      "freestyle-company-base",
+      "repo-setup",
+      "freestyle-company-base-auth-check",
+    ]);
+  });
 });
+
+if (false) {
+  const app = workflow("wrapped-typecheck", {
+    providers: {
+      freestyle: freestyle.provider(),
+      terminal: freestyle.terminal(),
+    },
+  });
+
+  const preservingSetup = app
+    .sequence<FreestyleCompanyBaseFragmentContext>("preserving-setup")
+    .task("preserve", async ({ step }) => ({
+      ctx: {
+        ...step.ctx,
+        repoPath: "/workspace/app",
+      },
+    }));
+  withFreestyleCompanyBase(preservingSetup);
+
+  const droppingSetup = app
+    .sequence<FreestyleCompanyBaseFragmentContext>("dropping-setup")
+    .task("drop", async () => ({
+      ctx: {
+        repoPath: "/workspace/app",
+      },
+    }));
+
+  // @ts-expect-error wrapped setup must preserve freestyleCompanyBase in ctx
+  withFreestyleCompanyBase(droppingSetup);
+}

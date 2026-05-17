@@ -1,5 +1,5 @@
 import {
-  freestyleCompanyBaseFragment,
+  withFreestyleCompanyBase,
   type FreestyleCompanyBaseFragmentContext,
 } from "@rigkit/fragments";
 import { freestyle } from "@rigkit/provider-freestyle";
@@ -14,7 +14,7 @@ const app = workflow("base-freestyle-fragment-example", {
   },
 });
 
-const companyBase = freestyleCompanyBaseFragment({
+const companyBaseOptions = {
   github: envBoolean("RIGKIT_BASE_GITHUB", true),
   codex: envBoolean("RIGKIT_BASE_CODEX", true),
   claude: envBoolean("RIGKIT_BASE_CLAUDE", true),
@@ -24,7 +24,7 @@ const companyBase = freestyleCompanyBaseFragment({
     vcpuCount: envNumber("RIGKIT_BASE_VCPU_COUNT", 4),
     rootfsSizeGb: envNumber("RIGKIT_BASE_ROOTFS_SIZE_GB", 24),
   },
-});
+};
 
 const projectSetup = app
   .sequence<FreestyleCompanyBaseFragmentContext>("company-project-setup")
@@ -81,17 +81,25 @@ const projectSetup = app
     } finally {
       await freestyle.client.vms.delete({ vmId });
     }
+  })
+  .task("marker", async ({ step }) => {
+    step.log(
+      "project setup complete, snapshot with project files is ready to be used by workspaces",
+    );
+    return {
+      ctx: step.ctx,
+    };
   });
 
 export default app
   .sequence("company-project")
-  .add(companyBase)
-  .add(projectSetup)
+  .add(withFreestyleCompanyBase(projectSetup, companyBaseOptions))
   .workspace({
     create: async ({ workflow, providers, workspace, step }) => {
       const created = await providers.freestyle.client.vms.create({
         snapshotId: workflow.ctx.snapshotId,
-        idleTimeoutSeconds: workflow.ctx.freestyleCompanyBase.idleTimeoutSeconds,
+        idleTimeoutSeconds:
+          workflow.ctx.freestyleCompanyBase.idleTimeoutSeconds,
         logger: step.log,
       });
       const { vmId } = created;

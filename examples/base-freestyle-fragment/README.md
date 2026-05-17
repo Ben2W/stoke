@@ -1,7 +1,7 @@
 # Base Freestyle Fragment Example
 
 This example shows a repo config consuming the reusable
-`freestyleCompanyBaseFragment` export from `@rigkit/fragments`.
+`withFreestyleCompanyBase` export from `@rigkit/fragments`.
 
 The workflow has two layers:
 
@@ -9,13 +9,15 @@ The workflow has two layers:
   shared company toolchain.
 - `company-project-setup`: a repo-local layer that starts from the global base
   snapshot and adds project-specific files.
+- `freestyle-company-base-auth-check`: a local, uncached GitHub auth check that
+  runs after repo setup and can invalidate stale global auth.
 
 Run from this directory:
 
 ```bash
 rig plan
 rig apply
-rig create --name base-fragment-workspace
+rig create base-fragment-workspace
 rig run base-fragment-workspace status --json
 rig run base-fragment-workspace ssh
 ```

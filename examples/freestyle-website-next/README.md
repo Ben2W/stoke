@@ -20,7 +20,7 @@ Run from this directory:
 ```bash
 rig plan
 rig apply
-rig create --name website-workspace
+rig create website-workspace
 rig run website-workspace open-cmux
 rig run website-workspace open-vscode
 ```

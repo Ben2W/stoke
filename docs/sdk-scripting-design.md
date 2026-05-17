@@ -183,7 +183,7 @@ The CLI loads `rig.config.ts`, validates the step chain, prints plans, applies m
 ```bash
 rig plan
 rig apply
-rig create --name my-workspace
+rig create my-workspace
 rig projects
 rig run my-workspace ssh
 ```

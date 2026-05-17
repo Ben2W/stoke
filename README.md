@@ -82,9 +82,10 @@ pnpm build:cli-binaries
 cd examples/smoke
 rig plan
 rig apply
-rig create --name my-workspace
+rig create my-workspace
 rig projects
 rig run my-workspace ssh --print
+rig rm my-workspace
 ```
 
 The CLI also has built-in help:
@@ -94,7 +95,13 @@ rig help
 rig run --help
 ```
 
-Enable shell completion:
+Shell completion lets your shell suggest `rig` commands, options, workspace
+names, and workspace operations when you press tab. If you installed `rig` with
+the official installer, you can usually skip this step: the installer adds the
+completion hook to your shell profile for future terminal sessions.
+
+For local development, or to enable completion in the current terminal session
+without restarting your shell, run the command for your shell:
 
 ```bash
 eval "$(rig completion zsh)"
@@ -102,8 +109,15 @@ eval "$(rig completion zsh)"
 # or: rig completion fish | source
 ```
 
-The installer adds the completion hook for new installs.
-Completion includes dynamic workspace and workspace-operation targets, so `rig run <tab>` suggests locally known workspaces from the runtime API.
+To test dynamic completion from this checkout, run it inside an example project:
+
+```bash
+cd examples/smoke
+rig run <tab>
+```
+
+In a Rigkit project, `rig run <tab>` suggests locally known workspaces, and
+`rig run <workspace> <tab>` suggests operations exposed by that workspace.
 
 Initialize a new Rigkit project:
 
@@ -117,18 +131,17 @@ rig init
 rig init --name platform --package-manager pnpm
 ```
 
-That creates `./platform`. Use `-C <dir>` with `init` to choose a parent directory for the new project.
+That creates `./platform`. Use `-chdir=DIR` with `init` to choose a parent
+directory for the new project.
 
-By default other `rig` commands load `rig.config.ts` from the current directory. Use `-C <dir>` to point at another project directory, or `--config <file>` to load an exact config file.
-
-Remote GitHub project targets can be run without cloning first:
+By default other `rig` commands load `rig.config.ts` from the current directory
+or nearest parent project. Use Terraform-style global context options before the
+command to run against another project or config:
 
 ```bash
-rig plan github:owner/repo
-rig apply github:owner/repo#branch-name
+rig -chdir=examples/smoke plan
+rig -chdir=examples/global-fragments -config=api.rig.config.ts apply
 ```
-
-The CLI materializes the repo into `~/.rigkit/projects`, installs dependencies if the project runtime is missing, stores state beside the cache, and asks for explicit trust before executing remote project code.
 
 ## Current Scope
 

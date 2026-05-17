@@ -432,8 +432,8 @@ Project discovery and runtime lifecycle are separate.
 
 Project discovery:
 
-1. `--config <file>` wins.
-2. `-C/--project <dir>` wins.
+1. `-config=FILE` wins.
+2. `-chdir=DIR` wins.
 3. Otherwise search upward from `cwd` for the nearest `rig.config.ts`.
 4. If none is found, fail clearly.
 
@@ -2106,32 +2106,12 @@ secret implementations.
 Do not design v1 around Workers constraints. Keep the local runtime simple, but
 avoid decisions that would make a remote/Workers runtime impossible.
 
-## Remote GitHub Repos
+## Future Remote Projects
 
-Remote repo support should use the same architecture.
-
-Example:
-
-```bash
-rig <operation> github:owner/repo
-```
-
-Flow:
-
-1. Resolve `owner/repo` and optional ref to a commit SHA.
-2. Download a tarball/zipball into an rigkit cache directory.
-3. Materialize it as a project directory.
-4. Install dependencies if needed.
-5. Start or reuse that cached project's runtime daemon.
-6. Store state in `~/.rigkit/projects/<stable-project-id>/state.sqlite`.
-7. Run the requested operation only if the remote config exposes it.
-
-This is "without cloning" from the user's perspective, but the repo still must
-be materialized somewhere so TypeScript imports and package resolution work.
-
-Security note: loading a remote `rig.config.ts` executes code from that repo on
-the user's machine. The CLI should make that explicit before running untrusted
-remote configs.
+Remote project execution is intentionally out of the local CLI surface for now.
+It should be designed as a separate feature with explicit trust, source
+identity, dependency installation, state ownership, and hosted-runtime
+boundaries. Do not expose remote repos as positional args to `plan` or `apply`.
 
 ## Diagnostics
 

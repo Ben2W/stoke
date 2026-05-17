@@ -24,6 +24,7 @@ describe("CLI entrypoint", () => {
     expect(rootHelp.stderr).toBe("");
     expect(rootHelp.stdout).toContain("rig ");
     expect(rootHelp.stdout).toContain("plan        Plan project workflow changes");
+    expect(rootHelp.stdout).toContain("rm          Remove a workspace");
     expect(rootHelp.stdout).toContain("run         Run a workspace operation");
     expect(rootHelp.stdout).toContain("cache       Inspect and clear Rigkit cache");
 
@@ -37,6 +38,7 @@ describe("CLI entrypoint", () => {
     expect(help.stderr).toBe("");
     expect(help.stdout).toContain("rig ");
     expect(help.stdout).toContain("plan        Plan project workflow changes");
+    expect(help.stdout).toContain("rm          Remove a workspace");
     expect(help.stdout).toContain("run         Run a workspace operation");
     expect(help.stdout).toContain("cache       Inspect and clear Rigkit cache");
   });
@@ -93,7 +95,7 @@ describe("CLI entrypoint", () => {
       expect(result.stderr).toContain("Found named Rigkit configs");
       expect(result.stderr).toContain("api.rig.config.ts");
       expect(result.stderr).toContain("web.rig.config.ts");
-      expect(result.stderr).toContain("rig -C . --config api.rig.config.ts <command>");
+      expect(result.stderr).toContain("rig -chdir=. -config=api.rig.config.ts <command>");
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }
@@ -126,7 +128,7 @@ describe("CLI entrypoint", () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-cli-ls-"));
 
     await withWorkspaceRuntime({ projectDir }, async ({ env }) => {
-      const result = await runCli(["-C", projectDir, "ls"], { env });
+      const result = await runCli([`-chdir=${projectDir}`, "ls"], { env });
 
       expect(result.exitCode).toBe(0);
       expect(result.stderr).toBe("");
@@ -139,7 +141,7 @@ describe("CLI entrypoint", () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-cli-ls-json-"));
 
     await withWorkspaceRuntime({ projectDir }, async ({ env }) => {
-      const result = await runCli(["-C", projectDir, "ls", "--json"], { env });
+      const result = await runCli([`-chdir=${projectDir}`, "ls", "--json"], { env });
 
       expect(result.exitCode).toBe(0);
       expect(result.stderr).toBe("");
@@ -157,11 +159,39 @@ describe("CLI entrypoint", () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-cli-create-name-"));
 
     await withWorkspaceRuntime({ projectDir }, async ({ env }) => {
-      const result = await runCli(["-C", projectDir, "create", "--name", "some workspace", "--json"], { env });
+      const result = await runCli([`-chdir=${projectDir}`, "create", "--name", "some workspace", "--json"], { env });
 
       expect(result.exitCode).toBe(1);
       expect(result.stdout).toBe("");
       expect(result.stderr).toContain('Invalid workspace name "some workspace"');
+    });
+  });
+
+  test("accepts create name as a positional argument", async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-cli-create-positional-"));
+
+    await withWorkspaceRuntime({ projectDir }, async ({ env }) => {
+      const result = await runCli([`-chdir=${projectDir}`, "create", "new-workspace", "--json"], { env });
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stderr).toBe("");
+      expect(JSON.parse(result.stdout)).toMatchObject({
+        name: "new-workspace",
+      });
+    });
+  });
+
+  test("removes a workspace with the built-in rm command", async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-cli-rm-"));
+
+    await withWorkspaceRuntime({ projectDir }, async ({ env }) => {
+      const result = await runCli([`-chdir=${projectDir}`, "rm", "api", "-y", "--json"], { env });
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stderr).toBe("");
+      expect(JSON.parse(result.stdout)).toMatchObject({
+        name: "api",
+      });
     });
   });
 
@@ -241,10 +271,11 @@ async function withWorkspaceRuntime(
   writeFileSync(paths.tokenPath, `${token}\n`);
 
   const now = new Date(0).toISOString();
+  let runResult: unknown = undefined;
   const server = Bun.serve({
     hostname: "127.0.0.1",
     port: 0,
-    fetch(request) {
+    async fetch(request) {
       if (request.headers.get("authorization") !== `Bearer ${token}`) {
         return runtimeJson({ error: { message: "Unauthorized" } }, { status: 401 });
       }
@@ -285,6 +316,7 @@ async function withWorkspaceRuntime(
             description: "Create a workspace",
             createsWorkspace: true,
             cli: {
+              positionals: [{ name: "name", index: 0 }],
               options: [{ name: "name", flag: "--name", required: true, type: "string" }],
             },
             inputSchema: {
@@ -296,8 +328,63 @@ async function withWorkspaceRuntime(
               required: ["name"],
             },
           }],
-          workspaceOperations: [],
+          workspaceOperations: [{
+            id: "remove",
+            kind: "workspace-action",
+            source: "core",
+            title: "Remove",
+            description: "remove workspace",
+            cli: {
+              options: [{ name: "yes", flag: "--yes", aliases: ["-y"], type: "boolean", runtime: false }],
+            },
+            inputSchema: {
+              type: "object",
+              additionalProperties: false,
+              properties: {},
+            },
+          }],
         });
+      }
+      if (pathname === "/runs") {
+        const body = await request.json() as { operation?: string; input?: { name?: string } };
+        runResult = body.operation === "api/remove"
+          ? {
+            id: "workspace-api",
+            name: "api",
+            workflow: "smoke",
+            ctx: {},
+            createdAt: now,
+            updatedAt: now,
+          }
+          : {
+            id: "workspace-new",
+            name: body.input?.name ?? "new-workspace",
+            workflow: "smoke",
+            ctx: {},
+            createdAt: now,
+            updatedAt: now,
+          };
+        return runtimeJson({
+          runId: "run-test",
+          operation: body.operation ?? "test",
+          status: "running",
+          eventsUrl: "/runs/run-test/events",
+          sessionUrl: "",
+        }, { status: 202 });
+      }
+      if (pathname === "/runs/run-test/events") {
+        return new Response(
+          `data: ${JSON.stringify({
+            type: "run.completed",
+            result: runResult,
+          })}\n\n`,
+          {
+            headers: {
+              "content-type": "text/event-stream",
+              "x-rigkit-api-version": String(SUPPORTED_RUNTIME_API_VERSION),
+            },
+          },
+        );
       }
       return runtimeJson({ error: { message: "Not found" } }, { status: 404 });
     },

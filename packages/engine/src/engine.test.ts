@@ -566,6 +566,101 @@ describe("DevMachineEngine workflow runtime", () => {
     expect(readdirSync(fragmentRoot)).toHaveLength(2);
   });
 
+  test("allows a later local task to invalidate an earlier global fragment task", async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-global-invalidates-"));
+    const statePath = join(projectDir, ".rigkit", "state.sqlite");
+    const fragmentRoot = join(projectDir, "fragments");
+    mkdirSync(join(projectDir, ".rigkit"));
+
+    const previous = {
+      installCount: process.env.RIGKIT_GLOBAL_INSTALL_COUNT,
+      authCount: process.env.RIGKIT_GLOBAL_AUTH_COUNT,
+      repoCount: process.env.RIGKIT_LOCAL_REPO_COUNT,
+      checkCount: process.env.RIGKIT_LOCAL_CHECK_COUNT,
+      forceReauth: process.env.RIGKIT_FORCE_GLOBAL_REAUTH,
+    };
+    process.env.RIGKIT_GLOBAL_INSTALL_COUNT = "0";
+    process.env.RIGKIT_GLOBAL_AUTH_COUNT = "0";
+    process.env.RIGKIT_LOCAL_REPO_COUNT = "0";
+    process.env.RIGKIT_LOCAL_CHECK_COUNT = "0";
+    process.env.RIGKIT_FORCE_GLOBAL_REAUTH = "0";
+
+    writeFileSync(
+      join(projectDir, "rig.config.ts"),
+      `
+        import { sequence } from "${import.meta.dir}/index.ts";
+
+        const base = sequence("base")
+          .task("install", async () => {
+            const count = Number(process.env.RIGKIT_GLOBAL_INSTALL_COUNT ?? "0") + 1;
+            process.env.RIGKIT_GLOBAL_INSTALL_COUNT = String(count);
+            return { ctx: { installed: "install-" + count } };
+          })
+          .task("auth", async ({ step }) => {
+            const count = Number(process.env.RIGKIT_GLOBAL_AUTH_COUNT ?? "0") + 1;
+            process.env.RIGKIT_GLOBAL_AUTH_COUNT = String(count);
+            return { ctx: { ...step.ctx, token: "token-" + count } };
+          })
+          .global();
+
+        const repo = sequence("repo")
+          .task("clone", async ({ step }) => {
+            const count = Number(process.env.RIGKIT_LOCAL_REPO_COUNT ?? "0") + 1;
+            process.env.RIGKIT_LOCAL_REPO_COUNT = String(count);
+            return { ctx: { ...step.ctx, repoToken: step.ctx.token, repoCount: count } };
+          });
+
+        export default sequence("root")
+          .add(base)
+          .add(repo)
+          .task("check-auth", { cacheTTL: 0 }, async ({ step }) => {
+            const count = Number(process.env.RIGKIT_LOCAL_CHECK_COUNT ?? "0") + 1;
+            process.env.RIGKIT_LOCAL_CHECK_COUNT = String(count);
+            if (process.env.RIGKIT_FORCE_GLOBAL_REAUTH === "1") {
+              process.env.RIGKIT_FORCE_GLOBAL_REAUTH = "0";
+              return step.invalidate("auth");
+            }
+            return { ctx: step.ctx };
+          });
+      `,
+    );
+
+    try {
+      const engine = await createDevMachineEngine({
+        projectDir,
+        statePath,
+        globalFragmentStateLocator: (fragment: { hash: string }) => ({
+          statePath: join(fragmentRoot, fragment.hash, "state.sqlite"),
+        }),
+      });
+      await engine.load();
+
+      const first = await engine.apply();
+      expect(first.context.token).toBe("token-1");
+      expect(first.context.repoToken).toBe("token-1");
+      expect(process.env.RIGKIT_GLOBAL_INSTALL_COUNT).toBe("1");
+      expect(process.env.RIGKIT_GLOBAL_AUTH_COUNT).toBe("1");
+      expect(process.env.RIGKIT_LOCAL_REPO_COUNT).toBe("1");
+      expect(process.env.RIGKIT_LOCAL_CHECK_COUNT).toBe("1");
+
+      process.env.RIGKIT_FORCE_GLOBAL_REAUTH = "1";
+      const second = await engine.apply();
+      expect(second.context.token).toBe("token-2");
+      expect(second.context.repoToken).toBe("token-2");
+      expect(process.env.RIGKIT_GLOBAL_INSTALL_COUNT).toBe("1");
+      expect(process.env.RIGKIT_GLOBAL_AUTH_COUNT).toBe("2");
+      expect(process.env.RIGKIT_LOCAL_REPO_COUNT).toBe("2");
+      expect(process.env.RIGKIT_LOCAL_CHECK_COUNT).toBe("3");
+      expect(readdirSync(fragmentRoot)).toHaveLength(1);
+    } finally {
+      restoreEnv("RIGKIT_GLOBAL_INSTALL_COUNT", previous.installCount);
+      restoreEnv("RIGKIT_GLOBAL_AUTH_COUNT", previous.authCount);
+      restoreEnv("RIGKIT_LOCAL_REPO_COUNT", previous.repoCount);
+      restoreEnv("RIGKIT_LOCAL_CHECK_COUNT", previous.checkCount);
+      restoreEnv("RIGKIT_FORCE_GLOBAL_REAUTH", previous.forceReauth);
+    }
+  });
+
   test("stores provider JSON state in Rigkit-owned provider storage", async () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-"));
     const plugin: BaseProviderPlugin = {
