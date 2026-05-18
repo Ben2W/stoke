@@ -54,52 +54,6 @@
         "default": true,
         "tag": "Latest",
         "pages": [
-          "v0.2.9/introduction",
-          {
-            "group": "Start",
-            "pages": [
-              "v0.2.9/guides/quickstart",
-              "v0.2.9/guides/workflows",
-              "v0.2.9/guides/workspaces"
-            ]
-          },
-          {
-            "group": "Providers",
-            "pages": [
-              "v0.2.9/providers/overview",
-              "v0.2.9/providers/freestyle",
-              "v0.2.9/providers/terminal",
-              "v0.2.9/providers/cmux",
-              "v0.2.9/providers/gcloud",
-              "v0.2.9/providers/storage",
-              "v0.2.9/providers/creating-providers"
-            ]
-          },
-          {
-            "group": "Concepts",
-            "pages": [
-              "v0.2.9/concepts/mental-model",
-              "v0.2.9/concepts/cache-and-state"
-            ]
-          },
-          {
-            "group": "Advanced",
-            "pages": [
-              "v0.2.9/advanced/fragments"
-            ]
-          },
-          {
-            "group": "Reference",
-            "pages": [
-              "v0.2.9/reference/cli"
-            ]
-          }
-        ]
-      },
-      {
-        "version": "canary",
-        "tag": "Canary",
-        "pages": [
           "introduction",
           {
             "group": "Start",
@@ -138,6 +92,52 @@
             "group": "Reference",
             "pages": [
               "reference/cli"
+            ]
+          }
+        ]
+      },
+      {
+        "version": "Canary",
+        "tag": "Preview",
+        "pages": [
+          "canary/introduction",
+          {
+            "group": "Start",
+            "pages": [
+              "canary/guides/quickstart",
+              "canary/guides/workflows",
+              "canary/guides/workspaces"
+            ]
+          },
+          {
+            "group": "Providers",
+            "pages": [
+              "canary/providers/overview",
+              "canary/providers/freestyle",
+              "canary/providers/terminal",
+              "canary/providers/cmux",
+              "canary/providers/gcloud",
+              "canary/providers/storage",
+              "canary/providers/creating-providers"
+            ]
+          },
+          {
+            "group": "Concepts",
+            "pages": [
+              "canary/concepts/mental-model",
+              "canary/concepts/cache-and-state"
+            ]
+          },
+          {
+            "group": "Advanced",
+            "pages": [
+              "canary/advanced/fragments"
+            ]
+          },
+          {
+            "group": "Reference",
+            "pages": [
+              "canary/reference/cli"
             ]
           }
         ]
