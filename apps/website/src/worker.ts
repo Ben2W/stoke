@@ -33,6 +33,14 @@ export default {
       return env.ASSETS.fetch(assetRequest(request, url, "/docs.html"));
     }
 
+    if (url.pathname === "/releases") {
+      return env.ASSETS.fetch(assetRequest(request, url, "/releases.html"));
+    }
+
+    if (url.pathname === "/canary") {
+      return env.ASSETS.fetch(assetRequest(request, url, "/canary.html"));
+    }
+
     return env.ASSETS.fetch(request);
   },
 };

@@ -1,4 +1,4 @@
-name: Create Release Line
+name: Create Version Line
 
 on:
   workflow_dispatch:
@@ -15,7 +15,7 @@ permissions:
   contents: write
 
 jobs:
-  create-release-line:
+  create-version-line:
     runs-on: ubuntu-latest
 
     steps:
@@ -25,7 +25,7 @@ jobs:
           ref: ${{ inputs.source_ref }}
           fetch-depth: 0
 
-      - name: Create release branch
+      - name: Create version branch
         env:
           VERSION_LINE: ${{ inputs.version_line }}
         run: |
@@ -34,7 +34,7 @@ jobs:
             exit 1
           fi
 
-          branch="release/${VERSION_LINE}"
+          branch="version/${VERSION_LINE}"
           if git ls-remote --exit-code origin "refs/heads/${branch}" >/dev/null 2>&1; then
             echo "${branch} already exists" >&2
             exit 1

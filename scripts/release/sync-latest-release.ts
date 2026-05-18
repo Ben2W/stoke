@@ -73,7 +73,7 @@ run(
     "fetch",
     "origin",
     "+refs/heads/main:refs/remotes/origin/main",
-    "+refs/heads/release/*:refs/remotes/origin/release/*",
+    "+refs/heads/version/*:refs/remotes/origin/version/*",
     "+refs/tags/*:refs/tags/*",
   ],
   { quiet: true },
@@ -97,13 +97,13 @@ const latestLine = stableTags.reduce((latest, tag) =>
 
 if (compareLine(release.line, latestLine.line) !== 0) {
   skip(
-    `${release.tag} belongs to release/${release.lineName}, but the latest released line is release/${latestLine.lineName}; skipping main sync.`,
+    `${release.tag} belongs to version/${release.lineName}, but the latest released line is version/${latestLine.lineName}; skipping main sync.`,
   );
   process.exit(0);
 }
 
-const releaseBranch = `release/${release.lineName}`;
-const syncBranch = `automation/sync-release-${release.lineName}-to-main`;
+const releaseBranch = `version/${release.lineName}`;
+const syncBranch = `automation/sync-version-${release.lineName}-to-main`;
 const releaseBranchExists = run(
   ["git", "rev-parse", "--verify", `origin/${releaseBranch}`],
   { allowFailure: true, quiet: true },

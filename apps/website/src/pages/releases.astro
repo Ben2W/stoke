@@ -1,0 +1,39 @@
+---
+import SiteLayout from "@/layouts/SiteLayout.astro";
+import Header from "@/components/Header.astro";
+import { ReleasesList } from "@/components/ReleasesList";
+---
+
+<SiteLayout
+  title="Rigkit releases"
+  description="Stable Rigkit releases — notes, dates, and links to GitHub."
+>
+  <div class="flex min-h-screen flex-col">
+    <Header />
+
+    <main class="flex-1 px-6 pt-10 pb-20 sm:px-10 sm:pt-16">
+      <section class="mx-auto flex w-full max-w-3xl flex-col">
+        <h1
+          class="font-sans text-[40px] font-extrabold leading-[1.05] tracking-[-0.03em] text-[var(--color-fg)]"
+        >
+          Releases
+        </h1>
+        <p
+          class="mt-4 max-w-xl font-sans text-[16px] leading-[1.55] text-[#2a2a2a]"
+        >
+          Stable Rigkit releases. Looking for the bleeding edge?
+          <a
+            href="/canary"
+            class="text-[var(--color-accent)] underline-offset-4 hover:underline"
+          >
+            See canary builds
+          </a>.
+        </p>
+
+        <div class="mt-12">
+          <ReleasesList client:load />
+        </div>
+      </section>
+    </main>
+  </div>
+</SiteLayout>

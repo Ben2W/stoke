@@ -33,12 +33,12 @@ export function createReleasePlan(releaseType: ReleaseType): ReleasePlan {
   const sourceBranch = process.env.GITHUB_REF_NAME || currentGitBranch();
   const currentVersion = getReleaseState().version;
   const version = bumpVersion(currentVersion, releaseType);
-  const targetBranch = `release/${versionLineForVersion(version)}`;
+  const targetBranch = `version/${versionLineForVersion(version)}`;
 
   if (releaseType === "patch") {
-    if (!sourceBranch.startsWith("release/")) {
+    if (!sourceBranch.startsWith("version/")) {
       throw new Error(
-        `Patch releases must be prepared from the release branch dropdown, got ${sourceBranch}`,
+        `Patch releases must be prepared from the version branch dropdown, got ${sourceBranch}`,
       );
     }
 

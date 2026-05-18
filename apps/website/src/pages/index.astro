@@ -5,6 +5,7 @@ import { InstallBlock } from "@/components/InstallBlock";
 import CodeShowcase from "@/components/CodeShowcase.astro";
 import { CliShowcase } from "@/components/CliShowcase";
 import DiscordIcon from "@/components/DiscordIcon.astro";
+import { LatestVersionBadge } from "@/components/LatestVersionBadge";
 ---
 
 <SiteLayout
@@ -16,11 +17,7 @@ import DiscordIcon from "@/components/DiscordIcon.astro";
 
     <main class="flex-1 px-6 pt-10 pb-20 sm:px-10 sm:pt-16">
       <section class="mx-auto flex w-full max-w-4xl flex-col">
-        <p
-          class="mb-7 inline-flex items-center self-start rounded-lg border-[1.5px] border-[var(--color-accent)] px-3 py-1.5 font-sans text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--color-accent)]"
-        >
-          Rigkit · v0.2
-        </p>
+        <LatestVersionBadge client:load />
 
         <h1
           class="font-sans text-[44px] font-extrabold leading-[1.02] tracking-[-0.035em] text-[var(--color-fg)] sm:text-[56px]"

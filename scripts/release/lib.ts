@@ -292,8 +292,9 @@ export function shouldCheckWorkflowOptions(tag?: string) {
 
 export function runReleaseCheck(tag?: string, options: ReleaseCheckOptions = {}) {
   const state = getReleaseState();
+  const isPrerelease = state.version.includes("-");
   const checkWorkflowOptions =
-    options.checkWorkflowOptions ?? shouldCheckWorkflowOptions(tag);
+    options.checkWorkflowOptions ?? (shouldCheckWorkflowOptions(tag) && !isPrerelease);
 
   parseVersion(state.version);
   assertReleasePackageMetadata();
@@ -370,10 +371,10 @@ export function assertNpmPublishReady(options: {
   }
 }
 
-export function assertReleaseBranchForVersion(version: string) {
-  const expectedBranch = `origin/release/${versionLineForVersion(version)}`;
+export function assertVersionBranchForVersion(version: string) {
+  const expectedBranch = `origin/version/${versionLineForVersion(version)}`;
 
-  run(["git", "fetch", "origin", "+refs/heads/release/*:refs/remotes/origin/release/*"], {
+  run(["git", "fetch", "origin", "+refs/heads/version/*:refs/remotes/origin/version/*"], {
     allowFailure: true,
     quiet: true,
   });
@@ -402,13 +403,13 @@ export function currentGitBranch() {
   }).stdout.trim();
 }
 
-export function assertCheckedOutReleaseBranch(version: string) {
+export function assertCheckedOutVersionBranch(version: string) {
   const branch = currentGitBranch();
-  if (!branch.startsWith("release/")) {
-    throw new Error(`Stable release preparation must run on release/*, got ${branch}`);
+  if (!branch.startsWith("version/")) {
+    throw new Error(`Stable release preparation must run on version/*, got ${branch}`);
   }
 
-  const expectedBranch = `release/${versionLineForVersion(version)}`;
+  const expectedBranch = `version/${versionLineForVersion(version)}`;
   if (branch !== expectedBranch) {
     throw new Error(
       `Version ${version} belongs on ${expectedBranch}, but current branch is ${branch}`,
@@ -455,12 +456,14 @@ export function bumpAllReleaseVersions(
   parseVersion(nextVersion);
   writeAllReleaseVersions(nextVersion);
   replaceInFiles(sdkVersionExpectationFiles, currentVersion, nextVersion);
-  if (options.syncWorkflowOptions ?? true) {
+  const isPrerelease = nextVersion.includes("-");
+  const syncWorkflowOptions = (options.syncWorkflowOptions ?? true) && !isPrerelease;
+  if (syncWorkflowOptions) {
     syncPrepareReleaseWorkflowOptionsForVersion(nextVersion);
   }
   run(["pnpm", "install", "--lockfile-only"], { quiet: true });
   runReleaseCheck(undefined, {
-    checkWorkflowOptions: options.syncWorkflowOptions ?? true,
+    checkWorkflowOptions: syncWorkflowOptions,
   });
 }
 

@@ -7,10 +7,27 @@ export type InstallEnv = {
 
 type GithubRelease = {
   tag_name: string;
+  name?: string | null;
+  body?: string | null;
   target_commitish?: string;
   published_at: string | null;
+  created_at?: string | null;
   html_url: string;
+  prerelease?: boolean;
+  draft?: boolean;
   assets: GithubAsset[];
+};
+
+export type ReleaseSummary = {
+  tag: string;
+  name: string;
+  body: string;
+  prerelease: boolean;
+  draft: boolean;
+  publishedAt: string | null;
+  createdAt: string | null;
+  htmlUrl: string;
+  isCanary: boolean;
 };
 
 type GithubAsset = {
@@ -45,11 +62,15 @@ type LatestMetadata = {
 const TARGETS: Target[] = ["darwin-arm64", "darwin-x64", "linux-arm64", "linux-x64"];
 const DEFAULT_REPO = "freestyle-sh/rigkit";
 const DEFAULT_CACHE_TTL_SECONDS = 30;
+const CANARY_TAG_PATTERN = /^0\.0\.0-canary-/;
 
 const INSTALL_PATHS = new Set([
   "/install",
+  "/install/canary",
   "/latest",
   "/latest.json",
+  "/canary/latest.json",
+  "/api/releases",
 ]);
 
 export function isInstallPath(pathname: string): boolean {
@@ -57,6 +78,10 @@ export function isInstallPath(pathname: string): boolean {
   if (pathname.startsWith("/download/")) return true;
   if (pathname.startsWith("/checksums/")) return true;
   return false;
+}
+
+export function isCanaryTag(tag: string): boolean {
+  return CANARY_TAG_PATTERN.test(tag);
 }
 
 export async function handleInstallRequest(
@@ -82,7 +107,14 @@ async function dispatch(request: Request, env: InstallEnv, ctx?: ExecutionContex
   }
 
   if (url.pathname === "/install") {
-    return text(renderInstallScript(resolvePublicBaseUrl(request, env)), {
+    return text(renderInstallScript(resolvePublicBaseUrl(request, env), "stable"), {
+      contentType: "text/x-shellscript; charset=utf-8",
+      cacheControl: "public, max-age=300",
+    });
+  }
+
+  if (url.pathname === "/install/canary") {
+    return text(renderInstallScript(resolvePublicBaseUrl(request, env), "canary"), {
       contentType: "text/x-shellscript; charset=utf-8",
       cacheControl: "public, max-age=300",
     });
@@ -93,28 +125,55 @@ async function dispatch(request: Request, env: InstallEnv, ctx?: ExecutionContex
     return json(metadata, { cacheControl: latestMetadataCacheControl(env) });
   }
 
+  if (url.pathname === "/canary/latest.json") {
+    const metadata = await getLatestCanaryMetadata(request, env, ctx);
+    return json(metadata, { cacheControl: latestMetadataCacheControl(env) });
+  }
+
+  if (url.pathname === "/api/releases") {
+    const releases = await getReleasesList(request, env, ctx);
+    return json(releases, { cacheControl: latestMetadataCacheControl(env) });
+  }
+
   const downloadMatch = url.pathname.match(/^\/download\/([^/]+)\/([^/]+)$/);
   if (downloadMatch) {
     const version = decodeURIComponent(downloadMatch[1]!);
     const target = normalizeTarget(decodeURIComponent(downloadMatch[2]!));
-    const metadata = version === "latest"
-      ? await getLatestMetadata(request, env, ctx)
-      : await getReleaseMetadata(request, env, normalizeVersion(version));
+    const metadata = await resolveMetadata(request, env, ctx, version);
     const download = metadata.downloads[target];
     if (!download) throw new HttpError(404, `No ${target} asset for ${metadata.tag}`);
-    return redirect(download.githubUrl, version === "latest" ? 302 : 307, version === "latest" ? latestRedirectCacheControl(env) : "public, max-age=31536000, immutable");
+    const isChannel = version === "latest" || version === "canary";
+    return redirect(
+      download.githubUrl,
+      isChannel ? 302 : 307,
+      isChannel ? latestRedirectCacheControl(env) : "public, max-age=31536000, immutable",
+    );
   }
 
   const checksumsMatch = url.pathname.match(/^\/checksums\/([^/]+)$/);
   if (checksumsMatch) {
     const version = decodeURIComponent(checksumsMatch[1]!);
-    const metadata = version === "latest"
-      ? await getLatestMetadata(request, env, ctx)
-      : await getReleaseMetadata(request, env, normalizeVersion(version));
-    return redirect(metadata.checksums.githubUrl, version === "latest" ? 302 : 307, version === "latest" ? latestRedirectCacheControl(env) : "public, max-age=31536000, immutable");
+    const metadata = await resolveMetadata(request, env, ctx, version);
+    const isChannel = version === "latest" || version === "canary";
+    return redirect(
+      metadata.checksums.githubUrl,
+      isChannel ? 302 : 307,
+      isChannel ? latestRedirectCacheControl(env) : "public, max-age=31536000, immutable",
+    );
   }
 
   return json({ error: "Not found" }, { status: 404, cacheControl: "no-store" });
+}
+
+async function resolveMetadata(
+  request: Request,
+  env: InstallEnv,
+  ctx: ExecutionContext | undefined,
+  version: string,
+): Promise<LatestMetadata> {
+  if (version === "latest") return await getLatestMetadata(request, env, ctx);
+  if (version === "canary") return await getLatestCanaryMetadata(request, env, ctx);
+  return await getReleaseMetadata(request, env, normalizeVersion(version));
 }
 
 async function getLatestMetadata(request: Request, env: InstallEnv, ctx?: ExecutionContext): Promise<LatestMetadata> {
@@ -134,6 +193,64 @@ async function getLatestMetadata(request: Request, env: InstallEnv, ctx?: Execut
 async function getReleaseMetadata(request: Request, env: InstallEnv, tag: string): Promise<LatestMetadata> {
   const release = await fetchGithubRelease(env, `tags/${tag}`);
   return await buildMetadata(request, env, release);
+}
+
+async function getLatestCanaryMetadata(
+  request: Request,
+  env: InstallEnv,
+  ctx?: ExecutionContext,
+): Promise<LatestMetadata> {
+  const cacheKey = new Request(new URL(`/__cache/canary/${repo(env)}`, request.url), { method: "GET" });
+  const cached = await cacheMatch(cacheKey);
+  if (cached) return await cached.json() as LatestMetadata;
+
+  const releases = await fetchReleasesList(env);
+  const canary = releases.find(
+    (release) => release.prerelease && isCanaryTag(release.tag_name),
+  );
+
+  if (!canary) {
+    throw new HttpError(404, "No canary release published yet");
+  }
+
+  const metadata = await buildMetadata(request, env, canary);
+  const response = json(metadata, { cacheControl: `public, max-age=${cacheTtl(env)}` });
+  const put = cachePut(cacheKey, response);
+  if (ctx) ctx.waitUntil(put);
+  else await put;
+  return metadata;
+}
+
+async function getReleasesList(
+  request: Request,
+  env: InstallEnv,
+  ctx?: ExecutionContext,
+): Promise<ReleaseSummary[]> {
+  const cacheKey = new Request(new URL(`/__cache/releases/${repo(env)}`, request.url), { method: "GET" });
+  const cached = await cacheMatch(cacheKey);
+  if (cached) return await cached.json() as ReleaseSummary[];
+
+  const releases = await fetchReleasesList(env);
+  const summaries = releases.map(summarizeRelease);
+  const response = json(summaries, { cacheControl: `public, max-age=${cacheTtl(env)}` });
+  const put = cachePut(cacheKey, response);
+  if (ctx) ctx.waitUntil(put);
+  else await put;
+  return summaries;
+}
+
+function summarizeRelease(release: GithubRelease): ReleaseSummary {
+  return {
+    tag: release.tag_name,
+    name: release.name ?? release.tag_name,
+    body: release.body ?? "",
+    prerelease: Boolean(release.prerelease),
+    draft: Boolean(release.draft),
+    publishedAt: release.published_at,
+    createdAt: release.created_at ?? release.published_at,
+    htmlUrl: release.html_url,
+    isCanary: isCanaryTag(release.tag_name),
+  };
 }
 
 async function buildMetadata(request: Request, env: InstallEnv, release: GithubRelease): Promise<LatestMetadata> {
@@ -194,6 +311,24 @@ async function fetchGithubRelease(env: InstallEnv, path: "latest" | `tags/${stri
   return await response.json() as GithubRelease;
 }
 
+async function fetchReleasesList(env: InstallEnv): Promise<GithubRelease[]> {
+  const response = await fetch(
+    `https://api.github.com/repos/${repo(env)}/releases?per_page=100`,
+    { headers: githubApiHeaders(env) },
+  );
+
+  if (!response.ok) {
+    const hint = response.status === 403
+      ? githubToken(env)
+        ? ". Check GITHUB_TOKEN permissions or rate limit."
+        : ". Configure the GITHUB_TOKEN Worker secret to avoid anonymous GitHub API limits."
+      : "";
+    throw new HttpError(502, `GitHub releases lookup failed with ${response.status}${hint}`);
+  }
+
+  return (await response.json() as GithubRelease[]).filter((release) => !release.draft);
+}
+
 function githubApiHeaders(env: InstallEnv): Headers {
   const headers = new Headers({
     "Accept": "application/vnd.github+json",
@@ -247,7 +382,9 @@ function normalizeTarget(value: string): Target {
 }
 
 function normalizeVersion(value: string): string {
-  return value.startsWith("v") ? value : `v${value}`;
+  if (value.startsWith("v")) return value;
+  if (isCanaryTag(value)) return value;
+  return `v${value}`;
 }
 
 function assetNameForTarget(target: Target): string {
@@ -318,14 +455,20 @@ function text(value: string, options: { status?: number; contentType: string; ca
   });
 }
 
-function renderInstallScript(baseUrl: string): string {
+function renderInstallScript(baseUrl: string, channel: "stable" | "canary"): string {
+  const defaultVersion = channel === "canary" ? "canary" : "latest";
+  const banner = channel === "canary"
+    ? "echo \"Installing rig CANARY build — for testing only.\""
+    : "";
   return `#!/usr/bin/env sh
 set -eu
 
 base_url="\${RIGKIT_BASE_URL:-${baseUrl}}"
-version="\${RIGKIT_VERSION:-latest}"
+version="\${RIGKIT_VERSION:-${defaultVersion}}"
 rigkit_home="\${RIGKIT_HOME:-$HOME/.rigkit}"
 install_dir="\${RIGKIT_INSTALL_DIR:-$rigkit_home/bin}"
+
+${banner}
 
 os="$(uname -s)"
 arch="$(uname -m)"
@@ -346,12 +489,13 @@ esac
 target="\${os_name}-\${arch_name}"
 asset="rig-\${target}.tar.gz"
 
-if [ "$version" = "latest" ]; then
-  download_url="\${base_url}/download/latest/\${target}"
-  checksum_url="\${base_url}/checksums/latest"
+if [ "$version" = "latest" ] || [ "$version" = "canary" ]; then
+  download_url="\${base_url}/download/\${version}/\${target}"
+  checksum_url="\${base_url}/checksums/\${version}"
 else
   case "$version" in
     v*) tag="$version" ;;
+    0.0.0-canary-*) tag="$version" ;;
     *) tag="v$version" ;;
   esac
   download_url="\${base_url}/download/\${tag}/\${target}"

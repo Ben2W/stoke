@@ -9,6 +9,7 @@ permissions:
   contents: read
   issues: write
   pull-requests: write
+  id-token: write
 
 concurrency:
   group: canary-${{ github.event.issue.number }}
@@ -79,21 +80,6 @@ jobs:
         run: |
           corepack enable
           corepack prepare pnpm@9.15.9 --activate
-
-      - name: Setup npm auth
-        run: |
-          if [ -z "${NPM_CANARY_TOKEN:-}" ]; then
-            echo "Missing NPM_CANARY_TOKEN secret" >&2
-            exit 1
-          fi
-          npmrc="${NPM_CONFIG_USERCONFIG:-$HOME/.npmrc}"
-          mkdir -p "$(dirname "$npmrc")"
-          {
-            echo "registry=https://registry.npmjs.org/"
-            echo "//registry.npmjs.org/:_authToken=${NPM_CANARY_TOKEN}"
-          } > "$npmrc"
-        env:
-          NPM_CANARY_TOKEN: ${{ secrets.NPM_CANARY_TOKEN }}
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
