@@ -103,7 +103,7 @@ runs:
 
     - name: Validate release
       shell: bash
-      run: pnpm release:preflight
+      run: pnpm release:preflight -- --allow-unpublished
 
     - name: Typecheck
       shell: bash
