@@ -3,10 +3,6 @@
   "theme": "mint",
   "name": "Rigkit",
   "description": "Declarative dev environments, in TypeScript.",
-  "banner": {
-    "content": "Rigkit is early. These docs track the current workflow, provider, and fragment APIs.",
-    "dismissible": true
-  },
   "colors": {
     "primary": "#2d4df5",
     "light": "#5a76ff",
@@ -57,17 +53,11 @@
           "introduction",
           {
             "group": "Get started",
-            "pages": [
-              "guides/quickstart",
-              "reference/cli"
-            ]
+            "pages": ["guides/quickstart", "reference/cli"]
           },
           {
             "group": "Concepts",
-            "pages": [
-              "concepts/mental-model",
-              "concepts/cache-and-state"
-            ]
+            "pages": ["concepts/mental-model", "concepts/cache-and-state"]
           },
           {
             "group": "Writing configs",
@@ -89,9 +79,7 @@
           },
           {
             "group": "Extending Rigkit",
-            "pages": [
-              "providers/creating-providers"
-            ]
+            "pages": ["providers/creating-providers"]
           }
         ]
       },
@@ -129,15 +117,11 @@
           },
           {
             "group": "Advanced",
-            "pages": [
-              "canary/advanced/fragments"
-            ]
+            "pages": ["canary/advanced/fragments"]
           },
           {
             "group": "Reference",
-            "pages": [
-              "canary/reference/cli"
-            ]
+            "pages": ["canary/reference/cli"]
           }
         ]
       },
@@ -174,15 +158,11 @@
           },
           {
             "group": "Advanced",
-            "pages": [
-              "v0.2.8/advanced/fragments"
-            ]
+            "pages": ["v0.2.8/advanced/fragments"]
           },
           {
             "group": "Reference",
-            "pages": [
-              "v0.2.8/reference/cli"
-            ]
+            "pages": ["v0.2.8/reference/cli"]
           }
         ]
       }
