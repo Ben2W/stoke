@@ -156,7 +156,7 @@ describe("website worker · install routes", () => {
     const response = await worker.fetch(new Request("https://rigkit.freestyle.sh/"), env, ctx());
     expect(response.status).toBe(200);
     expect(await response.text()).toBe("<html>hello</html>");
-    expect(assetCalls).toEqual(["/"]);
+    expect(assetCalls).toEqual(["/index.html"]);
   });
 
   test("serves the docs page from the extensionless /docs path", async () => {

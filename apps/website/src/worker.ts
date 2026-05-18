@@ -29,6 +29,10 @@ export default {
       return handleInstallRequest(request, env, ctx);
     }
 
+    if (url.pathname === "/") {
+      return env.ASSETS.fetch(assetRequest(request, url, "/index.html"));
+    }
+
     if (url.pathname === "/docs") {
       return env.ASSETS.fetch(assetRequest(request, url, "/docs.html"));
     }
