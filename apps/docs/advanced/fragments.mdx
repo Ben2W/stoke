@@ -3,6 +3,12 @@ title: "Advanced fragments"
 description: "Build reusable workflow fragments, global base caches, and wrapper fragments that preserve context contracts."
 ---
 
+<Note>
+**Read this when:** you're sharing setup across multiple projects or repos, or
+you want expensive base setup cached once on the machine and reused everywhere.
+If you have one project with a single config, you can skip this page.
+</Note>
+
 A fragment is a reusable workflow node. There is no separate fragment API:
 sequences, tasks, and composed nodes are already fragments when you export or
 return them from a helper.

@@ -3,6 +3,13 @@ title: "Workspaces and operations"
 description: "Create named workspaces from workflow output and expose project-specific commands with rig run."
 ---
 
+<Note>
+This guide covers the config-author side of workspaces — how to define
+`.workspace({ create, remove })` and `.workspaceOperation(...)`. If you just
+want to use the `rig create` / `rig run` commands, see the
+[CLI reference](/reference/cli).
+</Note>
+
 `rig apply` prepares workflow context. `rig create <name>` turns that context
 into a named workspace. `rig run <name> <operation>` runs actions against an
 existing workspace.

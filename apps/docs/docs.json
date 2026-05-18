@@ -56,23 +56,10 @@
         "pages": [
           "introduction",
           {
-            "group": "Start",
+            "group": "Get started",
             "pages": [
               "guides/quickstart",
-              "guides/workflows",
-              "guides/workspaces"
-            ]
-          },
-          {
-            "group": "Providers",
-            "pages": [
-              "providers/overview",
-              "providers/freestyle",
-              "providers/terminal",
-              "providers/cmux",
-              "providers/gcloud",
-              "providers/storage",
-              "providers/creating-providers"
+              "reference/cli"
             ]
           },
           {
@@ -83,15 +70,27 @@
             ]
           },
           {
-            "group": "Advanced",
+            "group": "Writing configs",
             "pages": [
+              "guides/workflows",
+              "guides/workspaces",
               "advanced/fragments"
             ]
           },
           {
-            "group": "Reference",
+            "group": "Built-in providers",
             "pages": [
-              "reference/cli"
+              "providers/overview",
+              "providers/freestyle",
+              "providers/terminal",
+              "providers/cmux",
+              "providers/gcloud"
+            ]
+          },
+          {
+            "group": "Extending Rigkit",
+            "pages": [
+              "providers/creating-providers"
             ]
           }
         ]

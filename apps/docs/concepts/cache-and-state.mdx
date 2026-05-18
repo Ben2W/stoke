@@ -1,6 +1,6 @@
 ---
 title: "Cache and state"
-description: "How Rigkit decides what to reuse, where it stores state, and how to invalidate cached work."
+description: "Where Rigkit stores task outputs, workspace records, fragments, and provider state — and how to invalidate them."
 ---
 
 Rigkit is useful because setup work is durable. Expensive tasks can run once,
@@ -22,6 +22,27 @@ flowchart LR
 
 Rigkit tracks upstream run ids, so a change to one task affects the dependent
 part of the graph without forcing unrelated work to rerun.
+
+## Where state lives
+
+Rigkit separates several kinds of state so that workflow cache, workspace
+records, shared bases, and provider credentials can be cleared and reused
+independently.
+
+```mermaid
+flowchart TD
+  Task["Task output ctx"] --> State["Project .rigkit/state.sqlite"]
+  Workspace["Workspace ctx"] --> State
+  Global["Global fragment task runs"] --> Fragment["~/.rigkit/fragments/&lt;hash&gt;/state.sqlite"]
+  ProviderProject["Provider project records"] --> State
+  ProviderHost["Provider host credentials"] --> HostStorage["Provider host storage"]
+
+  State --> Runtime["Project runtime"]
+  Fragment --> Runtime
+  HostStorage --> Runtime
+```
+
+Each kind is covered below.
 
 ## What is cached
 
@@ -48,6 +69,24 @@ object returned by the task.
 ```
 
 The VM object is not cached. The durable `snapshotId` is cached.
+
+## Task context: what to put in it
+
+Task context is durable workflow output. It is persisted and reused by later
+plans, applies, workspace creates, and operations.
+
+Good task context:
+
+- resource ids;
+- snapshot ids;
+- workspace paths;
+- ports;
+- branch names;
+- provider artifact refs shaped like `{ provider, kind, ... }`;
+- non-secret metadata needed by later tasks.
+
+Avoid task context for live clients, functions, streams, short-lived process
+handles, or accidental secrets.
 
 ## Cache keys
 
@@ -209,10 +248,21 @@ Clear all known global fragments without loading a config:
 rig cache clear --global --all
 ```
 
-## Workspace state
+## Workspace context
 
 Workspaces are stored separately from task runs in the same project state
-database. The workspace record includes:
+database. Workspace context is returned from `workspace.create` and stored
+until `workspace.remove` runs:
+
+```ts
+return {
+  vmId,
+  repoPath: workflow.ctx.repoPath,
+  devPort: workflow.ctx.devPort,
+};
+```
+
+The stored workspace record includes:
 
 - workspace name;
 - workflow name;
@@ -220,16 +270,42 @@ database. The workspace record includes:
 - workspace context returned by `workspace.create`;
 - timestamps.
 
-Removing a workspace calls the configured `remove` hook and then deletes the
-workspace record.
+Workspace operations read this context through `workspace.ctx`. Removing a
+workspace calls the configured `remove` hook and then deletes the workspace
+record.
 
-## Provider host storage
+## Provider storage
 
-Provider host credentials are separate from workflow cache. For example,
-Freestyle browser login stores provider-owned credentials outside project state
-so deleting `.rigkit/state.sqlite` does not necessarily log the user out of
-Freestyle.
+Custom providers can persist state in two stores, scoped differently:
 
-Custom providers receive both project provider storage and host provider
-storage. Use host storage for developer-machine credentials, and project
-storage for project-scoped JSON state.
+- **Provider project storage** (`storage`): JSON records tied to the selected
+  project. Use it for provider implementation details, such as resource
+  bookkeeping.
+- **Provider host storage** (`hostStorage`): developer-machine credentials or
+  login state that should outlive a project's cache.
+
+```ts
+storage.set("branch:br_123", {
+  provider: "acme-db",
+  kind: "branch",
+  branchId: "br_123",
+});
+
+const branch = storage.get("branch:br_123");
+```
+
+Freestyle browser login, for example, uses provider-owned host storage. That
+is why deleting `.rigkit/state.sqlite` does not log the user out of Freestyle.
+
+See [Creating providers](/providers/creating-providers) for the full storage
+API and patterns.
+
+## Storage rules of thumb
+
+- Put workflow outputs in task context.
+- Put workspace resource ids in workspace context.
+- Put provider implementation records in provider project storage.
+- Put developer credentials in provider host storage.
+- Put expensive reusable setup in global fragments only when sharing is
+  intended.
+- Never return a secret in task context unless you are comfortable caching it.

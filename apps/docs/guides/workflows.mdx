@@ -3,6 +3,12 @@ title: "Workflows"
 description: "Write typed Rigkit workflows with tasks, sequences, parallel branches, config, and validated outputs."
 ---
 
+<Note>
+This guide is for users **writing `rig.config.ts`**. If you only run the `rig`
+CLI against an existing config, you don't need this — see the
+[CLI reference](/reference/cli) instead.
+</Note>
+
 A Rigkit workflow is a graph of task nodes. Each task runs provider-backed work
 and returns JSON context for the next task. The final context is what workspace
 creation uses.
@@ -104,8 +110,8 @@ Task outputs must be JSON-serializable. Return durable references such as
 return live SDK objects or functions; cached task outputs are persisted and
 loaded again in later processes.
 
-`step(...)` and `task(...)` create the same kind of node. Use the word that
-reads best in your config.
+`.task(...)` and `.step(...)` are aliases — they create the same node. Prefer
+`.task(...)` for new configs; the docs use `task` throughout.
 
 ## Compose sequences
 

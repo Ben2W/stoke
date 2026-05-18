@@ -159,29 +159,69 @@ describe("website worker · install routes", () => {
     expect(assetCalls).toEqual(["/index.html"]);
   });
 
-  test("serves the docs page from the extensionless /docs path", async () => {
-    const assetCalls: string[] = [];
-    const env: Env = {
-      GITHUB_REPO: "freestyle-sh/rigkit",
-      PUBLIC_BASE_URL: "https://rigkit.freestyle.sh",
-      CACHE_TTL_SECONDS: "30",
-      ASSETS: {
-        async fetch(request: Request) {
-          assetCalls.push(new URL(request.url).pathname);
-          return new Response("<html>docs</html>", {
-            status: 200,
-            headers: { "content-type": "text/html" },
-          });
-        },
-      },
-    };
+  test("proxies /docs to Mintlify", async () => {
+    const proxyCalls: { url: string; host: string | null; forwardedHost: string | null }[] = [];
+    globalThis.fetch = (async (input: Request | string | URL) => {
+      const req = input instanceof Request ? input : new Request(input);
+      proxyCalls.push({
+        url: req.url,
+        host: req.headers.get("Host"),
+        forwardedHost: req.headers.get("X-Forwarded-Host"),
+      });
+      return new Response("<html>mintlify</html>", {
+        status: 200,
+        headers: { "content-type": "text/html" },
+      });
+    }) as typeof fetch;
 
-    const response = await worker.fetch(new Request("https://rig.freestyle.sh/docs"), env, ctx());
+    const response = await worker.fetch(
+      new Request("https://rig.freestyle.sh/docs"),
+      noopAssetsEnv(),
+      ctx(),
+    );
     expect(response.status).toBe(200);
-    expect(await response.text()).toBe("<html>docs</html>");
-    expect(assetCalls).toEqual(["/docs.html"]);
+    expect(await response.text()).toBe("<html>mintlify</html>");
+    expect(proxyCalls).toEqual([
+      {
+        url: "https://freestyle.mintlify.dev/docs",
+        host: "freestyle.mintlify.dev",
+        forwardedHost: "rig.freestyle.sh",
+      },
+    ]);
+  });
+
+  test("proxies nested /docs/* paths to Mintlify with query preserved", async () => {
+    const proxyUrls: string[] = [];
+    globalThis.fetch = (async (input: Request | string | URL) => {
+      const req = input instanceof Request ? input : new Request(input);
+      proxyUrls.push(req.url);
+      return new Response("ok");
+    }) as typeof fetch;
+
+    const response = await worker.fetch(
+      new Request("https://rigkit.freestyle.sh/docs/guides/quickstart?foo=1"),
+      noopAssetsEnv(),
+      ctx(),
+    );
+    expect(response.status).toBe(200);
+    expect(proxyUrls).toEqual([
+      "https://freestyle.mintlify.dev/docs/guides/quickstart?foo=1",
+    ]);
   });
 });
+
+function noopAssetsEnv(): Env {
+  return {
+    GITHUB_REPO: "freestyle-sh/rigkit",
+    PUBLIC_BASE_URL: "https://rigkit.freestyle.sh",
+    CACHE_TTL_SECONDS: "30",
+    ASSETS: {
+      async fetch() {
+        throw new Error("ASSETS.fetch should not be called for /docs paths");
+      },
+    },
+  };
+}
 
 type Env = {
   GITHUB_REPO?: string;
