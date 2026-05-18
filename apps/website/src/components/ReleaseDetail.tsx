@@ -82,18 +82,18 @@ export function ReleaseDetail() {
   }, [tag]);
 
   if (state.status === "loading") {
-    return <p className="font-mono text-[13px] text-[var(--color-dim)]">Loading release…</p>;
+    return (
+      <div className="flex flex-col gap-6">
+        <BackLink />
+        <p className="font-mono text-[13px] text-[var(--color-dim)]">Loading release…</p>
+      </div>
+    );
   }
   if (state.status === "error") {
     return (
-      <div className="flex flex-col gap-3">
+      <div className="flex flex-col gap-6">
+        <BackLink />
         <p className="font-mono text-[13px] text-red-600">{state.message}</p>
-        <a
-          href="/releases"
-          className="font-mono text-[13px] text-[var(--color-accent)] underline-offset-4 hover:underline"
-        >
-          ← All releases
-        </a>
       </div>
     );
   }
@@ -104,6 +104,7 @@ export function ReleaseDetail() {
 
   return (
     <div className="flex flex-col gap-10">
+      <BackLink />
       <header className="flex flex-col gap-3">
         <div className="flex flex-wrap items-baseline gap-x-4 gap-y-2">
           <h1 className="font-sans text-[40px] font-extrabold leading-[1.05] tracking-[-0.03em] text-[var(--color-fg)]">
@@ -124,12 +125,6 @@ export function ReleaseDetail() {
             className="text-[var(--color-accent)] underline-offset-4 hover:underline"
           >
             View on GitHub →
-          </a>
-          <a
-            href="/releases"
-            className="underline-offset-4 hover:text-[var(--color-fg)] hover:underline"
-          >
-            All releases
           </a>
         </div>
       </header>
@@ -172,6 +167,18 @@ export function ReleaseDetail() {
         )}
       </section>
     </div>
+  );
+}
+
+function BackLink() {
+  return (
+    <a
+      href="/releases"
+      className="inline-flex items-center gap-1.5 self-start font-mono text-[13px] text-[var(--color-muted)] transition-colors hover:text-[var(--color-fg)]"
+    >
+      <span aria-hidden="true">←</span>
+      All releases
+    </a>
   );
 }
 
