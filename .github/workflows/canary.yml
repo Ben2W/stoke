@@ -16,10 +16,14 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  canary:
+  prepare:
     if: ${{ github.event.issue.pull_request && contains(github.event.comment.body, '/rigkit canary') }}
     runs-on: ubuntu-latest
-
+    outputs:
+      sha: ${{ steps.pr.outputs.sha }}
+      ref_name: ${{ steps.pr.outputs.ref_name }}
+      version: ${{ steps.canary.outputs.version }}
+      pr_number: ${{ steps.pr.outputs.pr_number }}
     steps:
       - name: Verify command permissions
         env:
@@ -58,69 +62,52 @@ jobs:
 
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
           echo "ref_name=$ref_name" >> "$GITHUB_OUTPUT"
+          echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
 
       - name: Checkout PR head
         uses: actions/checkout@v5
         with:
           ref: ${{ steps.pr.outputs.sha }}
-          fetch-depth: 0
+          fetch-depth: 1
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
 
-      - name: Setup Node
-        uses: actions/setup-node@v6
-        with:
-          node-version: "24"
-          registry-url: "https://registry.npmjs.org"
-
-      - name: Setup pnpm
-        run: |
-          corepack enable
-          corepack prepare pnpm@9.15.9 --activate
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
       - name: Compute canary version
         id: canary
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          pnpm release:canary-version -- \
+          bun scripts/release/canary-version.ts \
             --pr "${{ github.event.issue.number }}" \
             --sha "${{ steps.pr.outputs.sha }}"
 
-      - name: Apply canary version
-        run: pnpm release:bump -- "${{ steps.canary.outputs.version }}"
+  publish:
+    needs: prepare
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/publish-npm.yml
+    secrets: inherit
+    with:
+      version: ${{ needs.prepare.outputs.version }}
+      dist-tag: pr-${{ needs.prepare.outputs.pr_number }}
+      ref: ${{ needs.prepare.outputs.sha }}
+      allow-unpublished: true
+      skip-release-branch: true
 
-      - name: Canary preflight
-        run: pnpm release:preflight -- --skip-release-branch
-
-      - name: Typecheck
-        run: pnpm typecheck
-
-      - name: Test
-        run: pnpm test
-
-      - name: Build
-        run: pnpm build
-
-      - name: Pack packages
-        run: pnpm release:pack
-
-      - name: Dry run canary publish
-        run: pnpm release:publish -- --dry-run --tag "pr-${{ github.event.issue.number }}"
-
-      - name: Publish canary packages
-        run: pnpm release:publish -- --tag "pr-${{ github.event.issue.number }}"
-
+  comment:
+    needs: [prepare, publish]
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    steps:
       - name: Comment with canary version
         env:
           GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.issue.number }}
-          VERSION: ${{ steps.canary.outputs.version }}
+          PR_NUMBER: ${{ needs.prepare.outputs.pr_number }}
+          VERSION: ${{ needs.prepare.outputs.version }}
         run: |
-          gh pr comment "$PR_NUMBER" --body "Published Rigkit canary packages at version ${VERSION} with npm dist-tag pr-${PR_NUMBER}."
+          gh pr comment "$PR_NUMBER" --repo "${{ github.repository }}" --body "Published Rigkit canary packages at version ${VERSION} with npm dist-tag pr-${PR_NUMBER}."

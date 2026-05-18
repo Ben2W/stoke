@@ -12,9 +12,48 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  canary-main:
+  compute-version:
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.canary.outputs.version }}
+      sha: ${{ steps.sha.outputs.sha }}
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v5
+        with:
+          ref: main
+          fetch-depth: 1
 
+      - name: Resolve sha
+        id: sha
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Compute canary version
+        id: canary
+        run: bun scripts/release/canary-main-version.ts --sha "${{ steps.sha.outputs.sha }}"
+
+  publish:
+    needs: compute-version
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/publish-npm.yml
+    secrets: inherit
+    with:
+      version: ${{ needs.compute-version.outputs.version }}
+      dist-tag: canary
+      ref: main
+      allow-unpublished: true
+      skip-release-branch: true
+
+  release-cli:
+    needs: [compute-version, publish]
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout main
         uses: actions/checkout@v5
@@ -31,7 +70,6 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: "24"
-          registry-url: "https://registry.npmjs.org"
 
       - name: Setup pnpm
         run: |
@@ -41,33 +79,11 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Compute canary version
-        id: canary
-        run: pnpm release:canary-main-version -- --sha "$GITHUB_SHA"
-
       - name: Apply canary version
-        run: pnpm release:bump -- "${{ steps.canary.outputs.version }}"
-
-      - name: Canary preflight
-        run: pnpm release:preflight -- --skip-release-branch --allow-unpublished
-
-      - name: Typecheck
-        run: pnpm typecheck
-
-      - name: Test
-        run: pnpm test
+        run: pnpm release:bump -- "${{ needs.compute-version.outputs.version }}"
 
       - name: Build
         run: pnpm build
-
-      - name: Pack packages
-        run: pnpm release:pack
-
-      - name: Dry run canary publish
-        run: pnpm release:publish -- --dry-run --tag canary
-
-      - name: Publish canary packages
-        run: pnpm release:publish -- --tag canary
 
       - name: Build CLI binaries
         run: pnpm build:cli-binaries
@@ -80,7 +96,8 @@ jobs:
       - name: Create canary GitHub release
         env:
           GH_TOKEN: ${{ secrets.RELEASE_BOT_TOKEN }}
-          VERSION: ${{ steps.canary.outputs.version }}
+          VERSION: ${{ needs.compute-version.outputs.version }}
+          TARGET_SHA: ${{ needs.compute-version.outputs.sha }}
         run: |
           tag="${VERSION}"
           if gh release view "$tag" >/dev/null 2>&1; then
@@ -90,7 +107,7 @@ jobs:
           gh release create "$tag" \
             dist/release/*.tar.gz \
             dist/release/checksums.txt \
-            --target "$GITHUB_SHA" \
+            --target "$TARGET_SHA" \
             --title "$tag" \
             --prerelease \
-            --notes "Canary build from main @ ${GITHUB_SHA}"
+            --notes "Canary build from main @ ${TARGET_SHA}"

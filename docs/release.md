@@ -114,7 +114,9 @@ Trigger from the Actions UI or:
 gh workflow run canary-main.yml --ref main
 ```
 
-Each run publishes all npm packages with dist-tag `canary` at a version like:
+Canary Main computes the version, then calls `publish-npm.yml` as a reusable
+workflow (so the same npm trust entry covers both stable and canary). Each run
+publishes all npm packages with dist-tag `canary` at a version like:
 
 ```text
 0.0.0-canary-20260517T154233-eb90854
@@ -247,8 +249,10 @@ PR canary versions look like:
 ```
 
 PR canaries publish with dist-tag `pr-<number>` and never publish to `latest`.
-They use npm Trusted Publishing via `canary.yml`, just like stable releases use
-`publish-npm.yml`. No long-lived npm token is needed.
+The PR canary workflow computes the version then invokes `publish-npm.yml` as
+a reusable workflow, so only the one trust entry per package is needed (npm
+allows one trusted-publisher per package, so we funnel all publishing — stable,
+canary main, PR canary — through `publish-npm.yml`).
 
 ## Installer Deployment
 

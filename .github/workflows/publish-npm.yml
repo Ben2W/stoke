@@ -4,13 +4,40 @@ on:
   push:
     tags:
       - "v*"
+  workflow_call:
+    inputs:
+      version:
+        description: "Version to apply via release:bump before publishing (empty = use package.json as-is)"
+        required: false
+        type: string
+        default: ""
+      dist-tag:
+        description: "npm dist-tag (default: latest)"
+        required: false
+        type: string
+        default: "latest"
+      ref:
+        description: "Git ref to checkout (empty = use trigger ref)"
+        required: false
+        type: string
+        default: ""
+      allow-unpublished:
+        description: "Permit packages that have not been bootstrapped on npm yet"
+        required: false
+        type: boolean
+        default: false
+      skip-release-branch:
+        description: "Skip the version-branch reachability check"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
   id-token: write
 
 concurrency:
-  group: publish-npm-${{ github.ref_name }}
+  group: publish-npm-${{ inputs.dist-tag || 'latest' }}-${{ github.ref_name }}
   cancel-in-progress: false
 
 jobs:
@@ -21,6 +48,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
         with:
+          ref: ${{ inputs.ref || github.ref }}
           fetch-depth: 0
 
       - name: Setup Bun
@@ -42,8 +70,23 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Apply version override
+        if: inputs.version != ''
+        run: pnpm release:bump -- "${{ inputs.version }}"
+
       - name: Release preflight
-        run: pnpm release:preflight
+        env:
+          ALLOW_UNPUBLISHED: ${{ inputs.allow-unpublished }}
+          SKIP_RELEASE_BRANCH: ${{ inputs.skip-release-branch }}
+        run: |
+          flags=""
+          if [ "$ALLOW_UNPUBLISHED" = "true" ]; then
+            flags="$flags --allow-unpublished"
+          fi
+          if [ "$SKIP_RELEASE_BRANCH" = "true" ]; then
+            flags="$flags --skip-release-branch"
+          fi
+          pnpm release:preflight -- $flags
 
       - name: Typecheck
         run: pnpm typecheck
@@ -58,7 +101,7 @@ jobs:
         run: pnpm release:pack
 
       - name: Dry run package publish
-        run: pnpm release:publish -- --dry-run
+        run: pnpm release:publish -- --dry-run --tag "${{ inputs.dist-tag || 'latest' }}"
 
       - name: Publish packages
-        run: pnpm release:publish
+        run: pnpm release:publish -- --tag "${{ inputs.dist-tag || 'latest' }}"
