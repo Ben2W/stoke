@@ -104,10 +104,20 @@ describe("website worker · install routes", () => {
 
     const body = await response.text();
     expect(body).toContain('base_url="${RIGKIT_BASE_URL:-https://rigkit.freestyle.sh}"');
-    expect(body).toContain('/download/latest/${target}');
-    expect(body).toContain('/checksums/latest');
+    expect(body).toContain('version="${RIGKIT_VERSION:-latest}"');
+    expect(body).toContain('/download/${version}/${target}');
+    expect(body).toContain('/checksums/${version}');
     expect(body).toContain('rig completion fish | source');
     expect(body).toContain('eval \\"\\$(rig completion zsh)\\"');
+  });
+
+  test("serves a canary installer script targeting the canary channel", async () => {
+    const response = await dispatch("https://rigkit.freestyle.sh/install/canary");
+    expect(response.status).toBe(200);
+
+    const body = await response.text();
+    expect(body).toContain('version="${RIGKIT_VERSION:-canary}"');
+    expect(body).toContain('Installing rig CANARY build');
   });
 
   test("serves the rig hostname with canonical rigkit URLs", async () => {

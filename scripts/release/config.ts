@@ -53,6 +53,12 @@ export const releasePackages: ReleasePackage[] = [
     versionConstant: "RIGKIT_PROVIDER_VSCODE_VERSION",
   },
   {
+    name: "@rigkit/fragments",
+    dir: "packages/fragments",
+    versionFile: "packages/fragments/src/version.ts",
+    versionConstant: "RIGKIT_FRAGMENTS_VERSION",
+  },
+  {
     name: "@rigkit/cli",
     dir: "packages/cli",
     versionFile: "packages/cli/src/version.ts",

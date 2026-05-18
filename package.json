@@ -20,6 +20,7 @@
     "release:publish": "bun scripts/release/publish.ts",
     "release:trust-commands": "bun scripts/release/trust-commands.ts",
     "release:canary-version": "bun scripts/release/canary-version.ts",
+    "release:canary-main-version": "bun scripts/release/canary-main-version.ts",
     "release:sync-latest": "bun scripts/release/sync-latest-release.ts",
     "build:cli-binaries": "bun scripts/build-cli-binaries.ts"
   },

@@ -1,7 +1,7 @@
 import {
-  assertCheckedOutReleaseBranch,
+  assertCheckedOutVersionBranch,
   assertNpmPublishReady,
-  assertReleaseBranchForVersion,
+  assertVersionBranchForVersion,
   currentGitBranch,
   releaseTagFromEnv,
   runReleaseCheck,
@@ -26,9 +26,9 @@ const state = runReleaseCheck(tag);
 
 if (!skipReleaseBranch) {
   if (tag) {
-    assertReleaseBranchForVersion(state.version);
-  } else if (currentGitBranch().startsWith("release/")) {
-    assertCheckedOutReleaseBranch(state.version);
+    assertVersionBranchForVersion(state.version);
+  } else if (currentGitBranch().startsWith("version/")) {
+    assertCheckedOutVersionBranch(state.version);
   }
 }
 

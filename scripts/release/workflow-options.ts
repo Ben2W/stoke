@@ -19,7 +19,7 @@ export function prepareReleaseWorkflowOptions(version: string): WorkflowOption[]
       releaseType: "patch",
       path: ".github/workflows/prepare-patch-release.yml",
       version: patchVersion,
-      description: `Prepare patch release ${patchVersion} from the matching release branch`,
+      description: `Prepare patch release ${patchVersion} from the matching version branch`,
     },
     {
       releaseType: "minor",

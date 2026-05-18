@@ -5,7 +5,7 @@ on:
   push:
     branches:
       - main
-      - "release/**"
+      - "version/**"
     paths:
       - ".github/actions/prepare-release/action.yml"
       - ".github/workflows/check-release-bot-token.yml"

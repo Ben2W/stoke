@@ -7,7 +7,7 @@ reviewable, repeatable, and branch-aware while keeping normal feature work on
 ## Goals
 
 - Keep `main` as the development branch.
-- Release stable versions only from `release/x.y` branches.
+- Release stable versions only from `version/x.y` branches.
 - Make old release lines patchable.
 - Keep public packages lockstep versioned.
 - Make missing npm bootstrap or trusted publishing state fail loudly.
@@ -22,17 +22,17 @@ Stable releases come from release-line branches:
 
 ```text
 main              development
-release/0.1       0.1.x stable releases
-release/0.2       0.2.x stable releases
-release/1.0       1.0.x stable releases
+version/0.1       0.1.x stable releases
+version/0.2       0.2.x stable releases
+version/1.0       1.0.x stable releases
 ```
 
 This allows patch releases on old lines:
 
 ```text
-release/0.1 -> v0.1.10, v0.1.11
-release/0.2 -> v0.2.0, v0.2.1
-release/1.0 -> v1.0.0, v1.0.1
+version/0.1 -> v0.1.10, v0.1.11
+version/0.2 -> v0.2.0, v0.2.1
+version/1.0 -> v1.0.0, v1.0.1
 ```
 
 ## Release Labels
@@ -107,8 +107,8 @@ pnpm release:trust-commands
 
 - `release:check` passes
 - tag and package version match when running from a tag
-- tag commit is reachable from a `release/*` branch
-- package version matches the release branch line
+- tag commit is reachable from a `version/*` branch
+- package version matches the version branch line
 - npm package names exist for normal stable publish
 - target package versions are not already published
 
@@ -144,7 +144,7 @@ inputs:
 It creates:
 
 ```text
-release/0.2
+version/0.2
 ```
 
 from the selected source ref.
@@ -163,7 +163,7 @@ Behavior:
 
 1. Check out the selected source branch.
 2. Compute the next version and verify it matches the selected workflow option.
-3. Create the target release branch for minor and major releases.
+3. Create the target version branch for minor and major releases.
 4. Run `pnpm release:bump <computed-version>`.
 5. Generate the release PR body.
 6. Commit changes to a bot branch:
@@ -175,11 +175,11 @@ Behavior:
 7. Open a PR into:
 
    ```text
-   release/0.1
+   version/0.1
    ```
 
-Patch releases must run from the existing release branch. Minor and major
-releases must run from `main` and create the new release branch automatically.
+Patch releases must run from the existing version branch. Minor and major
+releases must run from `main` and create the new version branch automatically.
 Each user-facing prepare workflow has one version choice, generated from the
 package version on `main`. Release preparation edits workflow files, so it uses
 `RELEASE_BOT_TOKEN` instead of the default `GITHUB_TOKEN`. The prepare workflow
@@ -191,26 +191,26 @@ also validates the secret on relevant main/release pushes and manual runs.
 
 Release branches constrain allowed versions:
 
-- `release/0.1` may publish only `0.1.x`
-- `release/0.2` may publish only `0.2.x`
-- `release/1.0` may publish only `1.0.x`
+- `version/0.1` may publish only `0.1.x`
+- `version/0.2` may publish only `0.2.x`
+- `version/1.0` may publish only `1.0.x`
 
 Patch releases stay on the same release line:
 
 ```text
-release/0.1 -> 0.1.10
+version/0.1 -> 0.1.10
 ```
 
-New minor or major releases require a new release branch:
+New minor or major releases require a new version branch:
 
 ```text
-release/0.2 -> 0.2.0
-release/1.0 -> 1.0.0
+version/0.2 -> 0.2.0
+version/1.0 -> 1.0.0
 ```
 
 ## Publish Flow
 
-On merge of a release PR into `release/x.y`:
+On merge of a release PR into `version/x.y`:
 
 1. Run `pnpm release:preflight`.
 2. Create a tag for the release:
@@ -227,7 +227,7 @@ Tag push then triggers:
 - CLI binary build and GitHub Release asset publishing
 
 After both tag workflows succeed, a sync workflow should open a PR from the
-release branch back to `main` only when that release branch is the latest
+version branch back to `main` only when that version branch is the latest
 released line. Older maintained release lines should not sync back
 automatically.
 
@@ -244,7 +244,7 @@ Rewrite `publish-npm.yml` to be script-driven:
 Important behavior:
 
 - only run for `v*` tags
-- require tag commits to be reachable from `release/*`
+- require tag commits to be reachable from `version/*`
 - fail if npm package names are missing
 - fail if target version already exists
 - do not use skip-on-missing package behavior
@@ -259,7 +259,7 @@ Rewrite `release-cli.yml` to be script-driven:
 4. Smoke test the Linux binary.
 5. Create the GitHub Release and upload assets.
 
-It should only run for `v*` tags whose commits are reachable from `release/*`.
+It should only run for `v*` tags whose commits are reachable from `version/*`.
 
 ## Sync Latest Release Back To Main
 
@@ -275,10 +275,10 @@ Behavior:
 
 1. Wait until both `Publish npm Packages` and `Release CLI` have succeeded for
    the tag.
-2. Compute the tag's release line, for example `v0.2.1 -> release/0.2`.
+2. Compute the tag's release line, for example `v0.2.1 -> version/0.2`.
 3. Compare all stable release tags and only continue if that line is the newest
    released line.
-4. Skip if `main` already contains that release branch.
+4. Skip if `main` already contains that version branch.
 5. Open or update `automation/sync-release-0.2-to-main` as a PR into `main`
    with `release:none`.
 

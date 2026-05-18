@@ -1,26 +1,29 @@
 # Release And Package Process
 
-Rigkit stable releases are release-branch driven. `main` is for development.
+Rigkit stable releases are version-branch driven. `main` is for development.
 Published npm packages and CLI binaries come from immutable `v*` tags, and
-those tags must point at commits reachable from a `release/x.y` branch.
+those tags must point at commits reachable from a `version/x.y` branch.
 
-## Release Branches
+`main` itself can also publish on-demand canary builds — see
+[Canary Builds](#canary-builds).
+
+## Version Branches
 
 Each stable line has its own branch:
 
 ```text
-release/0.1  -> 0.1.x
-release/0.2  -> 0.2.x
-release/1.0  -> 1.0.x
+version/0.1  -> 0.1.x
+version/0.2  -> 0.2.x
+version/1.0  -> 1.0.x
 ```
 
 Patch releases stay on the existing line. Minor and major prepare workflows
-create the new release branch automatically.
+create the new version branch automatically.
 
 `create-release-line.yml` still exists as an escape hatch for unusual manual
 branch setup, but the normal release flow should not need it.
 
-## Feature PR Labels
+## Feature PR Labels And Release Notes
 
 Every PR into `main` must have exactly one release label:
 
@@ -34,15 +37,19 @@ release:major
 The `Check Release Label` workflow enforces this. Use `release:none` for docs,
 tests, CI-only changes, or internal changes that should not publish packages.
 
+Every PR not labeled `release:none` must also fill in the `## Release notes`
+section of the PR description (the template prompts for this). That line is
+aggregated into the next GitHub Release body.
+
 ## Preparing A Stable Release
 
 Use the workflow that matches the release intent.
 
-For a patch on an existing release line, run the patch workflow from that
-release branch and select the single version option shown in GitHub Actions:
+For a patch on an existing version line, run the patch workflow from that
+version branch and select the single version option shown in GitHub Actions:
 
 ```bash
-gh workflow run prepare-patch-release.yml --ref release/0.1 -f version=0.1.10
+gh workflow run prepare-patch-release.yml --ref version/0.1 -f version=0.1.10
 ```
 
 For a new minor release from `main`, select the generated next minor version:
@@ -60,19 +67,19 @@ gh workflow run prepare-major-release.yml --ref main -f version=1.0.0
 The workflows compute the next version and target branch:
 
 ```text
-patch from release/0.1 at 0.1.9 -> 0.1.10 into release/0.1
-minor from main at 0.1.9        -> 0.2.0 into release/0.2
-major from main at 1.7.4        -> 2.0.0 into release/2.0
+patch from version/0.1 at 0.1.9 -> 0.1.10 into version/0.1
+minor from main at 0.1.9        -> 0.2.0 into version/0.2
+major from main at 1.7.4        -> 2.0.0 into version/2.0
 ```
 
 The workflow:
 
 1. Checks out the selected source branch.
 2. Computes the next version and verifies it matches the selected version.
-3. Creates the target release branch for minor and major releases.
+3. Creates the target version branch for minor and major releases.
 4. Runs `pnpm release:bump <version>`, which updates package versions and constants.
 5. Runs release preflight, typecheck, tests, and build.
-6. Opens a release PR back into the target `release/x.y` branch.
+6. Opens a release PR back into the target `version/x.y` branch.
 
 `pnpm release:bump` updates the one-option workflow inputs for the next release.
 Because that edits `.github/workflows/*`, prepare workflows use
@@ -80,7 +87,7 @@ Because that edits `.github/workflows/*`, prepare workflows use
 allowed to read the repo, push contents and workflow-file changes, and open PRs.
 The prepare workflow checks those token permissions before creating branches or
 PRs. `pnpm release:check` fails on `main` if those workflow inputs are stale.
-`check-release-bot-token.yml` also validates the token on relevant main/release
+`check-release-bot-token.yml` also validates the token on relevant main/version
 pushes and can be run manually without preparing a release.
 
 Merging that release PR runs `tag-release.yml`, which creates and pushes the
@@ -90,10 +97,49 @@ matching `v*` tag. The tag triggers:
 - `.github/workflows/release-cli.yml`
 
 After both tag workflows succeed, `sync-latest-release.yml` opens a PR from the
-release branch back to `main` only when that release branch is the newest
-released line. For example, `release/0.2` syncs back after `v0.2.1` while
-`0.2` is the newest released line. If `release/0.3` has already published,
-later `release/0.2` patches do not sync back automatically.
+version branch back to `main` only when that version branch is the newest
+released line. For example, `version/0.2` syncs back after `v0.2.1` while
+`0.2` is the newest released line. If `version/0.3` has already published,
+later `version/0.2` patches do not sync back automatically.
+
+## Canary Builds
+
+Canary builds publish from `main` on demand. They use a non-semver-stable
+version scheme and are intended for testing only — pin to a real `v*` release
+for anything you ship.
+
+Trigger from the Actions UI or:
+
+```bash
+gh workflow run canary-main.yml --ref main
+```
+
+Each run publishes all npm packages with dist-tag `canary` at a version like:
+
+```text
+0.0.0-canary-20260517T154233-eb90854
+```
+
+and creates a GitHub *prerelease* on a matching tag, with CLI binaries
+attached. Because the prerelease flag is set, `releases/latest` keeps pointing
+at the most recent stable tag — installers and the website's stable views are
+unaffected.
+
+Install a canary CLI:
+
+```bash
+curl -fsSL https://rigkit.freestyle.sh/install/canary | sh
+```
+
+Install canary npm packages:
+
+```bash
+pnpm add @rigkit/sdk@canary
+```
+
+The website's `/canary` page shows the current canary version per package
+(read from the npm registry's `dist-tags.canary` field) plus the prerelease
+history from GitHub.
 
 ## Local Release Checks
 
@@ -151,7 +197,7 @@ It does not use `NPM_TOKEN` or `NPM_BOOTSTRAP_TOKEN`.
 - package names are not bootstrapped on npm
 - the target package version already exists
 - a tag version does not match package versions
-- a tag commit is not reachable from the expected `release/x.y` branch
+- a tag commit is not reachable from the expected `version/x.y` branch
 - package versions or version constants are not lockstep
 
 Normal publishing never skips missing packages.
@@ -163,7 +209,7 @@ Publishing can only be configured after the package exists.
 
 Bootstrap flow:
 
-1. Prepare and tag the release through the normal release-branch flow.
+1. Prepare and tag the release through the normal version-branch flow.
 2. Create a temporary npm granular token with publish access to the `@rigkit`
    scope and `Bypass 2FA` enabled.
 3. Add it as the GitHub secret `NPM_BOOTSTRAP_TOKEN`.
@@ -194,13 +240,13 @@ The workflow requires the commenter to have write access and only runs for
 branches in this repository. The PR must have `release:patch`, `release:minor`,
 or `release:major`.
 
-Canary versions look like:
+PR canary versions look like:
 
 ```text
 0.1.10-pr.123.a1b2c3d4
 ```
 
-Canaries publish with dist-tag `pr-<number>` and never publish to `latest`.
+PR canaries publish with dist-tag `pr-<number>` and never publish to `latest`.
 They currently use the `NPM_CANARY_TOKEN` secret.
 
 ## Installer Deployment

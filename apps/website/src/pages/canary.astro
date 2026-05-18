@@ -1,0 +1,40 @@
+---
+import SiteLayout from "@/layouts/SiteLayout.astro";
+import Header from "@/components/Header.astro";
+import { CanaryPanel } from "@/components/CanaryPanel";
+---
+
+<SiteLayout
+  title="Rigkit canary"
+  description="Bleeding-edge canary builds of Rigkit, published from main. Use for testing only."
+>
+  <div class="flex min-h-screen flex-col">
+    <Header />
+
+    <main class="flex-1 px-6 pt-10 pb-20 sm:px-10 sm:pt-16">
+      <section class="mx-auto flex w-full max-w-3xl flex-col">
+        <h1
+          class="font-sans text-[40px] font-extrabold leading-[1.05] tracking-[-0.03em] text-[var(--color-fg)]"
+        >
+          Canary
+        </h1>
+        <p
+          class="mt-4 max-w-xl font-sans text-[16px] leading-[1.55] text-[#2a2a2a]"
+        >
+          Snapshots from <code>main</code>, published on demand. For
+          <a
+            href="/releases"
+            class="text-[var(--color-accent)] underline-offset-4 hover:underline"
+          >
+            stable releases
+          </a>
+          pin to a real version.
+        </p>
+
+        <div class="mt-12">
+          <CanaryPanel client:load />
+        </div>
+      </section>
+    </main>
+  </div>
+</SiteLayout>
