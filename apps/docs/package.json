@@ -4,7 +4,9 @@
   "private": true,
   "scripts": {
     "dev": "mintlify dev",
-    "broken-links": "mintlify broken-links"
+    "broken-links": "mintlify broken-links",
+    "version": "bun ../../scripts/docs/version.ts",
+    "check-version": "bun ../../scripts/docs/check-version.ts"
   },
   "devDependencies": {
     "mintlify": "latest"

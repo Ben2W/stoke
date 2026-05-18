@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { marked } from "marked";
 
 type ReleaseSummary = {
   tag: string;
@@ -11,6 +12,8 @@ type ReleaseSummary = {
   htmlUrl: string;
   isCanary: boolean;
 };
+
+marked.setOptions({ gfm: true, breaks: false });
 
 type FetchState =
   | { status: "loading" }
@@ -72,21 +75,25 @@ export function ReleasesList() {
         >
           <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
             <a
-              href={release.htmlUrl}
-              className="font-mono text-[18px] font-semibold text-[var(--color-fg)] underline-offset-4 hover:underline"
-              target="_blank"
-              rel="noreferrer noopener"
+              href={`/releases/${release.tag}`}
+              className="font-sans text-[18px] font-semibold text-[var(--color-fg)] underline-offset-4 hover:underline"
             >
               {release.tag}
             </a>
             <span className="font-mono text-[12px] text-[var(--color-dim)]">
               {formatDate(release.publishedAt ?? release.createdAt)}
             </span>
+            <a
+              href={release.htmlUrl}
+              className="font-mono text-[12px] text-[var(--color-dim)] underline-offset-4 hover:text-[var(--color-fg)] hover:underline"
+              target="_blank"
+              rel="noreferrer noopener"
+            >
+              GitHub →
+            </a>
           </div>
           {release.body ? (
-            <pre className="mt-3 whitespace-pre-wrap font-mono text-[13px] leading-[1.55] text-[#2a2a2a]">
-              {release.body.trim()}
-            </pre>
+            <ReleaseBody markdown={release.body} />
           ) : (
             <p className="mt-3 font-mono text-[13px] italic text-[var(--color-dim)]">
               No release notes.
@@ -95,6 +102,16 @@ export function ReleasesList() {
         </li>
       ))}
     </ol>
+  );
+}
+
+function ReleaseBody({ markdown }: { markdown: string }) {
+  const html = marked.parse(markdown.trim(), { async: false }) as string;
+  return (
+    <div
+      className="release-notes mt-3 font-sans text-[14px] leading-[1.6] text-[#2a2a2a]"
+      dangerouslySetInnerHTML={{ __html: html }}
+    />
   );
 }
 

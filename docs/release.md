@@ -78,8 +78,9 @@ The workflow:
 2. Computes the next version and verifies it matches the selected version.
 3. Creates the target version branch for minor and major releases.
 4. Runs `pnpm release:bump <version>`, which updates package versions and constants.
-5. Runs release preflight, typecheck, tests, and build.
-6. Opens a release PR back into the target `version/x.y` branch.
+5. Runs `pnpm docs:version -- --version <version>`, which snapshots the current docs into `apps/docs/v<version>` and updates the Mintlify version dropdown.
+6. Runs release preflight, docs broken-link validation, typecheck, tests, and build.
+7. Opens a release PR back into the target `version/x.y` branch.
 
 `pnpm release:bump` updates the one-option workflow inputs for the next release.
 Because that edits `.github/workflows/*`, prepare workflows use
@@ -89,6 +90,12 @@ The prepare workflow checks those token permissions before creating branches or
 PRs. `pnpm release:check` fails on `main` if those workflow inputs are stale.
 `check-release-bot-token.yml` also validates the token on relevant main/version
 pushes and can be run manually without preparing a release.
+
+Release PRs must include the docs snapshot for the release. The release tag is
+created from the merged release PR commit, so the tag points at a commit that
+already contains `apps/docs/v<version>` and the corresponding `docs.json`
+`navigation.versions` entry. `pnpm release:preflight` verifies this for stable
+releases.
 
 Merging that release PR runs `tag-release.yml`, which creates and pushes the
 matching `v*` tag. The tag triggers:
@@ -108,13 +115,18 @@ Canary builds publish from `main` on demand. They use a non-semver-stable
 version scheme and are intended for testing only — pin to a real `v*` release
 for anything you ship.
 
-Trigger from the Actions UI or:
+Trigger from the Actions UI ("Publish npm Packages" → Run workflow) or:
 
 ```bash
-gh workflow run canary-main.yml --ref main
+gh workflow run publish-npm.yml --ref main
 ```
 
-Each run publishes all npm packages with dist-tag `canary` at a version like:
+`publish-npm.yml` handles stable releases (on tag push), canary main builds
+(workflow_dispatch), and PR canaries (issue_comment) — all in one file. npm
+trusted publishing requires the OIDC token's `workflow_ref` claim to match the
+trusted file, and only allows one trust entry per package, so everything that
+publishes to npm has to live in `publish-npm.yml`. Each canary main run
+publishes all npm packages with dist-tag `canary` at a version like:
 
 ```text
 0.0.0-canary-20260517T154233-eb90854
@@ -155,6 +167,8 @@ pnpm release:bump patch
 pnpm release:bump minor
 pnpm release:bump major
 pnpm release:bump 0.2.0
+pnpm docs:version -- --version 0.2.0
+pnpm docs:check-version -- --version 0.2.0
 pnpm release:pack
 pnpm release:publish -- --dry-run
 pnpm release:sync-latest -- --tag v0.2.1
@@ -167,6 +181,34 @@ Locally, use it only when validating a candidate release bot token.
 The package list lives in `scripts/release/config.ts`. Add new public packages
 there. `pnpm release:check` fails if a public package under `packages/*` is not
 in that config.
+
+## Versioned Docs
+
+Mintlify deploys from the docs files and `docs.json` in the connected branch,
+so Rigkit commits release docs snapshots into the repository. The editable docs
+at the root of `apps/docs` are the canary docs. Stable release docs live under
+`apps/docs/v<version>`.
+
+```text
+apps/docs/
+  introduction.mdx          # canary
+  guides/
+  providers/
+  v0.2.8/
+    introduction.mdx        # stable snapshot
+    guides/
+    providers/
+```
+
+`pnpm docs:version -- --version <version>` copies the current docs into the
+version directory, rewrites absolute docs links to point at that version, marks
+the new version as `Latest`, keeps `canary` in the version dropdown, and removes
+the previous `Latest` marker. The command fails if the snapshot already exists
+unless `--force` is passed.
+
+`pnpm docs:check-version -- --version <version>` verifies that the version
+directory exists, `docs.json` has the expected Mintlify version entry, exactly
+one stable version is marked `Latest`, and all versioned navigation pages exist.
 
 ## Published Packages
 
@@ -247,8 +289,9 @@ PR canary versions look like:
 ```
 
 PR canaries publish with dist-tag `pr-<number>` and never publish to `latest`.
-They use npm Trusted Publishing via `canary.yml`, just like stable releases use
-`publish-npm.yml`. No long-lived npm token is needed.
+The PR canary job lives in `publish-npm.yml` alongside stable + canary main —
+all three triggers (`push: tags`, `workflow_dispatch`, `issue_comment`) feed
+into the same workflow file so npm's per-workflow trust matches.
 
 ## Installer Deployment
 

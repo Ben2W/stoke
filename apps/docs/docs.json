@@ -4,8 +4,8 @@
   "name": "Rigkit",
   "description": "Declarative dev environments, in TypeScript.",
   "banner": {
-    "content": "🚧 Docs are under construction — pages are stubs while the rigkit v0.2 surface stabilizes. [Track progress on GitHub](https://github.com/freestyle-sh/rigkit) or [join the Discord](https://discord.com/invite/v5WT4fbXhc).",
-    "dismissible": false
+    "content": "Rigkit is early. These docs track the current workflow, provider, and fragment APIs.",
+    "dismissible": true
   },
   "colors": {
     "primary": "#2d4df5",
@@ -48,6 +48,100 @@
     }
   },
   "navigation": {
-    "pages": ["introduction"]
+    "versions": [
+      {
+        "version": "v0.2.8",
+        "default": true,
+        "tag": "Latest",
+        "pages": [
+          "v0.2.8/introduction",
+          {
+            "group": "Start",
+            "pages": [
+              "v0.2.8/guides/quickstart",
+              "v0.2.8/guides/workflows",
+              "v0.2.8/guides/workspaces"
+            ]
+          },
+          {
+            "group": "Providers",
+            "pages": [
+              "v0.2.8/providers/overview",
+              "v0.2.8/providers/freestyle",
+              "v0.2.8/providers/terminal",
+              "v0.2.8/providers/cmux",
+              "v0.2.8/providers/gcloud",
+              "v0.2.8/providers/storage",
+              "v0.2.8/providers/creating-providers"
+            ]
+          },
+          {
+            "group": "Concepts",
+            "pages": [
+              "v0.2.8/concepts/mental-model",
+              "v0.2.8/concepts/cache-and-state"
+            ]
+          },
+          {
+            "group": "Advanced",
+            "pages": [
+              "v0.2.8/advanced/fragments"
+            ]
+          },
+          {
+            "group": "Reference",
+            "pages": [
+              "v0.2.8/reference/cli"
+            ]
+          }
+        ]
+      },
+      {
+        "version": "canary",
+        "tag": "Canary",
+        "pages": [
+          "introduction",
+          {
+            "group": "Start",
+            "pages": [
+              "guides/quickstart",
+              "guides/workflows",
+              "guides/workspaces"
+            ]
+          },
+          {
+            "group": "Providers",
+            "pages": [
+              "providers/overview",
+              "providers/freestyle",
+              "providers/terminal",
+              "providers/cmux",
+              "providers/gcloud",
+              "providers/storage",
+              "providers/creating-providers"
+            ]
+          },
+          {
+            "group": "Concepts",
+            "pages": [
+              "concepts/mental-model",
+              "concepts/cache-and-state"
+            ]
+          },
+          {
+            "group": "Advanced",
+            "pages": [
+              "advanced/fragments"
+            ]
+          },
+          {
+            "group": "Reference",
+            "pages": [
+              "reference/cli"
+            ]
+          }
+        ]
+      }
+    ]
   }
 }

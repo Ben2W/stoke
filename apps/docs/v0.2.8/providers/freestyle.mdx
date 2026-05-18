@@ -1,0 +1,163 @@
+---
+title: "Freestyle provider"
+description: "Use Freestyle VMs, snapshots, SSH options, cmux adapters, and VS Code URLs from Rigkit workflows."
+---
+
+The Freestyle provider is the primary provider for remote development
+environments in Rigkit. It gives workflow tasks an authenticated Freestyle SDK
+client and helper methods for connecting other tools to Freestyle VMs.
+
+## Add the provider
+
+```ts
+import { workflow } from "@rigkit/sdk";
+import { freestyle } from "@rigkit/provider-freestyle";
+
+const app = workflow("website", {
+  providers: {
+    freestyle: freestyle.provider(),
+  },
+});
+```
+
+Default auth opens the Freestyle browser login and stores credentials in
+provider-owned host storage, outside the project `.rigkit/state.sqlite` file.
+
+For API-key auth:
+
+```ts
+import { env } from "@rigkit/sdk";
+
+freestyle.provider(env.secret("FREESTYLE_API_KEY"));
+
+freestyle.provider({
+  apiKey: env.secret("FREESTYLE_API_KEY"),
+  teamId: env("FREESTYLE_TEAM_ID"),
+});
+```
+
+## Create and snapshot a VM
+
+```ts
+import { VmSpec } from "@rigkit/provider-freestyle";
+
+const vmSpec = new VmSpec()
+  .runCommands("corepack enable")
+  .memSizeGb(16)
+  .vcpuCount(4)
+  .rootfsSizeGb(24)
+  .idleTimeoutSeconds(3600);
+
+const setup = app.sequence("setup").task("prepare-image", async ({ freestyle }) => {
+  const { vm, vmId } = await freestyle.client.vms.create({
+    spec: vmSpec,
+    logger: console.log,
+  });
+
+  try {
+    const snapshot = await vm.snapshot();
+    return { ctx: { snapshotId: snapshot.snapshotId } };
+  } finally {
+    await freestyle.client.vms.delete({ vmId });
+  }
+});
+```
+
+Pass `logger: console.log` to Freestyle SDK calls that support logging. Rigkit
+intercepts task console output and streams it to the CLI.
+
+## Create workspaces from a snapshot
+
+```ts
+.workspace({
+  create: async ({ workflow, providers, workspace }) => {
+    const { vmId } = await providers.freestyle.client.vms.create({
+      snapshotId: workflow.ctx.snapshotId,
+      idleTimeoutSeconds: 3600,
+      logger: console.log,
+    });
+
+    return {
+      vmId,
+      name: workspace.name,
+    };
+  },
+  remove: async ({ providers, workspace }) => {
+    await providers.freestyle.client.vms.delete({
+      vmId: workspace.ctx.vmId,
+    });
+  },
+});
+```
+
+The workspace context stores `vmId`. Operations can use it to open terminals,
+cmux, VS Code, previews, or other tools.
+
+## SSH options
+
+Use `createSSHOptions(...)` when another provider or host operation needs SSH
+connection details:
+
+```ts
+const ssh = await providers.freestyle.createSSHOptions({
+  vmId: workspace.ctx.vmId,
+});
+```
+
+The provider grants SSH access for the active Freestyle identity and returns a
+provider-owned token connection. Project code does not need to manage SSH keys.
+
+## cmux adapter
+
+Use the cmux adapter when opening a Freestyle VM in cmux:
+
+```ts
+await providers.cmux.open({
+  name: workspace.name,
+  ssh: await providers.freestyle.cmux.createSshOptions({
+    vmId: workspace.ctx.vmId,
+  }),
+  cwd: workspace.ctx.repoPath,
+  terminals: [{ command: "pnpm dev" }],
+  url: "http://localhost:3000",
+  focus: true,
+});
+```
+
+## VS Code URL
+
+Use the VS Code helper to create a Remote SSH URL:
+
+```ts
+const url = await providers.freestyle.vscode.createUrl({
+  vmId: workspace.ctx.vmId,
+  cwd: workspace.ctx.repoPath,
+});
+
+await local.open(url);
+```
+
+## Freestyle exports
+
+`@rigkit/provider-freestyle` re-exports Freestyle SDK classes so configs use one
+SDK instance for specs and clients:
+
+```ts
+import {
+  freestyle,
+  Freestyle,
+  VmBaseImage,
+  VmSpec,
+  type FreestyleSdkVm,
+} from "@rigkit/provider-freestyle";
+```
+
+## Recommended patterns
+
+- Create temporary VMs in setup tasks, snapshot them, and delete the temporary
+  VM in `finally`.
+- Return `snapshotId` from setup tasks and `vmId` from workspace creates.
+- Keep VM paths, ports, branch names, and service commands in JSON context.
+- Use the terminal provider for interactive auth flows.
+- Use `idleTimeoutSeconds` deliberately so workspace VMs do not live longer
+  than needed.

@@ -75,6 +75,7 @@ const INSTALL_PATHS = new Set([
 
 export function isInstallPath(pathname: string): boolean {
   if (INSTALL_PATHS.has(pathname)) return true;
+  if (pathname.startsWith("/install/version/")) return true;
   if (pathname.startsWith("/download/")) return true;
   if (pathname.startsWith("/checksums/")) return true;
   return false;
@@ -107,7 +108,7 @@ async function dispatch(request: Request, env: InstallEnv, ctx?: ExecutionContex
   }
 
   if (url.pathname === "/install") {
-    return text(renderInstallScript(resolvePublicBaseUrl(request, env), "stable"), {
+    return text(renderInstallScript(resolvePublicBaseUrl(request, env), "latest"), {
       contentType: "text/x-shellscript; charset=utf-8",
       cacheControl: "public, max-age=300",
     });
@@ -115,6 +116,16 @@ async function dispatch(request: Request, env: InstallEnv, ctx?: ExecutionContex
 
   if (url.pathname === "/install/canary") {
     return text(renderInstallScript(resolvePublicBaseUrl(request, env), "canary"), {
+      contentType: "text/x-shellscript; charset=utf-8",
+      cacheControl: "public, max-age=300",
+    });
+  }
+
+  const versionInstallMatch = url.pathname.match(/^\/install\/version\/(.+?)\/?$/);
+  if (versionInstallMatch) {
+    const raw = decodeURIComponent(versionInstallMatch[1]!);
+    const spec = normalizeInstallSpec(raw);
+    return text(renderInstallScript(resolvePublicBaseUrl(request, env), spec), {
       contentType: "text/x-shellscript; charset=utf-8",
       cacheControl: "public, max-age=300",
     });
@@ -387,6 +398,13 @@ function normalizeVersion(value: string): string {
   return `v${value}`;
 }
 
+function normalizeInstallSpec(value: string): string {
+  const trimmed = value.trim();
+  if (trimmed === "" || trimmed.toLowerCase() === "latest") return "latest";
+  if (trimmed.toLowerCase() === "canary") return "canary";
+  return trimmed;
+}
+
 function assetNameForTarget(target: Target): string {
   return `rig-${target}.tar.gz`;
 }
@@ -455,9 +473,10 @@ function text(value: string, options: { status?: number; contentType: string; ca
   });
 }
 
-function renderInstallScript(baseUrl: string, channel: "stable" | "canary"): string {
-  const defaultVersion = channel === "canary" ? "canary" : "latest";
-  const banner = channel === "canary"
+function renderInstallScript(baseUrl: string, spec: string): string {
+  const defaultVersion = spec;
+  const isCanary = spec === "canary" || isCanaryTag(spec);
+  const banner = isCanary
     ? "echo \"Installing rig CANARY build — for testing only.\""
     : "";
   return `#!/usr/bin/env sh

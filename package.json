@@ -22,7 +22,10 @@
     "release:canary-version": "bun scripts/release/canary-version.ts",
     "release:canary-main-version": "bun scripts/release/canary-main-version.ts",
     "release:sync-latest": "bun scripts/release/sync-latest-release.ts",
-    "build:cli-binaries": "bun scripts/build-cli-binaries.ts"
+    "build:cli-binaries": "bun scripts/build-cli-binaries.ts",
+    "docs:version": "bun scripts/docs/version.ts",
+    "docs:check-version": "bun scripts/docs/check-version.ts",
+    "docs:broken-links": "pnpm --filter @rigkit/docs broken-links"
   },
   "devDependencies": {
     "playwright": "^1.59.1",

@@ -50,6 +50,9 @@ jobs:
       - name: Release preflight
         run: pnpm release:preflight -- --allow-unpublished
 
+      - name: Validate docs links
+        run: pnpm docs:broken-links
+
       - name: Check release bot token permissions
         env:
           RELEASE_BOT_TOKEN: ${{ secrets.RELEASE_BOT_TOKEN }}

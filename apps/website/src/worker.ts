@@ -29,12 +29,20 @@ export default {
       return handleInstallRequest(request, env, ctx);
     }
 
+    if (url.pathname === "/") {
+      return env.ASSETS.fetch(assetRequest(request, url, "/index.html"));
+    }
+
     if (url.pathname === "/docs") {
       return env.ASSETS.fetch(assetRequest(request, url, "/docs.html"));
     }
 
     if (url.pathname === "/releases") {
       return env.ASSETS.fetch(assetRequest(request, url, "/releases.html"));
+    }
+
+    if (url.pathname.startsWith("/releases/")) {
+      return env.ASSETS.fetch(assetRequest(request, url, "/release.html"));
     }
 
     if (url.pathname === "/canary") {

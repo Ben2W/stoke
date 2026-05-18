@@ -2,6 +2,7 @@ import { appendFileSync } from "node:fs";
 import { bumpAllReleaseVersions } from "./lib";
 import { createReleasePlan } from "./plan";
 import type { ReleaseType } from "./config";
+import { createDocsVersion } from "../docs/lib";
 
 function valueArg(name: string) {
   const index = process.argv.indexOf(name);
@@ -19,6 +20,7 @@ function releaseTypeArg(): ReleaseType {
 
 const plan = createReleasePlan(releaseTypeArg());
 bumpAllReleaseVersions(plan.version);
+createDocsVersion(plan.version);
 
 if (process.env.GITHUB_OUTPUT) {
   appendFileSync(

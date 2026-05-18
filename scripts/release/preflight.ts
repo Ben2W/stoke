@@ -6,6 +6,7 @@ import {
   releaseTagFromEnv,
   runReleaseCheck,
 } from "./lib";
+import { assertDocsReleaseSnapshot } from "../docs/lib";
 
 function hasArg(name: string) {
   return process.argv.includes(name);
@@ -23,6 +24,10 @@ const allowMissingPackageNames = hasArg("--allow-unpublished");
 const allowExistingVersion = hasArg("--allow-existing-version");
 
 const state = runReleaseCheck(tag);
+
+if (!state.version.includes("-")) {
+  assertDocsReleaseSnapshot(state.version);
+}
 
 if (!skipReleaseBranch) {
   if (tag) {
