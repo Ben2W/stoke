@@ -28,7 +28,6 @@ export default app
   })
   .workspace({
     create: async ({ workflow, providers, step }) => {
-      console.log("creating cmux workspace");
       const { vmId } = await providers.freestyle.client.vms.create({
         snapshotId: workflow.ctx.snapshotId,
         idleTimeoutSeconds: 3600,
@@ -36,7 +35,6 @@ export default app
       });
       await new Promise((resolve) => setTimeout(resolve, 5000));
 
-      console.log("created");
       return { vmId };
     },
     remove: async ({ providers, workspace }) => {
