@@ -108,14 +108,17 @@ Canary builds publish from `main` on demand. They use a non-semver-stable
 version scheme and are intended for testing only — pin to a real `v*` release
 for anything you ship.
 
-Trigger from the Actions UI or:
+Trigger from the Actions UI ("Publish npm Packages" → Run workflow) or:
 
 ```bash
-gh workflow run canary-main.yml --ref main
+gh workflow run publish-npm.yml --ref main
 ```
 
-Canary Main computes the version, then calls `publish-npm.yml` as a reusable
-workflow (so the same npm trust entry covers both stable and canary). Each run
+`publish-npm.yml` handles stable releases (on tag push), canary main builds
+(workflow_dispatch), and PR canaries (issue_comment) — all in one file. npm
+trusted publishing requires the OIDC token's `workflow_ref` claim to match the
+trusted file, and only allows one trust entry per package, so everything that
+publishes to npm has to live in `publish-npm.yml`. Each canary main run
 publishes all npm packages with dist-tag `canary` at a version like:
 
 ```text
@@ -249,10 +252,9 @@ PR canary versions look like:
 ```
 
 PR canaries publish with dist-tag `pr-<number>` and never publish to `latest`.
-The PR canary workflow computes the version then invokes `publish-npm.yml` as
-a reusable workflow, so only the one trust entry per package is needed (npm
-allows one trusted-publisher per package, so we funnel all publishing — stable,
-canary main, PR canary — through `publish-npm.yml`).
+The PR canary job lives in `publish-npm.yml` alongside stable + canary main —
+all three triggers (`push: tags`, `workflow_dispatch`, `issue_comment`) feed
+into the same workflow file so npm's per-workflow trust matches.
 
 ## Installer Deployment
 
