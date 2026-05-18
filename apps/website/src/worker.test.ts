@@ -179,6 +179,21 @@ describe("website worker · install routes", () => {
     }
   });
 
+  test("redirects legacy Freestyle domains to rigkit.dev", async () => {
+    const cases = [
+      ["https://rigkit.freestyle.sh/install", "https://rigkit.dev/install"],
+      ["https://rig.freestyle.sh/docs/guides/quickstart?foo=1", "https://rigkit.dev/docs/guides/quickstart?foo=1"],
+      ["http://rig.freestyle.sh/latest.json", "https://rigkit.dev/latest.json"],
+      ["https://rigkit.freestyle.sh/releases/v0.2.9#assets", "https://rigkit.dev/releases/v0.2.9#assets"],
+    ] as const;
+
+    for (const [input, location] of cases) {
+      const response = await worker.fetch(new Request(input), noopAssetsEnv(), ctx());
+      expect(response.status).toBe(308);
+      expect(response.headers.get("location")).toBe(location);
+    }
+  });
+
   test("proxies /docs to Mintlify", async () => {
     const proxyCalls: { url: string; host: string | null; forwardedHost: string | null }[] = [];
     globalThis.fetch = (async (input: Request | string | URL) => {

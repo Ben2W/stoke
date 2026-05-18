@@ -2,6 +2,7 @@ import { handleInstallRequest, isInstallPath, type InstallEnv } from "./worker/i
 
 const PRIMARY_HOST = "rigkit.dev";
 const DOCS_REDIRECT_HOST = "docs.rigkit.dev";
+const LEGACY_REDIRECT_HOSTS = new Set(["rig.freestyle.sh", "rigkit.freestyle.sh"]);
 const MINTLIFY_HOST = "freestyle.mintlify.dev";
 const DOCS_CUSTOM_HOST = PRIMARY_HOST;
 
@@ -14,6 +15,14 @@ interface Env extends InstallEnv {
 function redirectToHttps(url: URL): Response {
   url.protocol = "https:";
   return Response.redirect(url.toString(), 308);
+}
+
+function redirectToPrimaryHost(url: URL): Response {
+  const target = new URL(url.toString());
+  target.protocol = "https:";
+  target.hostname = PRIMARY_HOST;
+  target.port = "";
+  return Response.redirect(target.toString(), 308);
 }
 
 function redirectDocsHost(url: URL): Response {
@@ -61,6 +70,10 @@ export default {
 
     if (url.hostname === DOCS_REDIRECT_HOST) {
       return redirectDocsHost(url);
+    }
+
+    if (LEGACY_REDIRECT_HOSTS.has(url.hostname)) {
+      return redirectToPrimaryHost(url);
     }
 
     if (url.protocol === "http:") {
