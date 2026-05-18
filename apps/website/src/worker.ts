@@ -37,6 +37,10 @@ export default {
       return env.ASSETS.fetch(assetRequest(request, url, "/releases.html"));
     }
 
+    if (url.pathname.startsWith("/releases/")) {
+      return env.ASSETS.fetch(assetRequest(request, url, "/release.html"));
+    }
+
     if (url.pathname === "/canary") {
       return env.ASSETS.fetch(assetRequest(request, url, "/canary.html"));
     }

@@ -118,7 +118,7 @@ export function CanaryPanel() {
         </h2>
         <CodeBlock
           label="CLI"
-          code="curl -fsSL https://rigkit.freestyle.sh/install/canary | sh"
+          code="curl -fsSL https://rigkit.freestyle.sh/install/version/canary | sh"
         />
         <CodeBlock label="SDK" code="pnpm add @rigkit/sdk@canary" />
         <CodeBlock label="Engine" code="pnpm add @rigkit/engine@canary" />
