@@ -50,48 +50,48 @@
   "navigation": {
     "versions": [
       {
-        "version": "v0.2.8",
+        "version": "v0.2.9",
         "default": true,
         "tag": "Latest",
         "pages": [
-          "v0.2.8/introduction",
+          "v0.2.9/introduction",
           {
             "group": "Start",
             "pages": [
-              "v0.2.8/guides/quickstart",
-              "v0.2.8/guides/workflows",
-              "v0.2.8/guides/workspaces"
+              "v0.2.9/guides/quickstart",
+              "v0.2.9/guides/workflows",
+              "v0.2.9/guides/workspaces"
             ]
           },
           {
             "group": "Providers",
             "pages": [
-              "v0.2.8/providers/overview",
-              "v0.2.8/providers/freestyle",
-              "v0.2.8/providers/terminal",
-              "v0.2.8/providers/cmux",
-              "v0.2.8/providers/gcloud",
-              "v0.2.8/providers/storage",
-              "v0.2.8/providers/creating-providers"
+              "v0.2.9/providers/overview",
+              "v0.2.9/providers/freestyle",
+              "v0.2.9/providers/terminal",
+              "v0.2.9/providers/cmux",
+              "v0.2.9/providers/gcloud",
+              "v0.2.9/providers/storage",
+              "v0.2.9/providers/creating-providers"
             ]
           },
           {
             "group": "Concepts",
             "pages": [
-              "v0.2.8/concepts/mental-model",
-              "v0.2.8/concepts/cache-and-state"
+              "v0.2.9/concepts/mental-model",
+              "v0.2.9/concepts/cache-and-state"
             ]
           },
           {
             "group": "Advanced",
             "pages": [
-              "v0.2.8/advanced/fragments"
+              "v0.2.9/advanced/fragments"
             ]
           },
           {
             "group": "Reference",
             "pages": [
-              "v0.2.8/reference/cli"
+              "v0.2.9/reference/cli"
             ]
           }
         ]
@@ -138,6 +138,51 @@
             "group": "Reference",
             "pages": [
               "reference/cli"
+            ]
+          }
+        ]
+      },
+      {
+        "version": "v0.2.8",
+        "pages": [
+          "v0.2.8/introduction",
+          {
+            "group": "Start",
+            "pages": [
+              "v0.2.8/guides/quickstart",
+              "v0.2.8/guides/workflows",
+              "v0.2.8/guides/workspaces"
+            ]
+          },
+          {
+            "group": "Providers",
+            "pages": [
+              "v0.2.8/providers/overview",
+              "v0.2.8/providers/freestyle",
+              "v0.2.8/providers/terminal",
+              "v0.2.8/providers/cmux",
+              "v0.2.8/providers/gcloud",
+              "v0.2.8/providers/storage",
+              "v0.2.8/providers/creating-providers"
+            ]
+          },
+          {
+            "group": "Concepts",
+            "pages": [
+              "v0.2.8/concepts/mental-model",
+              "v0.2.8/concepts/cache-and-state"
+            ]
+          },
+          {
+            "group": "Advanced",
+            "pages": [
+              "v0.2.8/advanced/fragments"
+            ]
+          },
+          {
+            "group": "Reference",
+            "pages": [
+              "v0.2.8/reference/cli"
             ]
           }
         ]

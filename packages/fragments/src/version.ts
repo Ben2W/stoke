@@ -1,1 +1,1 @@
-export const RIGKIT_FRAGMENTS_VERSION = "0.2.8";
+export const RIGKIT_FRAGMENTS_VERSION = "0.2.9";
