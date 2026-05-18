@@ -15,7 +15,7 @@ packages/provider-vscode/   VS Code host package
 packages/cli/      global `rig` command
 apps/app/               placeholder for the future app
 apps/website/           Astro marketing site + install Worker (www.rigkit.dev, rigkit.dev redirect)
-apps/docs/              Mintlify docs site (www.rigkit.dev/docs, docs.rigkit.dev redirect)
+apps/docs/              Mintlify docs site (docs.rigkit.dev, /docs redirects)
 examples/smoke/         runnable smoke workflow
 examples/gcloud-on-open/ copy local gcloud config files with a workspace operation
 examples/base-freestyle-fragment/ consume a reusable Freestyle company base fragment

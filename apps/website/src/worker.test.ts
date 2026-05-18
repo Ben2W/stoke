@@ -164,12 +164,12 @@ describe("website worker · install routes", () => {
     expect(assetCalls).toEqual(["/index.html"]);
   });
 
-  test("redirects docs.rigkit.dev to canonical /docs URLs", async () => {
+  test("redirects /docs paths to docs.rigkit.dev", async () => {
     const cases = [
-      ["https://docs.rigkit.dev/", "https://www.rigkit.dev/docs"],
-      ["https://docs.rigkit.dev/guides/quickstart?foo=1", "https://www.rigkit.dev/docs/guides/quickstart?foo=1"],
-      ["https://docs.rigkit.dev/docs/reference/cli#version", "https://www.rigkit.dev/docs/reference/cli#version"],
-      ["http://docs.rigkit.dev/providers", "https://www.rigkit.dev/docs/providers"],
+      ["https://www.rigkit.dev/docs", "https://docs.rigkit.dev/"],
+      ["https://www.rigkit.dev/docs/guides/quickstart?foo=1", "https://docs.rigkit.dev/guides/quickstart?foo=1"],
+      ["https://rigkit.dev/docs/reference/cli#version", "https://docs.rigkit.dev/reference/cli#version"],
+      ["https://rig.freestyle.sh/docs/guides/quickstart?foo=1", "https://docs.rigkit.dev/guides/quickstart?foo=1"],
     ] as const;
 
     for (const [input, location] of cases) {
@@ -182,9 +182,7 @@ describe("website worker · install routes", () => {
   test("redirects apex and legacy Freestyle domains to www.rigkit.dev", async () => {
     const cases = [
       ["https://rigkit.dev/install", "https://www.rigkit.dev/install"],
-      ["http://rigkit.dev/docs/guides/quickstart?foo=1", "https://www.rigkit.dev/docs/guides/quickstart?foo=1"],
       ["https://rigkit.freestyle.sh/install", "https://www.rigkit.dev/install"],
-      ["https://rig.freestyle.sh/docs/guides/quickstart?foo=1", "https://www.rigkit.dev/docs/guides/quickstart?foo=1"],
       ["http://rig.freestyle.sh/latest.json", "https://www.rigkit.dev/latest.json"],
       ["https://rigkit.freestyle.sh/releases/v0.2.9#assets", "https://www.rigkit.dev/releases/v0.2.9#assets"],
     ] as const;
@@ -196,7 +194,7 @@ describe("website worker · install routes", () => {
     }
   });
 
-  test("proxies /docs to Mintlify", async () => {
+  test("proxies docs.rigkit.dev to Mintlify", async () => {
     const proxyCalls: { url: string; host: string | null; forwardedHost: string | null }[] = [];
     globalThis.fetch = (async (input: Request | string | URL) => {
       const req = input instanceof Request ? input : new Request(input);
@@ -212,7 +210,7 @@ describe("website worker · install routes", () => {
     }) as typeof fetch;
 
     const response = await worker.fetch(
-      new Request("https://www.rigkit.dev/docs"),
+      new Request("https://docs.rigkit.dev/"),
       noopAssetsEnv(),
       ctx(),
     );
@@ -222,12 +220,12 @@ describe("website worker · install routes", () => {
       {
         url: "https://freestyle.mintlify.dev/docs",
         host: "freestyle.mintlify.dev",
-        forwardedHost: "www.rigkit.dev",
+        forwardedHost: "docs.rigkit.dev",
       },
     ]);
   });
 
-  test("proxies nested /docs/* paths to Mintlify with query preserved", async () => {
+  test("proxies nested docs.rigkit.dev paths to Mintlify with query preserved", async () => {
     const proxyUrls: string[] = [];
     globalThis.fetch = (async (input: Request | string | URL) => {
       const req = input instanceof Request ? input : new Request(input);
@@ -236,7 +234,7 @@ describe("website worker · install routes", () => {
     }) as typeof fetch;
 
     const response = await worker.fetch(
-      new Request("https://www.rigkit.dev/docs/guides/quickstart?foo=1"),
+      new Request("https://docs.rigkit.dev/guides/quickstart?foo=1"),
       noopAssetsEnv(),
       ctx(),
     );
@@ -244,6 +242,17 @@ describe("website worker · install routes", () => {
     expect(proxyUrls).toEqual([
       "https://freestyle.mintlify.dev/docs/guides/quickstart?foo=1",
     ]);
+  });
+
+  test("redirects redundant /docs prefix on docs.rigkit.dev", async () => {
+    const response = await worker.fetch(
+      new Request("https://docs.rigkit.dev/docs/reference/cli#version"),
+      noopAssetsEnv(),
+      ctx(),
+    );
+
+    expect(response.status).toBe(308);
+    expect(response.headers.get("location")).toBe("https://docs.rigkit.dev/reference/cli#version");
   });
 });
 

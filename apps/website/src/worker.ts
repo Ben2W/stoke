@@ -1,10 +1,10 @@
 import { handleInstallRequest, isInstallPath, type InstallEnv } from "./worker/install.ts";
 
 const PRIMARY_HOST = "www.rigkit.dev";
-const DOCS_REDIRECT_HOST = "docs.rigkit.dev";
+const DOCS_HOST = "docs.rigkit.dev";
 const REDIRECT_HOSTS = new Set(["rigkit.dev", "rig.freestyle.sh", "rigkit.freestyle.sh"]);
 const MINTLIFY_HOST = "freestyle.mintlify.dev";
-const DOCS_CUSTOM_HOST = PRIMARY_HOST;
+const DOCS_CUSTOM_HOST = DOCS_HOST;
 
 interface Env extends InstallEnv {
   ASSETS: {
@@ -25,18 +25,31 @@ function redirectToPrimaryHost(url: URL): Response {
   return Response.redirect(target.toString(), 308);
 }
 
-function redirectDocsHost(url: URL): Response {
+function redirectToDocsHost(url: URL): Response {
   const target = new URL(url.toString());
   target.protocol = "https:";
-  target.hostname = PRIMARY_HOST;
+  target.hostname = DOCS_HOST;
   target.port = "";
-  target.pathname = docsRedirectPath(url.pathname);
+  target.pathname = docsCanonicalPath(url.pathname);
   return Response.redirect(target.toString(), 308);
 }
 
-function docsRedirectPath(pathname: string): string {
+function redirectDocsHostPath(url: URL): Response {
+  const target = new URL(url.toString());
+  target.protocol = "https:";
+  target.port = "";
+  target.pathname = docsCanonicalPath(url.pathname);
+  return Response.redirect(target.toString(), 308);
+}
+
+function docsCanonicalPath(pathname: string): string {
+  if (pathname === "/docs") return "/";
+  if (pathname.startsWith("/docs/")) return pathname.slice("/docs".length);
+  return pathname || "/";
+}
+
+function mintlifyDocsPath(pathname: string): string {
   if (pathname === "/" || pathname === "") return "/docs";
-  if (isDocsPath(pathname)) return pathname;
   return `/docs${pathname.startsWith("/") ? pathname : `/${pathname}`}`;
 }
 
@@ -55,6 +68,7 @@ function proxyDocsToMintlify(request: Request, url: URL): Promise<Response> {
   upstream.hostname = MINTLIFY_HOST;
   upstream.protocol = "https:";
   upstream.port = "";
+  upstream.pathname = mintlifyDocsPath(url.pathname);
 
   const proxyRequest = new Request(upstream, request);
   proxyRequest.headers.set("Host", MINTLIFY_HOST);
@@ -68,8 +82,14 @@ export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
 
-    if (url.hostname === DOCS_REDIRECT_HOST) {
-      return redirectDocsHost(url);
+    if (url.hostname === DOCS_HOST) {
+      if (isDocsPath(url.pathname)) return redirectDocsHostPath(url);
+      if (url.protocol === "http:") return redirectToHttps(url);
+      return proxyDocsToMintlify(request, url);
+    }
+
+    if (isDocsPath(url.pathname)) {
+      return redirectToDocsHost(url);
     }
 
     if (REDIRECT_HOSTS.has(url.hostname)) {
@@ -78,10 +98,6 @@ export default {
 
     if (url.protocol === "http:") {
       return redirectToHttps(url);
-    }
-
-    if (isDocsPath(url.pathname)) {
-      return proxyDocsToMintlify(request, url);
     }
 
     if (isInstallPath(url.pathname)) {
