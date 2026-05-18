@@ -43,16 +43,16 @@ describe("website worker · install routes", () => {
   test("serves latest release metadata from GitHub releases", async () => {
     mockGithubFetch();
 
-    const response = await dispatch("https://rigkit.dev/latest.json");
+    const response = await dispatch("https://www.rigkit.dev/latest.json");
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("public, max-age=30, s-maxage=30");
 
     const body = await response.json() as MetadataBody;
     expect(body.version).toBe("0.1.6");
     expect(body.tag).toBe("v0.1.6");
-    expect(body.installerUrl).toBe("https://rigkit.dev/install");
+    expect(body.installerUrl).toBe("https://www.rigkit.dev/install");
     expect(body.downloads["darwin-arm64"]).toEqual({
-      url: "https://rigkit.dev/download/v0.1.6/darwin-arm64",
+      url: "https://www.rigkit.dev/download/v0.1.6/darwin-arm64",
       githubUrl: "https://github.com/freestyle-sh/rigkit/releases/download/v0.1.6/rig-darwin-arm64.tar.gz",
       sha256: "a".repeat(64),
     });
@@ -61,7 +61,7 @@ describe("website worker · install routes", () => {
   test("redirects latest downloads to the GitHub release asset", async () => {
     mockGithubFetch();
 
-    const response = await dispatch("https://rigkit.dev/download/latest/darwin-arm64");
+    const response = await dispatch("https://www.rigkit.dev/download/latest/darwin-arm64");
     expect(response.status).toBe(302);
     expect(response.headers.get("location")).toBe("https://github.com/freestyle-sh/rigkit/releases/download/v0.1.6/rig-darwin-arm64.tar.gz");
     expect(response.headers.get("cache-control")).toBe("public, max-age=30");
@@ -70,7 +70,7 @@ describe("website worker · install routes", () => {
   test("uses the GitHub token for release API requests when configured", async () => {
     const requests = mockGithubFetch();
 
-    const response = await dispatch("https://rigkit.dev/latest.json", {
+    const response = await dispatch("https://www.rigkit.dev/latest.json", {
       GITHUB_TOKEN: "github-token",
     });
     expect(response.status).toBe(200);
@@ -83,7 +83,7 @@ describe("website worker · install routes", () => {
   test("does not require the GitHub token locally", async () => {
     const requests = mockGithubFetch();
 
-    const response = await dispatch("https://rigkit.dev/latest.json");
+    const response = await dispatch("https://www.rigkit.dev/latest.json");
     expect(response.status).toBe(200);
 
     const releaseRequest = requests.find((item) => item.url === "https://api.github.com/repos/freestyle-sh/rigkit/releases/latest");
@@ -93,17 +93,17 @@ describe("website worker · install routes", () => {
   test("redirects versioned checksum requests to GitHub", async () => {
     mockGithubFetch();
 
-    const response = await dispatch("https://rigkit.dev/checksums/v0.1.6");
+    const response = await dispatch("https://www.rigkit.dev/checksums/v0.1.6");
     expect(response.status).toBe(307);
     expect(response.headers.get("location")).toBe("https://github.com/freestyle-sh/rigkit/releases/download/v0.1.6/checksums.txt");
   });
 
   test("serves an installer script that uses the worker endpoints", async () => {
-    const response = await dispatch("https://rigkit.dev/install");
+    const response = await dispatch("https://www.rigkit.dev/install");
     expect(response.status).toBe(200);
 
     const body = await response.text();
-    expect(body).toContain('base_url="${RIGKIT_BASE_URL:-https://rigkit.dev}"');
+    expect(body).toContain('base_url="${RIGKIT_BASE_URL:-https://www.rigkit.dev}"');
     expect(body).toContain('version="${RIGKIT_VERSION:-latest}"');
     expect(body).toContain('/download/${version}/${target}');
     expect(body).toContain('/checksums/${version}');
@@ -117,7 +117,7 @@ describe("website worker · install routes", () => {
   });
 
   test("serves a canary installer script targeting the canary channel", async () => {
-    const response = await dispatch("https://rigkit.dev/install/canary");
+    const response = await dispatch("https://www.rigkit.dev/install/canary");
     expect(response.status).toBe(200);
 
     const body = await response.text();
@@ -125,18 +125,18 @@ describe("website worker · install routes", () => {
     expect(body).toContain('Installing rig CANARY build');
   });
 
-  test("serves the installer with canonical rigkit.dev URLs", async () => {
-    const response = await dispatch("https://rigkit.dev/install");
+  test("serves the installer with canonical www.rigkit.dev URLs", async () => {
+    const response = await dispatch("https://www.rigkit.dev/install");
     expect(response.status).toBe(200);
 
     const body = await response.text();
-    expect(body).toContain('base_url="${RIGKIT_BASE_URL:-https://rigkit.dev}"');
+    expect(body).toContain('base_url="${RIGKIT_BASE_URL:-https://www.rigkit.dev}"');
   });
 
   test("rejects unknown targets", async () => {
     mockGithubFetch();
 
-    const response = await dispatch("https://rigkit.dev/download/latest/windows-x64");
+    const response = await dispatch("https://www.rigkit.dev/download/latest/windows-x64");
     expect(response.status).toBe(400);
     expect(await response.json() as ErrorBody).toEqual({ error: "Unknown target windows-x64. Expected darwin-arm64, darwin-x64, linux-arm64, linux-x64." });
   });
@@ -145,7 +145,7 @@ describe("website worker · install routes", () => {
     const assetCalls: string[] = [];
     const env: Env = {
       GITHUB_REPO: "freestyle-sh/rigkit",
-      PUBLIC_BASE_URL: "https://rigkit.dev",
+      PUBLIC_BASE_URL: "https://www.rigkit.dev",
       CACHE_TTL_SECONDS: "30",
       ASSETS: {
         async fetch(request: Request) {
@@ -158,7 +158,7 @@ describe("website worker · install routes", () => {
       },
     };
 
-    const response = await worker.fetch(new Request("https://rigkit.dev/"), env, ctx());
+    const response = await worker.fetch(new Request("https://www.rigkit.dev/"), env, ctx());
     expect(response.status).toBe(200);
     expect(await response.text()).toBe("<html>hello</html>");
     expect(assetCalls).toEqual(["/index.html"]);
@@ -166,10 +166,10 @@ describe("website worker · install routes", () => {
 
   test("redirects docs.rigkit.dev to canonical /docs URLs", async () => {
     const cases = [
-      ["https://docs.rigkit.dev/", "https://rigkit.dev/docs"],
-      ["https://docs.rigkit.dev/guides/quickstart?foo=1", "https://rigkit.dev/docs/guides/quickstart?foo=1"],
-      ["https://docs.rigkit.dev/docs/reference/cli#version", "https://rigkit.dev/docs/reference/cli#version"],
-      ["http://docs.rigkit.dev/providers", "https://rigkit.dev/docs/providers"],
+      ["https://docs.rigkit.dev/", "https://www.rigkit.dev/docs"],
+      ["https://docs.rigkit.dev/guides/quickstart?foo=1", "https://www.rigkit.dev/docs/guides/quickstart?foo=1"],
+      ["https://docs.rigkit.dev/docs/reference/cli#version", "https://www.rigkit.dev/docs/reference/cli#version"],
+      ["http://docs.rigkit.dev/providers", "https://www.rigkit.dev/docs/providers"],
     ] as const;
 
     for (const [input, location] of cases) {
@@ -179,12 +179,14 @@ describe("website worker · install routes", () => {
     }
   });
 
-  test("redirects legacy Freestyle domains to rigkit.dev", async () => {
+  test("redirects apex and legacy Freestyle domains to www.rigkit.dev", async () => {
     const cases = [
-      ["https://rigkit.freestyle.sh/install", "https://rigkit.dev/install"],
-      ["https://rig.freestyle.sh/docs/guides/quickstart?foo=1", "https://rigkit.dev/docs/guides/quickstart?foo=1"],
-      ["http://rig.freestyle.sh/latest.json", "https://rigkit.dev/latest.json"],
-      ["https://rigkit.freestyle.sh/releases/v0.2.9#assets", "https://rigkit.dev/releases/v0.2.9#assets"],
+      ["https://rigkit.dev/install", "https://www.rigkit.dev/install"],
+      ["http://rigkit.dev/docs/guides/quickstart?foo=1", "https://www.rigkit.dev/docs/guides/quickstart?foo=1"],
+      ["https://rigkit.freestyle.sh/install", "https://www.rigkit.dev/install"],
+      ["https://rig.freestyle.sh/docs/guides/quickstart?foo=1", "https://www.rigkit.dev/docs/guides/quickstart?foo=1"],
+      ["http://rig.freestyle.sh/latest.json", "https://www.rigkit.dev/latest.json"],
+      ["https://rigkit.freestyle.sh/releases/v0.2.9#assets", "https://www.rigkit.dev/releases/v0.2.9#assets"],
     ] as const;
 
     for (const [input, location] of cases) {
@@ -210,7 +212,7 @@ describe("website worker · install routes", () => {
     }) as typeof fetch;
 
     const response = await worker.fetch(
-      new Request("https://rigkit.dev/docs"),
+      new Request("https://www.rigkit.dev/docs"),
       noopAssetsEnv(),
       ctx(),
     );
@@ -220,7 +222,7 @@ describe("website worker · install routes", () => {
       {
         url: "https://freestyle.mintlify.dev/docs",
         host: "freestyle.mintlify.dev",
-        forwardedHost: "rigkit.dev",
+        forwardedHost: "www.rigkit.dev",
       },
     ]);
   });
@@ -234,7 +236,7 @@ describe("website worker · install routes", () => {
     }) as typeof fetch;
 
     const response = await worker.fetch(
-      new Request("https://rigkit.dev/docs/guides/quickstart?foo=1"),
+      new Request("https://www.rigkit.dev/docs/guides/quickstart?foo=1"),
       noopAssetsEnv(),
       ctx(),
     );
@@ -248,7 +250,7 @@ describe("website worker · install routes", () => {
 function noopAssetsEnv(): Env {
   return {
     GITHUB_REPO: "freestyle-sh/rigkit",
-    PUBLIC_BASE_URL: "https://rigkit.dev",
+    PUBLIC_BASE_URL: "https://www.rigkit.dev",
     CACHE_TTL_SECONDS: "30",
     ASSETS: {
       async fetch() {
@@ -269,7 +271,7 @@ type Env = {
 function dispatch(url: string, overrides: Partial<Record<"GITHUB_TOKEN", string>> = {}): Promise<Response> {
   const env: Env = {
     GITHUB_REPO: "freestyle-sh/rigkit",
-    PUBLIC_BASE_URL: "https://rigkit.dev",
+    PUBLIC_BASE_URL: "https://www.rigkit.dev",
     CACHE_TTL_SECONDS: "30",
     ASSETS: {
       async fetch() {

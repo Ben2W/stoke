@@ -1,8 +1,8 @@
 import { handleInstallRequest, isInstallPath, type InstallEnv } from "./worker/install.ts";
 
-const PRIMARY_HOST = "rigkit.dev";
+const PRIMARY_HOST = "www.rigkit.dev";
 const DOCS_REDIRECT_HOST = "docs.rigkit.dev";
-const LEGACY_REDIRECT_HOSTS = new Set(["rig.freestyle.sh", "rigkit.freestyle.sh"]);
+const REDIRECT_HOSTS = new Set(["rigkit.dev", "rig.freestyle.sh", "rigkit.freestyle.sh"]);
 const MINTLIFY_HOST = "freestyle.mintlify.dev";
 const DOCS_CUSTOM_HOST = PRIMARY_HOST;
 
@@ -72,7 +72,7 @@ export default {
       return redirectDocsHost(url);
     }
 
-    if (LEGACY_REDIRECT_HOSTS.has(url.hostname)) {
+    if (REDIRECT_HOSTS.has(url.hostname)) {
       return redirectToPrimaryHost(url);
     }
 

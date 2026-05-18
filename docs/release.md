@@ -140,7 +140,7 @@ unaffected.
 Install a canary CLI:
 
 ```bash
-curl -fsSL https://rigkit.dev/install/canary | sh
+curl -fsSL https://www.rigkit.dev/install/canary | sh
 ```
 
 Install canary npm packages:
@@ -309,7 +309,7 @@ The public installer is served by the website Worker (which also hosts the
 marketing page at the root):
 
 ```bash
-curl -fsSL https://rigkit.dev/install | sh
+curl -fsSL https://www.rigkit.dev/install | sh
 ```
 
 The Worker uses GitHub Releases as the source of truth, serves latest-version

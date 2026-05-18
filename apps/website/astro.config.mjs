@@ -3,7 +3,7 @@ import react from "@astrojs/react";
 import tailwindcss from "@tailwindcss/vite";
 
 export default defineConfig({
-  site: "https://rigkit.dev",
+  site: "https://www.rigkit.dev",
   build: {
     format: "file",
   },

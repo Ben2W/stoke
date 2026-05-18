@@ -52,7 +52,7 @@ describe("CLI entrypoint", () => {
       fetch() {
         return Response.json({
           version: latestVersion,
-          installerUrl: "https://rigkit.dev/install",
+          installerUrl: "https://www.rigkit.dev/install",
         });
       },
     });
@@ -70,7 +70,7 @@ describe("CLI entrypoint", () => {
       expect(result.exitCode).toBe(0);
       expect(result.stdout).toContain(RIGKIT_CLI_VERSION);
       expect(result.stderr).toContain(`rig ${latestVersion} is available`);
-      expect(result.stderr).toContain("update with: curl -fsSL https://rigkit.dev/install | sh");
+      expect(result.stderr).toContain("update with: curl -fsSL https://www.rigkit.dev/install | sh");
     } finally {
       server.stop(true);
       rmSync(rigkitHome, { recursive: true, force: true });
@@ -87,7 +87,7 @@ describe("CLI entrypoint", () => {
         requests += 1;
         return Response.json({
           version: nextPatchVersion(RIGKIT_CLI_VERSION),
-          installerUrl: "https://rigkit.dev/install",
+          installerUrl: "https://www.rigkit.dev/install",
         });
       },
     });

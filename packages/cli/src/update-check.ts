@@ -28,8 +28,8 @@ type UpdateCheckOptions = {
   stream?: NoticeStream;
 };
 
-const DEFAULT_UPDATE_URL = "https://rigkit.dev/latest.json";
-const DEFAULT_INSTALL_URL = "https://rigkit.dev/install";
+const DEFAULT_UPDATE_URL = "https://www.rigkit.dev/latest.json";
+const DEFAULT_INSTALL_URL = "https://www.rigkit.dev/install";
 const CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const DEFAULT_TIMEOUT_MS = 900;
 
