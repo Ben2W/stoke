@@ -1,7 +1,9 @@
 import { handleInstallRequest, isInstallPath, type InstallEnv } from "./worker/install.ts";
 
+const PRIMARY_HOST = "rigkit.dev";
+const DOCS_REDIRECT_HOST = "docs.rigkit.dev";
 const MINTLIFY_HOST = "freestyle.mintlify.dev";
-const DOCS_CUSTOM_HOST = "rig.freestyle.sh";
+const DOCS_CUSTOM_HOST = PRIMARY_HOST;
 
 interface Env extends InstallEnv {
   ASSETS: {
@@ -12,6 +14,21 @@ interface Env extends InstallEnv {
 function redirectToHttps(url: URL): Response {
   url.protocol = "https:";
   return Response.redirect(url.toString(), 308);
+}
+
+function redirectDocsHost(url: URL): Response {
+  const target = new URL(url.toString());
+  target.protocol = "https:";
+  target.hostname = PRIMARY_HOST;
+  target.port = "";
+  target.pathname = docsRedirectPath(url.pathname);
+  return Response.redirect(target.toString(), 308);
+}
+
+function docsRedirectPath(pathname: string): string {
+  if (pathname === "/" || pathname === "") return "/docs";
+  if (isDocsPath(pathname)) return pathname;
+  return `/docs${pathname.startsWith("/") ? pathname : `/${pathname}`}`;
 }
 
 function assetRequest(request: Request, url: URL, pathname: string): Request {
@@ -41,6 +58,10 @@ function proxyDocsToMintlify(request: Request, url: URL): Promise<Response> {
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
+
+    if (url.hostname === DOCS_REDIRECT_HOST) {
+      return redirectDocsHost(url);
+    }
 
     if (url.protocol === "http:") {
       return redirectToHttps(url);

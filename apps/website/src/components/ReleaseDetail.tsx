@@ -100,7 +100,7 @@ export function ReleaseDetail() {
 
   const { release } = state;
   const versionStripped = release.tag.startsWith("v") ? release.tag.slice(1) : release.tag;
-  const cliInstall = `curl -fsSL https://rigkit.freestyle.sh/install/version/${release.tag} | sh`;
+  const cliInstall = `curl -fsSL https://rigkit.dev/install/version/${release.tag} | sh`;
 
   return (
     <div className="flex flex-col gap-10">
