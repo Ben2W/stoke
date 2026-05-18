@@ -247,7 +247,8 @@ PR canary versions look like:
 ```
 
 PR canaries publish with dist-tag `pr-<number>` and never publish to `latest`.
-They currently use the `NPM_CANARY_TOKEN` secret.
+They use npm Trusted Publishing via `canary.yml`, just like stable releases use
+`publish-npm.yml`. No long-lived npm token is needed.
 
 ## Installer Deployment
 
