@@ -8,6 +8,7 @@
     "directory": "./dist",
     "binding": "ASSETS",
     "not_found_handling": "404-page",
+    "html_handling": "none",
   },
   "routes": [
     { "pattern": "rigkit.freestyle.sh", "custom_domain": true },
