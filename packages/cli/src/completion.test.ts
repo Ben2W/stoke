@@ -229,6 +229,46 @@ describe("CLI completion", () => {
     });
   });
 
+  test("uses --workflow to scope workspace command completion", async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-completion-"));
+    await withWorkspaceRuntime({ projectDir, includeApiWorkflow: true }, async () => {
+      const workflowValues = await completeRig({
+        cwd: projectDir,
+        words: ["rig", "run", "--workflow", ""],
+        currentIndex: 3,
+      });
+      expect(workflowValues.map((item) => item.value)).toEqual(["smoke", "api"]);
+
+      const workspaces = await completeRig({
+        cwd: projectDir,
+        words: ["rig", "run", "--workflow", "api", ""],
+        currentIndex: 4,
+      });
+      expect(workspaces.map((item) => item.value)).toEqual(["worker", "--workflow", "--json", "--help"]);
+
+      const operations = await completeRig({
+        cwd: projectDir,
+        words: ["rig", "run", "--workflow", "api", "worker", ""],
+        currentIndex: 5,
+      });
+      expect(operations.map((item) => item.value)).toEqual(["remove", "tail-logs", "logs", "--workflow", "--json", "--help"]);
+
+      const operationFlags = await completeRig({
+        cwd: projectDir,
+        words: ["rig", "run", "--workflow", "api", "worker", "tail-logs", "--"],
+        currentIndex: 6,
+      });
+      expect(operationFlags.map((item) => item.value)).toEqual(["--service", "--workflow", "--json", "--help"]);
+
+      const removeTargets = await completeRig({
+        cwd: projectDir,
+        words: ["rig", "rm", "--workflow=api", ""],
+        currentIndex: 3,
+      });
+      expect(removeTargets.map((item) => item.value)).toEqual(["worker", "-y", "--yes", "--all", "--workflow", "--json", "--help"]);
+    });
+  });
+
   test("completes top-level project commands at the root command position", async () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-completion-"));
     await withWorkspaceRuntime({ projectDir }, async () => {
@@ -469,7 +509,7 @@ describe("CLI completion", () => {
 });
 
 async function withWorkspaceRuntime(
-  input: { projectDir: string; cleanupDir?: string },
+  input: { projectDir: string; cleanupDir?: string; includeApiWorkflow?: boolean },
   run: () => Promise<void>,
 ): Promise<void> {
   const previousHome = process.env.RIGKIT_HOME;
@@ -508,6 +548,7 @@ async function withWorkspaceRuntime(
         const nowMs = Date.now();
         const apiCreatedAt = new Date(nowMs - 2 * 60 * 60 * 1000).toISOString();
         const webCreatedAt = new Date(nowMs - 5 * 60 * 1000).toISOString();
+        const workerCreatedAt = new Date(nowMs - 60 * 1000).toISOString();
         const updatedAt = new Date(nowMs).toISOString();
         return runtimeJson({
           workspaces: [
@@ -527,6 +568,14 @@ async function withWorkspaceRuntime(
               createdAt: webCreatedAt,
               updatedAt,
             },
+            ...(input.includeApiWorkflow ? [{
+              id: "workspace-worker",
+              name: "worker",
+              workflow: "api",
+              ctx: {},
+              createdAt: workerCreatedAt,
+              updatedAt,
+            }] : []),
           ],
         });
       }
@@ -545,7 +594,7 @@ async function withWorkspaceRuntime(
               providers: [],
               nodes: ["install-tooling"],
               operations: ["plan", "apply"],
-              createsWorkspace: false,
+              createsWorkspace: Boolean(input.includeApiWorkflow),
             },
           ],
         });
@@ -721,6 +770,43 @@ async function withWorkspaceRuntime(
                 },
               },
             },
+            ...(input.includeApiWorkflow ? [
+              {
+                workflow: "api",
+                id: "remove",
+                kind: "workspace-action",
+                source: "core",
+                title: "Remove",
+                description: "remove api workspace",
+                cli: {
+                  options: [{ name: "yes", flag: "--yes", aliases: ["-y"], type: "boolean", runtime: false }],
+                },
+                inputSchema: {
+                  type: "object",
+                  additionalProperties: false,
+                  properties: {},
+                },
+              },
+              {
+                workflow: "api",
+                id: "tail-logs",
+                aliases: ["logs"],
+                kind: "workspace-action",
+                source: "config",
+                title: "Tail logs",
+                description: "tail logs",
+                cli: {
+                  options: [{ name: "service", flag: "--service", type: "string" }],
+                },
+                inputSchema: {
+                  type: "object",
+                  additionalProperties: false,
+                  properties: {
+                    service: { type: "string" },
+                  },
+                },
+              },
+            ] : []),
           ],
         });
       }

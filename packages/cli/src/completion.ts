@@ -489,7 +489,10 @@ async function optionsForCommandContext(context: CompletionContext): Promise<Opt
   if (context.command === "run") {
     const run = parseRunArgs(context);
     if (run.workspace && run.operation) {
-      const operation = await safeResolveWorkspaceOperation(resolveProjectDir(context.words, context.cwd), run.operation);
+      const paths = resolveProjectDir(context.words, context.cwd);
+      const requestedWorkflow = workflowOptionValue(context.argsBefore, COMMAND_OPTIONS.run);
+      const workflow = requestedWorkflow ?? await safeWorkflowForWorkspace(paths, run.workspace);
+      const operation = await safeResolveWorkspaceOperation(paths, run.operation, workflow);
       return mergeOptions([
         ...operationOptions(operation),
         ...COMMAND_OPTIONS.run,
@@ -500,7 +503,10 @@ async function optionsForCommandContext(context: CompletionContext): Promise<Opt
   if (context.command === "rm") {
     const remove = parseRmArgs(context);
     if (remove.workspace) {
-      const operation = await safeResolveWorkspaceOperation(resolveProjectDir(context.words, context.cwd), "remove");
+      const paths = resolveProjectDir(context.words, context.cwd);
+      const requestedWorkflow = workflowOptionValue(context.argsBefore, COMMAND_OPTIONS.rm);
+      const workflow = requestedWorkflow ?? await safeWorkflowForWorkspace(paths, remove.workspace);
+      const operation = await safeResolveWorkspaceOperation(paths, "remove", workflow);
       return mergeOptions([
         ...operationOptions(operation),
         ...COMMAND_OPTIONS.rm,
@@ -639,24 +645,26 @@ async function completeRunCommand(context: CompletionContext): Promise<Completio
   const paths = resolveProjectDir(context.words, context.cwd);
   const baseOptions = COMMAND_OPTIONS.run;
   const run = parseRunArgs(context);
+  const requestedWorkflow = workflowOptionValue(context.argsBefore, baseOptions);
 
   if (!run.workspace) {
     return completeMixed({
-      primary: await safeWorkspaceTargets(paths),
+      primary: await safeWorkspaceTargets(paths, requestedWorkflow),
       options: baseOptions,
       current: context.current,
     });
   }
 
+  const workflow = requestedWorkflow ?? await safeWorkflowForWorkspace(paths, run.workspace);
   if (!run.operation) {
     return completeMixed({
-      primary: await safeWorkspaceOperationTargets(paths),
+      primary: await safeWorkspaceOperationTargets(paths, workflow),
       options: baseOptions,
       current: context.current,
     });
   }
 
-  const operation = await safeResolveWorkspaceOperation(paths, run.operation);
+  const operation = await safeResolveWorkspaceOperation(paths, run.operation, workflow);
   const options = mergeOptions([
     ...operationOptions(operation),
     ...baseOptions,
@@ -675,7 +683,11 @@ async function completeRunCommand(context: CompletionContext): Promise<Completio
 async function completeRmCommand(context: CompletionContext): Promise<CompletionItem[]> {
   const paths = resolveProjectDir(context.words, context.cwd);
   const remove = parseRmArgs(context);
-  const operation = remove.workspace ? await safeResolveWorkspaceOperation(paths, "remove") : undefined;
+  const requestedWorkflow = workflowOptionValue(context.argsBefore, COMMAND_OPTIONS.rm);
+  const workflow = remove.workspace
+    ? requestedWorkflow ?? await safeWorkflowForWorkspace(paths, remove.workspace)
+    : requestedWorkflow;
+  const operation = remove.workspace ? await safeResolveWorkspaceOperation(paths, "remove", workflow) : undefined;
   const options = mergeOptions([
     ...operationOptions(operation),
     ...COMMAND_OPTIONS.rm,
@@ -683,7 +695,7 @@ async function completeRmCommand(context: CompletionContext): Promise<Completion
 
   if (!remove.workspace) {
     return completeMixed({
-      primary: await safeWorkspaceTargets(paths),
+      primary: await safeWorkspaceTargets(paths, requestedWorkflow),
       options,
       current: context.current,
     });
@@ -921,6 +933,35 @@ function parseRunArgs(context: CompletionContext): { workspace?: string; operati
 function parseRmArgs(context: CompletionContext): { workspace?: string } {
   const positionals = positionalsFrom(context.argsBefore, COMMAND_OPTIONS.rm);
   return { workspace: positionals[0] };
+}
+
+function workflowOptionValue(tokens: string[], options: OptionDefinition[]): string | undefined {
+  let workflow: string | undefined;
+
+  for (let index = 0; index < tokens.length; index += 1) {
+    const word = tokens[index]!;
+    if (word === "--") break;
+
+    const option = findOption(options, word) ?? findOption(GLOBAL_OPTIONS, word);
+    if (!option || !isOptionToken(word)) continue;
+
+    if (option.flags.includes("--workflow")) {
+      if (hasInlineValue(word)) {
+        const value = word.slice(optionFlag(word).length + 1);
+        if (value) workflow = value;
+        continue;
+      }
+
+      const value = tokens[index + 1];
+      if (value && !isOptionToken(value)) workflow = value;
+      index += 1;
+      continue;
+    }
+
+    if (option.takesValue && !hasInlineValue(word)) index += 1;
+  }
+
+  return workflow;
 }
 
 function parseCacheArgs(context: CompletionContext): { subcommand?: string; args: string[] } {
@@ -1223,10 +1264,14 @@ function splitCompletionPath(baseDir: string, current: string): {
 
 async function safeWorkspaceTargets(
   paths: { projectDir: string; configPath: string },
+  workflow?: string,
 ): Promise<CompletionItem[]> {
   try {
     const workspaces = await readWorkspaces(paths);
-    return dedupeItems(workspaces.map((workspace) => ({
+    const scopedWorkspaces = workflow
+      ? workspaces.filter((workspace) => workspace.workflow === workflow)
+      : workspaces;
+    return dedupeItems(scopedWorkspaces.map((workspace) => ({
       value: workspace.name,
       description: workspaceDescription(workspace),
       group: GROUP_WORKSPACES,
@@ -1265,17 +1310,21 @@ async function safeWorkflowTargets(
 
 async function safeWorkspaceOperationTargets(
   paths: { projectDir: string; configPath: string },
+  workflow?: string,
 ): Promise<CompletionItem[]> {
   try {
     const manifest = await readOperations(paths);
-    return workspaceOperationTargets(manifest);
+    return workspaceOperationTargets(manifest, workflow);
   } catch {
     return [];
   }
 }
 
-function workspaceOperationTargets(manifest: RuntimeOperationManifest): CompletionItem[] {
-  return dedupeItems((manifest.workspaceOperations ?? []).flatMap((operation) => [
+function workspaceOperationTargets(manifest: RuntimeOperationManifest, workflow?: string): CompletionItem[] {
+  const operations = workflow
+    ? (manifest.workspaceOperations ?? []).filter((operation) => operation.workflow === workflow)
+    : manifest.workspaceOperations ?? [];
+  return dedupeItems(operations.flatMap((operation) => [
     {
       value: operation.id,
       description: operation.description || "workspace operation",
@@ -1287,6 +1336,18 @@ function workspaceOperationTargets(manifest: RuntimeOperationManifest): Completi
       group: GROUP_OPERATIONS,
     })),
   ]));
+}
+
+async function safeWorkflowForWorkspace(
+  paths: { projectDir: string; configPath: string },
+  workspaceName: string,
+): Promise<string | undefined> {
+  try {
+    const matches = (await readWorkspaces(paths)).filter((workspace) => workspace.name === workspaceName);
+    return matches.length === 1 ? matches[0]!.workflow : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 async function safeCacheInvalidateTargets(
@@ -1331,19 +1392,22 @@ async function safeResolveRuntimeOperation(
 async function resolveWorkspaceOperation(
   paths: { projectDir: string; configPath: string },
   operationId: string,
+  workflow?: string,
 ): Promise<RuntimeOperationDefinition | undefined> {
   const manifest = await readOperations(paths);
   return (manifest.workspaceOperations ?? []).find((operation) =>
-    operation.id === operationId || operation.aliases?.includes(operationId)
+    (workflow === undefined || operation.workflow === workflow) &&
+    (operation.id === operationId || operation.aliases?.includes(operationId))
   );
 }
 
 async function safeResolveWorkspaceOperation(
   paths: { projectDir: string; configPath: string },
   operationId: string,
+  workflow?: string,
 ): Promise<RuntimeOperationDefinition | undefined> {
   try {
-    return await resolveWorkspaceOperation(paths, operationId);
+    return await resolveWorkspaceOperation(paths, operationId, workflow);
   } catch {
     return undefined;
   }

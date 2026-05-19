@@ -370,6 +370,33 @@ describe("CLI entrypoint", () => {
     });
   });
 
+  test("requires --workflow for duplicate workspace names in JSON run", async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-cli-run-conflict-"));
+
+    await withWorkspaceRuntime({ projectDir, duplicateWorkspaceName: true }, async ({ env }) => {
+      const result = await runCli([`--chdir=${projectDir}`, "run", "api", "remove", "--json"], { env });
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toContain('Workspace "api" exists in multiple workflows: smoke, api. Pass --workflow.');
+    });
+  });
+
+  test("uses --workflow to disambiguate duplicate workspace names in run", async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-cli-run-workflow-"));
+
+    await withWorkspaceRuntime({ projectDir, duplicateWorkspaceName: true }, async ({ env }) => {
+      const result = await runCli([`--chdir=${projectDir}`, "run", "api", "remove", "--workflow", "smoke", "--yes", "--json"], { env });
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stderr).toBe("");
+      expect(JSON.parse(result.stdout)).toMatchObject({
+        name: "api",
+        workflow: "smoke",
+      });
+    });
+  });
+
   test("requires discovered projects for operation --all", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "rigkit-cli-run-all-"));
 
@@ -438,7 +465,7 @@ function nextPatchVersion(version: string): string {
 }
 
 async function withWorkspaceRuntime(
-  input: { projectDir: string; cacheInvalidated?: number },
+  input: { projectDir: string; cacheInvalidated?: number; duplicateWorkspaceName?: boolean },
   run: (context: { env: Record<string, string> }) => Promise<void>,
 ): Promise<void> {
   const rigkitHome = mkdtempSync(join(tmpdir(), "rigkit-home-"));
@@ -477,26 +504,46 @@ async function withWorkspaceRuntime(
       }
       if (pathname === "/workspaces") {
         return runtimeJson({
-          workspaces: [{
-            id: "workspace-api",
-            name: "api",
-            workflow: "smoke",
-            ctx: {},
-            createdAt: now,
-            updatedAt: now,
-          }],
+          workspaces: [
+            {
+              id: "workspace-api",
+              name: "api",
+              workflow: "smoke",
+              ctx: {},
+              createdAt: now,
+              updatedAt: now,
+            },
+            ...(input.duplicateWorkspaceName ? [{
+              id: "workspace-api-api",
+              name: "api",
+              workflow: "api",
+              ctx: {},
+              createdAt: now,
+              updatedAt: now,
+            }] : []),
+          ],
         });
       }
       if (pathname === "/workflows") {
         return runtimeJson({
-          workflows: [{
-            name: "smoke",
-            providers: [],
-            nodes: ["ready"],
-            operations: [],
-            createsWorkspace: true,
-            lastAppliedAt: now,
-          }],
+          workflows: [
+            {
+              name: "smoke",
+              providers: [],
+              nodes: ["ready"],
+              operations: [],
+              createsWorkspace: true,
+              lastAppliedAt: now,
+            },
+            ...(input.duplicateWorkspaceName ? [{
+              name: "api",
+              providers: [],
+              nodes: ["ready"],
+              operations: [],
+              createsWorkspace: true,
+              lastAppliedAt: now,
+            }] : []),
+          ],
         });
       }
       if (pathname === "/cache/invalidate") {
@@ -529,22 +576,40 @@ async function withWorkspaceRuntime(
               required: ["name"],
             },
           }],
-          workspaceOperations: [{
-            workflow: "smoke",
-            id: "remove",
-            kind: "workspace-action",
-            source: "core",
-            title: "Remove",
-            description: "remove workspace",
-            cli: {
-              options: [{ name: "yes", flag: "--yes", aliases: ["-y"], type: "boolean", runtime: false }],
+          workspaceOperations: [
+            {
+              workflow: "smoke",
+              id: "remove",
+              kind: "workspace-action",
+              source: "core",
+              title: "Remove",
+              description: "remove workspace",
+              cli: {
+                options: [{ name: "yes", flag: "--yes", aliases: ["-y"], type: "boolean", runtime: false }],
+              },
+              inputSchema: {
+                type: "object",
+                additionalProperties: false,
+                properties: {},
+              },
             },
-            inputSchema: {
-              type: "object",
-              additionalProperties: false,
-              properties: {},
-            },
-          }],
+            ...(input.duplicateWorkspaceName ? [{
+              workflow: "api",
+              id: "remove",
+              kind: "workspace-action",
+              source: "core",
+              title: "Remove",
+              description: "remove api workspace",
+              cli: {
+                options: [{ name: "yes", flag: "--yes", aliases: ["-y"], type: "boolean", runtime: false }],
+              },
+              inputSchema: {
+                type: "object",
+                additionalProperties: false,
+                properties: {},
+              },
+            }] : []),
+          ],
         });
       }
       if (pathname === "/runs") {

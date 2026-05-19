@@ -304,8 +304,9 @@ async function runCli(argv: string[]): Promise<void> {
       args: string[],
       options: { workflow?: string; json?: boolean },
     ) => {
-      await runWorkspaceOperation(makeInvocation(rootOptions(program), options.json), workspace, operation, args ?? [], {
-        workflow: options.workflow,
+      const parsed = parseRunCommandOptions(args ?? [], options);
+      await runWorkspaceOperation(makeInvocation(rootOptions(program), parsed.json), workspace, operation, parsed.args, {
+        workflow: parsed.workflow,
       });
     });
 
@@ -798,6 +799,41 @@ async function runProjectOperation(
     await printWorkspaceNextSteps(runtime, result.name, result.workflow);
   }
   printInteractiveOutputGap(invocation);
+}
+
+function parseRunCommandOptions(
+  args: string[],
+  options: { workflow?: string; json?: boolean },
+): { args: string[]; workflow?: string; json: boolean } {
+  const operationArgs: string[] = [];
+  let workflow = options.workflow;
+  let json = Boolean(options.json);
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index]!;
+    if (arg === "--") {
+      operationArgs.push(...args.slice(index));
+      break;
+    }
+
+    if (arg === "--workflow") {
+      workflow = readOptionValue(args, ++index, "--workflow");
+      continue;
+    }
+    if (arg.startsWith("--workflow=")) {
+      workflow = arg.slice("--workflow=".length);
+      if (!workflow) throw new Error("Missing value for --workflow");
+      continue;
+    }
+    if (arg === "--json") {
+      json = true;
+      continue;
+    }
+
+    operationArgs.push(arg);
+  }
+
+  return { args: operationArgs, workflow, json };
 }
 
 async function runWorkspaceOperation(
@@ -1475,9 +1511,10 @@ async function resolveWorkspaceWorkflow(
   if (wantsJson(invocation) || !canPrompt()) {
     throw new Error(`Workspace "${workspaceName}" exists in multiple workflows: ${matches.map((item) => item.workflow).join(", ")}. Pass --workflow.`);
   }
-  return await promptWorkflowSelection(workflows.filter((workflow) =>
-    matches.some((workspace) => workspace.workflow === workflow.name)
-  ));
+  return await promptWorkflowSelection(
+    workflows.filter((workflow) => matches.some((workspace) => workspace.workflow === workflow.name)),
+    `Workspace "${workspaceName}" exists in multiple workflows. Select workflow`,
+  );
 }
 
 function assertKnownWorkflow(name: string, workflows: RuntimeWorkflowSummary[]): void {
@@ -1489,12 +1526,12 @@ function formatWorkflowNames(workflows: RuntimeWorkflowSummary[]): string {
   return workflows.length > 0 ? workflows.map((workflow) => workflow.name).join(", ") : "(none)";
 }
 
-async function promptWorkflowSelection(workflows: RuntimeWorkflowSummary[]): Promise<string> {
+async function promptWorkflowSelection(workflows: RuntimeWorkflowSummary[], message = "Select workflow"): Promise<string> {
   if (workflows.length === 0) throw new Error("This project does not define any workflows.");
   const answers = await inquirer.prompt<{ workflow: string }>([{
     type: "select",
     name: "workflow",
-    message: "Select workflow",
+    message,
     choices: workflows.map((workflow) => ({
       name: workflow.name,
       value: workflow.name,
@@ -2038,10 +2075,10 @@ async function printWorkspaceNextSteps(runtime: RuntimeClient, workspaceName: st
 
   const ops = (manifest.workspaceOperations ?? []).filter((op) => op.workflow === workflow && op.id !== "remove");
   const invocations: Array<{ command: string; description: string }> = ops.map((op) => ({
-    command: `rig run --workflow ${workflow} ${workspaceName} ${op.id}`,
+    command: `rig run ${workspaceName} ${op.id}`,
     description: op.description ?? op.title ?? "",
   }));
-  invocations.push({ command: `rig rm --workflow ${workflow} ${workspaceName}`, description: "Remove this workspace" });
+  invocations.push({ command: `rig rm ${workspaceName}`, description: "Remove this workspace" });
 
   const commandWidth = invocations.reduce((max, item) => Math.max(max, item.command.length), 0);
 
@@ -2693,36 +2730,78 @@ function printWorkflowWorkspaces(workflows: WorkflowOverview[]): void {
     return;
   }
 
-  for (const [index, workflow] of workflows.entries()) {
-    if (index > 0) console.log("");
-    const cacheStatus = formatCacheStatus(workflow);
-    const lastApplied = workflow.lastAppliedAt
-      ? `applied ${formatRelativeAge(workflow.lastAppliedAt)}`
-      : "never applied";
-    console.log(
-      `${ui.bold(workflow.name)}  ${cacheStatus} ${ui.dim(ui.sym.dot)} ${ui.dim(lastApplied)}`,
-    );
-    if (workflow.planError) {
-      console.log(`  ${ui.warn("status")}  ${workflow.planError}`);
-    }
-    if (workflow.workspaces.length === 0) {
-      console.log(`  ${ui.dim("no workspaces")}`);
-      continue;
-    }
+  const sortedWorkflows = sortWorkflowsForListing(workflows);
+  printWorkflowsSection(sortedWorkflows);
+  console.log("");
+  printWorkspacesSection(sortedWorkflows);
+
+  const planErrors = sortedWorkflows.filter((workflow) => workflow.planError);
+  if (planErrors.length > 0) {
     console.log("");
-    const rows = workflow.workspaces.map((workspace) => [
-      { text: workspace.name, style: ui.bold },
-      formatWorkspaceAge(workspace.createdAt),
-      { text: formatCreatedTimestamp(workspace.createdAt), style: ui.dim },
-    ]);
-    console.log(ui.columns(["workspace", "age", "created"], rows));
+    for (const workflow of planErrors) {
+      console.log(`  ${ui.warn(workflow.name)}  ${workflow.planError}`);
+    }
   }
 }
 
-function formatCacheStatus(workflow: WorkflowOverview): string {
-  if (workflow.cached === null) return ui.warn("plan unavailable");
-  const summary = `${workflow.cachedNodeCount}/${workflow.nodeCount} cached`;
-  return workflow.cached ? ui.ok(summary) : ui.dim(summary);
+function sortWorkflowsForListing(workflows: WorkflowOverview[]): WorkflowOverview[] {
+  return [...workflows].sort((left, right) => {
+    const leftHas = left.workspaces.length > 0 ? 1 : 0;
+    const rightHas = right.workspaces.length > 0 ? 1 : 0;
+    if (leftHas !== rightHas) return rightHas - leftHas;
+    const leftApplied = left.lastAppliedAt ? Date.parse(left.lastAppliedAt) : 0;
+    const rightApplied = right.lastAppliedAt ? Date.parse(right.lastAppliedAt) : 0;
+    if (leftApplied !== rightApplied) return rightApplied - leftApplied;
+    return left.name.localeCompare(right.name);
+  });
+}
+
+function printWorkflowsSection(workflows: WorkflowOverview[]): void {
+  console.log(ui.bold("workflows"));
+  const rows = workflows.map((workflow) => [
+    { text: workflow.name, style: ui.bold },
+    formatWorkflowCacheCell(workflow),
+    formatWorkflowAppliedCell(workflow),
+  ]);
+  console.log(ui.columns(["name", "cached", "applied"], rows));
+}
+
+function printWorkspacesSection(workflows: WorkflowOverview[]): void {
+  console.log(ui.bold("workspaces"));
+  const flattened = workflows.flatMap((workflow) =>
+    workflow.workspaces.map((workspace) => ({ ...workspace, workflowName: workflow.name })),
+  );
+  if (flattened.length === 0) {
+    console.log(`  ${ui.dim("none")}`);
+    return;
+  }
+  flattened.sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt));
+
+  const showWorkflowColumn = workflows.length > 1;
+  const headers = showWorkflowColumn
+    ? ["name", "workflow", "age", "created"]
+    : ["name", "age", "created"];
+  const rows = flattened.map((workspace) => {
+    const cells: Array<{ text: string; style?: (text: string) => string }> = [
+      { text: workspace.name, style: ui.bold },
+    ];
+    if (showWorkflowColumn) cells.push({ text: workspace.workflowName, style: ui.dim });
+    cells.push(formatWorkspaceAge(workspace.createdAt));
+    cells.push({ text: formatCreatedTimestamp(workspace.createdAt), style: ui.dim });
+    return cells;
+  });
+  console.log(ui.columns(headers, rows));
+}
+
+function formatWorkflowCacheCell(workflow: WorkflowOverview): { text: string; style: (text: string) => string } {
+  if (workflow.cached === null) return { text: "unavailable", style: ui.warn };
+  const text = `${workflow.cachedNodeCount}/${workflow.nodeCount}`;
+  return { text, style: workflow.cached ? ui.ok : ui.dim };
+}
+
+function formatWorkflowAppliedCell(workflow: WorkflowOverview): { text: string; style: (text: string) => string } {
+  if (!workflow.lastAppliedAt) return { text: "—", style: ui.dim };
+  return { text: formatRelativeAge(workflow.lastAppliedAt), style: ui.dim };
 }
 
 function formatWorkspaceAge(createdAt: string): { text: string; style: (text: string) => string } {
