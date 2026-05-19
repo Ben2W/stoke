@@ -17,8 +17,10 @@ curl -fsSL https://www.rigkit.dev/install | sh
 Create a project and bring up your first workspace:
 
 ```sh
-rig init --name website --package-manager pnpm
+mkdir website
 cd website
+pnpm add -D @rigkit/sdk @rigkit/provider-freestyle @rigkit/provider-cmux freestyle
+rig init
 rig plan
 rig apply
 rig create dev
@@ -29,7 +31,7 @@ rig rm dev
 - `rig plan` shows which setup tasks are cached or pending.
 - `rig apply` runs pending tasks and stores their JSON `ctx`.
 - `rig create <name>` creates a workspace from the workflow output.
-- `rig run <name> <operation>` runs an operation defined by `rig.config.ts`.
+- `rig run <name> <operation>` runs an operation defined by `rigkit/index.ts`.
 
 ## Read next
 

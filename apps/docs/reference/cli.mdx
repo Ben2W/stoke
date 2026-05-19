@@ -4,8 +4,8 @@ description: "Rigkit CLI commands, global options, project discovery, completion
 ---
 
 The global command is `rig`. It starts or connects to the project-local runtime
-installed by `@rigkit/sdk`, loads the selected `rig.config.ts`, and runs core
-or project-defined operations.
+installed by `@rigkit/sdk`, loads `rigkit/index.ts`, and runs core or
+project-defined operations.
 
 ## Common workflows
 
@@ -14,10 +14,12 @@ If you're new to `rig`, these are the command sequences you'll run most often.
 **Set up a project for the first time:**
 
 ```sh
-rig init --name website --package-manager pnpm
+mkdir website
 cd website
-rig plan         # see what will run
-rig apply        # run pending setup tasks, cache results
+pnpm add -D @rigkit/sdk @rigkit/provider-freestyle @rigkit/provider-cmux freestyle
+rig init
+rig plan                   # see what will run
+rig apply                  # run pending setup tasks, cache results
 ```
 
 **Create and use a workspace:**
@@ -25,7 +27,7 @@ rig apply        # run pending setup tasks, cache results
 ```sh
 rig create dev              # create a workspace from cached state
 rig run dev ssh             # run a project-defined operation
-rig run dev open-cmux       # operations are defined in rig.config.ts
+rig run dev open-cmux       # operations are defined in rigkit/index.ts
 rig ls                      # list workspaces
 rig rm dev                  # tear down a workspace
 ```
@@ -50,10 +52,10 @@ rig cache clear --local         # delete local cache entries
 Agents, CI jobs, and scripts should run Rigkit non-interactively:
 
 ```sh
-rig init --name website --package-manager skip --json
-rig plan --json
-rig apply --json
-rig create dev --json
+rig --json init
+rig plan --workflow dev --json
+rig apply --workflow dev --json
+rig create --workflow dev dev --json
 rig run dev status --json
 rig rm dev --yes --json
 rig cache invalidate --all --yes --json
@@ -72,26 +74,21 @@ consistency with command options:
 
 ```sh
 rig --chdir=examples/smoke plan
-rig --config=api.rig.config.ts apply
+rig --chdir=examples/global-fragments apply --workflow api
 rig --state=/tmp/rigkit-state.sqlite plan
-rig --json plan
+rig --json plan --workflow dev
 ```
 
 Options:
 
 | Option | Description |
 | --- | --- |
-| `--chdir <dir>` | Switch to a directory before resolving the config. |
-| `--config <file>` | Load a specific config file, relative to `--chdir` when set. |
+| `--chdir <dir>` | Switch to a directory before resolving `rigkit/index.ts`. |
 | `--state <file>` | Use a specific local runtime state database. |
 | `--json` | Print machine-readable JSON where supported. |
 
 By default Rigkit searches upward from the current directory for
-`rig.config.ts`. Named configs ending in `.rig.config.ts` must be selected with
-`--config`.
-
-Legacy single-dash global forms such as `-chdir=DIR`, `-config=FILE`,
-`-state=FILE`, and `-json` are still accepted.
+`rigkit/index.ts`.
 
 ## `rig init`
 
@@ -99,22 +96,10 @@ Initialize a project:
 
 ```sh
 rig init
-rig init --name website --package-manager pnpm
-rig init --name platform --package-manager skip
 ```
 
-Options:
-
-| Option | Description |
-| --- | --- |
-| `--name <name>` | Project and workflow name. Required in non-interactive terminals. |
-| `--api-key <key>` | Write `FREESTYLE_API_KEY` to `.env`. |
-| `--package-manager <pm>` | `npm`, `bun`, `pnpm`, or `skip`. |
-| `--force` | Overwrite an existing config file. |
-| `--json` | Print the init result as JSON. |
-
-`rig init` creates a project directory, `rig.config.ts`, package metadata, and
-ignore rules for `.env` and `.rigkit/`.
+`rig init` creates `rigkit/index.ts` in the current directory. It does not prompt
+and does not write package metadata, environment files, or ignore rules.
 
 ## `rig plan`
 
@@ -125,14 +110,14 @@ rig plan
 rig plan --workflow api
 rig plan --all
 rig plan --discover
-rig plan --json
+rig plan --workflow api --json
 ```
 
 Options:
 
 | Option | Description |
 | --- | --- |
-| `--workflow <name>` | Select a workflow when the config exports multiple workflows. |
+| `--workflow <name>` | Select a workflow explicitly. Interactive terminals prompt when omitted; non-interactive JSON runs should pass it. |
 | `--all` | Run against every discovered project. |
 | `--discover` | Discover projects below the selected directory. |
 | `--json` | Print JSON. |
@@ -150,7 +135,7 @@ rig apply
 rig apply --workflow web
 rig apply --all
 rig apply --discover
-rig apply --json
+rig apply --workflow web --json
 ```
 
 Options are the same as `plan`.
@@ -161,11 +146,13 @@ Create a named workspace from the selected workflow's final context:
 
 ```sh
 rig create dev
-rig create review-123 --workflow api
-rig create dev --json
+rig create --workflow api review-123
+rig create --workflow api dev --json
 ```
 
 If the project has no workspace lifecycle, `create` is not available.
+In multi-workflow projects, use `--workflow` when you need to choose a specific
+workflow or when running non-interactively.
 
 ## `rig run`
 
@@ -181,14 +168,13 @@ The first argument is the workspace name. The second is a
 `.workspaceOperation(...)` id from the config.
 
 Operations such as `ssh`, `open-cmux`, `open-vscode`, and `status` are defined
-in `rig.config.ts`. The names and behavior vary by project. After `rig create`,
+in `rigkit/index.ts`. The names and behavior vary by project. After `rig create`,
 the CLI prints available next-step operations in interactive terminals. Use
 completion or `rig run --help` for command syntax.
 
-Project-defined operation inputs become CLI flags when the runtime exposes a
-CLI shape for them. For example, an operation declaring a `port` input becomes
-`--port` on the command line. Use `--json` for machine-readable operation
-results.
+Project-defined Zod operation inputs become CLI flags. For example, an operation
+declaring a `port` input becomes `--port`, and Zod enums complete as selectable
+values. Use `--json` for machine-readable operation results.
 
 ## `rig rm`
 
@@ -218,6 +204,7 @@ List workspaces:
 
 ```sh
 rig ls
+rig ls --workflow api
 rig ls --json
 ```
 
@@ -229,6 +216,8 @@ rig ls config
 ```
 
 `snapshots` lists cached snapshot runs. `config` shows resolved project paths.
+The default workspace view is grouped by workflow and shows each workflow's
+workspace list, cache status, and last applied summary when available.
 
 ## `rig cache`
 
@@ -352,7 +341,6 @@ Rigkit exits non-zero when:
 - provider startup fails;
 - a task, workspace hook, or operation throws;
 - operation input validation fails;
-- a package-manager install from `rig init` fails;
 - a selected workspace or operation does not exist.
 
 For automation, prefer the [Agents and CI](#agents-and-ci) forms above.

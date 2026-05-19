@@ -187,7 +187,7 @@ export type WorkflowStepRuntime<
   PreviousTaskIds extends string = string,
 > = WorkflowRuntimeHelpers & {
   readonly ctx: Readonly<Context>;
-  invalidate<const Target extends PreviousTaskIds>(target: Target): WorkflowStepInvalidation<Target>;
+  invalidate<const Target extends PreviousTaskIds>(target: Target): never;
 };
 
 export type WorkflowTaskContextResult<Context extends JsonObject = JsonObject> = {
@@ -231,58 +231,13 @@ export type WorkflowInputFieldDefinition<Value = unknown> = {
   readonly __value?: Value;
 };
 
-export type WorkflowOperationWorkspaceInput<Name extends string> = {
-  [Key in Name]: WorkspaceRuntimeRecord;
-};
-
-export type WorkflowInputShape = Record<string, WorkflowInputFieldDefinition<any>>;
-
-export type WorkflowInputShapeContext<Shape extends WorkflowInputShape> = Simplify<{
-  [Key in keyof Shape & string]:
-    Shape[Key] extends WorkflowInputFieldDefinition<infer Value>
-      ? Value
-      : unknown;
-}>;
-
-export type WorkflowOperationInputBuilder<Input extends object = {}> = {
-  readonly fields: readonly WorkflowInputFieldDefinition[];
-  readonly __input?: Input;
-  extend<const Shape extends WorkflowInputShape>(
-    shape: Shape,
-  ): WorkflowOperationInputBuilder<Simplify<Input & WorkflowInputShapeContext<Shape>>>;
-};
-
-export type WorkflowOperationInputHelpers = {
-  workspaceInput<const Name extends string>(options: {
-    name: Name;
-    description?: string;
-    position?: number;
-    required?: boolean;
-  }): WorkflowOperationInputBuilder<WorkflowOperationWorkspaceInput<Name>>;
-
-  string<const Name extends string>(options: {
-    name?: Name;
-    description?: string;
-    position?: number;
-    required?: boolean;
-    defaultValue?: string;
-  }): WorkflowInputFieldDefinition<string>;
-
-  boolean<const Name extends string>(options: {
-    name?: Name;
-    description?: string;
-    position?: number;
-    required?: boolean;
-    defaultValue?: boolean;
-  }): WorkflowInputFieldDefinition<boolean>;
-
-  number<const Name extends string>(options: {
-    name?: Name;
-    description?: string;
-    position?: number;
-    required?: boolean;
-    defaultValue?: number;
-  }): WorkflowInputFieldDefinition<number>;
+export type WorkflowOperationInputSchema<Input extends object = object> = {
+  parse(value: unknown): Input;
+  toJSONSchema(params?: {
+    target?: "draft-04" | "draft-07" | "draft-2020-12" | "openapi-3.0" | (string & {});
+    io?: "input" | "output";
+    unrepresentable?: "throw" | "any";
+  }): Record<string, unknown>;
 };
 
 export type WorkflowOperationRuntime<
@@ -385,7 +340,7 @@ export type WorkflowOperationOptions<
 > = {
   title?: string;
   description?: string;
-  input?: WorkflowOperationInputBuilder<Input> | ((workflow: WorkflowOperationInputHelpers) => WorkflowOperationInputBuilder<Input>);
+  input?: WorkflowOperationInputSchema<Input>;
   run: WorkflowOperationHandler<Providers, Input>;
 };
 
@@ -396,7 +351,7 @@ export type WorkflowOperationDefinition<
   readonly id: string;
   readonly title?: string;
   readonly description?: string;
-  readonly input?: WorkflowOperationInputBuilder<Input>;
+  readonly input?: WorkflowOperationInputSchema<Input>;
   readonly run: WorkflowOperationHandler<Providers, Input>;
 };
 
@@ -408,7 +363,7 @@ export type WorkflowWorkspaceOperationOptions<
 > = {
   title?: string;
   description?: string;
-  input?: WorkflowOperationInputBuilder<Input> | ((workflow: WorkflowOperationInputHelpers) => WorkflowOperationInputBuilder<Input>);
+  input?: WorkflowOperationInputSchema<Input>;
   run: WorkflowWorkspaceOperationHandler<Providers, Context, Data, Input>;
 };
 
@@ -421,7 +376,7 @@ export type WorkflowWorkspaceOperationDefinition<
   readonly id: string;
   readonly title?: string;
   readonly description?: string;
-  readonly input?: WorkflowOperationInputBuilder<Input>;
+  readonly input?: WorkflowOperationInputSchema<Input>;
   readonly run: WorkflowWorkspaceOperationHandler<Providers, Context, Data, Input>;
 };
 
@@ -506,15 +461,6 @@ export type WorkflowDefinition<
     options: WorkflowTaskOptions<OutputSchemaValue<Schema>>,
     handler: WorkflowTaskHandler<Providers, {}, never, Awaited<Result> & WorkflowTaskResult>,
   ): WorkflowTaskNode<Providers, {}, TaskReturnContext<Result>>;
-};
-
-export type RigkitConfigDefinition<
-  Providers extends WorkflowProviderMap = WorkflowProviderMap,
-  Workflows extends Record<string, WorkflowNodeDefinition<any, any, any>> = Record<string, WorkflowNodeDefinition<any, any, any>>,
-> = {
-  readonly kind: "rigkit.config";
-  readonly providers: Providers;
-  readonly workflows: Workflows;
 };
 
 export type WorkflowNodeDefinition<

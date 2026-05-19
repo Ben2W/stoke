@@ -210,7 +210,7 @@ export function CliShowcase({ configHtml }: { configHtml: string }) {
             onClick={() => setLeftTab("terminal")}
           />
           <Tab
-            label="rig.config.ts"
+            label="rigkit/index.ts"
             icon={<FileGlyph />}
             active={leftTab === "config"}
             onClick={() => setLeftTab("config")}
@@ -529,7 +529,8 @@ function FileTree() {
       { label: "page.tsx", depth: 1, active: true },
       { label: "public/", depth: 0 },
       { label: "package.json", depth: 0 },
-      { label: "rig.config.ts", depth: 0 },
+      { label: "rigkit/", depth: 0 },
+      { label: "index.ts", depth: 1 },
     ],
     [],
   );

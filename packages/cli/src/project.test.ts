@@ -5,76 +5,72 @@ import { join } from "node:path";
 import { discoverProjectConfigs, resolveConfigPaths } from "./project.ts";
 
 describe("CLI project resolution", () => {
-  test("resolves --chdir to that directory's rig.config.ts", () => {
+  test("resolves --chdir to that directory's rigkit/index.ts", () => {
     const cwd = mkdtempSync(join(tmpdir(), "rigkit-cli-"));
-    mkdirSync(join(cwd, "example"));
-    writeFileSync(join(cwd, "example", "rig.config.ts"), "export default {}\n");
+    mkdirSync(join(cwd, "example", "rigkit"), { recursive: true });
+    writeFileSync(join(cwd, "example", "rigkit", "index.ts"), "export const dev = {}\n");
     const paths = resolveConfigPaths({ cwd, chdir: "example" });
 
     expect(paths.projectDir).toBe(join(cwd, "example"));
-    expect(paths.configPath).toBe(join(cwd, "example", "rig.config.ts"));
-  });
-
-  test("resolves --config project root from the config dirname", () => {
-    const cwd = mkdtempSync(join(tmpdir(), "rigkit-cli-"));
-    const paths = resolveConfigPaths({ cwd, config: "machines/platform.ts" });
-
-    expect(paths.projectDir).toBe(join(cwd, "machines"));
-    expect(paths.configPath).toBe(join(cwd, "machines", "platform.ts"));
+    expect(paths.configPath).toBe(join(cwd, "example", "rigkit", "index.ts"));
   });
 
   test("searches upward from cwd for the nearest config", () => {
     const cwd = mkdtempSync(join(tmpdir(), "rigkit-cli-"));
     mkdirSync(join(cwd, "project", "nested"), { recursive: true });
-    writeFileSync(join(cwd, "project", "rig.config.ts"), "export default {}\n");
+    mkdirSync(join(cwd, "project", "rigkit"), { recursive: true });
+    writeFileSync(join(cwd, "project", "rigkit", "index.ts"), "export const dev = {}\n");
 
     const paths = resolveConfigPaths({ cwd: join(cwd, "project", "nested") });
 
     expect(paths.projectDir).toBe(join(cwd, "project"));
-    expect(paths.configPath).toBe(join(cwd, "project", "rig.config.ts"));
+    expect(paths.configPath).toBe(join(cwd, "project", "rigkit", "index.ts"));
   });
 
-  test("reports named configs when the default config is missing", () => {
+  test("reports the canonical config when missing", () => {
     const cwd = mkdtempSync(join(tmpdir(), "rigkit-cli-"));
-    writeFileSync(join(cwd, "api.rig.config.ts"), "export default {}\n");
-    writeFileSync(join(cwd, "web.rig.config.ts"), "export default {}\n");
 
     expect(() => resolveConfigPaths({ cwd })).toThrow(
-      /Found named Rigkit configs[\s\S]*api\.rig\.config\.ts[\s\S]*web\.rig\.config\.ts[\s\S]*rig --chdir=\. --config=api\.rig\.config\.ts <command>/,
+      /No Rigkit config found from .* upward/,
     );
+  });
+
+  test("does not treat rig.config.ts as a project config", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "rigkit-cli-"));
+    writeFileSync(join(cwd, "rig.config.ts"), "export const dev = {}\n");
+
+    expect(() => resolveConfigPaths({ cwd })).toThrow(
+      /No Rigkit config found from .* upward/,
+    );
+    expect(discoverProjectConfigs({ cwd })).toEqual([]);
   });
 
   test("discovers projects downward without entering dependency directories", () => {
     const cwd = mkdtempSync(join(tmpdir(), "rigkit-cli-"));
-    mkdirSync(join(cwd, "api"), { recursive: true });
-    mkdirSync(join(cwd, "node_modules", "ignored"), { recursive: true });
-    writeFileSync(join(cwd, "api", "rig.config.ts"), "export default {}\n");
-    writeFileSync(join(cwd, "node_modules", "ignored", "rig.config.ts"), "export default {}\n");
+    mkdirSync(join(cwd, "api", "rigkit"), { recursive: true });
+    mkdirSync(join(cwd, "node_modules", "ignored", "rigkit"), { recursive: true });
+    writeFileSync(join(cwd, "api", "rigkit", "index.ts"), "export const api = {}\n");
+    writeFileSync(join(cwd, "node_modules", "ignored", "rigkit", "index.ts"), "export const ignored = {}\n");
 
     const projects = discoverProjectConfigs({ cwd });
 
     expect(projects).toEqual([{
       projectDir: join(cwd, "api"),
-      configPath: join(cwd, "api", "rig.config.ts"),
+      configPath: join(cwd, "api", "rigkit", "index.ts"),
     }]);
   });
 
-  test("discovers named configs downward", () => {
+  test("discovers projects downward once per rigkit entrypoint", () => {
     const cwd = mkdtempSync(join(tmpdir(), "rigkit-cli-"));
-    mkdirSync(join(cwd, "global-fragments"), { recursive: true });
-    writeFileSync(join(cwd, "global-fragments", "api.rig.config.ts"), "export default {}\n");
-    writeFileSync(join(cwd, "global-fragments", "web.rig.config.ts"), "export default {}\n");
+    mkdirSync(join(cwd, "global-fragments", "rigkit"), { recursive: true });
+    writeFileSync(join(cwd, "global-fragments", "rigkit", "index.ts"), "export const api = {}\n");
 
     const projects = discoverProjectConfigs({ cwd });
 
     expect(projects).toEqual([
       {
         projectDir: join(cwd, "global-fragments"),
-        configPath: join(cwd, "global-fragments", "api.rig.config.ts"),
-      },
-      {
-        projectDir: join(cwd, "global-fragments"),
-        configPath: join(cwd, "global-fragments", "web.rig.config.ts"),
+        configPath: join(cwd, "global-fragments", "rigkit", "index.ts"),
       },
     ]);
   });

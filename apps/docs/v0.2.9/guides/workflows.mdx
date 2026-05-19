@@ -23,7 +23,7 @@ const app = workflow("website", {
   },
 });
 
-export default app
+export const website = app
   .sequence("website")
   .task("prepare", async ({ freestyle }) => {
     const { vm, vmId } = await freestyle.client.vms.create({
@@ -39,30 +39,25 @@ export default app
   });
 ```
 
-Use `defineConfig(...)` when one `rig.config.ts` contains multiple workflows or
-when you want to share one provider map across standalone sequences:
+Export multiple workflow nodes when one `rigkit/index.ts` owns more than one setup graph. Shared providers live on the `workflow(...)` builder:
 
 ```ts
-import { defineConfig, sequence } from "@rigkit/sdk";
+import { workflow } from "@rigkit/sdk";
 import { freestyle } from "@rigkit/provider-freestyle";
 
-const api = sequence("api").task("prepare-api", async () => {
-  return { ctx: { packageName: "@acme/api" } };
-});
-
-const web = sequence("web").task("prepare-web", async () => {
-  return { ctx: { packageName: "@acme/web" } };
-});
-
-export default defineConfig({
+const services = workflow("services", {
   providers: {
     freestyle: freestyle.provider(),
   },
-  workflows: {
-    api,
-    web,
-  },
 });
+
+export const api = services.sequence("api").task("prepare-api", async () => ({
+  ctx: { packageName: "@acme/api" },
+}));
+
+export const web = services.sequence("web").task("prepare-web", async () => ({
+  ctx: { packageName: "@acme/web" },
+}));
 ```
 
 When a config has multiple workflows, pass `--workflow` to core operations when
@@ -71,7 +66,7 @@ the target is ambiguous:
 ```sh
 rig plan --workflow api
 rig apply --workflow web
-rig create dev --workflow api
+rig create --workflow api dev
 ```
 
 ## Tasks and context
@@ -131,7 +126,7 @@ const repo = app
     };
   });
 
-export default app
+export const website = app
   .sequence("website")
   .add(base)
   .add(repo);
@@ -224,7 +219,7 @@ Pass an `output` schema to validate fresh and cached output. The schema can
 expose `parse` or `safeParse`, which works with libraries such as Zod.
 
 ```ts
-import * as z from "zod/v4-mini";
+import { z } from "/sdk";
 
 const prepared = app.sequence("prepared").task(
   "prepare",

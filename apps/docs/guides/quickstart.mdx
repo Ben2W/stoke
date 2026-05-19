@@ -21,18 +21,17 @@ rig version
 ## Initialize a project
 
 ```sh
-rig init
+mkdir website
 cd website
+pnpm add -D @rigkit/sdk @rigkit/provider-freestyle @rigkit/provider-cmux freestyle
+rig init
 ```
 
 <Note>
-Agents, CI, and other non-interactive callers should avoid prompts and parse
-JSON:
+Agents, CI, and other non-interactive callers can parse JSON:
 
 ```sh
-rig init --name website --package-manager skip --json
-cd website
-pnpm install
+rig --json init
 ```
 
 Use `--json` on later commands, and use `--yes` when removing workspaces.
@@ -41,10 +40,10 @@ Use `--json` on later commands, and use `--yes` when removing workspaces.
 
 `rig init` creates:
 
-- `rig.config.ts`
-- `package.json` with local `@rigkit/sdk` and provider dependencies
-- `.gitignore` entries for `.env` and `.rigkit/`
-- `.env` and `.env.example` only when `--api-key` is passed
+- `rigkit/index.ts`
+
+It does not prompt and does not write package metadata, environment files, or
+ignore rules.
 
 The generated config uses Freestyle browser login by default:
 
@@ -64,56 +63,13 @@ const freestyleProvider = freestyle.provider({
 
 ## What was generated
 
-The starter config prepares a Node.js 22 Freestyle VM and snapshots it:
+The starter config prepares a Node.js 22 Freestyle VM, installs GitHub CLI,
+opens a browser-backed `gh auth login` terminal when needed, clones
+`octocat/Hello-World`, and snapshots the result.
 
-```ts
-const dev = sequence("website").step(
-  "verify-node-22",
-  async ({ providers }) => {
-    const { vm, vmId } = await providers.freestyle.client.vms.create({
-      spec: vmSpec,
-      logger: console.log,
-    });
-
-    try {
-      const result = await vm.exec("node --version");
-      if (
-        (result.statusCode ?? 0) !== 0 ||
-        !result.stdout.trim().startsWith("v22.")
-      ) {
-        throw new Error(
-          `Expected Node.js v22, got: ${result.stdout}${result.stderr}`,
-        );
-      }
-
-      const snapshot = await vm.snapshot();
-      return { ctx: { snapshotId: snapshot.snapshotId } };
-    } finally {
-      await providers.freestyle.client.vms.delete({ vmId });
-    }
-  },
-);
-```
-
-It also defines how to create and remove workspace VMs from that snapshot:
-
-```ts
-.workspace({
-  create: async ({ workflow, providers }) => {
-    const { vmId } = await providers.freestyle.client.vms.create({
-      snapshotId: workflow.ctx.snapshotId,
-      idleTimeoutSeconds: vmIdleTimeoutSeconds,
-      logger: console.log,
-    });
-    return { vmId };
-  },
-  remove: async ({ providers, workspace }) => {
-    await providers.freestyle.client.vms.delete({ vmId: workspace.ctx.vmId });
-  },
-})
-```
-
-The only persisted values here are `snapshotId` and `vmId`.
+It also defines workspace lifecycle hooks plus `ssh`, `open-cmux`, and
+`open-vscode` operations. The persisted values are the snapshot id, workspace
+VM id, and cloned repository path.
 
 ## Plan and apply
 
@@ -145,50 +101,20 @@ rig ls
 rig rm dev
 ```
 
-## Add an SSH operation
-
-Workspaces are useful once the config exposes operations. Add the terminal
-provider and a workspace operation:
-
-```ts
-const dev = sequence("website")
-  // keep the generated setup task and workspace lifecycle
-  .workspaceOperation("ssh", {
-    title: "SSH",
-    description: "Open a shell in the workspace VM",
-    run: async ({ providers, workspace }) => {
-      await providers.terminal.open(`SSH ${workspace.name}`, {
-        ssh: await providers.freestyle.createSSHOptions({
-          vmId: workspace.ctx.vmId,
-        }),
-        keepOpenAfterCommand: true,
-      });
-    },
-  });
-
-export default defineConfig({
-  providers: {
-    freestyle: freestyleProvider,
-    terminal: freestyle.terminal(),
-  },
-  workflows: {
-    dev,
-  },
-});
-```
-
-Run it:
+## Run an operation
 
 ```sh
 rig apply
 rig create dev
 rig run dev ssh
+rig run dev open-cmux
+rig run dev open-vscode
 ```
 
 ## Next steps
 
 - Return `repoPath`, `devPort`, branch names, and other durable values from
   setup tasks.
-- Add operations such as `open-cmux`, `open-vscode`, `status`, or `preview`.
+- Add operations such as `status`, `test`, or `preview`.
 - Move shared base setup into a [global fragment](/advanced/fragments) when
   multiple projects use the same toolchain.

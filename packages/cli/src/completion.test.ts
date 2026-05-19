@@ -5,6 +5,17 @@ import { join } from "node:path";
 import { projectIdFor, runtimeFingerprintFor, runtimePaths, SUPPORTED_RUNTIME_API_VERSION } from "@rigkit/runtime-client";
 import { completeRig, formatCompletionItems, formatWorkspaceAge, renderCompletionScript } from "./completion.ts";
 
+function rigkitIndexPath(projectDir: string): string {
+  return join(projectDir, "rigkit", "index.ts");
+}
+
+function writeRigkitIndex(projectDir: string): string {
+  const configPath = rigkitIndexPath(projectDir);
+  mkdirSync(join(projectDir, "rigkit"), { recursive: true });
+  writeFileSync(configPath, "export const dev = {}\n");
+  return configPath;
+}
+
 describe("CLI completion", () => {
   test("completes workspace targets from the runtime", async () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-completion-"));
@@ -15,7 +26,7 @@ describe("CLI completion", () => {
         currentIndex: 2,
       });
 
-      expect(items.map((item) => item.value)).toEqual(["api", "web", "--json", "--help"]);
+      expect(items.map((item) => item.value)).toEqual(["api", "web", "--workflow", "--json", "--help"]);
       expect(items[0]?.description).toBe("created 2h ago");
     });
   });
@@ -33,33 +44,33 @@ describe("CLI completion", () => {
     });
   });
 
-  test("respects -chdir when completing workspace targets", async () => {
+  test("respects --chdir when completing workspace targets", async () => {
     const parentDir = mkdtempSync(join(tmpdir(), "rigkit-completion-parent-"));
     const projectDir = join(parentDir, "project");
     await withWorkspaceRuntime({ projectDir, cleanupDir: parentDir }, async () => {
       const items = await completeRig({
         cwd: parentDir,
-        words: ["rig", "-chdir=project", "run", ""],
+        words: ["rig", "--chdir=project", "run", ""],
         currentIndex: 3,
       });
 
-      expect(items.map((item) => item.value)).toEqual(["api", "web", "--json", "--help"]);
+      expect(items.map((item) => item.value)).toEqual(["api", "web", "--workflow", "--json", "--help"]);
     });
   });
 
-  test("completes project directories for -chdir", async () => {
+  test("completes project directories for --chdir", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "rigkit-completion-dirs-"));
     mkdirSync(join(cwd, "examples", "global-fragments"), { recursive: true });
 
     try {
       const roots = await completeRig({
         cwd,
-        words: ["rig", "-chdir="],
+        words: ["rig", "--chdir="],
         currentIndex: 1,
       });
 
       expect(roots).toContainEqual({
-        value: "-chdir=examples/",
+        value: "--chdir=examples/",
         description: "directory",
         noSpace: true,
         group: "Paths",
@@ -67,12 +78,12 @@ describe("CLI completion", () => {
 
       const nested = await completeRig({
         cwd,
-        words: ["rig", "-chdir=examples/g"],
+        words: ["rig", "--chdir=examples/g"],
         currentIndex: 1,
       });
 
       expect(nested).toContainEqual({
-        value: "-chdir=examples/global-fragments/",
+        value: "--chdir=examples/global-fragments/",
         description: "directory",
         noSpace: true,
         group: "Paths",
@@ -91,7 +102,6 @@ describe("CLI completion", () => {
 
     expect(items.map((item) => item.value)).toEqual([
       "--chdir=",
-      "--config=",
       "--state=",
       "--json",
       "--help",
@@ -121,44 +131,6 @@ describe("CLI completion", () => {
     }
   });
 
-  test("completes named config files", async () => {
-    const cwd = mkdtempSync(join(tmpdir(), "rigkit-completion-configs-"));
-    writeFileSync(join(cwd, "api.rig.config.ts"), "export default {}\n");
-    writeFileSync(join(cwd, "web.rig.config.ts"), "export default {}\n");
-
-    try {
-      const items = await completeRig({
-        cwd,
-        words: ["rig", "-config="],
-        currentIndex: 1,
-      });
-
-      expect(items.map((item) => item.value)).toEqual(["-config=api.rig.config.ts", "-config=web.rig.config.ts"]);
-    } finally {
-      rmSync(cwd, { recursive: true, force: true });
-    }
-  });
-
-  test("respects -chdir when completing config files", async () => {
-    const cwd = mkdtempSync(join(tmpdir(), "rigkit-completion-configs-"));
-    const projectDir = join(cwd, "global-fragments");
-    mkdirSync(projectDir, { recursive: true });
-    writeFileSync(join(projectDir, "api.rig.config.ts"), "export default {}\n");
-    writeFileSync(join(projectDir, "worker.rig.config.ts"), "export default {}\n");
-
-    try {
-      const items = await completeRig({
-        cwd,
-        words: ["rig", "-chdir=global-fragments", "-config="],
-        currentIndex: 2,
-      });
-
-      expect(items.map((item) => item.value)).toEqual(["-config=api.rig.config.ts", "-config=worker.rig.config.ts"]);
-    } finally {
-      rmSync(cwd, { recursive: true, force: true });
-    }
-  });
-
   test("completes workspace operation targets", async () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-completion-"));
     await withWorkspaceRuntime({ projectDir }, async () => {
@@ -167,7 +139,7 @@ describe("CLI completion", () => {
         words: ["rig", "run", ""],
         currentIndex: 2,
       });
-      expect(roots.map((item) => item.value)).toEqual(["api", "web", "--json", "--help"]);
+      expect(roots.map((item) => item.value)).toEqual(["api", "web", "--workflow", "--json", "--help"]);
       expect(roots[0]).toMatchObject({ description: "created 2h ago" });
 
       const exactWorkspace = await completeRig({
@@ -182,7 +154,7 @@ describe("CLI completion", () => {
         words: ["rig", "run", "api", ""],
         currentIndex: 3,
       });
-      expect(workspaceAfterSpace.map((item) => item.value)).toEqual(["remove", "open-cmux", "--json", "--help"]);
+      expect(workspaceAfterSpace.map((item) => item.value)).toEqual(["remove", "open-cmux", "--workflow", "--json", "--help"]);
 
       const operationPrefix = await completeRig({
         cwd: projectDir,
@@ -201,7 +173,7 @@ describe("CLI completion", () => {
         words: ["rig", "rm", ""],
         currentIndex: 2,
       });
-      expect(workspaces.map((item) => item.value)).toEqual(["api", "web", "-y", "--yes", "--all", "--json", "--help"]);
+      expect(workspaces.map((item) => item.value)).toEqual(["api", "web", "-y", "--yes", "--all", "--workflow", "--json", "--help"]);
 
       const flags = await completeRig({
         cwd: projectDir,
@@ -210,6 +182,46 @@ describe("CLI completion", () => {
       });
       expect(flags.map((item) => item.value)).toContain("-y");
       expect(flags.map((item) => item.value)).toContain("--yes");
+    });
+  });
+
+  test("uses --workflow to scope workspace command completion", async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-completion-"));
+    await withWorkspaceRuntime({ projectDir, includeApiWorkflow: true }, async () => {
+      const workflowValues = await completeRig({
+        cwd: projectDir,
+        words: ["rig", "run", "--workflow", ""],
+        currentIndex: 3,
+      });
+      expect(workflowValues.map((item) => item.value)).toEqual(["smoke", "api"]);
+
+      const workspaces = await completeRig({
+        cwd: projectDir,
+        words: ["rig", "run", "--workflow", "api", ""],
+        currentIndex: 4,
+      });
+      expect(workspaces.map((item) => item.value)).toEqual(["worker", "--workflow", "--json", "--help"]);
+
+      const operations = await completeRig({
+        cwd: projectDir,
+        words: ["rig", "run", "--workflow", "api", "worker", ""],
+        currentIndex: 5,
+      });
+      expect(operations.map((item) => item.value)).toEqual(["remove", "tail-logs", "logs", "--workflow", "--json", "--help"]);
+
+      const operationFlags = await completeRig({
+        cwd: projectDir,
+        words: ["rig", "run", "--workflow", "api", "worker", "tail-logs", "--"],
+        currentIndex: 6,
+      });
+      expect(operationFlags.map((item) => item.value)).toEqual(["--service", "--workflow", "--json", "--help"]);
+
+      const removeTargets = await completeRig({
+        cwd: projectDir,
+        words: ["rig", "rm", "--workflow=api", ""],
+        currentIndex: 3,
+      });
+      expect(removeTargets.map((item) => item.value)).toEqual(["worker", "-y", "--yes", "--all", "--workflow", "--json", "--help"]);
     });
   });
 
@@ -229,7 +241,7 @@ describe("CLI completion", () => {
   test("completes cache at the root command position after global options", async () => {
     const items = await completeRig({
       cwd: process.cwd(),
-      words: ["rig", "-config=api.rig.config.ts", "c"],
+      words: ["rig", "--chdir=.", "c"],
       currentIndex: 2,
     });
 
@@ -337,7 +349,7 @@ describe("CLI completion", () => {
         currentIndex: 4,
       });
 
-      expect(flags.map((item) => item.value)).toEqual(["--layout", "--json", "--help"]);
+      expect(flags.map((item) => item.value)).toEqual(["--layout", "--workflow", "--json", "--help"]);
 
       const values = await completeRig({
         cwd: projectDir,
@@ -382,21 +394,7 @@ describe("CLI completion", () => {
       words: ["rig", "init", "--"],
       currentIndex: 2,
     });
-    expect(initFlags.map((item) => item.value)).toEqual([
-      "--name",
-      "--api-key",
-      "--package-manager",
-      "--force",
-      "--json",
-      "--help",
-    ]);
-
-    const packageManagers = await completeRig({
-      cwd: process.cwd(),
-      words: ["rig", "init", "--package-manager", "p"],
-      currentIndex: 3,
-    });
-    expect(packageManagers.map((item) => item.value)).toEqual(["pnpm"]);
+    expect(initFlags.map((item) => item.value)).toEqual(["--help"]);
 
     const doctorFlags = await completeRig({
       cwd: process.cwd(),
@@ -447,20 +445,19 @@ describe("CLI completion", () => {
       currentIndex: 2,
     });
 
-    expect(items.map((item) => item.value)).toEqual(["workspaces", "snapshots", "config", "--json", "--help"]);
+    expect(items.map((item) => item.value)).toEqual(["workspaces", "snapshots", "config", "--workflow", "--json", "--help"]);
   });
 });
 
 async function withWorkspaceRuntime(
-  input: { projectDir: string; cleanupDir?: string },
+  input: { projectDir: string; cleanupDir?: string; includeApiWorkflow?: boolean },
   run: () => Promise<void>,
 ): Promise<void> {
   const previousHome = process.env.RIGKIT_HOME;
   const rigkitHome = mkdtempSync(join(tmpdir(), "rigkit-home-"));
   const token = "test-token";
-  const configPath = join(input.projectDir, "rig.config.ts");
   mkdirSync(input.projectDir, { recursive: true });
-  writeFileSync(configPath, "export default {}\n");
+  const configPath = writeRigkitIndex(input.projectDir);
   const projectId = projectIdFor({ projectDir: input.projectDir, configPath });
   const runtimeFingerprint = runtimeFingerprintFor({ projectDir: input.projectDir, configPath });
   const paths = runtimePaths(projectId, rigkitHome);
@@ -492,6 +489,7 @@ async function withWorkspaceRuntime(
         const nowMs = Date.now();
         const apiCreatedAt = new Date(nowMs - 2 * 60 * 60 * 1000).toISOString();
         const webCreatedAt = new Date(nowMs - 5 * 60 * 1000).toISOString();
+        const workerCreatedAt = new Date(nowMs - 60 * 1000).toISOString();
         const updatedAt = new Date(nowMs).toISOString();
         return runtimeJson({
           workspaces: [
@@ -511,6 +509,14 @@ async function withWorkspaceRuntime(
               createdAt: webCreatedAt,
               updatedAt,
             },
+            ...(input.includeApiWorkflow ? [{
+              id: "workspace-worker",
+              name: "worker",
+              workflow: "api",
+              ctx: {},
+              createdAt: workerCreatedAt,
+              updatedAt,
+            }] : []),
           ],
         });
       }
@@ -529,7 +535,7 @@ async function withWorkspaceRuntime(
               providers: [],
               nodes: ["install-tooling"],
               operations: ["plan", "apply"],
-              createsWorkspace: false,
+              createsWorkspace: Boolean(input.includeApiWorkflow),
             },
           ],
         });
@@ -586,6 +592,7 @@ async function withWorkspaceRuntime(
         return runtimeJson({
           operations: [
             {
+              workflow: "smoke",
               id: "plan",
               kind: "command",
               source: "core",
@@ -603,6 +610,7 @@ async function withWorkspaceRuntime(
               },
             },
             {
+              workflow: "smoke",
               id: "apply",
               kind: "command",
               source: "core",
@@ -624,6 +632,7 @@ async function withWorkspaceRuntime(
               },
             },
             {
+              workflow: "smoke",
               id: "create",
               kind: "command",
               source: "core",
@@ -648,6 +657,7 @@ async function withWorkspaceRuntime(
               },
             },
             {
+              workflow: "smoke",
               id: "ssh",
               kind: "command",
               source: "core",
@@ -668,6 +678,7 @@ async function withWorkspaceRuntime(
           ],
           workspaceOperations: [
             {
+              workflow: "smoke",
               id: "remove",
               kind: "workspace-action",
               source: "core",
@@ -683,6 +694,7 @@ async function withWorkspaceRuntime(
               },
             },
             {
+              workflow: "smoke",
               id: "open-cmux",
               kind: "workspace-action",
               source: "config",
@@ -699,6 +711,43 @@ async function withWorkspaceRuntime(
                 },
               },
             },
+            ...(input.includeApiWorkflow ? [
+              {
+                workflow: "api",
+                id: "remove",
+                kind: "workspace-action",
+                source: "core",
+                title: "Remove",
+                description: "remove api workspace",
+                cli: {
+                  options: [{ name: "yes", flag: "--yes", aliases: ["-y"], type: "boolean", runtime: false }],
+                },
+                inputSchema: {
+                  type: "object",
+                  additionalProperties: false,
+                  properties: {},
+                },
+              },
+              {
+                workflow: "api",
+                id: "tail-logs",
+                aliases: ["logs"],
+                kind: "workspace-action",
+                source: "config",
+                title: "Tail logs",
+                description: "tail logs",
+                cli: {
+                  options: [{ name: "service", flag: "--service", type: "string" }],
+                },
+                inputSchema: {
+                  type: "object",
+                  additionalProperties: false,
+                  properties: {
+                    service: { type: "string" },
+                  },
+                },
+              },
+            ] : []),
           ],
         });
       }

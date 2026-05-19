@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 import {
   RIGKIT_SDK_VERSION,
   createRuntimeControlApiHandler,
-  defineConfig,
   env,
   runtimeControlApi,
   runtimeControlOpenApiDocument,
@@ -19,7 +18,6 @@ describe("@rigkit/sdk package boundary", () => {
     expect(RIGKIT_SDK_VERSION).toBe("0.2.12");
     expect(env).toBeTypeOf("function");
     expect(env.secret).toBeTypeOf("function");
-    expect(defineConfig).toBeTypeOf("function");
     expect(sequence).toBeTypeOf("function");
     expect(workflow).toBeTypeOf("function");
     expect(serveRuntime).toBeTypeOf("function");

@@ -9,14 +9,14 @@ as you need for agents, developers, CI jobs, and tests. A Rigkit config
 describes the setup steps, provider resources, credentials, tools, services,
 and actions that make the environment useful.
 
-Instead of writing a setup checklist, you write a `rig.config.ts` file. Rigkit
+Instead of writing a setup checklist, you write a `rigkit/index.ts` file. Rigkit
 plans the graph, caches expensive setup, creates named workspaces from prepared
 state, and exposes typed operations such as `open`, `ssh`, `status`, or
 anything your project needs.
 
 ```mermaid
 flowchart LR
-  Config["Define environment once<br/>rig.config.ts"] --> Apply["Prepare and cache setup<br/>rig apply"]
+  Config["Define environment once<br/>rigkit/index.ts"] --> Apply["Prepare and cache setup<br/>rig apply"]
   Apply --> Snapshot["Reusable environment state<br/>snapshots and context"]
   Snapshot --> AgentA["Agent workspace"]
   Snapshot --> AgentB["Agent workspace"]
@@ -40,7 +40,7 @@ const app = workflow("website", {
   },
 });
 
-export default app
+export const website = app
   .sequence("website")
   .task("prepare-image", async ({ freestyle }) => {
     const { vm, vmId } = await freestyle.client.vms.create({
@@ -115,11 +115,11 @@ curl -fsSL https://www.rigkit.dev/install | sh
 Create a project:
 
 ```sh
-rig init --name website --package-manager pnpm
+rig init website --package-manager pnpm
 cd website
-rig plan
-rig apply
-rig create dev
+rig plan --workflow dev
+rig apply --workflow dev
+rig create --workflow dev dev
 ```
 
 Then run project-defined workspace operations:

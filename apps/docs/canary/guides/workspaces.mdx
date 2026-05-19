@@ -6,7 +6,8 @@ noindex: true
 
 `rig apply` prepares workflow context. `rig create <name>` turns that context
 into a named workspace. `rig run <name> <operation>` runs actions against an
-existing workspace.
+existing workspace. Use `--workflow <workflow>` when selecting a specific
+workflow in a multi-workflow project or running non-interactively.
 
 ## Add a workspace lifecycle
 
@@ -14,7 +15,7 @@ A workflow becomes workspace-capable when it has `.workspace({ create, remove
 })`.
 
 ```ts
-export default app
+export const website = app
   .sequence("website")
   .add(websiteSetup)
   .workspace({
@@ -170,30 +171,25 @@ The Freestyle provider can build a VS Code Remote SSH URL:
 
 ## Add operation inputs
 
-Workspace operations can ask for extra string, boolean, or number input.
+Workspace operations can ask for extra input with Zod schemas. Runtime hosts use
+the generated JSON Schema to prompt or build CLI flags; Zod enums become select
+prompts.
 
 ```ts
+import { z } from "@rigkit/sdk";
+
 .workspaceOperation("dev", {
   title: "Start dev server",
-  input: (input) => input.workspaceInput({
-    name: "source",
-    description: "Workspace to copy settings from",
-    required: false,
-  }).extend({
-    port: input.number({
-      defaultValue: 3000,
-      description: "Port to use",
-    }),
-    watch: input.boolean({
-      defaultValue: true,
-      description: "Enable watch mode",
-    }),
+  input: z.object({
+    port: z.number().default(3000).describe("Port to use"),
+    mode: z.enum(["local", "tunnel"]).default("local").describe("Dev mode"),
+    watch: z.boolean().default(true).describe("Enable watch mode"),
   }),
   run: async ({ input, workspace }) => {
     return {
       workspace: workspace.name,
-      source: input.source?.name,
       port: input.port,
+      mode: input.mode,
       watch: input.watch,
     };
   },
@@ -201,30 +197,23 @@ Workspace operations can ask for extra string, boolean, or number input.
 ```
 
 For a workspace operation, the main target workspace still comes from
-`rig run <workspace> <operation>`. `workspaceInput(...)` is useful when an
-operation needs a second workspace as an argument.
+`rig run <workspace> <operation>`. Put extra operation inputs in the Zod object.
 
 ## Add workflow-level operations
 
-Use `.operation(...)` for commands that are not tied to one workspace. A common
-pattern is a command that selects a workspace through input:
+Use `.operation(...)` for commands that are not tied to one workspace. Commands
+that act on a specific workspace should usually be `.workspaceOperation(...)`.
 
 ```ts
-.operation("snapshot-workspace", {
-  title: "Snapshot workspace",
-  input: (input) => input.workspaceInput({
-    name: "workspace",
-    description: "Workspace to snapshot",
-  }).extend({
-    label: input.string({
-      defaultValue: "manual",
-      description: "Snapshot label",
-    }),
+.operation("release-notes", {
+  title: "Release notes",
+  input: z.object({
+    release: z.string().min(1).describe("Release version"),
+    channel: z.enum(["stable", "canary"]).default("stable").describe("Release channel"),
   }),
   run: async ({ input }) => ({
-    workspace: input.workspace.name,
-    label: input.label,
-    ctx: input.workspace.ctx,
+    release: input.release,
+    channel: input.channel,
   }),
 });
 ```

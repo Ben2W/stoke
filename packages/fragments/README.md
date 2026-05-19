@@ -52,14 +52,14 @@ const repoSetup = app
     }
   });
 
-export default app
+export const myApp = app
   .sequence("my-app")
   .add(withFreestyleCompanyBase(repoSetup));
 ```
 
 Repos can pass environment-backed overrides when individual developers need to
 choose their own tool set or VM size. See
-`examples/base-freestyle-fragment/rig.config.ts` for that pattern.
+`examples/base-freestyle-fragment/rigkit/index.ts` for that pattern.
 
 `freestyleCompanyBaseFragment(...)` and `withFreestyleCompanyBase(...)`
 intentionally expose a small API: `github`, `codex`, `claude`, and VM sizing.

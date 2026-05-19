@@ -11,7 +11,7 @@ those resources.
 
 ```mermaid
 flowchart TD
-  Config["rig.config.ts"] --> Plan["rig plan"]
+  Config["rigkit/index.ts"] --> Plan["rig plan --workflow <name>"]
   Config --> Apply["rig apply"]
   Apply --> Cache["Cached workflow context"]
   Cache --> Workspace["rig create <workspace>"]
@@ -44,10 +44,10 @@ const app = workflow("website", {
   },
 });
 
-export default app.sequence("website");
+export const website = app.sequence("website");
 ```
 
-Larger repos can export multiple workflows with `defineConfig(...)`.
+Larger repos can export multiple named workflow nodes from `rigkit/index.ts`.
 
 ## Node
 
@@ -64,7 +64,7 @@ const base = app.sequence("base").task("install-tooling", async () => {
   return { ctx: { snapshotId: "snap_base" } };
 });
 
-export default app.sequence("app").add(base);
+export const website = app.sequence("app").add(base);
 ```
 
 Sequences and parallel branches compile into a graph:
@@ -147,7 +147,7 @@ A workspace is a named runtime instance created from the final workflow
 context.
 
 ```sh
-rig apply
+rig apply --workflow dev
 rig create alice
 rig create review-123
 ```
@@ -211,7 +211,7 @@ toolchain warmups, and other common development environment setup.
 ## Host and runtime
 
 The global `rig` CLI starts a project-local runtime daemon from the installed
-`@rigkit/sdk` package. The runtime loads `rig.config.ts`, owns the engine, and
+`@rigkit/sdk` package. The runtime loads `rigkit/index.ts`, owns the engine, and
 serves operations to the host.
 
 The host side provides local capabilities such as:

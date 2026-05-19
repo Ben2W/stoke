@@ -11,7 +11,7 @@ const app = workflow("cmux-playground", {
   },
 });
 
-export default app
+export const cmuxPlayground = app
   .sequence("cmux-playground")
   .task("create-snapshot", async ({ freestyle, step }) => {
     const { vm, vmId } = await freestyle.client.vms.create({

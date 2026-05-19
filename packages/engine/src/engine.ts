@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { isRigkitConfig, isProviderDefinition, isWorkflowNode } from "./authoring.ts";
+import { isProviderDefinition, isWorkflowNode } from "./authoring.ts";
 import { runWithStepConsole, type ConsoleLevel, type StepConsoleSink } from "./console-intercept.ts";
 import { loadDotEnv } from "./env-file.ts";
 import { hash } from "./hash.ts";
@@ -24,6 +24,7 @@ import {
   type SnapshotRecord,
   type StateService,
   type StateServiceFactory,
+  type WorkflowApplyRecord,
   type WorkflowNodeRunRecord,
 } from "./state.ts";
 import type {
@@ -43,6 +44,7 @@ import type {
   WorkflowNodeKind,
   WorkflowNodeDefinition,
   WorkflowOperationDefinition,
+  WorkflowOperationInputSchema,
   WorkflowPlan,
   WorkflowPlanNode,
   WorkflowProviderMap,
@@ -88,7 +90,6 @@ export type GlobalFragmentStateLocationInput = {
 };
 
 export type EngineLoadResult = {
-  workflow: LoadedWorkflow;
   workflows: LoadedWorkflow[];
   projectDir: string;
   configPath: string;
@@ -100,7 +101,6 @@ export type EngineProjectInfo = {
   configPath: string;
   statePath: string;
   workflows: WorkflowSummary[];
-  workflow?: WorkflowSummary;
 };
 
 export type LocalWorkspaceRuntimeOptions =
@@ -139,6 +139,9 @@ export type WorkflowSummary = {
   nodes: string[];
   operations: string[];
   createsWorkspace: boolean;
+  lastAppliedAt?: string;
+  lastAppliedCachedNodeCount?: number;
+  lastAppliedNodeCount?: number;
   workspace?: LoadedWorkflow["workspace"];
 };
 
@@ -175,6 +178,7 @@ export type EngineOperationSummary = {
   description?: string;
   createsWorkspace?: boolean;
   inputFields: readonly WorkflowInputFieldDefinition[];
+  inputSchema?: Record<string, unknown>;
   cli?: EngineOperationCli;
 };
 
@@ -282,6 +286,15 @@ class StepInvalidationRestart extends Error {
 
 let configImportCounter = 0;
 
+function projectDirForConfigPath(configPath: string): string {
+  const configDir = dirname(configPath);
+  return basename(configDir) === "rigkit" ? dirname(configDir) : configDir;
+}
+
+function canonicalConfigPath(projectDir: string): string {
+  return join(projectDir, "rigkit", "index.ts");
+}
+
 // The engine owns the workflow graph, cache, and event emission for one
 // project. The runtime daemon hosts a single long-lived instance per project.
 export class DevMachineEngine {
@@ -304,10 +317,13 @@ export class DevMachineEngine {
   private workflows = new Map<string, LoadedWorkflow>();
 
   constructor(options: CreateDevMachineEngineOptions = {}) {
-    this.configPath = options.configPath
-      ? resolve(options.configPath)
-      : join(resolve(options.projectDir ?? process.cwd()), "rig.config.ts");
-    this.projectDir = resolve(options.configPath ? dirname(this.configPath) : options.projectDir ?? process.cwd());
+    const requestedConfigPath = options.configPath ? resolve(options.configPath) : undefined;
+    this.projectDir = resolve(options.projectDir ?? (requestedConfigPath ? projectDirForConfigPath(requestedConfigPath) : process.cwd()));
+    this.configPath = requestedConfigPath ?? canonicalConfigPath(this.projectDir);
+    const expectedConfigPath = canonicalConfigPath(this.projectDir);
+    if (this.configPath !== expectedConfigPath) {
+      throw new Error(`Rigkit config must be ${expectedConfigPath}; ${this.configPath} is not supported.`);
+    }
     this.statePath = options.state?.path ?? (options.statePath ? resolve(options.statePath) : join(this.projectDir, ".rigkit", "state.sqlite"));
     this.state = options.state;
     this.providers = options.providers ?? [];
@@ -343,18 +359,17 @@ export class DevMachineEngine {
 
     if (!existsSync(this.configPath)) {
       throw new Error(
-        `No Rigkit config found at ${this.configPath}. Create one with "rig init" or pass --config=<file>.`,
+        `No Rigkit config found at ${this.configPath}. Run "rig init".`,
       );
     }
 
     const moduleUrl = pathToFileURL(this.configPath);
     moduleUrl.searchParams.set("t", `${Date.now()}-${configImportCounter++}`);
     const mod = await import(moduleUrl.href);
-    const roots = normalizeDefinitions(mod.default ?? mod.workflow);
+    const roots = normalizeDefinitions(mod);
     const loaded = await Promise.all(roots.map((root) => this.resolveWorkflow(root)));
-    const workflow = loaded[0];
-    if (!workflow) {
-      throw new Error(`rig.config.ts must define at least one workflow`);
+    if (loaded.length === 0) {
+      throw new Error(`rigkit/index.ts must export at least one workflow`);
     }
     this.providers = mergeProviderPlugins([
       ...this.providers,
@@ -379,7 +394,6 @@ export class DevMachineEngine {
     }
 
     return {
-      workflow,
       workflows: loaded,
       projectDir: this.projectDir,
       configPath: this.configPath,
@@ -396,18 +410,18 @@ export class DevMachineEngine {
   }
 
   getProjectInfo(): EngineProjectInfo {
-    const workflows = this.listWorkflowSummaries();
     return {
       projectDir: this.projectDir,
       configPath: this.configPath,
       statePath: this.state?.path ?? this.statePath,
-      workflows,
-      workflow: workflows.length === 1 ? workflows[0] : undefined,
+      workflows: this.listWorkflowSummaries(),
     };
   }
 
   listWorkflowSummaries(): WorkflowSummary[] {
-    return this.listWorkflows().map((workflow) => summarizeWorkflow(workflow));
+    return this.listWorkflows().map((workflow) =>
+      summarizeWorkflow(workflow, this.getStateService().getWorkflowApply(workflow.name))
+    );
   }
 
   listWorkspaces(): WorkspaceRecord[] {
@@ -475,7 +489,8 @@ export class DevMachineEngine {
           source: "config" as const,
           title: operation.title,
           description: operation.description,
-          inputFields: operation.input?.fields ?? [],
+          inputFields: [],
+          inputSchema: operation.input ? operationInputJsonSchema(operation) : undefined,
         };
       }),
     );
@@ -486,8 +501,7 @@ export class DevMachineEngine {
       workflow.workspaceOperations.map((operation) => ({
         summary: this.workspaceOperationSummary(workflow, operation),
         run: async (input) => {
-          const workspace = this.getStateService().getWorkspace(input.workspace);
-          if (!workspace) throw new Error(`Unknown workspace ${input.workspace}`);
+          const workspace = this.resolveWorkspace(input.workspace, workflow.name, operation.id);
           if (workspace.workflow !== workflow.name) {
             throw new EngineOperationValidationError({
               operation: operation.id,
@@ -527,7 +541,8 @@ export class DevMachineEngine {
       kind: "workspace-action" as const,
       title: operation.title,
       description: operation.description,
-      inputFields: operation.input?.fields ?? [],
+      inputFields: [],
+      inputSchema: operation.input ? operationInputJsonSchema(operation) : undefined,
     };
   }
 
@@ -673,6 +688,16 @@ export class DevMachineEngine {
     machine?: string;
     includeUnreachable?: boolean;
   } = {}): Promise<EngineCacheList> {
+    if (!input.workflow && !input.machine) {
+      const entries = (await Promise.all(
+        this.listWorkflows().map((workflow) =>
+          this.listCache({ workflow: workflow.name, includeUnreachable: input.includeUnreachable })
+        ),
+      )).flatMap((cache) => cache.entries);
+      entries.sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+      return { entries };
+    }
+
     const workflow = this.getWorkflow(input.workflow ?? input.machine);
     const providers = await this.createProviders(workflow);
     const evaluated = await this.evaluate({
@@ -791,18 +816,19 @@ export class DevMachineEngine {
   }
 
   async runRuntimeOperation(input: { operation: string; workflow?: string; input?: unknown }): Promise<unknown> {
+    const workflowName = input.workflow ?? workflowNameFromInput(input.input);
     const workspaceTarget = parseWorkspaceOperationId(input.operation);
     if (workspaceTarget) {
       return await this.runWorkspaceOperation({
         workspace: workspaceTarget.workspace,
         operation: workspaceTarget.operation,
-        workflow: input.workflow,
+        workflow: workflowName,
         input: input.input,
       });
     }
-    const operation = this.findRuntimeOperationEntry(input.operation);
+    const operation = this.findRuntimeOperationEntry(input.operation, workflowName);
     if (!operation) throw new EngineOperationNotFoundError(input.operation);
-    return await operation.run({ workflow: input.workflow, input: input.input });
+    return await operation.run({ workflow: workflowName, input: input.input });
   }
 
   async runOperation(input: { operation: string; workflow?: string; input?: unknown }): Promise<unknown> {
@@ -836,8 +862,7 @@ export class DevMachineEngine {
     workflow?: string;
     input?: unknown;
   }): Promise<unknown> {
-    const workspace = this.getStateService().getWorkspace(input.workspace);
-    if (!workspace) throw new Error(`Unknown workspace ${input.workspace}`);
+    const workspace = this.resolveWorkspace(input.workspace, input.workflow, input.operation);
     const workflow = this.getWorkflow(input.workflow ?? workspace.workflow);
     if (workspace.workflow !== workflow.name) {
       throw new EngineOperationValidationError({
@@ -915,6 +940,13 @@ export class DevMachineEngine {
       }
     }
     if (!result) throw new Error(`Workflow ${workflow.name} did not produce an apply result`);
+    this.getStateService().saveWorkflowApply({
+      workflow: workflow.name,
+      providerFingerprint: result.plan.providerFingerprint,
+      cachedNodeCount: result.plan.cachedNodeCount,
+      nodeCount: result.plan.nodeCount,
+      appliedAt: new Date().toISOString(),
+    });
 
     this.emit({
       type: "workflow.apply.completed",
@@ -936,12 +968,12 @@ export class DevMachineEngine {
 
   async createWorkspace(input: { workflow?: string; machine?: string; name: string }): Promise<WorkspaceRecord> {
     assertValidWorkspaceName(input.name);
-    if (this.getStateService().getWorkspace(input.name)) {
-      throw new Error(`Workspace ${input.name} already exists`);
+    const workflow = this.getWorkflow(input.workflow ?? input.machine);
+    if (this.getStateService().getWorkspace(input.name, workflow.name)) {
+      throw new Error(`Workspace ${input.name} already exists in workflow ${workflow.name}`);
     }
 
-    const applied = await this.apply({ workflow: input.workflow ?? input.machine });
-    const workflow = this.getWorkflow(input.workflow ?? input.machine);
+    const applied = await this.apply({ workflow: workflow.name });
     const providers = await this.createProviders(workflow);
     await this.requireProviderChecks(workflow, providers);
     if (!workflow.workspace) {
@@ -970,10 +1002,10 @@ export class DevMachineEngine {
         name: input.name,
       });
     } catch (error) {
-      this.getStateService().deleteWorkspace(workspace.name);
+      this.getStateService().deleteWorkspace(workspace.name, workspace.workflow);
       throw error;
     }
-    const ready = this.getStateService().getWorkspace(input.name) ?? workspace;
+    const ready = this.getStateService().getWorkspace(input.name, workflow.name) ?? workspace;
 
     this.emit({
       type: "workspace.ready",
@@ -988,10 +1020,9 @@ export class DevMachineEngine {
   }
 
   async removeWorkspace(input: { workspace: string; workflow?: string; machine?: string }): Promise<WorkspaceRecord> {
-    const workspace = this.getStateService().getWorkspace(input.workspace);
-    if (!workspace) throw new Error(`Unknown workspace ${input.workspace}`);
-
-    const workflow = this.getWorkflow(input.workflow ?? input.machine ?? workspace.workflow);
+    const workflowName = input.workflow ?? input.machine;
+    const workspace = this.resolveWorkspace(input.workspace, workflowName, "remove");
+    const workflow = this.getWorkflow(workflowName ?? workspace.workflow);
     if (workspace.workflow !== workflow.name) {
       throw new EngineOperationValidationError({
         operation: "remove",
@@ -1028,7 +1059,7 @@ export class DevMachineEngine {
       step: this.createStepRuntime(workflow.name, removeNodePath, metadata),
     }));
 
-    this.getStateService().deleteWorkspace(input.workspace);
+    this.getStateService().deleteWorkspace(input.workspace, workflow.name);
     this.emit({ type: "workspace.remove.completed", workspaceName: workspace.name });
     return workspace;
   }
@@ -1648,7 +1679,7 @@ export class DevMachineEngine {
       metadata: (value: JsonObject) => {
         Object.assign(metadata, value);
       },
-      invalidate: <Target extends string>(target: Target) => {
+      invalidate: <Target extends string>(target: Target): never => {
         const matches = previousTasks.filter((task) => task.name === target || task.path === target);
         if (matches.length === 0) {
           throw new Error(`Task ${nodePath} cannot invalidate ${target} because it has not run earlier in this workflow`);
@@ -1660,9 +1691,27 @@ export class DevMachineEngine {
           kind: STEP_INVALIDATION_KIND,
           target,
           targetNodePath: matches[0]!.path,
-        };
+        } as never;
       },
     };
+  }
+
+  private resolveWorkspace(name: string, workflowName: string | undefined, operation: string): WorkspaceRecord {
+    if (workflowName) {
+      const workspace = this.getStateService().getWorkspace(name, workflowName);
+      if (!workspace) throw new Error(`Unknown workspace ${name} in workflow ${workflowName}`);
+      return workspace;
+    }
+
+    const matches = this.getStateService().listWorkspacesByName(name);
+    if (matches.length === 1) return matches[0]!;
+    if (matches.length > 1) {
+      throw new EngineOperationValidationError({
+        operation,
+        message: `Workspace ${name} exists in multiple workflows: ${matches.map((item) => item.workflow).join(", ")}. Pass --workflow to choose one.`,
+      });
+    }
+    throw new Error(`Unknown workspace ${name}`);
   }
 
   private getWorkflow(name: string | undefined): LoadedWorkflow {
@@ -1676,15 +1725,19 @@ export class DevMachineEngine {
       return workflow;
     }
 
-    if (this.workflows.size === 1) return [...this.workflows.values()][0]!;
-
-    throw new Error(`Multiple workflows are defined; pass a workflow name`);
+    throw new Error(`Pass --workflow to choose a workflow`);
   }
 
-  private findRuntimeOperationEntry(operationId: string): RuntimeOperationEntry | undefined {
-    return this.listRuntimeOperationEntries().find((entry) =>
+  private findRuntimeOperationEntry(operationId: string, workflowName: string | undefined): RuntimeOperationEntry | undefined {
+    const matches = this.listRuntimeOperationEntries().filter((entry) =>
       entry.summary.id === operationId || entry.summary.aliases?.includes(operationId)
     );
+    if (workflowName) {
+      return matches.find((entry) => entry.summary.workflow === "" || entry.summary.workflow === workflowName);
+    }
+    if (matches.length === 1) return matches[0];
+    if (matches.length > 1) throw new Error(`Multiple workflows define operation ${operationId}; pass --workflow`);
+    return undefined;
   }
 
   private getWorkflowOperation(operationId: string, workflowName: string | undefined): {
@@ -1704,11 +1757,31 @@ export class DevMachineEngine {
 
   private resolveOperationInput(
     workflow: LoadedWorkflow,
-    operation: { id: string; input?: { fields: readonly WorkflowInputFieldDefinition[] } },
+    operation: {
+      id: string;
+      input?: WorkflowOperationInputSchema<any> | { fields: readonly WorkflowInputFieldDefinition[] };
+    },
     value: unknown,
   ): Record<string, unknown> {
     const raw = isPlainObject(value) ? value : {};
-    const fields = operation.input?.fields ?? [];
+    if (operation.input && isOperationInputSchema(operation.input)) {
+      try {
+        const parsed = operation.input.parse(raw);
+        if (!isPlainObject(parsed)) {
+          throw new Error(`Operation ${operation.id} input schema must parse to an object`);
+        }
+        return parsed as Record<string, unknown>;
+      } catch (error) {
+        if (error instanceof EngineOperationValidationError) throw error;
+        throw new EngineOperationValidationError({
+          operation: operation.id,
+          message: `Invalid input for operation ${operation.id}: ${formatOperationInputError(error)}`,
+          cause: error,
+        });
+      }
+    }
+
+    const fields = operation.input && "fields" in operation.input ? operation.input.fields : [];
     if (fields.length === 0) return { ...raw };
 
     const resolved: Record<string, unknown> = {};
@@ -1731,7 +1804,7 @@ export class DevMachineEngine {
             message: `Operation ${operation.id} input ${field.name} must be a workspace name`,
           });
         }
-        const workspace = this.getStateService().findWorkspace(rawValue);
+        const workspace = this.getStateService().findWorkspace(rawValue, workflow.name);
         if (!workspace) {
           throw new EngineOperationValidationError({
             operation: operation.id,
@@ -1963,6 +2036,11 @@ function parseWorkspaceOperationId(value: string): { workspace: string; operatio
   };
 }
 
+function workflowNameFromInput(input: unknown): string | undefined {
+  if (!isPlainObject(input)) return undefined;
+  return typeof input.workflow === "string" ? input.workflow : undefined;
+}
+
 const workspaceNamePattern = /^(?!-)[A-Za-z0-9._-]+$/;
 
 function assertValidWorkspaceName(value: string): void {
@@ -2011,33 +2089,25 @@ async function resolveConfigValue(value: unknown): Promise<unknown> {
   return value;
 }
 
-function normalizeDefinitions(value: unknown): WorkflowNodeDefinition<any, any, any>[] {
-  if (isRigkitConfig(value)) {
-    return Object.entries(value.workflows).map(([name, node]) =>
-      attachWorkflowProviders(name, node, value.providers)
-    );
+function normalizeDefinitions(mod: Record<string, unknown>): WorkflowNodeDefinition<any, any, any>[] {
+  if (isPlainObject(mod.workflows)) {
+    const workflows = Object.entries(mod.workflows);
+    if (workflows.length === 0) throw new Error(`rigkit/index.ts workflows export must not be empty`);
+    return workflows.map(([name, value]) => {
+      if (!isWorkflowNode(value)) {
+        throw new Error(`rigkit/index.ts workflows.${name} must be a workflow node`);
+      }
+      return value;
+    });
   }
 
-  if (Array.isArray(value)) {
-    throw new Error(`rig.config.ts must default export a workflow node or defineConfig(...)`);
+  const workflows = Object.entries(mod)
+    .filter(([name, value]) => name !== "default" && name !== "workflow" && isWorkflowNode(value))
+    .map(([, value]) => value as WorkflowNodeDefinition<any, any, any>);
+  if (workflows.length === 0) {
+    throw new Error(`rigkit/index.ts must export workflow nodes, for example: export const dev = workflow("dev", ...).step(...)`);
   }
-  if (!isWorkflowNode(value)) {
-    throw new Error(`rig.config.ts must default export a node created with workflow(...).sequence(...) or defineConfig(...)`);
-  }
-  return [value];
-}
-
-function attachWorkflowProviders(
-  name: string,
-  node: WorkflowNodeDefinition<any, any, any>,
-  providers: WorkflowProviderMap,
-): WorkflowNodeDefinition<any, any, any> {
-  const workflow: WorkflowDefinition<string, any> = {
-    ...node.workflow,
-    name: node.workflow.name || name,
-    providers,
-  };
-  return attachWorkflow(node, workflow);
+  return workflows;
 }
 
 function attachWorkflow(
@@ -2066,13 +2136,20 @@ function attachWorkflow(
   };
 }
 
-function summarizeWorkflow(workflow: LoadedWorkflow): WorkflowSummary {
+function summarizeWorkflow(workflow: LoadedWorkflow, lastApply?: WorkflowApplyRecord): WorkflowSummary {
   return {
     name: workflow.name,
     providers: Object.entries(workflow.providers).map(([name, provider]) => `${name}:${provider.providerId}`),
     nodes: collectNodePaths(workflow.root),
     operations: workflow.operations.map((operation) => operation.id),
     createsWorkspace: Boolean(workflow.workspace),
+    ...(lastApply
+      ? {
+        lastAppliedAt: lastApply.appliedAt,
+        lastAppliedCachedNodeCount: lastApply.cachedNodeCount,
+        lastAppliedNodeCount: lastApply.nodeCount,
+      }
+      : {}),
     workspace: workflow.workspace,
   };
 }
@@ -2560,6 +2637,48 @@ function normalizeProviderChecks(
 ): WorkflowProviderCheckResult[] {
   if (result === undefined) return [];
   return Array.isArray(result) ? result : [result];
+}
+
+function isOperationInputSchema(value: unknown): value is WorkflowOperationInputSchema<any> {
+  return Boolean(
+    value &&
+      typeof value === "object" &&
+      typeof (value as { parse?: unknown }).parse === "function" &&
+      typeof (value as { toJSONSchema?: unknown }).toJSONSchema === "function",
+  );
+}
+
+function operationInputJsonSchema(operation: {
+  id: string;
+  input?: WorkflowOperationInputSchema<any>;
+}): Record<string, unknown> {
+  if (!operation.input) return {};
+  try {
+    const schema = operation.input.toJSONSchema({
+      target: "draft-07",
+      io: "input",
+      unrepresentable: "any",
+    });
+    if (!isPlainObject(schema)) {
+      throw new Error(`Operation ${operation.id} input schema must render to a JSON Schema object`);
+    }
+    return JSON.parse(JSON.stringify(schema)) as Record<string, unknown>;
+  } catch (error) {
+    throw new Error(`Failed to render input schema for operation ${operation.id}`, { cause: error });
+  }
+}
+
+function formatOperationInputError(error: unknown): string {
+  if (error && typeof error === "object" && Array.isArray((error as { issues?: unknown }).issues)) {
+    const issues = (error as { issues: Array<{ path?: unknown[]; message?: unknown }> }).issues;
+    return issues
+      .map((issue) => {
+        const path = Array.isArray(issue.path) && issue.path.length > 0 ? `${issue.path.join(".")}: ` : "";
+        return `${path}${String(issue.message ?? "invalid value")}`;
+      })
+      .join("; ");
+  }
+  return error instanceof Error ? error.message : String(error);
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {

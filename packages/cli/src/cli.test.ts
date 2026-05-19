@@ -8,6 +8,17 @@ import { RIGKIT_CLI_VERSION } from "./version.ts";
 
 const cliPath = join(import.meta.dir, "cli.ts");
 
+function rigkitIndexPath(projectDir: string): string {
+  return join(projectDir, "rigkit", "index.ts");
+}
+
+function writeRigkitIndex(projectDir: string): string {
+  const configPath = rigkitIndexPath(projectDir);
+  mkdirSync(join(projectDir, "rigkit"), { recursive: true });
+  writeFileSync(configPath, "export const dev = {}\n");
+  return configPath;
+}
+
 describe("CLI entrypoint", () => {
   test("renders CLI diagnostics as JSON", async () => {
     const result = await runCli(["doctor", "--cli", "--json"]);
@@ -135,7 +146,7 @@ describe("CLI entrypoint", () => {
   test("discovers projects without starting a runtime", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "rigkit-cli-projects-"));
     mkdirSync(join(cwd, "api"));
-    writeFileSync(join(cwd, "api", "rig.config.ts"), "export default {}\n");
+    writeRigkitIndex(join(cwd, "api"));
 
     try {
       const result = await runCli(["projects", "--json"], { cwd });
@@ -146,7 +157,7 @@ describe("CLI entrypoint", () => {
       expect(JSON.parse(result.stdout)).toEqual({
         projects: [{
           projectDir: join(realCwd, "api"),
-          configPath: join(realCwd, "api", "rig.config.ts"),
+          configPath: join(realCwd, "api", "rigkit", "index.ts"),
         }],
       });
     } finally {
@@ -154,10 +165,8 @@ describe("CLI entrypoint", () => {
     }
   });
 
-  test("shows named config choices when the default config is missing", async () => {
+  test("shows the canonical config path when missing", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "rigkit-cli-named-configs-"));
-    writeFileSync(join(cwd, "api.rig.config.ts"), "export default {}\n");
-    writeFileSync(join(cwd, "web.rig.config.ts"), "export default {}\n");
 
     try {
       const result = await runCli(["create", "--json"], { cwd });
@@ -165,10 +174,45 @@ describe("CLI entrypoint", () => {
       expect(result.exitCode).toBe(1);
       expect(result.stdout).toBe("");
       expect(result.stderr).toContain("No Rigkit config found from");
-      expect(result.stderr).toContain("Found named Rigkit configs");
-      expect(result.stderr).toContain("api.rig.config.ts");
-      expect(result.stderr).toContain("web.rig.config.ts");
-      expect(result.stderr).toContain("rig --chdir=. --config=api.rig.config.ts <command>");
+      expect(result.stderr).toContain("rig init");
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("initializes the current directory without init options", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "rigkit-cli-init-"));
+
+    try {
+      const result = await runCli(["--json", "init"], { cwd });
+      const projectDir = realpathSync(cwd);
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stderr).toBe("");
+      expect(JSON.parse(result.stdout)).toEqual({
+        projectDir,
+        configPath: join(projectDir, "rigkit", "index.ts"),
+        created: {
+          config: true,
+        },
+      });
+      expect(existsSync(join(projectDir, "rigkit", "index.ts"))).toBe(true);
+      expect(existsSync(join(projectDir, "package.json"))).toBe(false);
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects removed init options", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "rigkit-cli-init-options-"));
+
+    try {
+      const result = await runCli(["init", "website"], { cwd });
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toContain("too many arguments");
+      expect(existsSync(join(cwd, "rigkit", "index.ts"))).toBe(false);
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }
@@ -177,7 +221,7 @@ describe("CLI entrypoint", () => {
   test("accepts conventional double-dash global options", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "rigkit-cli-global-options-"));
     mkdirSync(join(cwd, "api"));
-    writeFileSync(join(cwd, "api", "rig.config.ts"), "export default {}\n");
+    writeRigkitIndex(join(cwd, "api"));
 
     try {
       const result = await runCli(["--chdir=api", "projects", "--json"], { cwd });
@@ -187,7 +231,7 @@ describe("CLI entrypoint", () => {
       expect(JSON.parse(result.stdout)).toEqual({
         projects: [{
           projectDir: join(realpathSync(cwd), "api"),
-          configPath: join(realpathSync(cwd), "api", "rig.config.ts"),
+          configPath: join(realpathSync(cwd), "api", "rigkit", "index.ts"),
         }],
       });
     } finally {
@@ -247,7 +291,7 @@ describe("CLI entrypoint", () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-cli-cache-invalidate-"));
 
     await withWorkspaceRuntime({ projectDir, cacheInvalidated: 0 }, async ({ env }) => {
-      const result = await runCli([`-chdir=${projectDir}`, "cache", "invalidate", "missing-task"], { env });
+      const result = await runCli([`--chdir=${projectDir}`, "cache", "invalidate", "missing-task"], { env });
 
       expect(result.exitCode).toBe(0);
       expect(result.stderr).toBe("");
@@ -260,7 +304,7 @@ describe("CLI entrypoint", () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-cli-cache-invalidate-json-"));
 
     await withWorkspaceRuntime({ projectDir, cacheInvalidated: 0 }, async ({ env }) => {
-      const result = await runCli([`-chdir=${projectDir}`, "cache", "invalidate", "missing-task", "--json"], { env });
+      const result = await runCli([`--chdir=${projectDir}`, "cache", "invalidate", "missing-task", "--json"], { env });
 
       expect(result.exitCode).toBe(0);
       expect(result.stderr).toBe("");
@@ -272,12 +316,14 @@ describe("CLI entrypoint", () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-cli-ls-"));
 
     await withWorkspaceRuntime({ projectDir }, async ({ env }) => {
-      const result = await runCli([`-chdir=${projectDir}`, "ls"], { env });
+      const result = await runCli([`--chdir=${projectDir}`, "ls"], { env });
 
       expect(result.exitCode).toBe(0);
       expect(result.stderr).toBe("");
-      expect(result.stdout).toContain("name  workflow");
-      expect(result.stdout).toContain("api   smoke");
+      expect(result.stdout).toContain("smoke");
+      expect(result.stdout).toContain("cached");
+      expect(result.stdout).toContain("workspace");
+      expect(result.stdout).toContain("api");
     });
   });
 
@@ -285,17 +331,71 @@ describe("CLI entrypoint", () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-cli-ls-json-"));
 
     await withWorkspaceRuntime({ projectDir }, async ({ env }) => {
-      const result = await runCli([`-chdir=${projectDir}`, "ls", "--json"], { env });
+      const result = await runCli([`--chdir=${projectDir}`, "ls", "--json"], { env });
 
       expect(result.exitCode).toBe(0);
       expect(result.stderr).toBe("");
       expect(JSON.parse(result.stdout)).toMatchObject({
-        workspaces: [{
+        workflows: [{
+          name: "smoke",
+          workspaces: [{
           name: "api",
           workflow: "smoke",
           ctx: {},
+          }],
         }],
       });
+    });
+  });
+
+  test("warns for minor CLI/runtime version mismatches", async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-cli-version-warning-"));
+
+    await withWorkspaceRuntime({
+      projectDir,
+      runtimeVersion: "0.3.0",
+      engineVersion: "0.3.0",
+    }, async ({ env }) => {
+      const result = await runCli([`--chdir=${projectDir}`, "ls"], { env });
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain("api");
+      expect(result.stderr).toContain("Rigkit version mismatch");
+      expect(result.stderr).toContain("different minor versions");
+      expect(result.stderr).toContain("Update the global CLI");
+    });
+  });
+
+  test("keeps JSON output clean for minor version mismatches", async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-cli-version-warning-json-"));
+
+    await withWorkspaceRuntime({
+      projectDir,
+      runtimeVersion: "0.3.0",
+      engineVersion: "0.3.0",
+    }, async ({ env }) => {
+      const result = await runCli([`--chdir=${projectDir}`, "ls", "--json"], { env });
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stderr).toBe("");
+      expect(JSON.parse(result.stdout).workflows[0].workspaces[0].name).toBe("api");
+    });
+  });
+
+  test("errors for major CLI/runtime version mismatches", async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-cli-version-error-"));
+
+    await withWorkspaceRuntime({
+      projectDir,
+      runtimeVersion: "1.0.0",
+      engineVersion: "1.0.0",
+    }, async ({ env }) => {
+      const result = await runCli([`--chdir=${projectDir}`, "ls"], { env });
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toContain("Rigkit version mismatch");
+      expect(result.stderr).toContain("different major versions");
     });
   });
 
@@ -303,7 +403,7 @@ describe("CLI entrypoint", () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-cli-create-name-"));
 
     await withWorkspaceRuntime({ projectDir }, async ({ env }) => {
-      const result = await runCli([`-chdir=${projectDir}`, "create", "--name", "some workspace", "--json"], { env });
+      const result = await runCli([`--chdir=${projectDir}`, "create", "--workflow", "smoke", "--name", "some workspace", "--json"], { env });
 
       expect(result.exitCode).toBe(1);
       expect(result.stdout).toBe("");
@@ -315,7 +415,7 @@ describe("CLI entrypoint", () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-cli-create-positional-"));
 
     await withWorkspaceRuntime({ projectDir }, async ({ env }) => {
-      const result = await runCli([`-chdir=${projectDir}`, "create", "new-workspace", "--json"], { env });
+      const result = await runCli([`--chdir=${projectDir}`, "create", "--workflow", "smoke", "new-workspace", "--json"], { env });
 
       expect(result.exitCode).toBe(0);
       expect(result.stderr).toBe("");
@@ -329,12 +429,39 @@ describe("CLI entrypoint", () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-cli-rm-"));
 
     await withWorkspaceRuntime({ projectDir }, async ({ env }) => {
-      const result = await runCli([`-chdir=${projectDir}`, "rm", "api", "-y", "--json"], { env });
+      const result = await runCli([`--chdir=${projectDir}`, "rm", "api", "-y", "--json"], { env });
 
       expect(result.exitCode).toBe(0);
       expect(result.stderr).toBe("");
       expect(JSON.parse(result.stdout)).toMatchObject({
         name: "api",
+      });
+    });
+  });
+
+  test("requires --workflow for duplicate workspace names in JSON run", async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-cli-run-conflict-"));
+
+    await withWorkspaceRuntime({ projectDir, duplicateWorkspaceName: true }, async ({ env }) => {
+      const result = await runCli([`--chdir=${projectDir}`, "run", "api", "remove", "--json"], { env });
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toContain('Workspace "api" exists in multiple workflows: smoke, api. Pass --workflow.');
+    });
+  });
+
+  test("uses --workflow to disambiguate duplicate workspace names in run", async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-cli-run-workflow-"));
+
+    await withWorkspaceRuntime({ projectDir, duplicateWorkspaceName: true }, async ({ env }) => {
+      const result = await runCli([`--chdir=${projectDir}`, "run", "api", "remove", "--workflow", "smoke", "--yes", "--json"], { env });
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stderr).toBe("");
+      expect(JSON.parse(result.stdout)).toMatchObject({
+        name: "api",
+        workflow: "smoke",
       });
     });
   });
@@ -357,8 +484,8 @@ describe("CLI entrypoint", () => {
     const cwd = mkdtempSync(join(tmpdir(), "rigkit-cli-run-discover-"));
     mkdirSync(join(cwd, "api"));
     mkdirSync(join(cwd, "web"));
-    writeFileSync(join(cwd, "api", "rig.config.ts"), "export default {}\n");
-    writeFileSync(join(cwd, "web", "rig.config.ts"), "export default {}\n");
+    writeRigkitIndex(join(cwd, "api"));
+    writeRigkitIndex(join(cwd, "web"));
 
     try {
       const result = await runCli(["plan", "--discover", "--json"], { cwd });
@@ -367,8 +494,8 @@ describe("CLI entrypoint", () => {
       expect(result.stdout).toBe("");
       expect(result.stderr).toContain("Multiple Rigkit projects found.");
       expect(result.stderr).toContain("pass --all");
-      expect(result.stderr).toContain(join(realpathSync(cwd), "api", "rig.config.ts"));
-      expect(result.stderr).toContain(join(realpathSync(cwd), "web", "rig.config.ts"));
+      expect(result.stderr).toContain(join(realpathSync(cwd), "api", "rigkit", "index.ts"));
+      expect(result.stderr).toContain(join(realpathSync(cwd), "web", "rigkit", "index.ts"));
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }
@@ -407,19 +534,26 @@ function nextPatchVersion(version: string): string {
 }
 
 async function withWorkspaceRuntime(
-  input: { projectDir: string; cacheInvalidated?: number },
+  input: {
+    projectDir: string;
+    cacheInvalidated?: number;
+    duplicateWorkspaceName?: boolean;
+    engineVersion?: string;
+    runtimeVersion?: string;
+  },
   run: (context: { env: Record<string, string> }) => Promise<void>,
 ): Promise<void> {
   const rigkitHome = mkdtempSync(join(tmpdir(), "rigkit-home-"));
   const token = "test-token";
-  const configPath = join(input.projectDir, "rig.config.ts");
   mkdirSync(input.projectDir, { recursive: true });
-  writeFileSync(configPath, "export default {}\n");
+  const configPath = writeRigkitIndex(input.projectDir);
   const projectId = projectIdFor({ projectDir: input.projectDir, configPath });
   const runtimeFingerprint = runtimeFingerprintFor({ projectDir: input.projectDir, configPath });
   const paths = runtimePaths(projectId, rigkitHome);
   mkdirSync(paths.root, { recursive: true });
   writeFileSync(paths.tokenPath, `${token}\n`);
+  const engineVersion = input.engineVersion ?? "engine-test";
+  const runtimeVersion = input.runtimeVersion ?? "runtime-test";
 
   const now = new Date(0).toISOString();
   let runResult: unknown = undefined;
@@ -440,21 +574,61 @@ async function withWorkspaceRuntime(
           projectDir: input.projectDir,
           configPath,
           statePath: join(input.projectDir, ".rigkit", "state.sqlite"),
-          engineVersion: "engine-test",
-          runtimeVersion: "runtime-test",
+          engineVersion,
+          runtimeVersion,
           expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        });
+      }
+      if (pathname === "/runtime") {
+        return runtimeJson({
+          apiVersion: SUPPORTED_RUNTIME_API_VERSION,
+          engineVersion,
+          runtimeVersion,
+          protocolHash: "test-protocol",
         });
       }
       if (pathname === "/workspaces") {
         return runtimeJson({
-          workspaces: [{
-            id: "workspace-api",
-            name: "api",
-            workflow: "smoke",
-            ctx: {},
-            createdAt: now,
-            updatedAt: now,
-          }],
+          workspaces: [
+            {
+              id: "workspace-api",
+              name: "api",
+              workflow: "smoke",
+              ctx: {},
+              createdAt: now,
+              updatedAt: now,
+            },
+            ...(input.duplicateWorkspaceName ? [{
+              id: "workspace-api-api",
+              name: "api",
+              workflow: "api",
+              ctx: {},
+              createdAt: now,
+              updatedAt: now,
+            }] : []),
+          ],
+        });
+      }
+      if (pathname === "/workflows") {
+        return runtimeJson({
+          workflows: [
+            {
+              name: "smoke",
+              providers: [],
+              nodes: ["ready"],
+              operations: [],
+              createsWorkspace: true,
+              lastAppliedAt: now,
+            },
+            ...(input.duplicateWorkspaceName ? [{
+              name: "api",
+              providers: [],
+              nodes: ["ready"],
+              operations: [],
+              createsWorkspace: true,
+              lastAppliedAt: now,
+            }] : []),
+          ],
         });
       }
       if (pathname === "/cache/invalidate") {
@@ -463,6 +637,7 @@ async function withWorkspaceRuntime(
       if (pathname === "/operations") {
         return runtimeJson({
           operations: [{
+            workflow: "",
             id: "create",
             kind: "command",
             source: "core",
@@ -471,37 +646,68 @@ async function withWorkspaceRuntime(
             createsWorkspace: true,
             cli: {
               positionals: [{ name: "name", index: 0 }],
-              options: [{ name: "name", flag: "--name", required: true, type: "string" }],
+              options: [
+                { name: "workflow", flag: "--workflow" },
+                { name: "name", flag: "--name", required: true, type: "string" },
+              ],
             },
             inputSchema: {
               type: "object",
               additionalProperties: false,
               properties: {
+                workflow: { type: "string", enum: ["smoke"] },
                 name: { type: "string", minLength: 1 },
               },
               required: ["name"],
             },
           }],
-          workspaceOperations: [{
-            id: "remove",
-            kind: "workspace-action",
-            source: "core",
-            title: "Remove",
-            description: "remove workspace",
-            cli: {
-              options: [{ name: "yes", flag: "--yes", aliases: ["-y"], type: "boolean", runtime: false }],
+          workspaceOperations: [
+            {
+              workflow: "smoke",
+              id: "remove",
+              kind: "workspace-action",
+              source: "core",
+              title: "Remove",
+              description: "remove workspace",
+              cli: {
+                options: [{ name: "yes", flag: "--yes", aliases: ["-y"], type: "boolean", runtime: false }],
+              },
+              inputSchema: {
+                type: "object",
+                additionalProperties: false,
+                properties: {},
+              },
             },
-            inputSchema: {
-              type: "object",
-              additionalProperties: false,
-              properties: {},
-            },
-          }],
+            ...(input.duplicateWorkspaceName ? [{
+              workflow: "api",
+              id: "remove",
+              kind: "workspace-action",
+              source: "core",
+              title: "Remove",
+              description: "remove api workspace",
+              cli: {
+                options: [{ name: "yes", flag: "--yes", aliases: ["-y"], type: "boolean", runtime: false }],
+              },
+              inputSchema: {
+                type: "object",
+                additionalProperties: false,
+                properties: {},
+              },
+            }] : []),
+          ],
         });
       }
       if (pathname === "/runs") {
         const body = await request.json() as { operation?: string; input?: { name?: string } };
-        runResult = body.operation === "api/remove"
+        runResult = body.operation === "plan"
+          ? {
+            workflow: "smoke",
+            providerFingerprint: "test",
+            cachedNodeCount: 1,
+            nodeCount: 1,
+            nodes: [{ index: 0, path: "ready", name: "ready", status: "cached", upstreamRunIds: [] }],
+          }
+          : body.operation === "api/remove"
           ? {
             id: "workspace-api",
             name: "api",

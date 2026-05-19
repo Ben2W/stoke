@@ -4,6 +4,7 @@ import {
 } from "@rigkit/fragments";
 import { freestyle } from "@rigkit/provider-freestyle";
 import { workflow } from "@rigkit/sdk";
+import { Snapshot } from "freestyle";
 
 const projectPath = "/workspace/company-project";
 
@@ -83,17 +84,19 @@ const projectSetup = app
     }
   })
   .task("marker", async ({ step }) => {
-    console.log("project setup complete, snapshot with project files is ready to be used by workspaces");
+    console.log(
+      "project setup complete, snapshot with project files is ready to be used by workspaces",
+    );
     return {
       ctx: step.ctx,
     };
   });
 
-export default app
+export const baseFreestyleFragmentExample = app
   .sequence("company-project")
   .add(withFreestyleCompanyBase(projectSetup, companyBaseOptions))
   .workspace({
-    create: async ({ workflow, providers, workspace, step }) => {
+    create: async ({ workflow, providers, workspace }) => {
       const created = await providers.freestyle.client.vms.create({
         snapshotId: workflow.ctx.snapshotId,
         idleTimeoutSeconds:

@@ -22,80 +22,28 @@ rig version
 ## Create a project
 
 ```sh
-rig init --name website --package-manager pnpm
+mkdir website
 cd website
+pnpm add -D @rigkit/sdk @rigkit/provider-freestyle @rigkit/provider-cmux freestyle
+rig init
 ```
 
 `rig init` creates:
 
-- `rig.config.ts`, the workflow config.
-- `package.json`, with local `@rigkit/sdk` and provider dependencies.
-- `.env` and `.env.example` when you pass `--api-key`.
-- `.gitignore`, including `.env` and `.rigkit/`.
+- `rigkit/index.ts`, the workflow config.
 
-If you skip dependency installation during init, install them before running
-the project:
-
-```sh
-pnpm install
-```
+It does not prompt and does not write package metadata, environment files, or
+ignore rules.
 
 ## Understand the generated config
 
-The generated `rig.config.ts` has three important parts:
+The generated `rigkit/index.ts` prepares a Node.js 22 Freestyle VM, installs
+GitHub CLI, opens a browser-backed `gh auth login` terminal when needed, clones
+`octocat/Hello-World`, and snapshots the result.
 
-```ts
-import { defineConfig, sequence } from "@rigkit/sdk";
-import { freestyle, VmBaseImage, VmSpec } from "@rigkit/provider-freestyle";
-
-const vmSpec = new VmSpec()
-  .baseImage(new VmBaseImage("FROM node:22"))
-  .idleTimeoutSeconds(3600);
-
-const dev = sequence("website")
-  .step("verify-node-22", async ({ providers }) => {
-    const { vm, vmId } = await providers.freestyle.client.vms.create({
-      spec: vmSpec,
-      logger: console.log,
-    });
-
-    try {
-      const result = await vm.exec("node --version");
-      if (!result.stdout.trim().startsWith("v22.")) {
-        throw new Error(`Expected Node.js v22, got: ${result.stdout}`);
-      }
-      const snapshot = await vm.snapshot();
-      return { ctx: { snapshotId: snapshot.snapshotId } };
-    } finally {
-      await providers.freestyle.client.vms.delete({ vmId });
-    }
-  })
-  .workspace({
-    create: async ({ workflow, providers }) => {
-      const { vmId } = await providers.freestyle.client.vms.create({
-        snapshotId: workflow.ctx.snapshotId,
-        logger: console.log,
-      });
-      return { vmId };
-    },
-    remove: async ({ providers, workspace }) => {
-      await providers.freestyle.client.vms.delete({ vmId: workspace.ctx.vmId });
-    },
-  });
-
-export default defineConfig({
-  providers: {
-    freestyle: freestyle.provider(),
-  },
-  workflows: {
-    dev,
-  },
-});
-```
-
-The workflow step creates a VM, verifies it has Node.js 22, snapshots it, and
-returns `snapshotId` in the workflow context. The workspace lifecycle hook uses
-that snapshot to create a long-lived workspace VM.
+The workspace lifecycle hook uses that snapshot to create a long-lived
+workspace VM. The generated workspace operations are `ssh`, `open-cmux`, and
+`open-vscode`.
 
 ## Plan and apply
 
@@ -148,64 +96,20 @@ Remove the workspace when you are done:
 rig rm dev
 ```
 
-## Add your first operation
-
-Workspaces become useful when the config exposes operations. Add a terminal
-provider and an `ssh` operation:
-
-```ts
-import { defineConfig, sequence } from "@rigkit/sdk";
-import { freestyle, VmBaseImage, VmSpec } from "@rigkit/provider-freestyle";
-
-const dev = sequence("website")
-  // existing setup task
-  .workspace({
-    create: async ({ workflow, providers }) => {
-      const { vmId } = await providers.freestyle.client.vms.create({
-        snapshotId: workflow.ctx.snapshotId,
-        logger: console.log,
-      });
-      return { vmId };
-    },
-    remove: async ({ providers, workspace }) => {
-      await providers.freestyle.client.vms.delete({ vmId: workspace.ctx.vmId });
-    },
-  })
-  .workspaceOperation("ssh", {
-    title: "SSH",
-    description: "Open a shell in the workspace VM",
-    run: async ({ providers, workspace }) => {
-      await providers.terminal.open(`SSH ${workspace.name}`, {
-        ssh: await providers.freestyle.createSSHOptions({
-          vmId: workspace.ctx.vmId,
-        }),
-        keepOpenAfterCommand: true,
-      });
-    },
-  });
-
-export default defineConfig({
-  providers: {
-    freestyle: freestyle.provider(),
-    terminal: freestyle.terminal(),
-  },
-  workflows: {
-    dev,
-  },
-});
-```
+## Run an operation
 
 Apply the config, create a workspace if you do not already have one, then run:
 
 ```sh
 rig run dev ssh
+rig run dev open-cmux
+rig run dev open-vscode
 ```
 
 ## Common next steps
 
-- Add repository setup steps that clone your repo and install dependencies.
-- Return `repoPath`, `devPort`, and other JSON values in workflow context.
-- Add workspace operations such as `open-cmux`, `open-vscode`, `ssh`, `status`,
-  or `preview`.
+- Change the generated repository setup to clone your repo and install dependencies.
+- Return `devPort`, branch names, and other JSON values in workflow context.
+- Add workspace operations such as `status`, `test`, or `preview`.
 - Move expensive shared setup into a global fragment when multiple repos use
   the same base image.

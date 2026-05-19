@@ -1,4 +1,5 @@
 export { createDevMachineEngine, DevMachineEngine } from "./engine.ts";
+export * as z from "zod/v4";
 export {
   EngineOperationNotFoundError,
   EngineOperationValidationError,
@@ -29,10 +30,8 @@ export {
 export { createStateStore } from "./state.ts";
 export { RIGKIT_ENGINE_VERSION } from "./version.ts";
 export {
-  defineConfig,
   defineProvider,
   env,
-  isRigkitConfig,
   isProviderDefinition,
   isWorkflow,
   isWorkflowNode,

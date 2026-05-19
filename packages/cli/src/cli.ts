@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
-import { existsSync, rmSync } from "node:fs";
-import { dirname, join, relative, resolve } from "node:path";
+import { rmSync } from "node:fs";
+import { join, relative, resolve } from "node:path";
 import { Command, CommanderError, Option } from "commander";
 import inquirer from "inquirer";
 import * as ui from "./ui.ts";
@@ -21,13 +21,18 @@ import {
   cmuxHostCapabilities,
   type CmuxHostCapabilityHandler,
 } from "@rigkit/provider-cmux/host";
-import { DEFAULT_CONFIG_FILE, discoverProjectConfigs, resolveConfigPaths, PROJECT_PACKAGE_NAME } from "./project.ts";
+import { DEFAULT_CONFIG_PATH, discoverProjectConfigs, resolveConfigPaths } from "./project.ts";
 import { RIGKIT_CLI_VERSION } from "./version.ts";
-import { initProject, normalizeMachineName, type InitProjectResult } from "./init.ts";
+import { initProject, type InitProjectResult } from "./init.ts";
 import { openExternalTarget } from "./interaction.ts";
 import { createRunPresenter, type RunPresenter } from "./run-presenter.ts";
 import { createRunLogger, type RunLogger } from "./run-logger.ts";
 import { maybePrintUpdateNotice } from "./update-check.ts";
+import {
+  evaluateVersionCompatibility,
+  formatVersionCompatibilitySummary,
+  renderVersionCompatibilityNotice,
+} from "./version-compat.ts";
 import {
   completeRig,
   formatCompletionItems,
@@ -39,7 +44,6 @@ import { generateWorkspaceName } from "./workspace-name.ts";
 
 type GlobalOptions = {
   chdir?: string;
-  config?: string;
   state?: string;
   json: boolean;
 };
@@ -47,13 +51,6 @@ type GlobalOptions = {
 type CliInvocation = {
   global: GlobalOptions;
   json: boolean;
-};
-
-type InitOptions = {
-  force: boolean;
-  name?: string;
-  apiKey?: string;
-  packageManager?: PackageManager;
 };
 
 type CompletionOptions = {
@@ -72,6 +69,7 @@ type RunOptions = {
 
 type ListOptions = {
   target?: string;
+  workflow?: string;
 };
 
 type CacheClearOptions = {
@@ -80,23 +78,11 @@ type CacheClearOptions = {
   all: boolean;
 };
 
-type PackageManager = "npm" | "bun" | "pnpm" | "skip";
-
-type InitInstallResult = {
-  packageManager: PackageManager;
-  command?: string;
-  skipped: boolean;
-  reported?: boolean;
-};
-
 type EngineProjectInfo = {
   projectDir: string;
   configPath: string;
   statePath: string;
-  workflow?: {
-    name: string;
-    providers: string[];
-  };
+  workflows: RuntimeWorkflowSummary[];
 };
 
 type RuntimeOperationManifest = {
@@ -104,9 +90,24 @@ type RuntimeOperationManifest = {
   workspaceOperations?: RuntimeOperationDefinition[];
 };
 
+type RuntimeWorkflowSummary = {
+  name: string;
+  providers: string[];
+  nodes: string[];
+  operations: string[];
+  createsWorkspace: boolean;
+  lastAppliedAt?: string;
+  lastAppliedCachedNodeCount?: number;
+  lastAppliedNodeCount?: number;
+};
+
+const checkedRuntimeCompatibility = new Set<string>();
+
 type RuntimeOperationDefinition = {
+  workflow: string;
   id: string;
   aliases?: string[];
+  source?: "core" | "config";
   title?: string;
   description?: string;
   createsWorkspace?: boolean;
@@ -122,12 +123,19 @@ type RuntimeOperationDefinition = {
     }>;
   };
   inputSchema?: {
-    properties?: Record<string, { type?: string; default?: unknown }>;
+    properties?: Record<string, JsonSchemaProperty>;
     required?: string[];
   };
 };
 
 type RuntimeOperationCliOption = NonNullable<NonNullable<RuntimeOperationDefinition["cli"]>["options"]>[number];
+
+type JsonSchemaProperty = Record<string, unknown> & {
+  type?: string;
+  description?: string;
+  default?: unknown;
+  enum?: unknown[];
+};
 
 type ParsedOperationInput = {
   input: Record<string, unknown>;
@@ -154,47 +162,10 @@ const CLI_HOST_CAPABILITIES: Array<{ id: string; schemaHash?: string }> = [
   ...(capability.schemaHash ? { schemaHash: capability.schemaHash } : {}),
 }));
 
-const TERRAFORM_STYLE_GLOBAL_OPTIONS = new Set(["chdir", "config", "state", "json", "help", "version"]);
-const STATIC_COMMANDS = new Set([
-  "init",
-  "plan",
-  "apply",
-  "create",
-  "rm",
-  "run",
-  "ls",
-  "cache",
-  "providers",
-  "projects",
-  "doctor",
-  "version",
-  "help",
-  "completion",
-]);
-
 if (process.argv[2] === "__complete") {
   runCompletionEndpoint(process.argv.slice(3)).catch(handleCliError);
 } else {
-  runCli(normalizeCliArgv(process.argv)).catch(handleCliError);
-}
-
-function normalizeCliArgv(argv: string[]): string[] {
-  const normalized = argv.slice();
-  for (let index = 2; index < normalized.length; index += 1) {
-    const arg = normalized[index]!;
-    if (arg === "--") break;
-    if (!arg.startsWith("-")) {
-      if (STATIC_COMMANDS.has(arg)) break;
-      continue;
-    }
-
-    const match = /^-([A-Za-z][A-Za-z0-9-]*)(=.*)?$/.exec(arg);
-    if (!match) continue;
-    const name = match[1]!;
-    if (!TERRAFORM_STYLE_GLOBAL_OPTIONS.has(name)) continue;
-    normalized[index] = `--${name}${match[2] ?? ""}`;
-  }
-  return normalized;
+  runCli(process.argv).catch(handleCliError);
 }
 
 async function runCli(argv: string[]): Promise<void> {
@@ -207,19 +178,16 @@ async function runCli(argv: string[]): Promise<void> {
     .showHelpAfterError()
     .exitOverride()
     .argument("[command]")
-    .addOption(new Option("--chdir <dir>", `Switch to a directory containing ${DEFAULT_CONFIG_FILE} before running the command`).hideHelp())
-    .addOption(new Option("--config <file>", "Config file to load, relative to --chdir when set").hideHelp())
+    .addOption(new Option("--chdir <dir>", `Switch to a directory containing ${DEFAULT_CONFIG_PATH} before running the command`).hideHelp())
     .addOption(new Option("--state <file>", "Local runtime state database path").hideHelp())
     .addOption(new Option("--json", "Print machine-readable JSON where supported").hideHelp())
     .addHelpText("after", [
       "",
       "Global Options:",
-      "  --chdir <dir>     Switch to a directory containing rig.config.ts before running the command",
-      "  --config <file>   Config file to load, relative to --chdir when set",
+      "  --chdir <dir>     Switch to a directory containing rigkit/index.ts before running the command",
       "  --state <file>    Local runtime state database path",
       "  --json            Print machine-readable JSON where supported",
       "",
-      "Legacy single-dash global aliases such as -chdir=DIR are still accepted.",
     ].join("\n"))
     .action(async (command?: string) => {
       if (command) program.error(`unknown command '${command}'`);
@@ -236,25 +204,9 @@ async function runCli(argv: string[]): Promise<void> {
 
   program
     .command("init")
-    .description("Initialize a Rigkit project")
-    .option("--name <name>", "Project and workflow name")
-    .option("--api-key <apiKey>", "Freestyle API key")
-    .option("--package-manager <packageManager>", "Install with npm, bun, pnpm, or skip")
-    .option("--force", "Overwrite an existing config file")
-    .option("--json", "Print machine-readable JSON")
-    .action(async (options: {
-      name?: string;
-      apiKey?: string;
-      packageManager?: string;
-      force?: boolean;
-      json?: boolean;
-    }) => {
-      await runInit(makeInvocation(rootOptions(program), options.json), {
-        name: options.name,
-        apiKey: options.apiKey,
-        packageManager: parsePackageManagerOption(options.packageManager),
-        force: Boolean(options.force),
-      });
+    .description("Create rigkit/index.ts in the current directory")
+    .action(async () => {
+      await runInit(makeInvocation(rootOptions(program)));
     });
 
   for (const operation of ["plan", "apply"] as const) {
@@ -290,12 +242,14 @@ async function runCli(argv: string[]): Promise<void> {
     .description("Remove one workspace, several via multi-select, or every workspace")
     .option("-y, --yes", "Remove without confirmation")
     .option("--all", "Remove every workspace in this project")
+    .option("--workflow <workflow>", "Workflow name")
     .option("--json", "Print machine-readable JSON")
-    .action(async (workspace: string | undefined, options: { yes?: boolean; all?: boolean; json?: boolean }) => {
+    .action(async (workspace: string | undefined, options: { yes?: boolean; all?: boolean; workflow?: string; json?: boolean }) => {
       await runRemove(
         makeInvocation(rootOptions(program), options.json),
         {
           workspace,
+          workflow: options.workflow,
           yes: Boolean(options.yes),
           all: Boolean(options.all),
         },
@@ -306,22 +260,27 @@ async function runCli(argv: string[]): Promise<void> {
     .command("run <workspace> <operation> [args...]")
     .description("Run a workspace operation")
     .allowUnknownOption(true)
+    .option("--workflow <workflow>", "Workflow name")
     .option("--json", "Print machine-readable JSON")
     .action(async (
       workspace: string,
       operation: string,
       args: string[],
-      options: { json?: boolean },
+      options: { workflow?: string; json?: boolean },
     ) => {
-      await runWorkspaceOperation(makeInvocation(rootOptions(program), options.json), workspace, operation, args ?? []);
+      const parsed = parseRunCommandOptions(args ?? [], options);
+      await runWorkspaceOperation(makeInvocation(rootOptions(program), parsed.json), workspace, operation, parsed.args, {
+        workflow: parsed.workflow,
+      });
     });
 
   program
     .command("ls [target]")
     .description("List project workspaces")
+    .option("--workflow <workflow>", "Workflow name")
     .option("--json", "Print machine-readable JSON")
-    .action(async (target: string | undefined, options: { json?: boolean }) => {
-      await runList(makeInvocation(rootOptions(program), options.json), { target });
+    .action(async (target: string | undefined, options: { workflow?: string; json?: boolean }) => {
+      await runList(makeInvocation(rootOptions(program), options.json), { target, workflow: options.workflow });
     });
 
   const cache = program
@@ -426,13 +385,11 @@ async function runCli(argv: string[]): Promise<void> {
 function rootOptions(program: Command): GlobalOptions {
   const options = program.opts<{
     chdir?: string;
-    config?: string;
     state?: string;
     json?: boolean;
   }>();
   return {
     chdir: options.chdir,
-    config: options.config,
     state: options.state,
     json: Boolean(options.json),
   };
@@ -441,12 +398,6 @@ function rootOptions(program: Command): GlobalOptions {
 function commandWantsJson(program: Command, actionCommand: Command): boolean {
   const options = actionCommand.opts<{ json?: boolean }>();
   return Boolean(rootOptions(program).json || options.json);
-}
-
-function parsePackageManagerOption(value: string | undefined): PackageManager | undefined {
-  if (value === undefined) return undefined;
-  if (isPackageManager(value)) return value;
-  throw new Error(`Unknown package manager ${value}. Expected npm, bun, pnpm, or skip.`);
 }
 
 function makeInvocation(global: GlobalOptions, commandJson = false): CliInvocation {
@@ -524,125 +475,26 @@ function handleCliError(error: unknown): void {
   process.exitCode = 1;
 }
 
-async function runInit(invocation: CliInvocation, options: InitOptions): Promise<void> {
-  const answers = await resolveInitAnswers(options, wantsJson(invocation));
-  const paths = resolveInitProjectPaths(invocation, answers.name);
-
-  if (existsSync(paths.configPath) && !options.force) {
-    throw new Error(`${paths.configPath} already exists. Pass --force to overwrite it.`);
-  }
-
-  const result = initProject({
-    projectDir: paths.projectDir,
-    configPath: paths.configPath,
-    name: answers.name,
-    apiKey: answers.apiKey,
-    force: options.force,
-  });
-  const install = await runPackageManagerInstall(paths.projectDir, answers.packageManager, wantsJson(invocation));
-
-  if (wantsJson(invocation)) {
-    printJson({ ...result, install });
-    return;
-  }
-
-  printInitResult(result, install);
-}
-
-async function resolveInitAnswers(
-  options: InitOptions,
-  jsonMode: boolean,
-): Promise<{ name: string; apiKey?: string; packageManager: PackageManager }> {
-  if (jsonMode && options.name === undefined) {
-    throw new Error(`rig init --json requires --name`);
-  }
-
-  if (jsonMode && options.packageManager && options.packageManager !== "skip") {
-    throw new Error(`rig init --json only supports --package-manager skip`);
-  }
-
-  if (options.name === undefined) {
-    assertInteractiveInit();
-  }
-
-  if (!jsonMode) {
+async function runInit(invocation: CliInvocation): Promise<void> {
+  if (!wantsJson(invocation)) {
     console.log(`${ui.bold("rig")} ${ui.dim("· initialize")}`);
     console.log("");
   }
 
-  const name = options.name !== undefined
-    ? normalizeMachineName(options.name)
-    : await promptName();
-  const apiKey = options.apiKey?.trim();
-  const packageManager = options.packageManager ?? (jsonMode || !canPrompt() ? "skip" : await promptPackageManager("skip"));
+  const result = initProject({
+    projectDir: resolve(process.cwd(), invocation.global.chdir ?? "."),
+  });
 
-  return {
-    name,
-    apiKey,
-    packageManager,
-  };
-}
+  if (wantsJson(invocation)) {
+    printJson(result);
+    return;
+  }
 
-function assertInteractiveInit(): void {
-  if (canPrompt()) return;
-  throw new Error(`rig init needs --name when not running in an interactive terminal`);
+  printInitResult(result);
 }
 
 function canPrompt(): boolean {
   return Boolean(process.stdin.isTTY && process.stdout.isTTY);
-}
-
-function resolveInitProjectPaths(invocation: CliInvocation, name: string): { projectDir: string; configPath: string } {
-  const options = invocation.global;
-  if (options.config) {
-    throw new Error(`rig init does not support --config. Use --chdir to choose the parent directory.`);
-  }
-
-  const parentDir = resolve(process.cwd(), options.chdir ?? ".");
-  const projectDir = resolve(parentDir, name);
-  return {
-    projectDir,
-    configPath: join(projectDir, DEFAULT_CONFIG_FILE),
-  };
-}
-
-async function promptName(): Promise<string> {
-  const answers = await inquirer.prompt<{ name: string }>([{
-    type: "input",
-    name: "name",
-    message: "Project name:",
-    validate(value: string) {
-      try {
-        normalizeMachineName(value);
-        return true;
-      } catch (error) {
-        return error instanceof Error ? error.message : String(error);
-      }
-    },
-    filter: (value: string) => normalizeMachineName(value),
-  }]);
-  return answers.name;
-}
-
-async function promptPackageManager(defaultValue: PackageManager): Promise<PackageManager> {
-  const choices: Array<{ value: PackageManager; label: string; hint: string }> = [
-    { value: "npm", label: "npm", hint: "npm install" },
-    { value: "bun", label: "bun", hint: "bun install" },
-    { value: "pnpm", label: "pnpm", hint: "pnpm install" },
-    { value: "skip", label: "skip", hint: "do not install now" },
-  ];
-  const answers = await inquirer.prompt<{ packageManager: PackageManager }>([{
-    type: "select",
-    name: "packageManager",
-    message: "Install dependencies?",
-    default: defaultValue,
-    choices: choices.map((choice) => ({
-      name: choice.label,
-      value: choice.value,
-      description: choice.hint,
-    })),
-  }]);
-  return answers.packageManager;
 }
 
 async function promptWorkspaceName(defaultValue: string): Promise<string> {
@@ -682,60 +534,17 @@ async function defaultWorkspaceName(runtime: RuntimeClient): Promise<string> {
   return generateWorkspaceName(existingNames);
 }
 
-async function runPackageManagerInstall(
-  projectDir: string,
-  packageManager: PackageManager,
-  jsonMode: boolean,
-): Promise<InitInstallResult> {
-  if (packageManager === "skip") {
-    return { packageManager, skipped: true };
-  }
-
-  const command = packageManagerInstallCommand(packageManager);
-  if (!jsonMode) {
-    process.stderr.write(`${ui.accent(ui.sym.active)} ${ui.dim(`$ ${command.join(" ")}`)}\n`);
-  }
-
-  const proc = Bun.spawn(command, {
-    cwd: projectDir,
-    stdin: "inherit",
-    stdout: jsonMode ? "pipe" : "inherit",
-    stderr: jsonMode ? "pipe" : "inherit",
-  });
-  const exitCode = await proc.exited;
-
-  if (exitCode !== 0) {
-    throw new Error(`${command.join(" ")} failed with exit code ${exitCode}`);
-  }
-
-  return { packageManager, command: command.join(" "), skipped: false };
-}
-
-function printInitResult(result: InitProjectResult, install: InitInstallResult): void {
-  console.log(`${ui.ok(ui.sym.ok)} ${ui.bold(result.name)} ${ui.dim("ready")}`);
+function printInitResult(result: InitProjectResult): void {
+  console.log(`${ui.ok(ui.sym.ok)} ${ui.bold("rigkit")} ${ui.dim("ready")}`);
   console.log("");
 
-  const fileLines = [
-    ui.fileStatus(initStatus(result.created.config, false), shortPath(result.configPath)),
-    ui.fileStatus(initStatus(result.created.env, result.updated.envApiKey), shortPath(result.envPath)),
-    ui.fileStatus(initStatus(result.created.envExample, false), shortPath(result.envExamplePath)),
-    ui.fileStatus(initStatus(result.created.packageJson, result.updated.packageJson), shortPath(result.packageJsonPath)),
-    ui.fileStatus(initStatus(result.created.gitignore, result.updated.gitignore), shortPath(result.gitignorePath)),
-  ];
-  if (result.updated.sdkDependency) {
-    fileLines.push(ui.fileStatus("pinned", `${PROJECT_PACKAGE_NAME}@${RIGKIT_CLI_VERSION}`));
-  }
-  for (const line of fileLines) console.log(line);
-
-  if (!install.skipped && install.command && !install.reported) {
-    console.log(ui.fileStatus("created", install.command));
-  }
+  console.log(ui.fileStatus(initStatus(result.created.config, false), shortPath(result.configPath)));
 
   console.log("");
   console.log(ui.bold("Next"));
-  console.log(ui.hint(`cd ${displayProjectDir(result.projectDir)}`));
-  if (install.skipped) {
-    console.log(ui.hint(detectInstallCommand(result.packageJsonPath)));
+  const projectDir = displayProjectDir(result.projectDir);
+  if (projectDir !== ".") {
+    console.log(ui.hint(`cd ${projectDir}`));
   }
   console.log(ui.hint("rig plan"));
 }
@@ -753,31 +562,8 @@ function shortPath(path: string): string {
 
 function displayProjectDir(projectDir: string): string {
   const path = relative(process.cwd(), projectDir);
+  if (!path) return ".";
   return path && !path.startsWith("..") ? path : projectDir;
-}
-
-function detectInstallCommand(packageJsonPath: string): string {
-  const projectDir = dirname(packageJsonPath);
-  if (existsSync(join(projectDir, "bun.lock")) || existsSync(join(projectDir, "bun.lockb"))) return "bun install";
-  if (existsSync(join(projectDir, "pnpm-lock.yaml"))) return "pnpm install";
-  if (existsSync(join(projectDir, "yarn.lock"))) return "yarn install";
-  if (existsSync(join(projectDir, "package-lock.json"))) return "npm install";
-  return "npm install";
-}
-
-function isPackageManager(value: string): value is PackageManager {
-  return value === "npm" || value === "bun" || value === "pnpm" || value === "skip";
-}
-
-function packageManagerInstallCommand(packageManager: Exclude<PackageManager, "skip">): string[] {
-  switch (packageManager) {
-    case "bun":
-      return ["bun", "install"];
-    case "pnpm":
-      return ["pnpm", "install"];
-    case "npm":
-      return ["npm", "install"];
-  }
 }
 
 async function runProjectOperation(
@@ -806,9 +592,44 @@ async function runProjectOperation(
 
   await renderOperationResult(operation, result, parsed.hostOptions);
   if (operation.createsWorkspace && isWorkspaceRecord(result)) {
-    await printWorkspaceNextSteps(runtime, result.name);
+    await printWorkspaceNextSteps(runtime, result.name, result.workflow);
   }
   printInteractiveOutputGap(invocation);
+}
+
+function parseRunCommandOptions(
+  args: string[],
+  options: { workflow?: string; json?: boolean },
+): { args: string[]; workflow?: string; json: boolean } {
+  const operationArgs: string[] = [];
+  let workflow = options.workflow;
+  let json = Boolean(options.json);
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index]!;
+    if (arg === "--") {
+      operationArgs.push(...args.slice(index));
+      break;
+    }
+
+    if (arg === "--workflow") {
+      workflow = readOptionValue(args, ++index, "--workflow");
+      continue;
+    }
+    if (arg.startsWith("--workflow=")) {
+      workflow = arg.slice("--workflow=".length);
+      if (!workflow) throw new Error("Missing value for --workflow");
+      continue;
+    }
+    if (arg === "--json") {
+      json = true;
+      continue;
+    }
+
+    operationArgs.push(arg);
+  }
+
+  return { args: operationArgs, workflow, json };
 }
 
 async function runWorkspaceOperation(
@@ -816,30 +637,36 @@ async function runWorkspaceOperation(
   workspaceName: string,
   requestedOperation: string,
   args: string[],
+  options: { workflow?: string },
 ): Promise<void> {
   const runtime = await loadRuntime(invocation);
+  const workflow = await resolveWorkspaceWorkflow(invocation, runtime, workspaceName, options.workflow);
   const manifest = await readRuntimeOperations(runtime);
   const operation = (manifest.workspaceOperations ?? []).find((item) =>
-    item.id === requestedOperation || item.aliases?.includes(requestedOperation)
+    item.workflow === workflow && (item.id === requestedOperation || item.aliases?.includes(requestedOperation))
   );
   if (!operation) {
-    throw new Error(`This project does not define a workspace operation named "${requestedOperation}".`);
+    throw new Error(`Workflow ${workflow} does not define a workspace operation named "${requestedOperation}".`);
   }
 
   const workspaces = await runtime.control.workspaces()
     .then((response) => response.workspaces as WorkspaceRecord[])
     .catch(() => []);
-  if (!workspaces.some((workspace) => workspace.name === workspaceName)) {
-    throw new Error(`This project does not have a workspace named "${workspaceName}".`);
+  if (!workspaces.some((workspace) => workspace.name === workspaceName && workspace.workflow === workflow)) {
+    throw new Error(`Workflow ${workflow} does not have a workspace named "${workspaceName}".`);
   }
 
-  const parsed = parseOperationArgs(operation, args);
+  const parsed = parseOperationArgs(operation, args, {
+    allowMissingRequired: !wantsJson(invocation) && canPrompt(),
+  });
+  await promptMissingOperationInputs(invocation, runtime, operation, parsed);
+  enforceRequiredOperationInputs(operation, parsed);
   enforceHostOnlyBooleanGuards(operation, parsed);
 
   const result = await runRuntimeOperation<unknown>(
     runtime,
     `${workspaceName}/${operation.id}`,
-    parsed.input,
+    { ...parsed.input, workflow },
     { renderEvents: !wantsJson(invocation) },
   );
 
@@ -854,18 +681,21 @@ async function runWorkspaceOperation(
 
 async function runRemove(
   invocation: CliInvocation,
-  options: { workspace?: string; yes: boolean; all: boolean },
+  options: { workspace?: string; workflow?: string; yes: boolean; all: boolean },
 ): Promise<void> {
   if (options.workspace && options.all) {
     throw new Error(`rig rm accepts either a workspace name or --all, not both`);
   }
 
   if (options.workspace) {
-    await runRemoveWorkspaceOperation(invocation, options.workspace, { yes: options.yes });
+    await runRemoveWorkspaceOperation(invocation, options.workspace, { workflow: options.workflow, yes: options.yes });
     return;
   }
 
   const runtime = await loadRuntime(invocation);
+  if (options.workflow) {
+    assertKnownWorkflow(options.workflow, await readRuntimeWorkflows(runtime));
+  }
   const workspaces = await runtime.control.workspaces()
     .then((response) => response.workspaces as WorkspaceRecord[])
     .catch(() => []);
@@ -889,33 +719,40 @@ async function runRemove(
     } else if (!options.yes && !canPrompt()) {
       throw new Error(`rig rm --all needs --yes when not running in an interactive terminal`);
     }
-    targets = workspaces.map((workspace) => workspace.name);
+    targets = workspaces
+      .filter((workspace) => options.workflow === undefined || workspace.workflow === options.workflow)
+      .map((workspace) => `${workspace.workflow}/${workspace.name}`);
   } else {
     if (wantsJson(invocation) || !canPrompt()) {
       throw new Error(`rig rm needs a workspace name or --all when not running in an interactive terminal`);
     }
-    targets = await promptWorkspaceRemoveSelection(workspaces);
+    targets = await promptWorkspaceRemoveSelection(workspaces, options.workflow);
     if (targets.length === 0) throw new Error("Nothing selected");
   }
 
   const removed: string[] = [];
-  for (const name of targets) {
-    await runRemoveWorkspaceOperation(invocation, name, { yes: true });
-    removed.push(name);
+  for (const target of targets) {
+    const slash = target.indexOf("/");
+    const workflow = slash > 0 ? target.slice(0, slash) : options.workflow;
+    const name = slash > 0 ? target.slice(slash + 1) : target;
+    await runRemoveWorkspaceOperation(invocation, name, { workflow, yes: true });
+    removed.push(workflow ? `${workflow}/${name}` : name);
   }
   if (wantsJson(invocation)) printJson({ removed });
 }
 
 async function promptWorkspaceRemoveSelection(
   workspaces: ReadonlyArray<Pick<WorkspaceRecord, "name" | "workflow">>,
+  workflow?: string,
 ): Promise<string[]> {
+  const candidates = workspaces.filter((workspace) => workflow === undefined || workspace.workflow === workflow);
   const answers = await inquirer.prompt<{ names: string[] }>([{
     type: "checkbox",
     name: "names",
     message: "Select workspaces to remove",
-    choices: workspaces.map((workspace) => ({
-      name: workspace.name,
-      value: workspace.name,
+    choices: candidates.map((workspace) => ({
+      name: workspace.workflow ? `${workspace.workflow}/${workspace.name}` : workspace.name,
+      value: `${workspace.workflow}/${workspace.name}`,
       description: workspace.workflow ? `workflow ${workspace.workflow}` : undefined,
     })),
   }]);
@@ -925,20 +762,21 @@ async function promptWorkspaceRemoveSelection(
 async function runRemoveWorkspaceOperation(
   invocation: CliInvocation,
   workspaceName: string,
-  options: { yes: boolean },
+  options: { workflow?: string; yes: boolean },
 ): Promise<void> {
   const runtime = await loadRuntime(invocation);
   const manifest = await readRuntimeOperations(runtime);
-  const operation = (manifest.workspaceOperations ?? []).find((item) => item.id === "remove");
+  const workflow = await resolveWorkspaceWorkflow(invocation, runtime, workspaceName, options.workflow);
+  const operation = (manifest.workspaceOperations ?? []).find((item) => item.id === "remove" && item.workflow === workflow);
   if (!operation) {
-    throw new Error(`This project does not define a removable workspace.`);
+    throw new Error(`Workflow ${workflow} does not define a removable workspace.`);
   }
 
   const workspaces = await runtime.control.workspaces()
     .then((response) => response.workspaces as WorkspaceRecord[])
     .catch(() => []);
-  if (!workspaces.some((workspace) => workspace.name === workspaceName)) {
-    throw new Error(`This project does not have a workspace named "${workspaceName}".`);
+  if (!workspaces.some((workspace) => workspace.name === workspaceName && workspace.workflow === workflow)) {
+    throw new Error(`Workflow ${workflow} does not have a workspace named "${workspaceName}".`);
   }
 
   if (!options.yes && !wantsJson(invocation) && canPrompt()) {
@@ -956,7 +794,7 @@ async function runRemoveWorkspaceOperation(
   const result = await runRuntimeOperation<unknown>(
     runtime,
     `${workspaceName}/remove`,
-    parsed.input,
+    { ...parsed.input, workflow },
     { renderEvents: !wantsJson(invocation) },
   );
 
@@ -977,7 +815,6 @@ async function runDiscoveredProjectOperation(
 ): Promise<void> {
   const projects = discoverProjectConfigs({
     chdir: invocation.global.chdir,
-    config: invocation.global.config,
   });
   if (projects.length === 0) {
     throw new Error("No Rigkit projects found.");
@@ -985,7 +822,7 @@ async function runDiscoveredProjectOperation(
   if (!options.all && projects.length > 1) {
     throw new Error([
       "Multiple Rigkit projects found.",
-      "Use `rig projects` to list candidates, pass --chdir or --config to select one, or pass --all to run every discovered project.",
+      "Use `rig projects` to list candidates, pass --chdir to select one, or pass --all to run every discovered project.",
       ...projects.map((project) => `- ${project.configPath}`),
     ].join("\n"));
   }
@@ -1005,6 +842,7 @@ async function runDiscoveredProjectOperation(
       configPath: project.configPath,
       statePath: invocation.global.state ? resolveGlobalPath(invocation, invocation.global.state) : undefined,
     });
+    await checkRuntimeCompatibility(invocation, runtime);
     const { operation, parsed, result } = await executeRuntimeOperation(
       invocation,
       runtime,
@@ -1034,7 +872,6 @@ async function runDiscoveredProjectOperation(
 async function runProjects(invocation: CliInvocation): Promise<void> {
   const projects = discoverProjectConfigs({
     chdir: invocation.global.chdir,
-    config: invocation.global.config,
   });
   if (wantsJson(invocation)) {
     printJson({ projects });
@@ -1056,22 +893,25 @@ async function runList(invocation: CliInvocation, options: ListOptions): Promise
   const runtime = await loadRuntime(invocation);
 
   if (target === "workspaces") {
-    const { workspaces } = await runtime.control.workspaces();
+    const workflows = await readWorkflowOverview(invocation, runtime, options.workflow);
     if (wantsJson(invocation)) {
-      printJson({ workspaces });
+      printJson({ workflows });
       return;
     }
-    printWorkspaces(workspaces);
+    printWorkflowWorkspaces(workflows);
     return;
   }
 
   if (target === "snapshots") {
     const { snapshots } = await runtime.control.snapshots();
+    const filtered = options.workflow
+      ? (snapshots as SnapshotRecord[]).filter((snapshot) => snapshot.workflow === options.workflow)
+      : snapshots as SnapshotRecord[];
     if (wantsJson(invocation)) {
-      printJson({ snapshots });
+      printJson({ snapshots: filtered });
       return;
     }
-    printSnapshots(snapshots as SnapshotRecord[]);
+    printSnapshots(filtered);
     return;
   }
 
@@ -1102,8 +942,8 @@ async function runCacheClear(invocation: CliInvocation, options: CacheClearOptio
   }
 
   if (options.global && options.all) {
-    if (invocation.global.chdir || invocation.global.config || invocation.global.state) {
-      throw new Error(`rig cache clear --global --all cannot be combined with --chdir, --config, or --state`);
+    if (invocation.global.chdir || invocation.global.state) {
+      throw new Error(`rig cache clear --global --all cannot be combined with --chdir or --state`);
     }
     const fragmentRoot = join(defaultRigkitHome(), "fragments");
     rmSync(fragmentRoot, { recursive: true, force: true });
@@ -1280,6 +1120,10 @@ async function parseOperationArgsWithPrompts(
     allowMissingRequired: !wantsJson(invocation) && canPrompt(),
   });
 
+  if (operationRequiresWorkflowSelection(operation)) {
+    parsed.input.workflow = await resolveOperationWorkflow(invocation, runtime, operation, parsed.input.workflow);
+  }
+
   if (
     operation.createsWorkspace &&
     parsed.input.name === undefined &&
@@ -1292,8 +1136,204 @@ async function parseOperationArgsWithPrompts(
     assertValidWorkspaceName(parsed.input.name);
   }
 
+  await promptMissingOperationInputs(invocation, runtime, operation, parsed);
   enforceRequiredOperationInputs(operation, parsed);
   return parsed;
+}
+
+async function promptMissingOperationInputs(
+  invocation: CliInvocation,
+  runtime: RuntimeClient,
+  operation: RuntimeOperationDefinition,
+  parsed: ParsedOperationInput,
+): Promise<void> {
+  if (wantsJson(invocation) || !canPrompt()) return;
+
+  const required = new Set(operation.inputSchema?.required ?? []);
+  if (required.size === 0) return;
+
+  for (const [name, property] of orderedOperationInputProperties(operation)) {
+    if (!required.has(name)) continue;
+    if (parsed.input[name] !== undefined || parsed.hostOptions[name] !== undefined) continue;
+
+    const value = await promptOperationInput(runtime, operation, name, property);
+    if (value !== undefined && value !== "") parsed.input[name] = value;
+  }
+}
+
+function orderedOperationInputProperties(
+  operation: RuntimeOperationDefinition,
+): Array<[string, JsonSchemaProperty]> {
+  const properties = operation.inputSchema?.properties ?? {};
+  const cli = inferCliMetadata(operation);
+  const order = [
+    ...[...cli.positionals].sort((left, right) => left.index - right.index).map((item) => item.name),
+    ...cli.options.map((item) => item.name),
+  ];
+  const seen = new Set<string>();
+  const result: Array<[string, JsonSchemaProperty]> = [];
+
+  for (const name of order) {
+    const property = properties[name];
+    if (!property || seen.has(name)) continue;
+    seen.add(name);
+    result.push([name, property]);
+  }
+
+  for (const entry of Object.entries(properties)) {
+    if (seen.has(entry[0])) continue;
+    result.push(entry);
+  }
+
+  return result;
+}
+
+async function promptOperationInput(
+  runtime: RuntimeClient,
+  operation: RuntimeOperationDefinition,
+  name: string,
+  property: JsonSchemaProperty,
+): Promise<unknown> {
+  const enumValues = Array.isArray(property.enum) ? property.enum : [];
+  if (enumValues.length > 0) {
+    const answers = await inquirer.prompt<{ value: unknown }>([{
+      type: "select",
+      name: "value",
+      message: inputPromptMessage(name, property),
+      default: property.default,
+      choices: enumValues.map((value) => ({
+        name: String(value),
+        value,
+      })),
+    }]);
+    return answers.value;
+  }
+
+  if (isWorkspaceInputProperty(property)) {
+    const response = await runtime.control.workspaces();
+    const workspaces = (response.workspaces as WorkspaceRecord[])
+      .filter((workspace) => !operation.workflow || workspace.workflow === operation.workflow);
+    if (workspaces.length === 0) throw new Error(`No workspaces are available for ${operation.id}`);
+    const answers = await inquirer.prompt<{ value: string }>([{
+      type: "select",
+      name: "value",
+      message: inputPromptMessage(name, property),
+      choices: workspaces.map((workspace) => ({
+        name: workspace.name,
+        value: workspace.name,
+        description: workspace.workflow,
+      })),
+    }]);
+    return answers.value;
+  }
+
+  if (property.type === "boolean") {
+    const answers = await inquirer.prompt<{ value: boolean }>([{
+      type: "confirm",
+      name: "value",
+      message: inputPromptMessage(name, property),
+      default: typeof property.default === "boolean" ? property.default : false,
+    }]);
+    return answers.value;
+  }
+
+  const answers = await inquirer.prompt<{ value: string }>([{
+    type: "input",
+    name: "value",
+    message: inputPromptMessage(name, property),
+    default: typeof property.default === "string" || typeof property.default === "number"
+      ? String(property.default)
+      : undefined,
+    validate: (value: string) => {
+      if (!value) return `${name} is required`;
+      if (property.type === "number" && !Number.isFinite(Number(value))) return `${name} must be a number`;
+      return true;
+    },
+  }]);
+  return property.type === "number" ? Number(answers.value) : answers.value;
+}
+
+function inputPromptMessage(name: string, property: JsonSchemaProperty): string {
+  return property.description ? `${name} (${property.description})` : name;
+}
+
+function isWorkspaceInputProperty(property: JsonSchemaProperty): boolean {
+  const input = property["x-rigkit-input"];
+  return Boolean(input && typeof input === "object" && (input as { kind?: unknown }).kind === "workspace");
+}
+
+function operationRequiresWorkflowSelection(operation: RuntimeOperationDefinition): boolean {
+  return operation.source === "core" &&
+    (operation.cli?.options?.some((option) => option.name === "workflow") ??
+      Boolean(operation.inputSchema?.properties?.workflow));
+}
+
+async function resolveOperationWorkflow(
+  invocation: CliInvocation,
+  runtime: RuntimeClient,
+  operation: RuntimeOperationDefinition,
+  value: unknown,
+): Promise<string> {
+  const workflows = await readRuntimeWorkflows(runtime);
+  if (typeof value === "string" && value.trim()) {
+    assertKnownWorkflow(value, workflows);
+    return value;
+  }
+
+  if (wantsJson(invocation) || !canPrompt()) {
+    throw new Error(`${operation.id} requires --workflow. Available workflows: ${formatWorkflowNames(workflows)}`);
+  }
+  return await promptWorkflowSelection(workflows);
+}
+
+async function resolveWorkspaceWorkflow(
+  invocation: CliInvocation,
+  runtime: RuntimeClient,
+  workspaceName: string,
+  requestedWorkflow: string | undefined,
+): Promise<string> {
+  const workflows = await readRuntimeWorkflows(runtime);
+  if (requestedWorkflow) {
+    assertKnownWorkflow(requestedWorkflow, workflows);
+    return requestedWorkflow;
+  }
+
+  const { workspaces } = await runtime.control.workspaces();
+  const matches = (workspaces as WorkspaceRecord[]).filter((workspace) => workspace.name === workspaceName);
+  if (matches.length === 1) return matches[0]!.workflow;
+  if (matches.length === 0) throw new Error(`This project does not have a workspace named "${workspaceName}".`);
+
+  if (wantsJson(invocation) || !canPrompt()) {
+    throw new Error(`Workspace "${workspaceName}" exists in multiple workflows: ${matches.map((item) => item.workflow).join(", ")}. Pass --workflow.`);
+  }
+  return await promptWorkflowSelection(
+    workflows.filter((workflow) => matches.some((workspace) => workspace.workflow === workflow.name)),
+    `Workspace "${workspaceName}" exists in multiple workflows. Select workflow`,
+  );
+}
+
+function assertKnownWorkflow(name: string, workflows: RuntimeWorkflowSummary[]): void {
+  if (workflows.some((workflow) => workflow.name === name)) return;
+  throw new Error(`Unknown workflow ${name}. Available workflows: ${formatWorkflowNames(workflows)}`);
+}
+
+function formatWorkflowNames(workflows: RuntimeWorkflowSummary[]): string {
+  return workflows.length > 0 ? workflows.map((workflow) => workflow.name).join(", ") : "(none)";
+}
+
+async function promptWorkflowSelection(workflows: RuntimeWorkflowSummary[], message = "Select workflow"): Promise<string> {
+  if (workflows.length === 0) throw new Error("This project does not define any workflows.");
+  const answers = await inquirer.prompt<{ workflow: string }>([{
+    type: "select",
+    name: "workflow",
+    message,
+    choices: workflows.map((workflow) => ({
+      name: workflow.name,
+      value: workflow.name,
+      description: workflow.createsWorkspace ? "creates workspaces" : "workflow",
+    })),
+  }]);
+  return answers.workflow;
 }
 
 function parseOperationArgs(
@@ -1508,14 +1548,20 @@ async function runDoctor(invocation: CliInvocation, options: DoctorOptions): Pro
     return;
   }
 
-  const runtime = await loadRuntime(invocation);
+  const runtime = await loadRuntime(invocation, { checkCompatibility: false });
   const [health, runtimeInfo, project] = await Promise.all([
     runtime.control.health(),
     runtime.control.runtime(),
     readRuntimeProject(runtime),
   ]);
+  const compatibility = evaluateVersionCompatibility({
+    cliVersion: RIGKIT_CLI_VERSION,
+    runtimeVersion: runtimeInfo.runtimeVersion,
+    engineVersion: runtimeInfo.engineVersion,
+  });
   const diagnostics = {
     cliVersion: RIGKIT_CLI_VERSION,
+    compatibility,
     project,
     daemon: {
       url: runtime.handle.url,
@@ -1543,6 +1589,7 @@ async function runDoctor(invocation: CliInvocation, options: DoctorOptions): Pro
     ["runtime", runtimeInfo.runtimeVersion],
     ["api version", String(runtimeInfo.apiVersion)],
     ["protocol", runtimeInfo.protocolHash],
+    ["compatibility", formatVersionCompatibilitySummary(compatibility)],
     ["state", project.statePath ?? ""],
     ["expires", health.expiresAt ?? runtime.handle.expiresAt ?? ""],
   ]));
@@ -1608,18 +1655,69 @@ async function runHelp(invocation: CliInvocation): Promise<void> {
     cmd("completion", "Generate shell completion script"),
     "",
     ui.dim("Options:"),
-    opt("--chdir <dir>",   "Switch to a directory containing rig.config.ts before running the command"),
-    opt("--config <file>", "Config file to load, relative to --chdir when set"),
+    opt("--chdir <dir>",   "Switch to a directory containing rigkit/index.ts before running the command"),
     opt("--state <file>",  "Local runtime state database path"),
     opt("--json",          "Print machine-readable JSON where supported"),
-    "",
-    ui.dim("Legacy single-dash global aliases such as -chdir=DIR are still accepted."),
   ].join("\n"));
 }
 
-async function loadRuntime(invocation: CliInvocation): Promise<RuntimeClient> {
+async function loadRuntime(
+  invocation: CliInvocation,
+  options: { checkCompatibility?: boolean } = {},
+): Promise<RuntimeClient> {
   const engineOptions = resolveEngineOptions(invocation);
-  return await getOrStartRuntime(engineOptions);
+  const runtime = await getOrStartRuntime(engineOptions);
+  if (options.checkCompatibility !== false) {
+    await checkRuntimeCompatibility(invocation, runtime);
+  }
+  return runtime;
+}
+
+async function checkRuntimeCompatibility(invocation: CliInvocation, runtime: RuntimeClient): Promise<void> {
+  const runtimeKey = runtime.handle.url;
+  if (checkedRuntimeCompatibility.has(runtimeKey)) return;
+
+  const runtimeInfo = await readRuntimeCompatibilityMetadata(runtime);
+  if (!runtimeInfo) {
+    checkedRuntimeCompatibility.add(runtimeKey);
+    return;
+  }
+
+  const compatibility = evaluateVersionCompatibility({
+    cliVersion: RIGKIT_CLI_VERSION,
+    runtimeVersion: runtimeInfo.runtimeVersion,
+    engineVersion: runtimeInfo.engineVersion,
+  });
+  if (compatibility.severity === "ok") {
+    checkedRuntimeCompatibility.add(runtimeKey);
+    return;
+  }
+
+  const notice = renderVersionCompatibilityNotice(compatibility);
+  if (compatibility.severity === "error") {
+    throw new Error(notice.trimEnd());
+  }
+
+  checkedRuntimeCompatibility.add(runtimeKey);
+  if (!wantsJson(invocation)) {
+    process.stderr.write(notice);
+  }
+}
+
+async function readRuntimeCompatibilityMetadata(
+  runtime: RuntimeClient,
+): Promise<{ runtimeVersion: string; engineVersion: string } | undefined> {
+  try {
+    return await runtime.control.runtime();
+  } catch {
+    if (runtime.handle.runtimeVersion && runtime.handle.engineVersion) {
+      return {
+        runtimeVersion: runtime.handle.runtimeVersion,
+        engineVersion: runtime.handle.engineVersion,
+      };
+    }
+    return undefined;
+  }
 }
 
 async function readRuntimeProject(runtime: RuntimeClient): Promise<EngineProjectInfo> {
@@ -1628,6 +1726,11 @@ async function readRuntimeProject(runtime: RuntimeClient): Promise<EngineProject
 
 async function readRuntimeOperations(runtime: RuntimeClient): Promise<RuntimeOperationManifest> {
   return await runtime.control.operations() as unknown as RuntimeOperationManifest;
+}
+
+async function readRuntimeWorkflows(runtime: RuntimeClient): Promise<RuntimeWorkflowSummary[]> {
+  const response = await runtime.control.workflows() as unknown as { workflows: RuntimeWorkflowSummary[] };
+  return response.workflows;
 }
 
 async function runRuntimeOperation<T>(
@@ -1815,7 +1918,7 @@ function printRunFailure(input: {
 // After a successful `rig create`, list the workspace's available operations so
 // the user doesn't have to guess what to do next. TTY-only — JSON consumers and
 // pipes get clean output.
-async function printWorkspaceNextSteps(runtime: RuntimeClient, workspaceName: string): Promise<void> {
+async function printWorkspaceNextSteps(runtime: RuntimeClient, workspaceName: string, workflow: string): Promise<void> {
   if (!process.stderr.isTTY) return;
 
   let manifest: RuntimeOperationManifest;
@@ -1825,7 +1928,7 @@ async function printWorkspaceNextSteps(runtime: RuntimeClient, workspaceName: st
     return;
   }
 
-  const ops = (manifest.workspaceOperations ?? []).filter((op) => op.id !== "remove");
+  const ops = (manifest.workspaceOperations ?? []).filter((op) => op.workflow === workflow && op.id !== "remove");
   const invocations: Array<{ command: string; description: string }> = ops.map((op) => ({
     command: `rig run ${workspaceName} ${op.id}`,
     description: op.description ?? op.title ?? "",
@@ -1881,7 +1984,7 @@ function resolveEngineOptions(invocation: CliInvocation): { projectDir: string; 
 
 function resolveCommandConfigPaths(invocation: CliInvocation): { projectDir: string; configPath: string } {
   const options = invocation.global;
-  return resolveConfigPaths({ chdir: options.chdir, config: options.config });
+  return resolveConfigPaths({ chdir: options.chdir });
 }
 
 function resolveGlobalPath(invocation: CliInvocation, path: string): string {
@@ -2423,23 +2526,172 @@ function printWorkspaces(
   console.log(ui.columns(["name", "workflow", "created", "age"], rows));
 }
 
+type WorkflowOverview = {
+  name: string;
+  cached: boolean | null;
+  cachedNodeCount?: number;
+  nodeCount?: number;
+  lastAppliedAt?: string;
+  planError?: string;
+  workspaces: Array<Pick<WorkspaceRecord, "name" | "workflow" | "createdAt" | "updatedAt">>;
+};
+
+async function readWorkflowOverview(
+  invocation: CliInvocation,
+  runtime: RuntimeClient,
+  workflowFilter: string | undefined,
+): Promise<WorkflowOverview[]> {
+  const workflows = await readRuntimeWorkflows(runtime);
+  if (workflowFilter) assertKnownWorkflow(workflowFilter, workflows);
+  const selected = workflowFilter
+    ? workflows.filter((workflow) => workflow.name === workflowFilter)
+    : workflows;
+  const { workspaces } = await runtime.control.workspaces();
+  const allWorkspaces = workspaces as WorkspaceRecord[];
+
+  const overview: WorkflowOverview[] = [];
+  for (const workflow of selected) {
+    let plan: WorkflowPlan | undefined;
+    let planError: string | undefined;
+    try {
+      plan = await runRuntimeOperation<WorkflowPlan>(
+        runtime,
+        "plan",
+        { workflow: workflow.name },
+        { renderEvents: false },
+      );
+    } catch (error) {
+      planError = error instanceof Error ? error.message : String(error);
+    }
+
+    overview.push({
+      name: workflow.name,
+      cached: plan ? plan.cachedNodeCount === plan.nodeCount : null,
+      cachedNodeCount: plan?.cachedNodeCount,
+      nodeCount: plan?.nodeCount,
+      lastAppliedAt: workflow.lastAppliedAt,
+      planError,
+      workspaces: allWorkspaces
+        .filter((workspace) => workspace.workflow === workflow.name)
+        .sort((left, right) => left.name.localeCompare(right.name)),
+    });
+  }
+  return overview;
+}
+
+function printWorkflowWorkspaces(workflows: WorkflowOverview[]): void {
+  if (workflows.length === 0) {
+    console.log(ui.dim("no workflows"));
+    return;
+  }
+
+  const sortedWorkflows = sortWorkflowsForListing(workflows);
+  printWorkflowsSection(sortedWorkflows);
+  console.log("");
+  printWorkspacesSection(sortedWorkflows);
+
+  const planErrors = sortedWorkflows.filter((workflow) => workflow.planError);
+  if (planErrors.length > 0) {
+    console.log("");
+    for (const workflow of planErrors) {
+      console.log(`  ${ui.warn(workflow.name)}  ${workflow.planError}`);
+    }
+  }
+}
+
+function sortWorkflowsForListing(workflows: WorkflowOverview[]): WorkflowOverview[] {
+  return [...workflows].sort((left, right) => {
+    const leftHas = left.workspaces.length > 0 ? 1 : 0;
+    const rightHas = right.workspaces.length > 0 ? 1 : 0;
+    if (leftHas !== rightHas) return rightHas - leftHas;
+    const leftApplied = left.lastAppliedAt ? Date.parse(left.lastAppliedAt) : 0;
+    const rightApplied = right.lastAppliedAt ? Date.parse(right.lastAppliedAt) : 0;
+    if (leftApplied !== rightApplied) return rightApplied - leftApplied;
+    return left.name.localeCompare(right.name);
+  });
+}
+
+function printWorkflowsSection(workflows: WorkflowOverview[]): void {
+  console.log(ui.bold("workflows"));
+  const rows = workflows.map((workflow) => [
+    { text: workflow.name, style: ui.bold },
+    formatWorkflowCacheCell(workflow),
+    formatWorkflowAppliedCell(workflow),
+  ]);
+  console.log(ui.columns(["name", "cached", "applied"], rows));
+}
+
+function printWorkspacesSection(workflows: WorkflowOverview[]): void {
+  console.log(ui.bold("workspaces"));
+  const flattened = workflows.flatMap((workflow) =>
+    workflow.workspaces.map((workspace) => ({ ...workspace, workflowName: workflow.name })),
+  );
+  if (flattened.length === 0) {
+    console.log(`  ${ui.dim("none")}`);
+    return;
+  }
+  flattened.sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt));
+
+  const showWorkflowColumn = workflows.length > 1;
+  const headers = showWorkflowColumn
+    ? ["name", "workflow", "age", "created"]
+    : ["name", "age", "created"];
+  const rows = flattened.map((workspace) => {
+    const cells: Array<{ text: string; style?: (text: string) => string }> = [
+      { text: workspace.name, style: ui.bold },
+    ];
+    if (showWorkflowColumn) cells.push({ text: workspace.workflowName, style: ui.dim });
+    cells.push(formatWorkspaceAge(workspace.createdAt));
+    cells.push({ text: formatCreatedTimestamp(workspace.createdAt), style: ui.dim });
+    return cells;
+  });
+  console.log(ui.columns(headers, rows));
+}
+
+function formatWorkflowCacheCell(workflow: WorkflowOverview): { text: string; style: (text: string) => string } {
+  if (workflow.cached === null) return { text: "unavailable", style: ui.warn };
+  const text = `${workflow.cachedNodeCount}/${workflow.nodeCount}`;
+  return { text, style: workflow.cached ? ui.ok : ui.dim };
+}
+
+function formatWorkflowAppliedCell(workflow: WorkflowOverview): { text: string; style: (text: string) => string } {
+  if (!workflow.lastAppliedAt) return { text: "—", style: ui.dim };
+  return { text: formatRelativeAge(workflow.lastAppliedAt), style: ui.dim };
+}
+
 function formatWorkspaceAge(createdAt: string): { text: string; style: (text: string) => string } {
+  return { text: formatRelativeAge(createdAt), style: ageStyle(createdAt) };
+}
+
+function formatRelativeAge(createdAt: string): string {
   const createdTime = Date.parse(createdAt);
-  if (Number.isNaN(createdTime)) return { text: "unknown", style: ui.dim };
+  if (Number.isNaN(createdTime)) return "unknown";
 
   const ageMs = Math.max(0, Date.now() - createdTime);
   const minute = 60 * 1000;
   const hour = 60 * minute;
   const day = 24 * hour;
-  const text = ageMs < hour
-    ? `${Math.max(1, Math.floor(ageMs / minute))}m`
-    : ageMs < day
-      ? `${Math.floor(ageMs / hour)}h`
-      : `${Math.floor(ageMs / day)}d`;
+  if (ageMs < minute) return "just now";
+  if (ageMs < hour) return `${Math.floor(ageMs / minute)}m ago`;
+  if (ageMs < day) return `${Math.floor(ageMs / hour)}h ago`;
+  return `${Math.floor(ageMs / day)}d ago`;
+}
 
-  if (ageMs < day) return { text, style: ui.ok };
-  if (ageMs <= 3 * day) return { text, style: ui.warn };
-  return { text, style: ui.dim };
+function ageStyle(createdAt: string): (text: string) => string {
+  const createdTime = Date.parse(createdAt);
+  if (Number.isNaN(createdTime)) return ui.dim;
+  const ageMs = Math.max(0, Date.now() - createdTime);
+  const day = 24 * 60 * 60 * 1000;
+  if (ageMs < day) return ui.ok;
+  if (ageMs <= 3 * day) return ui.warn;
+  return ui.dim;
+}
+
+function formatCreatedTimestamp(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  const pad = (n: number) => n.toString().padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
 function printSnapshots(snapshots: SnapshotRecord[]): void {
@@ -2453,7 +2705,7 @@ function printSnapshots(snapshots: SnapshotRecord[]): void {
     { text: snapshot.workflow },
     { text: snapshot.nodePath, style: ui.bold },
     { text: typeof snapshot.metadata.snapshotId === "string" ? snapshot.metadata.snapshotId : "" },
-    { text: snapshot.createdAt, style: ui.dim },
+    { text: formatCreatedTimestamp(snapshot.createdAt), style: ui.dim },
   ]);
   console.log(ui.columns(["run", "workflow", "node", "snapshot", "created"], rows));
 }
@@ -2481,7 +2733,7 @@ function printCacheEntries(entries: ReadonlyArray<{
       style: entry.invalidated ? ui.warn : ui.ok,
     },
     { text: entry.fragmentHash ? entry.fragmentHash.slice(0, 19) : "", style: ui.dim },
-    { text: entry.createdAt, style: ui.dim },
+    { text: formatCreatedTimestamp(entry.createdAt), style: ui.dim },
   ]);
   console.log(ui.columns(["scope", "workflow", "node", "status", "fragment", "created"], rows));
 }
@@ -2491,8 +2743,7 @@ function printConfig(info: EngineProjectInfo): void {
     ["config", info.configPath],
     ["project", info.projectDir],
     ["state", info.statePath ?? ""],
-    ["workflow", info.workflow?.name ?? ui.dim("(not loaded)")],
-    ["providers", info.workflow?.providers.join(", ") ?? ""],
+    ["workflows", info.workflows.map((workflow) => workflow.name).join(", ")],
   ]));
 }
 

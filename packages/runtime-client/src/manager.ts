@@ -90,6 +90,15 @@ export function getOrStartRuntimeEffect(options: GetOrStartRuntimeOptions): Effe
 async function getOrStartRuntimeUnsafe(options: GetOrStartRuntimeOptions): Promise<RuntimeClient> {
   const projectDir = resolve(options.projectDir);
   const configPath = resolve(options.configPath);
+  const canonicalConfigPath = join(projectDir, "rigkit", "index.ts");
+  if (configPath !== canonicalConfigPath) {
+    throw new RuntimeStartupError({
+      reason: "missing-runtime",
+      projectDir,
+      path: configPath,
+      message: `Rigkit config must be ${canonicalConfigPath}; ${configPath} is not supported.`,
+    });
+  }
   const statePath = options.statePath ? resolve(options.statePath) : undefined;
   const globalFragmentRoot = options.globalFragmentRoot
     ? resolve(options.globalFragmentRoot)
@@ -169,6 +178,7 @@ export function runtimeFingerprintFor(options: RuntimeProjectOptions): string {
   hash.update(JSON.stringify(options.source ?? null));
 
   updateFileFingerprint(hash, "config", configPath);
+  updateDirectoryFingerprint(hash, "config-dir", dirname(configPath));
   for (const file of dotenvFilesFor(projectDir)) updateFileFingerprint(hash, "dotenv", file);
   for (const file of projectFingerprintFiles(projectDir)) updateFileFingerprint(hash, "project-file", file);
   updateProjectSurfaceFingerprint(hash, projectDir);
@@ -532,6 +542,24 @@ function updateFileFingerprint(hash: ReturnType<typeof createHash>, label: strin
   }
 
   hash.update(readFileSync(path));
+}
+
+function updateDirectoryFingerprint(hash: ReturnType<typeof createHash>, label: string, path: string): void {
+  hash.update(`\0${label}\0${path}\0`);
+  if (!existsSync(path)) {
+    hash.update("missing");
+    return;
+  }
+
+  const stat = statSync(path);
+  if (!stat.isDirectory()) {
+    hash.update(`not-directory:${stat.mode}`);
+    return;
+  }
+
+  for (const file of collectFiles(path)) {
+    updateFileFingerprint(hash, label, file);
+  }
 }
 
 function projectFingerprintFiles(projectDir: string): string[] {

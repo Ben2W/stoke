@@ -1,4 +1,5 @@
 import { sequence } from "./authoring.ts";
+import * as z from "zod/v4";
 
 sequence("normal-operation-ids")
   .operation("open" as const, {
@@ -44,6 +45,27 @@ sequence("workspace-operation-ids")
     run: async () => null,
   });
 
+sequence("workspace-operation-inputs")
+  .workspace({
+    create: async ({ workspace }) => ({ name: workspace.name }),
+    remove: async () => {},
+  })
+  .workspaceOperation("test" as const, {
+    input: z.object({
+      pattern: z.string().optional(),
+      retries: z.number().default(1),
+    }),
+    run: async ({ input }) => {
+      const pattern: string | undefined = input.pattern;
+      const retries: number = input.retries;
+      void pattern;
+      void retries;
+      // @ts-expect-error missing operation input keys are rejected
+      input.missing;
+      return null;
+    },
+  });
+
 sequence("typed-step-invalidation")
   .step("github-auth", async () => ({ ctx: { token: "ok" } }))
   .step("check-auth", async ({ step }) => {
@@ -57,6 +79,26 @@ sequence("typed-step-invalidation-targets")
   .step("check-auth", async ({ step }) => {
     // @ts-expect-error invalidation target must be a previous task id
     return step.invalidate("missing-auth");
+  });
+
+type AnnotatedAuthCheckResult = {
+  ctx: {
+    token: string;
+    checked: true;
+  };
+};
+
+sequence("step-invalidation-does-not-contribute-to-return-type")
+  .step("github-auth", async () => ({ ctx: { token: "ok" } }))
+  .step("check-auth", async ({ step }): Promise<AnnotatedAuthCheckResult> => {
+    if (step.ctx.token === "refresh") {
+      return step.invalidate("github-auth");
+    }
+    return { ctx: { token: step.ctx.token, checked: true } };
+  })
+  .step("next", async ({ step }) => {
+    const checked: true = step.ctx.checked;
+    void checked;
   });
 
 sequence("typed-config")

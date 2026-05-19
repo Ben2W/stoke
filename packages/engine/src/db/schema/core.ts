@@ -13,9 +13,21 @@ export const workspaces = sqliteTable(
     ctx: text("ctx_json", { mode: "json" }).$type<Record<string, JsonValue>>().notNull(),
   },
   (table) => [
-    uniqueIndex("workspaces_name_idx").on(table.name),
+    uniqueIndex("workspaces_workflow_name_idx").on(table.workflow, table.name),
+    index("workspaces_name_idx").on(table.name),
     index("workspaces_workflow_idx").on(table.workflow),
   ],
+);
+
+export const workflowApplies = sqliteTable(
+  "workflow_applies",
+  {
+    workflow: text("workflow").primaryKey(),
+    providerFingerprint: text("provider_fingerprint").notNull(),
+    cachedNodeCount: integer("cached_node_count").notNull(),
+    nodeCount: integer("node_count").notNull(),
+    appliedAt: text("applied_at").notNull(),
+  },
 );
 
 export const workflowNodeRuns = sqliteTable(

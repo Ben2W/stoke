@@ -94,7 +94,7 @@ that environment real. They are responsible for:
 
 ```mermaid
 flowchart LR
-  Config["rig.config.ts"] --> Workflow["Workflow graph"]
+  Config["rigkit/index.ts"] --> Workflow["Workflow graph"]
   Workflow --> Task["Task or operation"]
   Task --> Runtime["Provider runtime"]
   Runtime --> External["External system"]
@@ -139,7 +139,7 @@ sequenceDiagram
   participant Task as Task handler
 
   CLI->>Runtime: start or connect
-  Runtime->>Engine: load rig.config.ts
+  Runtime->>Engine: load rigkit/index.ts
   Engine->>Provider: resolve config and create controller
   Engine->>Provider: create runtime for node
   Provider-->>Engine: typed runtime helpers

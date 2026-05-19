@@ -5,7 +5,7 @@ noindex: true
 ---
 
 The global command is `rig`. It starts or connects to the project-local runtime
-installed by `@rigkit/sdk`, loads the selected `rig.config.ts`, and runs core
+installed by `@rigkit/sdk`, loads the selected `rigkit/index.ts`, and runs core
 or project-defined operations.
 
 ## Global options
@@ -15,26 +15,21 @@ consistency with command options:
 
 ```sh
 rig --chdir=examples/smoke plan
-rig --config=api.rig.config.ts apply
+rig --chdir=examples/global-fragments apply --workflow api
 rig --state=/tmp/rigkit-state.sqlite plan
-rig --json plan
+rig --json plan --workflow dev
 ```
 
 Options:
 
 | Option | Description |
 | --- | --- |
-| `--chdir <dir>` | Switch to a directory before resolving the config. |
-| `--config <file>` | Load a specific config file, relative to `--chdir` when set. |
+| `--chdir <dir>` | Switch to a directory before resolving `rigkit/index.ts`. |
 | `--state <file>` | Use a specific local runtime state database. |
 | `--json` | Print machine-readable JSON where supported. |
 
 By default Rigkit searches upward from the current directory for
-`rig.config.ts`. Named configs ending in `.rig.config.ts` must be selected with
-`--config`.
-
-Legacy single-dash global forms such as `-chdir=DIR`, `-config=FILE`,
-`-state=FILE`, and `-json` are still accepted.
+`rigkit/index.ts`.
 
 ## `rig init`
 
@@ -42,22 +37,10 @@ Initialize a project:
 
 ```sh
 rig init
-rig init --name website --package-manager pnpm
-rig init --name platform --package-manager skip
 ```
 
-Options:
-
-| Option | Description |
-| --- | --- |
-| `--name <name>` | Project and workflow name. Required in non-interactive terminals. |
-| `--api-key <key>` | Write `FREESTYLE_API_KEY` to `.env`. |
-| `--package-manager <pm>` | `npm`, `bun`, `pnpm`, or `skip`. |
-| `--force` | Overwrite an existing config file. |
-| `--json` | Print the init result as JSON. |
-
-`rig init` creates a project directory, `rig.config.ts`, package metadata, and
-ignore rules for `.env` and `.rigkit/`.
+`rig init` creates `rigkit/index.ts` in the current directory. It does not prompt
+and does not write package metadata, environment files, or ignore rules.
 
 ## `rig plan`
 
@@ -68,14 +51,14 @@ rig plan
 rig plan --workflow api
 rig plan --all
 rig plan --discover
-rig plan --json
+rig plan --workflow api --json
 ```
 
 Options:
 
 | Option | Description |
 | --- | --- |
-| `--workflow <name>` | Select a workflow when the config exports multiple workflows. |
+| `--workflow <name>` | Select a workflow explicitly. Interactive terminals prompt when omitted; non-interactive JSON runs should pass it. |
 | `--all` | Run against every discovered project. |
 | `--discover` | Discover projects below the selected directory. |
 | `--json` | Print JSON. |
@@ -93,7 +76,7 @@ rig apply
 rig apply --workflow web
 rig apply --all
 rig apply --discover
-rig apply --json
+rig apply --workflow web --json
 ```
 
 Options are the same as `plan`.
@@ -104,11 +87,13 @@ Create a named workspace from the selected workflow's final context:
 
 ```sh
 rig create dev
-rig create review-123 --workflow api
-rig create dev --json
+rig create --workflow api review-123
+rig create --workflow dev dev --json
 ```
 
 If the project has no workspace lifecycle, `create` is not available.
+In multi-workflow projects, use `--workflow` when you need to choose a specific
+workflow or when running non-interactively.
 
 ## `rig run`
 
@@ -123,8 +108,8 @@ rig run dev status --json
 The first argument is the workspace name. The second is a
 `.workspaceOperation(...)` id from the config.
 
-Project-defined operation inputs become CLI flags when the runtime exposes a
-CLI shape for them. Use `--json` for machine-readable operation results.
+Project-defined Zod operation inputs become CLI flags, and Zod enums complete
+as selectable values. Use `--json` for machine-readable operation results.
 
 ## `rig rm`
 
@@ -288,8 +273,7 @@ Rigkit exits non-zero when:
 - provider startup fails;
 - a task, workspace hook, or operation throws;
 - operation input validation fails;
-- a package-manager install from `rig init` fails;
 - a selected workspace or operation does not exist.
 
-For automation, prefer `--json` on commands that support it and pass
-non-interactive flags such as `--name`, `--package-manager skip`, and `--yes`.
+For automation, prefer `--json` on commands that support it and pass `--yes`
+where a destructive command asks for confirmation.

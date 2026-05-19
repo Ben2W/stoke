@@ -13,13 +13,33 @@ import type {
 } from "./provider/types.ts";
 import type { DevMachineEvent, ExecResult, JsonValue, WorkflowProviderCheckResult } from "./types.ts";
 
+function rigkitIndexPath(projectDir: string): string {
+  return join(projectDir, "rigkit", "index.ts");
+}
+
+function writeRigkitIndex(projectDir: string, contents: string): string {
+  const configPath = rigkitIndexPath(projectDir);
+  mkdirSync(join(projectDir, "rigkit"), { recursive: true });
+  writeFileSync(configPath, contents);
+  return configPath;
+}
+
 describe("DevMachineEngine workflow runtime", () => {
+  test("rejects non-canonical config paths", async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-noncanonical-config-"));
+    const configPath = join(projectDir, "rig.config.ts");
+    writeFileSync(configPath, "export const dev = {}\n");
+
+    await expect(createDevMachineEngine({ projectDir, configPath })).rejects.toThrow(
+      `Rigkit config must be ${rigkitIndexPath(projectDir)}; ${configPath} is not supported.`,
+    );
+  });
+
   test("plans, applies graph nodes, reuses graph cache, and forks workspaces", async () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-"));
-    writeFileSync(
-      join(projectDir, "rig.config.ts"),
+    writeRigkitIndex(projectDir,
       `
-        import { defineProvider, workflow } from "${import.meta.dir}/index.ts";
+        import { defineProvider, workflow, z } from "${import.meta.dir}/index.ts";
 
         const app = workflow("test", {
           providers: {
@@ -47,7 +67,7 @@ describe("DevMachineEngine workflow runtime", () => {
           return { ctx: { data: "right-ready" } };
         });
 
-        export default app
+        export const test = app
           .sequence("root")
           .add(base)
           .parallel({ left, right })
@@ -83,22 +103,19 @@ describe("DevMachineEngine workflow runtime", () => {
               await local.open("open://" + workspace.name);
             },
           })
-          .operation("mark", {
-            input: (workflow) =>
-              workflow
-                .workspaceInput({ name: "workspace", position: 0 })
-                .extend({
-                  label: workflow.string({ defaultValue: "marked" }),
+          .workspaceOperation("mark", {
+            input: z.object({
+              label: z.string().default("marked"),
             }),
-            run: async ({ input, providers, local }) => {
-              const vm = providers.test.fromId(input.workspace.ctx.vmId);
-              await vm.exec("touch /tmp/mark-" + input.workspace.name, { name: "mark via operation" });
-              await local.open("mark://" + input.workspace.name);
+            run: async ({ input, providers, local, workspace }) => {
+              const vm = providers.test.fromId(workspace.ctx.vmId);
+              await vm.exec("touch /tmp/mark-" + workspace.name, { name: "mark via operation" });
+              await local.open("mark://" + workspace.name);
               return {
-                workspace: input.workspace.name,
+                workspace: workspace.name,
                 label: input.label,
-                repoPath: input.workspace.ctx.repoPath,
-                summary: input.workspace.ctx.summary,
+                repoPath: workspace.ctx.repoPath,
+                summary: workspace.ctx.summary,
               };
             },
           });
@@ -121,7 +138,7 @@ describe("DevMachineEngine workflow runtime", () => {
 
     await engine.load();
 
-    const initial = await engine.plan();
+    const initial = await engine.plan({ workflow: "test" });
     expect(initial.workflow).toBe("test");
     expect(initial.cachedNodeCount).toBe(0);
     expect(initial.nodeCount).toBe(4);
@@ -132,7 +149,7 @@ describe("DevMachineEngine workflow runtime", () => {
       "join",
     ]);
 
-    const applied = await engine.apply();
+    const applied = await engine.apply({ workflow: "test" });
     expect(applied.context.vm).toEqual({ provider: "test", kind: "vmSnapshot", snapshotId: "snap-2" });
     expect(events).toContainEqual({
       type: "log.output",
@@ -143,11 +160,11 @@ describe("DevMachineEngine workflow runtime", () => {
     expect(provider.snapshots).toHaveLength(2);
     expect(engine.listNodeRuns()).toHaveLength(4);
 
-    const cached = await engine.plan();
+    const cached = await engine.plan({ workflow: "test" });
     expect(cached.cachedNodeCount).toBe(4);
     expect(cached.finalContext?.summary).toBe("right-ready");
 
-    const workspace = await engine.fork({ name: "work" });
+    const workspace = await engine.fork({ workflow: "test", name: "work" });
     expect(workspace.name).toBe("work");
     expect(workspace.ctx).toMatchObject({
       summary: "right-ready",
@@ -160,7 +177,7 @@ describe("DevMachineEngine workflow runtime", () => {
 
     const openOperation = engine.listRuntimeWorkspaceOperations().find((operation) => operation.id === "open");
     expect(openOperation?.id).toBe("open");
-    const marked = await engine.runOperation({ operation: "mark", input: { workspace: "work" } });
+    const marked = await engine.runRuntimeOperation({ operation: "work/mark", input: {} });
     expect(marked).toEqual({ workspace: "work", label: "marked", repoPath: "/workspace/repo", summary: "right-ready" });
     expect(opened).toEqual(["created://work", "mark://work"]);
     expect(provider.hasFile("vm-3", "/tmp/mark-work")).toBe(true);
@@ -176,14 +193,15 @@ describe("DevMachineEngine workflow runtime", () => {
 
   test("creates workspaces from workspace definitions and exposes persisted workspace context", async () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-"));
-    writeFileSync(
-      join(projectDir, "rig.config.ts"),
+    writeRigkitIndex(projectDir,
       `
-        import { defineConfig, defineProvider, sequence } from "${import.meta.dir}/index.ts";
+        import { defineProvider, workflow } from "${import.meta.dir}/index.ts";
 
         const test = defineProvider("test", { token: "test-key" });
 
-        const root = sequence("create-test")
+        const app = workflow("create-test", { providers: { test } });
+
+        export const root = app.sequence("create-test")
           .step("prepare", async ({ providers }) => {
             const vm = await providers.test.createVm();
             await vm.exec("touch /tmp/template", { name: "prepare template" });
@@ -208,14 +226,13 @@ describe("DevMachineEngine workflow runtime", () => {
             },
             remove: async () => {},
           })
-          .operation("inspect", {
-            input: (workflow) => workflow.workspaceInput({ name: "workspace", position: 0 }),
-            run: async ({ input, local }) => {
-              await local.open("created://" + input.workspace.name);
+          .workspaceOperation("inspect", {
+            run: async ({ workspace, local }) => {
+              await local.open("created://" + workspace.name);
               return {
-                vmId: input.workspace.ctx.vmId,
-                repoPath: input.workspace.ctx.repoPath,
-                ready: input.workspace.ctx.ready,
+                vmId: workspace.ctx.vmId,
+                repoPath: workspace.ctx.repoPath,
+                ready: workspace.ctx.ready,
               };
             },
           })
@@ -226,10 +243,6 @@ describe("DevMachineEngine workflow runtime", () => {
             }),
           });
 
-        export default defineConfig({
-          providers: { test },
-          workflows: { root },
-        });
       `,
     );
 
@@ -247,11 +260,11 @@ describe("DevMachineEngine workflow runtime", () => {
 
     await engine.load();
     const projectInfo = engine.getProjectInfo();
-    expect(projectInfo.workflow?.createsWorkspace).toBe(true);
+    expect(projectInfo.workflows[0]?.createsWorkspace).toBe(true);
     expect(projectInfo.workflows.map((workflow) => workflow.name)).toEqual(["create-test"]);
-    expect(engine.listOperations().map((operation) => operation.id)).toEqual(["inspect"]);
+    expect(engine.listRuntimeWorkspaceOperations().map((operation) => operation.id)).toEqual(["remove", "inspect", "status"]);
 
-    const workspace = await engine.fork({ name: "created" });
+    const workspace = await engine.fork({ workflow: "create-test", name: "created" });
     expect(workspace.name).toBe("created");
     expect(workspace.ctx).toMatchObject({
       name: "created",
@@ -261,7 +274,7 @@ describe("DevMachineEngine workflow runtime", () => {
     });
     expect(provider.hasFile("vm-2", "/tmp/create-created")).toBe(true);
 
-    const inspected = await engine.runOperation({ operation: "inspect", input: { workspace: "created" } });
+    const inspected = await engine.runRuntimeOperation({ operation: "created/inspect" });
     expect(inspected).toEqual({
       vmId: "vm-2",
       repoPath: "/workspace/repo",
@@ -273,51 +286,128 @@ describe("DevMachineEngine workflow runtime", () => {
     expect(status).toEqual({ workspace: "created", vmId: "vm-2" });
   });
 
+  test("runs workspace operations with scalar inputs", async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-"));
+    writeRigkitIndex(projectDir,
+      `
+        import { sequence, z } from "${import.meta.dir}/index.ts";
+
+        export const root = sequence("workspace-operation-inputs")
+          .step("ready", async () => ({ ctx: { repoPath: "/workspace/repo" } }))
+          .workspace({
+            create: async ({ workflow, workspace }) => ({
+              name: workspace.name,
+              repoPath: workflow.ctx.repoPath,
+            }),
+            remove: async () => {},
+          })
+          .workspaceOperation("test", {
+            input: z.object({
+              pattern: z.string().optional().describe("Optional test name or file pattern"),
+              bail: z.boolean().default(false).describe("Stop after the first failure"),
+              retries: z.number().default(1).describe("Retry count"),
+              scope: z.string()
+                .refine((value) => value.startsWith("test:"), "scope must start with test:")
+                .default("test:unit")
+                .describe("Test scope"),
+            }),
+            run: async ({ input, workspace }) => ({
+              workspace: workspace.name,
+              repoPath: workspace.ctx.repoPath,
+              pattern: input.pattern ?? null,
+              bail: input.bail,
+              retries: input.retries,
+              scope: input.scope,
+            }),
+          });
+
+      `,
+    );
+
+    const engine = await createDevMachineEngine({ projectDir });
+    await engine.load();
+    await engine.fork({ workflow: "workspace-operation-inputs", name: "created" });
+
+    const operation = engine.listRuntimeWorkspaceOperations().find((item) => item.id === "test");
+    expect(operation?.inputFields).toEqual([]);
+    expect(operation?.inputSchema).toMatchObject({
+      type: "object",
+      properties: {
+        pattern: { type: "string", description: "Optional test name or file pattern" },
+        bail: { type: "boolean", description: "Stop after the first failure", default: false },
+        retries: { type: "number", description: "Retry count", default: 1 },
+        scope: { type: "string", description: "Test scope", default: "test:unit" },
+      },
+    });
+
+    await expect(engine.runRuntimeOperation({
+      operation: "created/test",
+      input: { workflow: "workspace-operation-inputs", pattern: "auth", bail: true, retries: 3, scope: "test:auth" },
+    })).resolves.toEqual({
+      workspace: "created",
+      repoPath: "/workspace/repo",
+      pattern: "auth",
+      bail: true,
+      retries: 3,
+      scope: "test:auth",
+    });
+
+    await expect(engine.runWorkspaceOperation({
+      workflow: "workspace-operation-inputs",
+      workspace: "created",
+      operation: "test",
+      input: {},
+    })).resolves.toEqual({
+      workspace: "created",
+      repoPath: "/workspace/repo",
+      pattern: null,
+      bail: false,
+      retries: 1,
+      scope: "test:unit",
+    });
+
+    await expect(engine.runWorkspaceOperation({
+      workflow: "workspace-operation-inputs",
+      workspace: "created",
+      operation: "test",
+      input: { scope: "auth" },
+    })).rejects.toThrow("scope must start with test:");
+  });
+
   test("rejects workspace names that are not shell-safe", async () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-"));
-    writeFileSync(
-      join(projectDir, "rig.config.ts"),
+    writeRigkitIndex(projectDir,
       `
-        import { defineConfig, sequence } from "${import.meta.dir}/index.ts";
+        import { sequence } from "${import.meta.dir}/index.ts";
 
-        const root = sequence("workspace-names")
+        export const root = sequence("workspace-names")
           .step("ready", async () => ({ ctx: { ready: true } }))
           .workspace({
             create: async ({ workspace }) => ({ name: workspace.name }),
             remove: async () => {},
           });
 
-        export default defineConfig({
-          providers: {},
-          workflows: { root },
-        });
       `,
     );
 
     const engine = await createDevMachineEngine({ projectDir });
     await engine.load();
 
-    await expect(engine.fork({ name: "" })).rejects.toThrow("create requires a workspace name");
+    await expect(engine.fork({ workflow: "workspace-names", name: "" })).rejects.toThrow("create requires a workspace name");
     for (const name of ["some workspace", "some/workspace", "-workspace"]) {
-      await expect(engine.fork({ name })).rejects.toThrow("Workspace name");
+      await expect(engine.fork({ workflow: "workspace-names", name })).rejects.toThrow("Workspace name");
     }
     expect(engine.listWorkspaces()).toEqual([]);
   });
 
-  test("loads multiple workflows from defineConfig", async () => {
+  test("loads multiple named workflow exports", async () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-"));
-    writeFileSync(
-      join(projectDir, "rig.config.ts"),
+    writeRigkitIndex(projectDir,
       `
-        import { defineConfig, sequence } from "${import.meta.dir}/index.ts";
+        import { sequence } from "${import.meta.dir}/index.ts";
 
-        const api = sequence("api").step("ready", async () => ({ ctx: { api: true } }));
-        const web = sequence("web").step("ready", async () => ({ ctx: { web: true } }));
-
-        export default defineConfig({
-          providers: {},
-          workflows: { api, web },
-        });
+        export const api = sequence("api").step("ready", async () => ({ ctx: { api: true } }));
+        export const web = sequence("web").step("ready", async () => ({ ctx: { web: true } }));
       `,
     );
 
@@ -329,29 +419,22 @@ describe("DevMachineEngine workflow runtime", () => {
     await engine.load();
 
     expect(engine.listWorkflowSummaries().map((workflow) => workflow.name)).toEqual(["api", "web"]);
-    expect(engine.getProjectInfo().workflow).toBeUndefined();
-    await expect(engine.plan()).rejects.toThrow("Multiple workflows are defined");
+    await expect(engine.plan()).rejects.toThrow("Pass --workflow");
     expect((await engine.plan({ workflow: "api" })).workflow).toBe("api");
   });
 
   test("creates state through an injectable state service factory", async () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-"));
     const statePath = join(projectDir, "custom-state.sqlite");
-    writeFileSync(
-      join(projectDir, "rig.config.ts"),
+    writeRigkitIndex(projectDir,
       `
-        import { defineConfig, sequence } from "${import.meta.dir}/index.ts";
+        import { sequence } from "${import.meta.dir}/index.ts";
 
-        const root = sequence("factory-test").step("ready", async () => ({ ctx: { ready: true } }));
-
-        export default defineConfig({
-          providers: {},
-          workflows: { root },
-        });
+        export const root = sequence("factory-test").step("ready", async () => ({ ctx: { ready: true } }));
       `,
     );
 
-    const configPath = join(projectDir, "rig.config.ts");
+    const configPath = rigkitIndexPath(projectDir);
     const calls: Array<{ projectDir: string; configPath?: string; statePath?: string }> = [];
     const engine = await createDevMachineEngine({
       projectDir,
@@ -452,64 +535,66 @@ describe("DevMachineEngine workflow runtime", () => {
   });
 
   test("invalidates task cache when handler source changes", async () => {
-    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-handler-cache-"));
-    const statePath = join(projectDir, ".rigkit", "state.sqlite");
-    mkdirSync(join(projectDir, ".rigkit"));
-    const writeConfig = (configPath: string, value: string) =>
-      writeFileSync(
-        configPath,
+    const rootDir = mkdtempSync(join(tmpdir(), "rigkit-handler-cache-"));
+    const firstProjectDir = join(rootDir, "one");
+    const secondProjectDir = join(rootDir, "two");
+    const statePath = join(rootDir, ".rigkit", "state.sqlite");
+    mkdirSync(join(rootDir, ".rigkit"));
+    const writeConfig = (projectDir: string, value: string) =>
+      writeRigkitIndex(
+        projectDir,
         `
           import { workflow } from "${import.meta.dir}/index.ts";
 
           const app = workflow("handler-cache", { providers: {} });
 
-          export default app.sequence("root").task("value", async () => {
+          export const root = app.sequence("root").task("value", async () => {
             return { ctx: { value: "${value}" } };
           });
         `,
       );
 
-    const firstConfigPath = join(projectDir, "rig.one.config.ts");
-    const secondConfigPath = join(projectDir, "rig.two.config.ts");
-    writeConfig(firstConfigPath, "one");
-    writeConfig(secondConfigPath, "two");
+    const firstConfigPath = writeConfig(firstProjectDir, "one");
+    const secondConfigPath = writeConfig(secondProjectDir, "two");
 
     const first = await createDevMachineEngine({
-      projectDir,
+      projectDir: firstProjectDir,
       configPath: firstConfigPath,
       statePath,
     });
     await first.load();
-    const applied = await first.apply();
+    const applied = await first.apply({ workflow: "handler-cache" });
     expect(applied.context.value).toBe("one");
 
-    const cached = await first.plan();
+    const cached = await first.plan({ workflow: "handler-cache" });
     expect(cached.cachedNodeCount).toBe(1);
 
     const second = await createDevMachineEngine({
-      projectDir,
+      projectDir: secondProjectDir,
       configPath: secondConfigPath,
       statePath,
     });
     await second.load();
-    const changed = await second.plan();
+    const changed = await second.plan({ workflow: "handler-cache" });
     expect(changed.cachedNodeCount).toBe(0);
     expect(changed.nodes[0]?.status).toBe("pending");
 
-    const reapplied = await second.apply();
+    const reapplied = await second.apply({ workflow: "handler-cache" });
     expect(reapplied.context.value).toBe("two");
     expect(second.listNodeRuns()).toHaveLength(2);
   });
 
   test("stores globally scoped sequence runs in fragment state and busts downstream local cache", async () => {
-    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-global-fragment-"));
-    const statePath = join(projectDir, ".rigkit", "state.sqlite");
-    const fragmentRoot = join(projectDir, "fragments");
-    mkdirSync(join(projectDir, ".rigkit"));
+    const rootDir = mkdtempSync(join(tmpdir(), "rigkit-global-fragment-"));
+    const firstProjectDir = join(rootDir, "one");
+    const secondProjectDir = join(rootDir, "two");
+    const statePath = join(rootDir, ".rigkit", "state.sqlite");
+    const fragmentRoot = join(rootDir, "fragments");
+    mkdirSync(join(rootDir, ".rigkit"));
 
-    const writeConfig = (configPath: string, value: string) =>
-      writeFileSync(
-        configPath,
+    const writeConfig = (projectDir: string, value: string) =>
+      writeRigkitIndex(
+        projectDir,
         `
           import { sequence } from "${import.meta.dir}/index.ts";
 
@@ -518,29 +603,28 @@ describe("DevMachineEngine workflow runtime", () => {
             .task("prepare", async ({ config }) => ({ ctx: { value: String(config.value) } }))
             .global();
 
-          export default sequence("site")
+          export const site = sequence("site")
             .add(deps)
             .task("install", async ({ step }) => ({ ctx: { installed: step.ctx.value } }));
         `,
       );
 
-    const firstConfigPath = join(projectDir, "rig.one.config.ts");
-    const secondConfigPath = join(projectDir, "rig.two.config.ts");
-    writeConfig(firstConfigPath, "one");
-    writeConfig(secondConfigPath, "two");
+    const firstConfigPath = writeConfig(firstProjectDir, "one");
+    const secondConfigPath = writeConfig(secondProjectDir, "two");
 
-    const engineOptions = {
+    const engineOptions = (projectDir: string, configPath: string) => ({
       projectDir,
+      configPath,
       statePath,
       globalFragmentStateLocator: (fragment: { hash: string }) => ({
         statePath: join(fragmentRoot, fragment.hash, "state.sqlite"),
       }),
-    };
+    });
 
-    const first = await createDevMachineEngine({ ...engineOptions, configPath: firstConfigPath });
+    const first = await createDevMachineEngine(engineOptions(firstProjectDir, firstConfigPath));
     await first.load();
-    await first.apply();
-    expect((await first.plan()).cachedNodeCount).toBe(2);
+    await first.apply({ workflow: "site" });
+    expect((await first.plan({ workflow: "site" })).cachedNodeCount).toBe(2);
     expect(first.listNodeRuns().map((run) => run.nodePath)).toEqual(["install"]);
 
     const fragmentHashes = readdirSync(fragmentRoot);
@@ -555,12 +639,12 @@ describe("DevMachineEngine workflow runtime", () => {
     const cache = await first.listCache();
     expect(cache.entries.map((entry) => entry.scope).sort()).toEqual(["global", "local"]);
 
-    const second = await createDevMachineEngine({ ...engineOptions, configPath: secondConfigPath });
+    const second = await createDevMachineEngine(engineOptions(secondProjectDir, secondConfigPath));
     await second.load();
-    const changed = await second.plan();
+    const changed = await second.plan({ workflow: "site" });
     expect(changed.cachedNodeCount).toBe(0);
 
-    const reapplied = await second.apply();
+    const reapplied = await second.apply({ workflow: "site" });
     expect(reapplied.context.installed).toBe("two");
     expect(readdirSync(fragmentRoot)).toHaveLength(2);
   });
@@ -584,8 +668,7 @@ describe("DevMachineEngine workflow runtime", () => {
     process.env.RIGKIT_LOCAL_CHECK_COUNT = "0";
     process.env.RIGKIT_FORCE_GLOBAL_REAUTH = "0";
 
-    writeFileSync(
-      join(projectDir, "rig.config.ts"),
+    writeRigkitIndex(projectDir,
       `
         import { sequence } from "${import.meta.dir}/index.ts";
 
@@ -609,7 +692,7 @@ describe("DevMachineEngine workflow runtime", () => {
             return { ctx: { ...step.ctx, repoToken: step.ctx.token, repoCount: count } };
           });
 
-        export default sequence("root")
+        export const root = sequence("root")
           .add(base)
           .add(repo)
           .task("check-auth", { cacheTTL: 0 }, async ({ step }) => {
@@ -634,7 +717,7 @@ describe("DevMachineEngine workflow runtime", () => {
       });
       await engine.load();
 
-      const first = await engine.apply();
+      const first = await engine.apply({ workflow: "root" });
       expect(first.context.token).toBe("token-1");
       expect(first.context.repoToken).toBe("token-1");
       expect(process.env.RIGKIT_GLOBAL_INSTALL_COUNT).toBe("1");
@@ -643,7 +726,7 @@ describe("DevMachineEngine workflow runtime", () => {
       expect(process.env.RIGKIT_LOCAL_CHECK_COUNT).toBe("1");
 
       process.env.RIGKIT_FORCE_GLOBAL_REAUTH = "1";
-      const second = await engine.apply();
+      const second = await engine.apply({ workflow: "root" });
       expect(second.context.token).toBe("token-2");
       expect(second.context.repoToken).toBe("token-2");
       expect(process.env.RIGKIT_GLOBAL_INSTALL_COUNT).toBe("1");
@@ -670,8 +753,7 @@ describe("DevMachineEngine workflow runtime", () => {
       },
     };
 
-    writeFileSync(
-      join(projectDir, "rig.config.ts"),
+    writeRigkitIndex(projectDir,
       `
         import { defineProvider, workflow } from "${import.meta.dir}/index.ts";
 
@@ -681,7 +763,7 @@ describe("DevMachineEngine workflow runtime", () => {
           },
         });
 
-        export default app.sequence("root").task("ready", async () => ({ ctx: { ready: true } }));
+        export const root = app.sequence("root").task("ready", async () => ({ ctx: { ready: true } }));
       `,
     );
 
@@ -691,7 +773,7 @@ describe("DevMachineEngine workflow runtime", () => {
     });
 
     await engine.load();
-    await engine.plan();
+    await engine.plan({ workflow: "provider-storage" });
 
     const statePath = engine.getProjectInfo().statePath;
     const main = new Database(statePath);
@@ -721,7 +803,7 @@ describe("DevMachineEngine workflow runtime", () => {
     const metadata = Object.fromEntries(metadataRows.map((item) => [item.key, JSON.parse(item.value_json)]));
     expect(metadata["state.schemaVersion"]).toBe(RIGKIT_STATE_SCHEMA_VERSION);
     expect(metadata["project.dir"]).toBe(projectDir);
-    expect(metadata["config.path"]).toBe(join(projectDir, "rig.config.ts"));
+    expect(metadata["config.path"]).toBe(rigkitIndexPath(projectDir));
   });
 
   test("stores provider host JSON state outside project state", async () => {
@@ -738,8 +820,7 @@ describe("DevMachineEngine workflow runtime", () => {
       },
     };
 
-    writeFileSync(
-      join(projectDir, "rig.config.ts"),
+    writeRigkitIndex(projectDir,
       `
         import { defineProvider, workflow } from "${import.meta.dir}/index.ts";
 
@@ -749,7 +830,7 @@ describe("DevMachineEngine workflow runtime", () => {
           },
         });
 
-        export default app.sequence("root").task("ready", async () => ({ ctx: { ready: true } }));
+        export const root = app.sequence("root").task("ready", async () => ({ ctx: { ready: true } }));
       `,
     );
 
@@ -765,7 +846,7 @@ describe("DevMachineEngine workflow runtime", () => {
     });
 
     await engine.load();
-    await engine.plan();
+    await engine.plan({ workflow: "provider-host-storage" });
 
     expect(opened).toEqual(["rigkit://provider-auth"]);
 
@@ -793,8 +874,7 @@ describe("DevMachineEngine workflow runtime", () => {
 
   test("includes provider checks in workflow plans", async () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-provider-status-"));
-    writeFileSync(
-      join(projectDir, "rig.config.ts"),
+    writeRigkitIndex(projectDir,
       `
         import { defineProvider, workflow } from "${import.meta.dir}/index.ts";
 
@@ -804,7 +884,7 @@ describe("DevMachineEngine workflow runtime", () => {
           },
         });
 
-        export default app.task("noop", async () => {});
+        export const noop = app.task("noop", async () => {});
       `,
     );
 
@@ -823,7 +903,7 @@ describe("DevMachineEngine workflow runtime", () => {
     });
     await engine.load();
 
-    expect((await engine.plan()).providerChecks).toEqual([{
+    expect((await engine.plan({ workflow: "provider-status" })).providerChecks).toEqual([{
       providerId: "test",
       providerName: "test",
       id: "account",
@@ -837,8 +917,7 @@ describe("DevMachineEngine workflow runtime", () => {
 
   test("requires provider checks before applying workflow tasks", async () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-provider-check-required-"));
-    writeFileSync(
-      join(projectDir, "rig.config.ts"),
+    writeRigkitIndex(projectDir,
       `
         import { defineProvider, workflow } from "${import.meta.dir}/index.ts";
 
@@ -848,7 +927,7 @@ describe("DevMachineEngine workflow runtime", () => {
           },
         });
 
-        export default app.task("noop", async () => {});
+        export const noop = app.task("noop", async () => {});
       `,
     );
 
@@ -867,19 +946,18 @@ describe("DevMachineEngine workflow runtime", () => {
     });
     await engine.load();
 
-    expect((await engine.plan()).providerChecks?.[0]).toMatchObject({
+    expect((await engine.plan({ workflow: "provider-check-required" })).providerChecks?.[0]).toMatchObject({
       label: "Test auth",
       status: "required",
     });
-    await expect(engine.apply()).rejects.toThrow(
+    await expect(engine.apply({ workflow: "provider-check-required" })).rejects.toThrow(
       "Provider check required: Test auth. Run the provider auth flow.",
     );
   });
 
   test("rejects task outputs that are not JSON serializable", async () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-"));
-    writeFileSync(
-      join(projectDir, "rig.config.ts"),
+    writeRigkitIndex(projectDir,
       `
         import { defineProvider, workflow } from "${import.meta.dir}/index.ts";
 
@@ -889,7 +967,7 @@ describe("DevMachineEngine workflow runtime", () => {
           },
         });
 
-        export default app.sequence("bad").task("returns-function", async () => {
+        export const bad = app.sequence("bad").task("returns-function", async () => {
           return { ctx: { fn: () => "nope" } };
         });
       `,
@@ -901,13 +979,12 @@ describe("DevMachineEngine workflow runtime", () => {
     });
 
     await engine.load();
-    await expect(engine.apply()).rejects.toThrow("must be JSON-serializable");
+    await expect(engine.apply({ workflow: "test" })).rejects.toThrow("must be JSON-serializable");
   });
 
   test("routes terminal interactions through provider runtimes", async () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-"));
-    writeFileSync(
-      join(projectDir, "rig.config.ts"),
+    writeRigkitIndex(projectDir,
       `
         import { defineProvider, workflow } from "${import.meta.dir}/index.ts";
 
@@ -917,7 +994,7 @@ describe("DevMachineEngine workflow runtime", () => {
           },
         });
 
-        export default app.sequence("auth").task("login", async ({ test }) => {
+        export const auth = app.sequence("auth").task("login", async ({ test }) => {
           const result = await test.openTerminal("GitHub auth", "gh auth login");
           return { ctx: { finished: result.finished } };
         });
@@ -936,7 +1013,7 @@ describe("DevMachineEngine workflow runtime", () => {
     });
 
     await engine.load();
-    const applied = await engine.apply();
+    const applied = await engine.apply({ workflow: "test" });
 
     expect(interactions).toEqual([
       {
@@ -952,8 +1029,7 @@ describe("DevMachineEngine workflow runtime", () => {
 
   test("waits for provider-owned interaction completion before resuming tasks", async () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-"));
-    writeFileSync(
-      join(projectDir, "rig.config.ts"),
+    writeRigkitIndex(projectDir,
       `
         import { defineProvider, workflow } from "${import.meta.dir}/index.ts";
 
@@ -963,7 +1039,7 @@ describe("DevMachineEngine workflow runtime", () => {
           },
         });
 
-        export default app.sequence("auth").task("login", async ({ test }) => {
+        export const auth = app.sequence("auth").task("login", async ({ test }) => {
           const result = await test.openTerminal("GitHub auth", "gh auth login");
           return { ctx: { finished: result.finished } };
         });
@@ -987,7 +1063,7 @@ describe("DevMachineEngine workflow runtime", () => {
 
     await engine.load();
     let applied: Awaited<ReturnType<typeof engine.apply>> | undefined;
-    const applying = engine.apply().then((result) => {
+    const applying = engine.apply({ workflow: "test" }).then((result) => {
       applied = result;
     });
 
@@ -1005,8 +1081,7 @@ describe("DevMachineEngine workflow runtime", () => {
   test("provider config contributes to the workflow cache fingerprint", async () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-"));
     const previousToken = process.env.RIGKIT_TEST_PROVIDER_TOKEN;
-    writeFileSync(
-      join(projectDir, "rig.config.ts"),
+    writeRigkitIndex(projectDir,
       `
         import { defineProvider, workflow } from "${import.meta.dir}/index.ts";
 
@@ -1016,7 +1091,7 @@ describe("DevMachineEngine workflow runtime", () => {
           },
         });
 
-        export default app.sequence("setup").task("touch", async ({ test }) => {
+        export const setup = app.sequence("setup").task("touch", async ({ test }) => {
           const vm = await test.createVm();
           await vm.exec("touch /tmp/setup", { name: "touch setup" });
           return { ctx: { vm: await vm.snapshotRef() } };
@@ -1032,8 +1107,8 @@ describe("DevMachineEngine workflow runtime", () => {
         providerFactory: () => provider,
       });
       await first.load();
-      await first.apply();
-      expect((await first.plan()).cachedNodeCount).toBe(1);
+      await first.apply({ workflow: "test" });
+      expect((await first.plan({ workflow: "test" })).cachedNodeCount).toBe(1);
 
       process.env.RIGKIT_TEST_PROVIDER_TOKEN = "two";
       const second = await createDevMachineEngine({
@@ -1041,7 +1116,7 @@ describe("DevMachineEngine workflow runtime", () => {
         providerFactory: () => provider,
       });
       await second.load();
-      expect((await second.plan()).cachedNodeCount).toBe(0);
+      expect((await second.plan({ workflow: "test" })).cachedNodeCount).toBe(0);
     } finally {
       if (previousToken === undefined) {
         delete process.env.RIGKIT_TEST_PROVIDER_TOKEN;
@@ -1054,8 +1129,7 @@ describe("DevMachineEngine workflow runtime", () => {
   test("treats cached output schema failures as cache misses", async () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-"));
     const previousMode = process.env.RIGKIT_SCHEMA_MODE;
-    writeFileSync(
-      join(projectDir, "rig.config.ts"),
+    writeRigkitIndex(projectDir,
       `
         import { defineProvider, workflow } from "${import.meta.dir}/index.ts";
 
@@ -1075,7 +1149,7 @@ describe("DevMachineEngine workflow runtime", () => {
           },
         };
 
-        export default app.sequence("schema").task("value", { output: schema }, async () => {
+        export const schemaWorkflow = app.sequence("schema").task("value", { output: schema }, async () => {
           return process.env.RIGKIT_SCHEMA_MODE === "next"
             ? { ctx: { value: "ok", next: true } }
             : { ctx: { value: "ok" } };
@@ -1090,8 +1164,8 @@ describe("DevMachineEngine workflow runtime", () => {
         providerFactory: () => new FakeWorkflowProvider(),
       });
       await first.load();
-      await first.apply();
-      expect((await first.plan()).cachedNodeCount).toBe(1);
+      await first.apply({ workflow: "test" });
+      expect((await first.plan({ workflow: "test" })).cachedNodeCount).toBe(1);
 
       process.env.RIGKIT_SCHEMA_MODE = "next";
       const second = await createDevMachineEngine({
@@ -1099,7 +1173,7 @@ describe("DevMachineEngine workflow runtime", () => {
         providerFactory: () => new FakeWorkflowProvider(),
       });
       await second.load();
-      const plan = await second.plan();
+      const plan = await second.plan({ workflow: "test" });
       expect(plan.cachedNodeCount).toBe(0);
       expect(plan.nodes[0]?.status).toBe("pending");
     } finally {
@@ -1113,12 +1187,11 @@ describe("DevMachineEngine workflow runtime", () => {
 
   test("expires task cache when cacheTTL has elapsed", async () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-cache-ttl-"));
-    writeFileSync(
-      join(projectDir, "rig.config.ts"),
+    writeRigkitIndex(projectDir,
       `
         import { sequence } from "${import.meta.dir}/index.ts";
 
-        export default sequence("ttl").task("daily-check", { cacheTTL: "1d" }, async () => {
+        export const ttl = sequence("ttl").task("daily-check", { cacheTTL: "1d" }, async () => {
           return { ctx: { checked: true } };
         });
       `,
@@ -1126,8 +1199,8 @@ describe("DevMachineEngine workflow runtime", () => {
 
     const engine = await createDevMachineEngine({ projectDir });
     await engine.load();
-    await engine.apply();
-    expect((await engine.plan()).cachedNodeCount).toBe(1);
+    await engine.apply({ workflow: "ttl" });
+    expect((await engine.plan({ workflow: "ttl" })).cachedNodeCount).toBe(1);
 
     const db = new Database(engine.getProjectInfo().statePath);
     db.run("update workflow_node_runs set created_at = ?", [
@@ -1135,7 +1208,7 @@ describe("DevMachineEngine workflow runtime", () => {
     ]);
     db.close();
 
-    const expired = await engine.plan();
+    const expired = await engine.plan({ workflow: "ttl" });
     expect(expired.cachedNodeCount).toBe(0);
     expect(expired.nodes[0]?.status).toBe("pending");
   });
@@ -1151,12 +1224,11 @@ describe("DevMachineEngine workflow runtime", () => {
     process.env.RIGKIT_CHECK_COUNT = "0";
     process.env.RIGKIT_FORCE_REAUTH = "0";
 
-    writeFileSync(
-      join(projectDir, "rig.config.ts"),
+    writeRigkitIndex(projectDir,
       `
         import { sequence } from "${import.meta.dir}/index.ts";
 
-        export default sequence("reauth")
+        export const reauth = sequence("reauth")
           .task("prepare", async () => ({ ctx: { prepared: true } }))
           .task("github-auth", async () => {
             const count = Number(process.env.RIGKIT_AUTH_COUNT ?? "0") + 1;
@@ -1179,13 +1251,13 @@ describe("DevMachineEngine workflow runtime", () => {
       const engine = await createDevMachineEngine({ projectDir });
       await engine.load();
 
-      const first = await engine.apply();
+      const first = await engine.apply({ workflow: "reauth" });
       expect(first.context.token).toBe("token-1");
       expect(process.env.RIGKIT_AUTH_COUNT).toBe("1");
       expect(process.env.RIGKIT_CHECK_COUNT).toBe("1");
 
       process.env.RIGKIT_FORCE_REAUTH = "1";
-      const second = await engine.apply();
+      const second = await engine.apply({ workflow: "reauth" });
       expect(second.context.token).toBe("token-2");
       expect(process.env.RIGKIT_AUTH_COUNT).toBe("2");
       expect(process.env.RIGKIT_CHECK_COUNT).toBe("3");

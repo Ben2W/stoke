@@ -37,13 +37,15 @@ export const RuntimeControlWorkflowSummaryEffectSchema = Schema.Struct({
   nodes: Schema.Array(Schema.String),
   operations: Schema.Array(Schema.String),
   createsWorkspace: Schema.Boolean,
+  lastAppliedAt: Schema.optional(Schema.String),
+  lastAppliedCachedNodeCount: Schema.optional(Schema.Number),
+  lastAppliedNodeCount: Schema.optional(Schema.Number),
 }).annotations({ identifier: "WorkflowSummary" });
 
 export const RuntimeControlProjectInfoEffectSchema = Schema.Struct({
   projectDir: Schema.String,
   configPath: Schema.String,
   statePath: OptionalString,
-  workflow: Schema.optional(RuntimeControlWorkflowSummaryEffectSchema),
   workflows: Schema.Array(RuntimeControlWorkflowSummaryEffectSchema),
 }).annotations({ identifier: "ProjectInfo" });
 
@@ -63,6 +65,7 @@ export const RuntimeControlOperationCliEffectSchema = Schema.Struct({
 }).annotations({ identifier: "RuntimeOperationCli" });
 
 export const RuntimeControlOperationEffectSchema = Schema.Struct({
+  workflow: Schema.String,
   id: Schema.String,
   aliases: Schema.optional(Schema.Array(Schema.String)),
   kind: Schema.Literal("command", "workspace-action"),
