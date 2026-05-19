@@ -29,6 +29,11 @@ import { createRunPresenter, type RunPresenter } from "./run-presenter.ts";
 import { createRunLogger, type RunLogger } from "./run-logger.ts";
 import { maybePrintUpdateNotice } from "./update-check.ts";
 import {
+  evaluateVersionCompatibility,
+  formatVersionCompatibilitySummary,
+  renderVersionCompatibilityNotice,
+} from "./version-compat.ts";
+import {
   completeRig,
   formatCompletionItems,
   renderCompletionScript,
@@ -113,6 +118,8 @@ type RuntimeWorkflowSummary = {
   lastAppliedCachedNodeCount?: number;
   lastAppliedNodeCount?: number;
 };
+
+const checkedRuntimeCompatibility = new Set<string>();
 
 type RuntimeOperationDefinition = {
   workflow: string;
@@ -1047,6 +1054,7 @@ async function runDiscoveredProjectOperation(
       configPath: project.configPath,
       statePath: invocation.global.state ? resolveGlobalPath(invocation, invocation.global.state) : undefined,
     });
+    await checkRuntimeCompatibility(invocation, runtime);
     const { operation, parsed, result } = await executeRuntimeOperation(
       invocation,
       runtime,
@@ -1753,14 +1761,20 @@ async function runDoctor(invocation: CliInvocation, options: DoctorOptions): Pro
     return;
   }
 
-  const runtime = await loadRuntime(invocation);
+  const runtime = await loadRuntime(invocation, { checkCompatibility: false });
   const [health, runtimeInfo, project] = await Promise.all([
     runtime.control.health(),
     runtime.control.runtime(),
     readRuntimeProject(runtime),
   ]);
+  const compatibility = evaluateVersionCompatibility({
+    cliVersion: RIGKIT_CLI_VERSION,
+    runtimeVersion: runtimeInfo.runtimeVersion,
+    engineVersion: runtimeInfo.engineVersion,
+  });
   const diagnostics = {
     cliVersion: RIGKIT_CLI_VERSION,
+    compatibility,
     project,
     daemon: {
       url: runtime.handle.url,
@@ -1788,6 +1802,7 @@ async function runDoctor(invocation: CliInvocation, options: DoctorOptions): Pro
     ["runtime", runtimeInfo.runtimeVersion],
     ["api version", String(runtimeInfo.apiVersion)],
     ["protocol", runtimeInfo.protocolHash],
+    ["compatibility", formatVersionCompatibilitySummary(compatibility)],
     ["state", project.statePath ?? ""],
     ["expires", health.expiresAt ?? runtime.handle.expiresAt ?? ""],
   ]));
@@ -1860,9 +1875,63 @@ async function runHelp(invocation: CliInvocation): Promise<void> {
   ].join("\n"));
 }
 
-async function loadRuntime(invocation: CliInvocation): Promise<RuntimeClient> {
+async function loadRuntime(
+  invocation: CliInvocation,
+  options: { checkCompatibility?: boolean } = {},
+): Promise<RuntimeClient> {
   const engineOptions = resolveEngineOptions(invocation);
-  return await getOrStartRuntime(engineOptions);
+  const runtime = await getOrStartRuntime(engineOptions);
+  if (options.checkCompatibility !== false) {
+    await checkRuntimeCompatibility(invocation, runtime);
+  }
+  return runtime;
+}
+
+async function checkRuntimeCompatibility(invocation: CliInvocation, runtime: RuntimeClient): Promise<void> {
+  const runtimeKey = runtime.handle.url;
+  if (checkedRuntimeCompatibility.has(runtimeKey)) return;
+
+  const runtimeInfo = await readRuntimeCompatibilityMetadata(runtime);
+  if (!runtimeInfo) {
+    checkedRuntimeCompatibility.add(runtimeKey);
+    return;
+  }
+
+  const compatibility = evaluateVersionCompatibility({
+    cliVersion: RIGKIT_CLI_VERSION,
+    runtimeVersion: runtimeInfo.runtimeVersion,
+    engineVersion: runtimeInfo.engineVersion,
+  });
+  if (compatibility.severity === "ok") {
+    checkedRuntimeCompatibility.add(runtimeKey);
+    return;
+  }
+
+  const notice = renderVersionCompatibilityNotice(compatibility);
+  if (compatibility.severity === "error") {
+    throw new Error(notice.trimEnd());
+  }
+
+  checkedRuntimeCompatibility.add(runtimeKey);
+  if (!wantsJson(invocation)) {
+    process.stderr.write(notice);
+  }
+}
+
+async function readRuntimeCompatibilityMetadata(
+  runtime: RuntimeClient,
+): Promise<{ runtimeVersion: string; engineVersion: string } | undefined> {
+  try {
+    return await runtime.control.runtime();
+  } catch {
+    if (runtime.handle.runtimeVersion && runtime.handle.engineVersion) {
+      return {
+        runtimeVersion: runtime.handle.runtimeVersion,
+        engineVersion: runtime.handle.engineVersion,
+      };
+    }
+    return undefined;
+  }
 }
 
 async function readRuntimeProject(runtime: RuntimeClient): Promise<EngineProjectInfo> {

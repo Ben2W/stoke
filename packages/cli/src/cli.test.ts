@@ -330,6 +330,57 @@ describe("CLI entrypoint", () => {
     });
   });
 
+  test("warns for minor CLI/runtime version mismatches", async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-cli-version-warning-"));
+
+    await withWorkspaceRuntime({
+      projectDir,
+      runtimeVersion: "0.3.0",
+      engineVersion: "0.3.0",
+    }, async ({ env }) => {
+      const result = await runCli([`--chdir=${projectDir}`, "ls"], { env });
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain("api");
+      expect(result.stderr).toContain("Rigkit version mismatch");
+      expect(result.stderr).toContain("different minor versions");
+      expect(result.stderr).toContain("Update the global CLI");
+    });
+  });
+
+  test("keeps JSON output clean for minor version mismatches", async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-cli-version-warning-json-"));
+
+    await withWorkspaceRuntime({
+      projectDir,
+      runtimeVersion: "0.3.0",
+      engineVersion: "0.3.0",
+    }, async ({ env }) => {
+      const result = await runCli([`--chdir=${projectDir}`, "ls", "--json"], { env });
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stderr).toBe("");
+      expect(JSON.parse(result.stdout).workflows[0].workspaces[0].name).toBe("api");
+    });
+  });
+
+  test("errors for major CLI/runtime version mismatches", async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-cli-version-error-"));
+
+    await withWorkspaceRuntime({
+      projectDir,
+      runtimeVersion: "1.0.0",
+      engineVersion: "1.0.0",
+    }, async ({ env }) => {
+      const result = await runCli([`--chdir=${projectDir}`, "ls"], { env });
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toContain("Rigkit version mismatch");
+      expect(result.stderr).toContain("different major versions");
+    });
+  });
+
   test("rejects workspace create names that are not shell-safe", async () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-cli-create-name-"));
 
@@ -465,7 +516,13 @@ function nextPatchVersion(version: string): string {
 }
 
 async function withWorkspaceRuntime(
-  input: { projectDir: string; cacheInvalidated?: number; duplicateWorkspaceName?: boolean },
+  input: {
+    projectDir: string;
+    cacheInvalidated?: number;
+    duplicateWorkspaceName?: boolean;
+    engineVersion?: string;
+    runtimeVersion?: string;
+  },
   run: (context: { env: Record<string, string> }) => Promise<void>,
 ): Promise<void> {
   const rigkitHome = mkdtempSync(join(tmpdir(), "rigkit-home-"));
@@ -477,6 +534,8 @@ async function withWorkspaceRuntime(
   const paths = runtimePaths(projectId, rigkitHome);
   mkdirSync(paths.root, { recursive: true });
   writeFileSync(paths.tokenPath, `${token}\n`);
+  const engineVersion = input.engineVersion ?? "engine-test";
+  const runtimeVersion = input.runtimeVersion ?? "runtime-test";
 
   const now = new Date(0).toISOString();
   let runResult: unknown = undefined;
@@ -497,9 +556,17 @@ async function withWorkspaceRuntime(
           projectDir: input.projectDir,
           configPath,
           statePath: join(input.projectDir, ".rigkit", "state.sqlite"),
-          engineVersion: "engine-test",
-          runtimeVersion: "runtime-test",
+          engineVersion,
+          runtimeVersion,
           expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        });
+      }
+      if (pathname === "/runtime") {
+        return runtimeJson({
+          apiVersion: SUPPORTED_RUNTIME_API_VERSION,
+          engineVersion,
+          runtimeVersion,
+          protocolHash: "test-protocol",
         });
       }
       if (pathname === "/workspaces") {
