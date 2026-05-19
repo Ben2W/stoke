@@ -27,7 +27,7 @@ const app = workflow("website", {
   },
 });
 
-export default app
+export const website = app
   .sequence("website")
   .task("prepare", async ({ freestyle }) => {
     const { vm, vmId } = await freestyle.client.vms.create({
@@ -43,39 +43,36 @@ export default app
   });
 ```
 
-Use `defineConfig(...)` when one file exports multiple workflows or when you
-want to share one provider map across standalone sequences:
+Export multiple workflow nodes when one `rigkit/index.ts` owns more than one
+setup graph. Shared providers live on the `workflow(...)` builder:
 
 ```ts
-import { defineConfig, sequence } from "@rigkit/sdk";
+import { workflow } from "@rigkit/sdk";
 import { freestyle } from "@rigkit/provider-freestyle";
 
-const api = sequence("api").task("prepare-api", async () => ({
-  ctx: { packageName: "@acme/api" },
-}));
-
-const web = sequence("web").task("prepare-web", async () => ({
-  ctx: { packageName: "@acme/web" },
-}));
-
-export default defineConfig({
+const services = workflow("services", {
   providers: {
     freestyle: freestyle.provider(),
   },
-  workflows: {
-    api,
-    web,
-  },
 });
+
+export const api = services.sequence("api").task("prepare-api", async () => ({
+  ctx: { packageName: "@acme/api" },
+}));
+
+export const web = services.sequence("web").task("prepare-web", async () => ({
+  ctx: { packageName: "@acme/web" },
+}));
 ```
 
-When a config has multiple workflows, pass `--workflow` when the target is
-ambiguous:
+Commands that target workflow setup or workspace creation take `--workflow`.
+Interactive terminals prompt when it is omitted; JSON and other non-interactive
+runs must pass it explicitly:
 
 ```sh
 rig plan --workflow api
 rig apply --workflow web
-rig create dev --workflow api
+rig create --workflow api dev
 ```
 
 ## Task context
@@ -126,7 +123,7 @@ const repo = app
     },
   }));
 
-export default app
+export const website = app
   .sequence("website")
   .add(base)
   .add(repo);
@@ -161,7 +158,7 @@ const database = app.sequence<{ snapshotId: string }>("database").task(
   }),
 );
 
-export default app
+export const setup = app
   .sequence("setup")
   .task("base", async () => ({ ctx: { snapshotId: "snap_base" } }))
   .parallel({
@@ -214,7 +211,7 @@ Pass an `output` schema when cached context must keep a stable shape. The schema
 can expose `parse` or `safeParse`, so Zod works:
 
 ```ts
-import * as z from "zod/v4-mini";
+import { z } from "/sdk";
 
 const prepared = app.sequence("prepared").task(
   "prepare",

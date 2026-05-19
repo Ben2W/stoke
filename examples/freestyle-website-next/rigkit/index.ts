@@ -238,7 +238,7 @@ const websiteSetup = app
     },
   );
 
-export default app
+export const freestyleWebsiteNext = app
   .sequence("website")
   .add(websiteSetup)
   .workspace({

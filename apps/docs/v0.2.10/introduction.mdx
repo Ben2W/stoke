@@ -5,7 +5,7 @@ noindex: true
 ---
 
 Rigkit is a CLI for declarative dev environments. You define your environment
-once in a `rig.config.ts` file, and then spin up as many isolated workspaces
+once in a `rigkit/index.ts` file, and then spin up as many isolated workspaces
 as you need — for agents, developers, CI jobs, and tests.
 
 The `rig` CLI plans the setup graph, caches expensive work, creates named
@@ -29,11 +29,11 @@ curl -fsSL https://www.rigkit.dev/install | sh
 Create a project and bring up your first workspace:
 
 ```sh
-rig init --name website --package-manager pnpm
+rig init website --package-manager pnpm
 cd website
-rig plan
-rig apply
-rig create dev
+rig plan --workflow dev
+rig apply --workflow dev
+rig create --workflow dev dev
 ```
 
 Then run a project-defined workspace operation:
@@ -65,7 +65,7 @@ Three groups of users read these docs, with different needs:
   [Quickstart](/v0.2.10/guides/quickstart), then keep the
   [CLI reference](/v0.2.10/reference/cli) handy. Skim
   [Concepts](/v0.2.10/concepts/mental-model) when something behaves unexpectedly.
-- **You write `rig.config.ts` for your team.** Read
+- **You write `rigkit/index.ts` for your team.** Read
   [Concepts](/v0.2.10/concepts/mental-model) first, then
   [Workflows](/v0.2.10/guides/workflows), [Workspaces and operations](/v0.2.10/guides/workspaces),
   and [Fragments](/v0.2.10/advanced/fragments). The
@@ -79,7 +79,7 @@ Questions and examples live in the
 
 ## Example config
 
-For a sense of what a `rig.config.ts` looks like, here's a complete website
+For a sense of what a `rigkit/index.ts` looks like, here's a complete website
 config with a setup task, a workspace lifecycle, and an SSH operation:
 
 ```ts
@@ -93,7 +93,7 @@ const app = workflow("website", {
   },
 });
 
-export default app
+export const website = app
   .sequence("website")
   .task("prepare-image", async ({ freestyle }) => {
     const { vm, vmId } = await freestyle.client.vms.create({

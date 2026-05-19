@@ -8,16 +8,17 @@ This page is for config authors. For command syntax, use the
 [CLI reference](/reference/cli).
 </Note>
 
-`rig apply` prepares workflow context. `rig create <name>` uses that context to
-create a named workspace. `rig run <name> <operation>` runs project code against
-that workspace.
+`rig apply --workflow <workflow>` prepares workflow context.
+`rig create --workflow <workflow> <name>` uses that context to create a named
+workspace. `rig run <name> <operation>` runs project code against that
+workspace.
 
 ## Workspace lifecycle
 
 Add `.workspace({ create, remove })` to make a workflow workspace-capable:
 
 ```ts
-export default app
+export const website = app
   .sequence("website")
   .add(websiteSetup)
   .workspace({
@@ -52,8 +53,8 @@ resources.
 Run the lifecycle:
 
 ```sh
-rig apply
-rig create dev
+rig apply --workflow website
+rig create --workflow website dev
 rig ls
 rig rm dev
 ```
@@ -160,32 +161,28 @@ The Freestyle provider can create a VS Code Remote SSH URL:
 
 ## Operation input
 
-Operations can declare string, boolean, number, or workspace inputs. Runtime
-hosts use the input schema to prompt or build CLI flags.
+Operations declare input with Zod schemas. Runtime hosts use the generated JSON
+Schema to prompt or build CLI flags; Zod enums become select prompts.
 
 ```ts
+import { z } from "@rigkit/sdk";
+
 .workspaceOperation("dev", {
   title: "Start dev server",
-  input: (input) => input.workspaceInput({
-    name: "source",
-    description: "Optional workspace to copy settings from",
-    required: false,
-  }).extend({
-    port: input.number({
-      defaultValue: 3000,
-      description: "Port to use",
-    }),
+  input: z.object({
+    port: z.number().default(3000).describe("Port to use"),
+    mode: z.enum(["local", "tunnel"]).default("local").describe("Dev mode"),
   }),
   run: async ({ input, workspace }) => ({
     workspace: workspace.name,
-    source: input.source?.name,
     port: input.port,
+    mode: input.mode,
   }),
 });
 ```
 
-For workspace operations, `rig run <workspace> <operation>` still supplies the
-main workspace. `workspaceInput(...)` is for additional workspace arguments.
+For workspace operations, `rig run <workspace> <operation>` supplies the target
+workspace. Put extra operation inputs in the Zod object.
 
 ## Defensive create hooks
 

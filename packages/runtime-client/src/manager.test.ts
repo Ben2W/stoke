@@ -21,19 +21,19 @@ describe("runtime manager", () => {
   test("computes stable ids from project and config paths", () => {
     const first = projectIdFor({
       projectDir: "/tmp/project",
-      configPath: "/tmp/project/rig.config.ts",
+      configPath: "/tmp/project/rigkit/index.ts",
     });
     const second = projectIdFor({
       projectDir: "/tmp/project",
-      configPath: "/tmp/project/rig.config.ts",
+      configPath: "/tmp/project/rigkit/index.ts",
     });
     const differentConfig = projectIdFor({
       projectDir: "/tmp/project",
-      configPath: "/tmp/project/other.config.ts",
+      configPath: "/tmp/project/rigkit/other.ts",
     });
     const differentSource = projectIdFor({
       projectDir: "/tmp/project",
-      configPath: "/tmp/project/rig.config.ts",
+      configPath: "/tmp/project/rigkit/index.ts",
       source: { kind: "github", commitSha: "abc" },
     });
 
@@ -47,8 +47,8 @@ describe("runtime manager", () => {
     const root = mkdtempSync(join(tmpdir(), "rigkit-runtime-client-id-"));
     try {
       const projectDir = join(root, "project");
-      const configPath = join(projectDir, "rig.config.ts");
-      mkdirSync(projectDir, { recursive: true });
+      const configPath = join(projectDir, "rigkit", "index.ts");
+      mkdirSync(join(projectDir, "rigkit"), { recursive: true });
       writeFileSync(configPath, "export default { name: 'one' }\n");
 
       const first = projectIdFor({ projectDir, configPath });
@@ -66,6 +66,26 @@ describe("runtime manager", () => {
     }
   });
 
+  test("changes runtime fingerprints when rigkit helper files change", () => {
+    const root = mkdtempSync(join(tmpdir(), "rigkit-runtime-client-helper-fingerprint-"));
+    try {
+      const projectDir = join(root, "project");
+      const configPath = join(projectDir, "rigkit", "index.ts");
+      const helperPath = join(projectDir, "rigkit", "shared", "inputs.ts");
+      mkdirSync(join(projectDir, "rigkit", "shared"), { recursive: true });
+      writeFileSync(configPath, "export { workflow } from './shared/inputs.ts'\n");
+      writeFileSync(helperPath, "export const scope = 'test:unit'\n");
+
+      const first = runtimeFingerprintFor({ projectDir, configPath });
+      writeFileSync(helperPath, "export const scope = 'test:integration'\n");
+      const changed = runtimeFingerprintFor({ projectDir, configPath });
+
+      expect(changed).not.toBe(first);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("restarts local runtimes when the runtime fingerprint changes", async () => {
     const root = mkdtempSync(join(tmpdir(), "rigkit-runtime-client-restart-"));
     let first: Awaited<ReturnType<typeof getOrStartRuntime>> | undefined;
@@ -74,8 +94,8 @@ describe("runtime manager", () => {
     try {
       const projectDir = join(root, "project");
       const rigkitHome = join(root, "home");
-      const configPath = join(projectDir, "rig.config.ts");
-      mkdirSync(projectDir, { recursive: true });
+      const configPath = join(projectDir, "rigkit", "index.ts");
+      mkdirSync(join(projectDir, "rigkit"), { recursive: true });
       writeFileSync(configPath, "export default { name: 'one' }\n");
       writeFakeRuntimeBin(projectDir);
 
@@ -102,6 +122,46 @@ describe("runtime manager", () => {
       expect(second.handle.pid).not.toBe(first.handle.pid);
       expect(secondHealth.runtimeFingerprint).toBe(second.handle.runtimeFingerprint);
       expect(firstHealth.projectId).toBe(secondHealth.projectId);
+    } finally {
+      await second?.control.shutdown().catch(() => {});
+      await first?.control.shutdown().catch(() => {});
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("restarts local runtimes when nested rigkit files change", async () => {
+    const root = mkdtempSync(join(tmpdir(), "rigkit-runtime-client-helper-restart-"));
+    let first: Awaited<ReturnType<typeof getOrStartRuntime>> | undefined;
+    let second: Awaited<ReturnType<typeof getOrStartRuntime>> | undefined;
+
+    try {
+      const projectDir = join(root, "project");
+      const rigkitHome = join(root, "home");
+      const configPath = join(projectDir, "rigkit", "index.ts");
+      const helperPath = join(projectDir, "rigkit", "shared", "inputs.ts");
+      mkdirSync(join(projectDir, "rigkit", "shared"), { recursive: true });
+      writeFileSync(configPath, "export { workflow } from './shared/inputs.ts'\n");
+      writeFileSync(helperPath, "export const scope = 'test:unit'\n");
+      writeFakeRuntimeBin(projectDir);
+
+      first = await getOrStartRuntime({
+        projectDir,
+        configPath,
+        rigkitHome,
+        idleMs: 60_000,
+      });
+
+      writeFileSync(helperPath, "export const scope = 'test:integration'\n");
+      second = await getOrStartRuntime({
+        projectDir,
+        configPath,
+        rigkitHome,
+        idleMs: 60_000,
+      });
+
+      expect(second.handle.projectId).toBe(first.handle.projectId);
+      expect(second.handle.runtimeFingerprint).not.toBe(first.handle.runtimeFingerprint);
+      expect(second.handle.pid).not.toBe(first.handle.pid);
     } finally {
       await second?.control.shutdown().catch(() => {});
       await first?.control.shutdown().catch(() => {});
@@ -263,12 +323,12 @@ describe("runtime manager", () => {
 
       await expect(getOrStartRuntime({
         projectDir,
-        configPath: join(projectDir, "rig.config.ts"),
+        configPath: join(projectDir, "rigkit", "index.ts"),
         rigkitHome,
       })).rejects.toBeInstanceOf(RuntimeStartupError);
       await expect(getOrStartRuntime({
         projectDir,
-        configPath: join(projectDir, "rig.config.ts"),
+        configPath: join(projectDir, "rigkit", "index.ts"),
         rigkitHome,
       })).rejects.toMatchObject({ reason: "missing-runtime" });
     } finally {

@@ -66,7 +66,7 @@ const baseVm = app
     }
   });
 
-export default app
+export const gcloudOnOpen = app
   .sequence("gcloud-workspace")
   .add(baseVm)
   .task("marker", async ({ step }) => {

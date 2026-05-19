@@ -1,7 +1,6 @@
-import { defineConfig, sequence } from "@rigkit/sdk";
-import { freestyle, VmBaseImage, VmSpec } from "@rigkit/provider-freestyle";
+import { sequence } from "@rigkit/sdk";
 
-const smoke = sequence("smoke")
+export const smoke = sequence("smoke")
   .step("create-workflow", async () => {
     console.log("Create Workflow Step");
     const randomNumber = Math.floor(Math.random() * 1000);
@@ -21,10 +20,3 @@ const smoke = sequence("smoke")
       console.log("Ran Create");
     },
   });
-
-export default defineConfig({
-  providers: {},
-  workflows: {
-    smoke,
-  },
-});

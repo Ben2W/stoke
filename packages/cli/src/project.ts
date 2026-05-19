@@ -1,7 +1,9 @@
-import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { existsSync, readdirSync } from "node:fs";
 
-export const DEFAULT_CONFIG_FILE = "rig.config.ts";
+export const RIGKIT_DIR = "rigkit";
+export const DEFAULT_CONFIG_FILE = "index.ts";
+export const DEFAULT_CONFIG_PATH = join(RIGKIT_DIR, DEFAULT_CONFIG_FILE);
 export const PROJECT_PACKAGE_NAME = "@rigkit/sdk";
 export const FREESTYLE_PROVIDER_PACKAGE_NAME = "@rigkit/provider-freestyle";
 export const FREESTYLE_SDK_PACKAGE_NAME = "freestyle";
@@ -26,19 +28,16 @@ export function resolveConfigPaths(options: ConfigPathOptions): ResolvedConfigPa
   if (options.config) {
     const configPath = resolve(workingDir, options.config);
     return {
-      projectDir: dirname(configPath),
+      projectDir: projectDirForConfigPath(configPath),
       configPath,
     };
   }
 
   const projectDir = options.chdir ? workingDir : findNearestProjectDir(workingDir);
-  const configPath = join(projectDir, DEFAULT_CONFIG_FILE);
+  const configPath = join(projectDir, DEFAULT_CONFIG_PATH);
 
   if (!existsSync(configPath)) {
-    throw new Error(formatConfigNotFoundAt(configPath, {
-      commandCwd: cwd,
-      hint: namedRigConfigFilesHint(projectDir),
-    }));
+    throw new Error(formatConfigNotFoundAt(configPath));
   }
 
   return {
@@ -59,24 +58,20 @@ export function discoverProjectConfigs(options: ConfigPathOptions = {}): Discove
 
 function findNearestProjectDir(start: string): string {
   let current = start;
-  let hint: ConfigFilesHint | undefined;
   for (;;) {
-    if (existsSync(join(current, DEFAULT_CONFIG_FILE))) return current;
-    hint ??= namedRigConfigFilesHint(current);
+    if (existsSync(join(current, DEFAULT_CONFIG_PATH))) return current;
     const parent = dirname(current);
     if (parent === current) {
-      throw new Error(formatConfigNotFoundFrom(start, { commandCwd: start, hint }));
+      throw new Error(formatConfigNotFoundFrom(start));
     }
     current = parent;
   }
 }
 
 function visitProjectDirs(dir: string, projects: DiscoveredProject[]): void {
-  const configFiles = rigConfigFilesInDir(dir);
-  if (configFiles.length > 0) {
-    for (const configFile of configFiles) {
-      projects.push({ projectDir: dir, configPath: join(dir, configFile) });
-    }
+  const configPath = join(dir, DEFAULT_CONFIG_PATH);
+  if (existsSync(configPath)) {
+    projects.push({ projectDir: dir, configPath });
     return;
   }
 
@@ -103,82 +98,22 @@ function shouldSkipDiscoveryDir(name: string): boolean {
 }
 
 export function rigConfigFilesInDir(dir: string): string[] {
-  let entries;
-  try {
-    entries = readdirSync(dir, { withFileTypes: true });
-  } catch {
-    return [];
-  }
-
-  return entries
-    .filter((entry) => entry.isFile() && isRigConfigFileName(entry.name))
-    .map((entry) => entry.name)
-    .sort((left, right) => {
-      if (left === DEFAULT_CONFIG_FILE) return -1;
-      if (right === DEFAULT_CONFIG_FILE) return 1;
-      return left.localeCompare(right);
-    });
+  return existsSync(join(dir, DEFAULT_CONFIG_PATH)) ? [DEFAULT_CONFIG_PATH] : [];
 }
 
 export function isRigConfigFileName(name: string): boolean {
-  return name === DEFAULT_CONFIG_FILE || name.endsWith(".rig.config.ts");
+  return name === DEFAULT_CONFIG_PATH;
 }
 
-type ConfigFilesHint = {
-  dir: string;
-  files: string[];
-};
-
-function namedRigConfigFilesHint(dir: string): ConfigFilesHint | undefined {
-  const files = rigConfigFilesInDir(dir).filter((file) => file !== DEFAULT_CONFIG_FILE);
-  return files.length > 0 ? { dir, files } : undefined;
+export function projectDirForConfigPath(configPath: string): string {
+  const configDir = dirname(configPath);
+  return basename(configDir) === RIGKIT_DIR ? dirname(configDir) : configDir;
 }
 
-function formatConfigNotFoundAt(
-  configPath: string,
-  options: { commandCwd: string; hint?: ConfigFilesHint },
-): string {
-  return appendConfigFilesHint(
-    `No Rigkit config found at ${configPath}.`,
-    options,
-  );
+function formatConfigNotFoundAt(configPath: string): string {
+  return `No Rigkit config found at ${configPath}. Run "rig init" or pass --config=<file>.`;
 }
 
-function formatConfigNotFoundFrom(
-  start: string,
-  options: { commandCwd: string; hint?: ConfigFilesHint },
-): string {
-  return appendConfigFilesHint(
-    `No Rigkit config found from ${start} upward.`,
-    options,
-  );
-}
-
-function appendConfigFilesHint(
-  message: string,
-  options: { commandCwd: string; hint?: ConfigFilesHint },
-): string {
-  const hint = options.hint;
-  if (!hint) return `${message} Run "rig init" or pass --config=<file>.`;
-
-  const configFile = hint.files[0]!;
-  const configPath = displayPath(options.commandCwd, join(hint.dir, configFile));
-  const projectDir = displayPath(options.commandCwd, hint.dir);
-
-  return [
-    message,
-    `Found named Rigkit configs in ${hint.dir}:`,
-    ...hint.files.map((file) => `- ${file}`),
-    "",
-    "Choose one explicitly:",
-    `  rig --config=${configPath} <command>`,
-    `  rig --chdir=${projectDir} --config=${configFile} <command>`,
-  ].join("\n");
-}
-
-function displayPath(from: string, path: string): string {
-  const relativePath = relative(from, path);
-  if (!relativePath) return ".";
-  if (!relativePath.startsWith("..") && !isAbsolute(relativePath)) return relativePath;
-  return path;
+function formatConfigNotFoundFrom(start: string): string {
+  return `No Rigkit config found from ${start} upward. Run "rig init" or pass --config=<file>.`;
 }

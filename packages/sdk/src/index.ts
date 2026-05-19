@@ -1,15 +1,14 @@
 export { RIGKIT_SDK_VERSION } from "./version.ts";
 
 export {
-  defineConfig,
   defineProvider,
   env,
-  isRigkitConfig,
   isProviderDefinition,
   isWorkflow,
   isWorkflowNode,
   sequence,
   workflow,
+  z,
 } from "@rigkit/engine";
 export type * from "@rigkit/engine";
 

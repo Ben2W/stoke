@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { RIGKIT_CLI_VERSION } from "./version.ts";
 import {
   FREESTYLE_PROVIDER_PACKAGE_NAME,
@@ -42,6 +42,7 @@ export type InitProjectResult = {
 export function initProject(input: InitProjectInput): InitProjectResult {
   const name = normalizeMachineName(input.name);
   mkdirSync(input.projectDir, { recursive: true });
+  mkdirSync(dirname(input.configPath), { recursive: true });
 
   if (existsSync(input.configPath) && !input.force) {
     throw new Error(`${input.configPath} already exists. Pass --force to overwrite it.`);
@@ -100,9 +101,9 @@ export function normalizeMachineName(value: string): string {
 }
 
 export function starterConfig(name: string): string {
-  const workflowName = JSON.stringify(normalizeMachineName(name));
+  const workflowName = JSON.stringify("dev");
 
-  return `import { defineConfig, sequence } from "@rigkit/sdk";
+  return `import { workflow } from "@rigkit/sdk";
 import { freestyle, VmBaseImage, VmSpec } from "@rigkit/provider-freestyle";
 
 const vmIdleTimeoutSeconds = 3600;
@@ -112,7 +113,11 @@ const vmSpec = new VmSpec()
 
 const freestyleProvider = freestyle.provider();
 
-const dev = sequence(${workflowName})
+export const dev = workflow(${workflowName}, {
+  providers: {
+    freestyle: freestyleProvider,
+  },
+})
   .step("verify-node-22", async ({ providers }) => {
     console.log("creating verification vm");
     const { vm, vmId } = await providers.freestyle.client.vms.create({
@@ -146,15 +151,6 @@ const dev = sequence(${workflowName})
       await providers.freestyle.client.vms.delete({ vmId: workspace.ctx.vmId });
     },
   });
-
-export default defineConfig({
-  providers: {
-    freestyle: freestyleProvider,
-  },
-  workflows: {
-    dev,
-  },
-});
 `;
 }
 
@@ -231,7 +227,10 @@ function ensureProjectPackageJson(
   }
 
   const scripts = pkg.scripts as Record<string, string>;
-  for (const [key, value] of Object.entries({ plan: "rig plan", apply: "rig apply" })) {
+  for (const [key, value] of Object.entries({
+    plan: "rig plan --workflow dev",
+    apply: "rig apply --workflow dev",
+  })) {
     if (scripts[key] !== value) {
       scripts[key] = value;
       updated = true;

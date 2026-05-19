@@ -8,6 +8,17 @@ import { RIGKIT_CLI_VERSION } from "./version.ts";
 
 const cliPath = join(import.meta.dir, "cli.ts");
 
+function rigkitIndexPath(projectDir: string): string {
+  return join(projectDir, "rigkit", "index.ts");
+}
+
+function writeRigkitIndex(projectDir: string): string {
+  const configPath = rigkitIndexPath(projectDir);
+  mkdirSync(join(projectDir, "rigkit"), { recursive: true });
+  writeFileSync(configPath, "export const dev = {}\n");
+  return configPath;
+}
+
 describe("CLI entrypoint", () => {
   test("renders CLI diagnostics as JSON", async () => {
     const result = await runCli(["doctor", "--cli", "--json"]);
@@ -135,7 +146,7 @@ describe("CLI entrypoint", () => {
   test("discovers projects without starting a runtime", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "rigkit-cli-projects-"));
     mkdirSync(join(cwd, "api"));
-    writeFileSync(join(cwd, "api", "rig.config.ts"), "export default {}\n");
+    writeRigkitIndex(join(cwd, "api"));
 
     try {
       const result = await runCli(["projects", "--json"], { cwd });
@@ -146,7 +157,7 @@ describe("CLI entrypoint", () => {
       expect(JSON.parse(result.stdout)).toEqual({
         projects: [{
           projectDir: join(realCwd, "api"),
-          configPath: join(realCwd, "api", "rig.config.ts"),
+          configPath: join(realCwd, "api", "rigkit", "index.ts"),
         }],
       });
     } finally {
@@ -154,10 +165,8 @@ describe("CLI entrypoint", () => {
     }
   });
 
-  test("shows named config choices when the default config is missing", async () => {
+  test("shows the canonical config path when missing", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "rigkit-cli-named-configs-"));
-    writeFileSync(join(cwd, "api.rig.config.ts"), "export default {}\n");
-    writeFileSync(join(cwd, "web.rig.config.ts"), "export default {}\n");
 
     try {
       const result = await runCli(["create", "--json"], { cwd });
@@ -165,10 +174,27 @@ describe("CLI entrypoint", () => {
       expect(result.exitCode).toBe(1);
       expect(result.stdout).toBe("");
       expect(result.stderr).toContain("No Rigkit config found from");
-      expect(result.stderr).toContain("Found named Rigkit configs");
-      expect(result.stderr).toContain("api.rig.config.ts");
-      expect(result.stderr).toContain("web.rig.config.ts");
-      expect(result.stderr).toContain("rig --chdir=. --config=api.rig.config.ts <command>");
+      expect(result.stderr).toContain("rig init");
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("initializes into a project directory by default", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "rigkit-cli-init-"));
+
+    try {
+      const result = await runCli(["init", "website", "--package-manager", "skip", "--json"], { cwd });
+      const projectDir = join(realpathSync(cwd), "website");
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stderr).toBe("");
+      expect(JSON.parse(result.stdout)).toMatchObject({
+        name: "website",
+        projectDir,
+        configPath: join(projectDir, "rigkit", "index.ts"),
+      });
+      expect(existsSync(join(projectDir, "rigkit", "index.ts"))).toBe(true);
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }
@@ -177,7 +203,7 @@ describe("CLI entrypoint", () => {
   test("accepts conventional double-dash global options", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "rigkit-cli-global-options-"));
     mkdirSync(join(cwd, "api"));
-    writeFileSync(join(cwd, "api", "rig.config.ts"), "export default {}\n");
+    writeRigkitIndex(join(cwd, "api"));
 
     try {
       const result = await runCli(["--chdir=api", "projects", "--json"], { cwd });
@@ -187,7 +213,7 @@ describe("CLI entrypoint", () => {
       expect(JSON.parse(result.stdout)).toEqual({
         projects: [{
           projectDir: join(realpathSync(cwd), "api"),
-          configPath: join(realpathSync(cwd), "api", "rig.config.ts"),
+          configPath: join(realpathSync(cwd), "api", "rigkit", "index.ts"),
         }],
       });
     } finally {
@@ -247,7 +273,7 @@ describe("CLI entrypoint", () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-cli-cache-invalidate-"));
 
     await withWorkspaceRuntime({ projectDir, cacheInvalidated: 0 }, async ({ env }) => {
-      const result = await runCli([`-chdir=${projectDir}`, "cache", "invalidate", "missing-task"], { env });
+      const result = await runCli([`--chdir=${projectDir}`, "cache", "invalidate", "missing-task"], { env });
 
       expect(result.exitCode).toBe(0);
       expect(result.stderr).toBe("");
@@ -260,7 +286,7 @@ describe("CLI entrypoint", () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-cli-cache-invalidate-json-"));
 
     await withWorkspaceRuntime({ projectDir, cacheInvalidated: 0 }, async ({ env }) => {
-      const result = await runCli([`-chdir=${projectDir}`, "cache", "invalidate", "missing-task", "--json"], { env });
+      const result = await runCli([`--chdir=${projectDir}`, "cache", "invalidate", "missing-task", "--json"], { env });
 
       expect(result.exitCode).toBe(0);
       expect(result.stderr).toBe("");
@@ -272,12 +298,14 @@ describe("CLI entrypoint", () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-cli-ls-"));
 
     await withWorkspaceRuntime({ projectDir }, async ({ env }) => {
-      const result = await runCli([`-chdir=${projectDir}`, "ls"], { env });
+      const result = await runCli([`--chdir=${projectDir}`, "ls"], { env });
 
       expect(result.exitCode).toBe(0);
       expect(result.stderr).toBe("");
-      expect(result.stdout).toContain("name  workflow");
-      expect(result.stdout).toContain("api   smoke");
+      expect(result.stdout).toContain("smoke");
+      expect(result.stdout).toContain("cached");
+      expect(result.stdout).toContain("workspace");
+      expect(result.stdout).toContain("api");
     });
   });
 
@@ -285,15 +313,18 @@ describe("CLI entrypoint", () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-cli-ls-json-"));
 
     await withWorkspaceRuntime({ projectDir }, async ({ env }) => {
-      const result = await runCli([`-chdir=${projectDir}`, "ls", "--json"], { env });
+      const result = await runCli([`--chdir=${projectDir}`, "ls", "--json"], { env });
 
       expect(result.exitCode).toBe(0);
       expect(result.stderr).toBe("");
       expect(JSON.parse(result.stdout)).toMatchObject({
-        workspaces: [{
+        workflows: [{
+          name: "smoke",
+          workspaces: [{
           name: "api",
           workflow: "smoke",
           ctx: {},
+          }],
         }],
       });
     });
@@ -303,7 +334,7 @@ describe("CLI entrypoint", () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-cli-create-name-"));
 
     await withWorkspaceRuntime({ projectDir }, async ({ env }) => {
-      const result = await runCli([`-chdir=${projectDir}`, "create", "--name", "some workspace", "--json"], { env });
+      const result = await runCli([`--chdir=${projectDir}`, "create", "--workflow", "smoke", "--name", "some workspace", "--json"], { env });
 
       expect(result.exitCode).toBe(1);
       expect(result.stdout).toBe("");
@@ -315,7 +346,7 @@ describe("CLI entrypoint", () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-cli-create-positional-"));
 
     await withWorkspaceRuntime({ projectDir }, async ({ env }) => {
-      const result = await runCli([`-chdir=${projectDir}`, "create", "new-workspace", "--json"], { env });
+      const result = await runCli([`--chdir=${projectDir}`, "create", "--workflow", "smoke", "new-workspace", "--json"], { env });
 
       expect(result.exitCode).toBe(0);
       expect(result.stderr).toBe("");
@@ -329,7 +360,7 @@ describe("CLI entrypoint", () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-cli-rm-"));
 
     await withWorkspaceRuntime({ projectDir }, async ({ env }) => {
-      const result = await runCli([`-chdir=${projectDir}`, "rm", "api", "-y", "--json"], { env });
+      const result = await runCli([`--chdir=${projectDir}`, "rm", "api", "-y", "--json"], { env });
 
       expect(result.exitCode).toBe(0);
       expect(result.stderr).toBe("");
@@ -357,8 +388,8 @@ describe("CLI entrypoint", () => {
     const cwd = mkdtempSync(join(tmpdir(), "rigkit-cli-run-discover-"));
     mkdirSync(join(cwd, "api"));
     mkdirSync(join(cwd, "web"));
-    writeFileSync(join(cwd, "api", "rig.config.ts"), "export default {}\n");
-    writeFileSync(join(cwd, "web", "rig.config.ts"), "export default {}\n");
+    writeRigkitIndex(join(cwd, "api"));
+    writeRigkitIndex(join(cwd, "web"));
 
     try {
       const result = await runCli(["plan", "--discover", "--json"], { cwd });
@@ -367,8 +398,8 @@ describe("CLI entrypoint", () => {
       expect(result.stdout).toBe("");
       expect(result.stderr).toContain("Multiple Rigkit projects found.");
       expect(result.stderr).toContain("pass --all");
-      expect(result.stderr).toContain(join(realpathSync(cwd), "api", "rig.config.ts"));
-      expect(result.stderr).toContain(join(realpathSync(cwd), "web", "rig.config.ts"));
+      expect(result.stderr).toContain(join(realpathSync(cwd), "api", "rigkit", "index.ts"));
+      expect(result.stderr).toContain(join(realpathSync(cwd), "web", "rigkit", "index.ts"));
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }
@@ -412,9 +443,8 @@ async function withWorkspaceRuntime(
 ): Promise<void> {
   const rigkitHome = mkdtempSync(join(tmpdir(), "rigkit-home-"));
   const token = "test-token";
-  const configPath = join(input.projectDir, "rig.config.ts");
   mkdirSync(input.projectDir, { recursive: true });
-  writeFileSync(configPath, "export default {}\n");
+  const configPath = writeRigkitIndex(input.projectDir);
   const projectId = projectIdFor({ projectDir: input.projectDir, configPath });
   const runtimeFingerprint = runtimeFingerprintFor({ projectDir: input.projectDir, configPath });
   const paths = runtimePaths(projectId, rigkitHome);
@@ -457,12 +487,25 @@ async function withWorkspaceRuntime(
           }],
         });
       }
+      if (pathname === "/workflows") {
+        return runtimeJson({
+          workflows: [{
+            name: "smoke",
+            providers: [],
+            nodes: ["ready"],
+            operations: [],
+            createsWorkspace: true,
+            lastAppliedAt: now,
+          }],
+        });
+      }
       if (pathname === "/cache/invalidate") {
         return runtimeJson({ ok: true, invalidated: input.cacheInvalidated ?? 1 });
       }
       if (pathname === "/operations") {
         return runtimeJson({
           operations: [{
+            workflow: "",
             id: "create",
             kind: "command",
             source: "core",
@@ -471,18 +514,23 @@ async function withWorkspaceRuntime(
             createsWorkspace: true,
             cli: {
               positionals: [{ name: "name", index: 0 }],
-              options: [{ name: "name", flag: "--name", required: true, type: "string" }],
+              options: [
+                { name: "workflow", flag: "--workflow" },
+                { name: "name", flag: "--name", required: true, type: "string" },
+              ],
             },
             inputSchema: {
               type: "object",
               additionalProperties: false,
               properties: {
+                workflow: { type: "string", enum: ["smoke"] },
                 name: { type: "string", minLength: 1 },
               },
               required: ["name"],
             },
           }],
           workspaceOperations: [{
+            workflow: "smoke",
             id: "remove",
             kind: "workspace-action",
             source: "core",
@@ -501,7 +549,15 @@ async function withWorkspaceRuntime(
       }
       if (pathname === "/runs") {
         const body = await request.json() as { operation?: string; input?: { name?: string } };
-        runResult = body.operation === "api/remove"
+        runResult = body.operation === "plan"
+          ? {
+            workflow: "smoke",
+            providerFingerprint: "test",
+            cachedNodeCount: 1,
+            nodeCount: 1,
+            nodes: [{ index: 0, path: "ready", name: "ready", status: "cached", upstreamRunIds: [] }],
+          }
+          : body.operation === "api/remove"
           ? {
             id: "workspace-api",
             name: "api",

@@ -161,7 +161,12 @@ function runtimeOperationForEngineOperation(engine: DevMachineEngine, operation:
     operation.inputFields.map((field) => [field.name, jsonSchemaForField(engine, operation, field)]),
   );
   const hasWorkspaceInput = operation.inputFields.some((field) => field.kind === "workspace");
+  const inputSchema = operation.inputSchema ?? objectSchema(properties, required);
+  const cli = operation.cli
+    ? cloneOperationCli(operation.cli)
+    : operation.inputSchema ? undefined : cliForFields(operation.inputFields);
   return {
+    workflow: operation.workflow,
     id: operation.id,
     ...(operation.aliases?.length ? { aliases: [...operation.aliases] } : {}),
     kind: operation.kind ?? (hasWorkspaceInput ? "workspace-action" : "command"),
@@ -169,8 +174,8 @@ function runtimeOperationForEngineOperation(engine: DevMachineEngine, operation:
     title: operation.title ?? titleize(operation.id),
     description: operation.description ?? "",
     createsWorkspace: operation.createsWorkspace,
-    cli: operation.cli ? cloneOperationCli(operation.cli) : cliForFields(operation.inputFields),
-    inputSchema: objectSchema(properties, required),
+    ...(cli ? { cli } : {}),
+    inputSchema,
   };
 }
 

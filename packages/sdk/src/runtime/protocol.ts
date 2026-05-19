@@ -149,6 +149,7 @@ export type RuntimeOperationCli = {
 };
 
 export type RuntimeOperation = {
+  workflow: string;
   id: string;
   aliases?: string[];
   kind: RuntimeOperationKind;

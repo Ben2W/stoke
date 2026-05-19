@@ -5,6 +5,17 @@ import { join } from "node:path";
 import { projectIdFor, runtimeFingerprintFor, runtimePaths, SUPPORTED_RUNTIME_API_VERSION } from "@rigkit/runtime-client";
 import { completeRig, formatCompletionItems, formatWorkspaceAge, renderCompletionScript } from "./completion.ts";
 
+function rigkitIndexPath(projectDir: string): string {
+  return join(projectDir, "rigkit", "index.ts");
+}
+
+function writeRigkitIndex(projectDir: string): string {
+  const configPath = rigkitIndexPath(projectDir);
+  mkdirSync(join(projectDir, "rigkit"), { recursive: true });
+  writeFileSync(configPath, "export const dev = {}\n");
+  return configPath;
+}
+
 describe("CLI completion", () => {
   test("completes workspace targets from the runtime", async () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-completion-"));
@@ -15,7 +26,7 @@ describe("CLI completion", () => {
         currentIndex: 2,
       });
 
-      expect(items.map((item) => item.value)).toEqual(["api", "web", "--json", "--help"]);
+      expect(items.map((item) => item.value)).toEqual(["api", "web", "--workflow", "--json", "--help"]);
       expect(items[0]?.description).toBe("created 2h ago");
     });
   });
@@ -33,33 +44,33 @@ describe("CLI completion", () => {
     });
   });
 
-  test("respects -chdir when completing workspace targets", async () => {
+  test("respects --chdir when completing workspace targets", async () => {
     const parentDir = mkdtempSync(join(tmpdir(), "rigkit-completion-parent-"));
     const projectDir = join(parentDir, "project");
     await withWorkspaceRuntime({ projectDir, cleanupDir: parentDir }, async () => {
       const items = await completeRig({
         cwd: parentDir,
-        words: ["rig", "-chdir=project", "run", ""],
+        words: ["rig", "--chdir=project", "run", ""],
         currentIndex: 3,
       });
 
-      expect(items.map((item) => item.value)).toEqual(["api", "web", "--json", "--help"]);
+      expect(items.map((item) => item.value)).toEqual(["api", "web", "--workflow", "--json", "--help"]);
     });
   });
 
-  test("completes project directories for -chdir", async () => {
+  test("completes project directories for --chdir", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "rigkit-completion-dirs-"));
     mkdirSync(join(cwd, "examples", "global-fragments"), { recursive: true });
 
     try {
       const roots = await completeRig({
         cwd,
-        words: ["rig", "-chdir="],
+        words: ["rig", "--chdir="],
         currentIndex: 1,
       });
 
       expect(roots).toContainEqual({
-        value: "-chdir=examples/",
+        value: "--chdir=examples/",
         description: "directory",
         noSpace: true,
         group: "Paths",
@@ -67,12 +78,12 @@ describe("CLI completion", () => {
 
       const nested = await completeRig({
         cwd,
-        words: ["rig", "-chdir=examples/g"],
+        words: ["rig", "--chdir=examples/g"],
         currentIndex: 1,
       });
 
       expect(nested).toContainEqual({
-        value: "-chdir=examples/global-fragments/",
+        value: "--chdir=examples/global-fragments/",
         description: "directory",
         noSpace: true,
         group: "Paths",
@@ -121,39 +132,44 @@ describe("CLI completion", () => {
     }
   });
 
-  test("completes named config files", async () => {
+  test("completes canonical config path", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "rigkit-completion-configs-"));
-    writeFileSync(join(cwd, "api.rig.config.ts"), "export default {}\n");
-    writeFileSync(join(cwd, "web.rig.config.ts"), "export default {}\n");
+    writeRigkitIndex(cwd);
 
     try {
-      const items = await completeRig({
+      const roots = await completeRig({
         cwd,
-        words: ["rig", "-config="],
+        words: ["rig", "--config="],
         currentIndex: 1,
       });
 
-      expect(items.map((item) => item.value)).toEqual(["-config=api.rig.config.ts", "-config=web.rig.config.ts"]);
+      expect(roots.map((item) => item.value)).toContain("--config=rigkit/");
+
+      const items = await completeRig({
+        cwd,
+        words: ["rig", "--config=rigkit/"],
+        currentIndex: 1,
+      });
+
+      expect(items.map((item) => item.value)).toEqual(["--config=rigkit/index.ts"]);
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }
   });
 
-  test("respects -chdir when completing config files", async () => {
+  test("respects --chdir when completing config files", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "rigkit-completion-configs-"));
     const projectDir = join(cwd, "global-fragments");
-    mkdirSync(projectDir, { recursive: true });
-    writeFileSync(join(projectDir, "api.rig.config.ts"), "export default {}\n");
-    writeFileSync(join(projectDir, "worker.rig.config.ts"), "export default {}\n");
+    writeRigkitIndex(projectDir);
 
     try {
       const items = await completeRig({
         cwd,
-        words: ["rig", "-chdir=global-fragments", "-config="],
+        words: ["rig", "--chdir=global-fragments", "--config=rigkit/"],
         currentIndex: 2,
       });
 
-      expect(items.map((item) => item.value)).toEqual(["-config=api.rig.config.ts", "-config=worker.rig.config.ts"]);
+      expect(items.map((item) => item.value)).toEqual(["--config=rigkit/index.ts"]);
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }
@@ -167,7 +183,7 @@ describe("CLI completion", () => {
         words: ["rig", "run", ""],
         currentIndex: 2,
       });
-      expect(roots.map((item) => item.value)).toEqual(["api", "web", "--json", "--help"]);
+      expect(roots.map((item) => item.value)).toEqual(["api", "web", "--workflow", "--json", "--help"]);
       expect(roots[0]).toMatchObject({ description: "created 2h ago" });
 
       const exactWorkspace = await completeRig({
@@ -182,7 +198,7 @@ describe("CLI completion", () => {
         words: ["rig", "run", "api", ""],
         currentIndex: 3,
       });
-      expect(workspaceAfterSpace.map((item) => item.value)).toEqual(["remove", "open-cmux", "--json", "--help"]);
+      expect(workspaceAfterSpace.map((item) => item.value)).toEqual(["remove", "open-cmux", "--workflow", "--json", "--help"]);
 
       const operationPrefix = await completeRig({
         cwd: projectDir,
@@ -201,7 +217,7 @@ describe("CLI completion", () => {
         words: ["rig", "rm", ""],
         currentIndex: 2,
       });
-      expect(workspaces.map((item) => item.value)).toEqual(["api", "web", "-y", "--yes", "--all", "--json", "--help"]);
+      expect(workspaces.map((item) => item.value)).toEqual(["api", "web", "-y", "--yes", "--all", "--workflow", "--json", "--help"]);
 
       const flags = await completeRig({
         cwd: projectDir,
@@ -229,7 +245,7 @@ describe("CLI completion", () => {
   test("completes cache at the root command position after global options", async () => {
     const items = await completeRig({
       cwd: process.cwd(),
-      words: ["rig", "-config=api.rig.config.ts", "c"],
+      words: ["rig", "--config=rigkit/index.ts", "c"],
       currentIndex: 2,
     });
 
@@ -337,7 +353,7 @@ describe("CLI completion", () => {
         currentIndex: 4,
       });
 
-      expect(flags.map((item) => item.value)).toEqual(["--layout", "--json", "--help"]);
+      expect(flags.map((item) => item.value)).toEqual(["--layout", "--workflow", "--json", "--help"]);
 
       const values = await completeRig({
         cwd: projectDir,
@@ -383,6 +399,7 @@ describe("CLI completion", () => {
       currentIndex: 2,
     });
     expect(initFlags.map((item) => item.value)).toEqual([
+      "--dir",
       "--name",
       "--api-key",
       "--package-manager",
@@ -447,7 +464,7 @@ describe("CLI completion", () => {
       currentIndex: 2,
     });
 
-    expect(items.map((item) => item.value)).toEqual(["workspaces", "snapshots", "config", "--json", "--help"]);
+    expect(items.map((item) => item.value)).toEqual(["workspaces", "snapshots", "config", "--workflow", "--json", "--help"]);
   });
 });
 
@@ -458,9 +475,8 @@ async function withWorkspaceRuntime(
   const previousHome = process.env.RIGKIT_HOME;
   const rigkitHome = mkdtempSync(join(tmpdir(), "rigkit-home-"));
   const token = "test-token";
-  const configPath = join(input.projectDir, "rig.config.ts");
   mkdirSync(input.projectDir, { recursive: true });
-  writeFileSync(configPath, "export default {}\n");
+  const configPath = writeRigkitIndex(input.projectDir);
   const projectId = projectIdFor({ projectDir: input.projectDir, configPath });
   const runtimeFingerprint = runtimeFingerprintFor({ projectDir: input.projectDir, configPath });
   const paths = runtimePaths(projectId, rigkitHome);
@@ -586,6 +602,7 @@ async function withWorkspaceRuntime(
         return runtimeJson({
           operations: [
             {
+              workflow: "smoke",
               id: "plan",
               kind: "command",
               source: "core",
@@ -603,6 +620,7 @@ async function withWorkspaceRuntime(
               },
             },
             {
+              workflow: "smoke",
               id: "apply",
               kind: "command",
               source: "core",
@@ -624,6 +642,7 @@ async function withWorkspaceRuntime(
               },
             },
             {
+              workflow: "smoke",
               id: "create",
               kind: "command",
               source: "core",
@@ -648,6 +667,7 @@ async function withWorkspaceRuntime(
               },
             },
             {
+              workflow: "smoke",
               id: "ssh",
               kind: "command",
               source: "core",
@@ -668,6 +688,7 @@ async function withWorkspaceRuntime(
           ],
           workspaceOperations: [
             {
+              workflow: "smoke",
               id: "remove",
               kind: "workspace-action",
               source: "core",
@@ -683,6 +704,7 @@ async function withWorkspaceRuntime(
               },
             },
             {
+              workflow: "smoke",
               id: "open-cmux",
               kind: "workspace-action",
               source: "config",

@@ -1,7 +1,7 @@
 import { readdirSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { getOrStartRuntime } from "@rigkit/runtime-client";
-import { isRigConfigFileName } from "./project.ts";
+import { DEFAULT_CONFIG_FILE, DEFAULT_CONFIG_PATH, projectDirForConfigPath } from "./project.ts";
 
 export type CompletionShell = "bash" | "fish" | "zsh";
 
@@ -69,6 +69,7 @@ type RuntimeOperationManifest = {
 };
 
 type RuntimeOperationDefinition = {
+  workflow: string;
   id: string;
   aliases?: string[];
   title?: string;
@@ -152,7 +153,7 @@ const JSON_OPTION = option(["--json"], "print JSON");
 const HELP_OPTION = option(["--help"], "show help");
 
 const GLOBAL_OPTIONS: OptionDefinition[] = [
-  option(["--chdir", "-chdir"], "working directory", {
+  option(["--chdir"], "working directory", {
     group: GROUP_GLOBAL,
     takesValue: true,
     valueKind: "directories",
@@ -160,7 +161,7 @@ const GLOBAL_OPTIONS: OptionDefinition[] = [
       { value: "--chdir=", noSpace: true },
     ],
   }),
-  option(["--config", "-config"], "config file", {
+  option(["--config"], "config file", {
     group: GROUP_GLOBAL,
     takesValue: true,
     valueKind: "config-files",
@@ -168,7 +169,7 @@ const GLOBAL_OPTIONS: OptionDefinition[] = [
       { value: "--config=", noSpace: true },
     ],
   }),
-  option(["--state", "-state"], "state database path", {
+  option(["--state"], "state database path", {
     group: GROUP_GLOBAL,
     takesValue: true,
     valueKind: "filesystem",
@@ -176,15 +177,15 @@ const GLOBAL_OPTIONS: OptionDefinition[] = [
       { value: "--state=", noSpace: true },
     ],
   }),
-  option(["--json", "-json"], "print JSON", {
+  option(["--json"], "print JSON", {
     group: GROUP_GLOBAL,
     completions: [{ value: "--json" }],
   }),
-  option(["--help", "-help"], "show help", {
+  option(["--help"], "show help", {
     group: GROUP_GLOBAL,
     completions: [{ value: "--help" }],
   }),
-  option(["--version", "-version", "-v"], "show version", {
+  option(["--version", "-v"], "show version", {
     group: GROUP_GLOBAL,
     completions: [{ value: "--version" }, { value: "-v" }],
   }),
@@ -192,7 +193,8 @@ const GLOBAL_OPTIONS: OptionDefinition[] = [
 
 const COMMAND_OPTIONS: Record<CommandName, OptionDefinition[]> = {
   init: [
-    option(["--name"], "project and workflow name", { takesValue: true }),
+    option(["--dir"], "directory to initialize", { takesValue: true, valueKind: "directories" }),
+    option(["--name"], "project/package name", { takesValue: true }),
     option(["--api-key"], "Freestyle API key", { takesValue: true }),
     option(["--package-manager"], "npm, bun, pnpm, or skip", {
       takesValue: true,
@@ -221,14 +223,17 @@ const COMMAND_OPTIONS: Record<CommandName, OptionDefinition[]> = {
   rm: [
     option(["-y", "--yes"], "skip confirmation"),
     option(["--all"], "remove every workspace"),
+    option(["--workflow"], "workflow name", { takesValue: true }),
     JSON_OPTION,
     HELP_OPTION,
   ],
   run: [
+    option(["--workflow"], "workflow name", { takesValue: true }),
     JSON_OPTION,
     HELP_OPTION,
   ],
   ls: [
+    option(["--workflow"], "workflow name", { takesValue: true }),
     JSON_OPTION,
     HELP_OPTION,
   ],
@@ -1071,26 +1076,18 @@ function resolveProjectDir(words: string[], cwd: string): { projectDir: string; 
   let config: string | undefined;
   for (let index = 0; index < words.length; index += 1) {
     const word = words[index]!;
-    if (word === "-chdir" || word === "--chdir") {
+    if (word === "--chdir") {
       chdir = words[index + 1];
       index += 1;
-      continue;
-    }
-    if (word.startsWith("-chdir=")) {
-      chdir = word.slice("-chdir=".length);
       continue;
     }
     if (word.startsWith("--chdir=")) {
       chdir = word.slice("--chdir=".length);
       continue;
     }
-    if (word === "-config" || word === "--config") {
+    if (word === "--config") {
       config = words[index + 1];
       index += 1;
-      continue;
-    }
-    if (word.startsWith("-config=")) {
-      config = word.slice("-config=".length);
       continue;
     }
     if (word.startsWith("--config=")) {
@@ -1102,7 +1099,7 @@ function resolveProjectDir(words: string[], cwd: string): { projectDir: string; 
   const baseDir = resolve(cwd, chdir ?? ".");
   if (config) {
     const configPath = resolve(baseDir, config);
-    return { projectDir: dirname(configPath), configPath };
+    return { projectDir: projectDirForConfigPath(configPath), configPath };
   }
   return projectPaths(baseDir);
 }
@@ -1110,12 +1107,9 @@ function resolveProjectDir(words: string[], cwd: string): { projectDir: string; 
 function projectBaseDir(words: string[], cwd: string): string {
   for (let index = 0; index < words.length; index += 1) {
     const word = words[index]!;
-    if (word === "-chdir" || word === "--chdir") {
+    if (word === "--chdir") {
       const value = words[index + 1];
       if (value) return resolve(cwd, value);
-    }
-    if (word.startsWith("-chdir=")) {
-      return resolve(cwd, word.slice("-chdir=".length));
     }
     if (word.startsWith("--chdir=")) {
       return resolve(cwd, word.slice("--chdir=".length));
@@ -1125,7 +1119,7 @@ function projectBaseDir(words: string[], cwd: string): string {
 }
 
 function projectPaths(projectDir: string): { projectDir: string; configPath: string } {
-  return { projectDir, configPath: join(projectDir, "rig.config.ts") };
+  return { projectDir, configPath: join(projectDir, DEFAULT_CONFIG_PATH) };
 }
 
 function completeDirectories(baseDir: string, current: string): CompletionItem[] {
@@ -1139,7 +1133,7 @@ function completeConfigPaths(baseDir: string, current: string): CompletionItem[]
   return completePathEntries(baseDir, current, {
     includeFiles: true,
     includeDirectories: true,
-    fileFilter: isRigConfigFileName,
+    fileFilter: (name) => name === DEFAULT_CONFIG_FILE,
   });
 }
 

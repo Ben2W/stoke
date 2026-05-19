@@ -6,6 +6,12 @@ import type {
 export type OperationInputPrompt = {
   inputText(input: { name: string; description?: string; defaultValue?: string }): Promise<string | undefined>;
   confirm(input: { name: string; description?: string; defaultValue?: boolean }): Promise<boolean | undefined>;
+  select(input: {
+    name: string;
+    description?: string;
+    options: Array<{ label: string; value: unknown }>;
+    defaultValue?: unknown;
+  }): Promise<unknown>;
   pickWorkspace(input: { name: string; description?: string; workspaces: RuntimeControlWorkspace[] }): Promise<RuntimeControlWorkspace | undefined>;
 };
 
@@ -18,6 +24,7 @@ type JsonSchemaProperty = Record<string, unknown> & {
   type?: string;
   description?: string;
   default?: unknown;
+  enum?: unknown[];
 };
 
 export async function collectOperationInput(
@@ -39,6 +46,19 @@ export async function collectOperationInput(
       });
       if (!workspace && required.has(name)) return undefined;
       if (workspace) input[name] = workspace.name;
+      continue;
+    }
+
+    const enumValues = Array.isArray(property.enum) ? property.enum : [];
+    if (enumValues.length > 0) {
+      const value = await prompt.select({
+        name,
+        description: property.description,
+        defaultValue: property.default,
+        options: enumValues.map((item) => ({ label: String(item), value: item })),
+      });
+      if (value === undefined && required.has(name)) return undefined;
+      if (value !== undefined) input[name] = value;
       continue;
     }
 
