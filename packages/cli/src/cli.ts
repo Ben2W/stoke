@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
-import { rmSync } from "node:fs";
-import { join, relative, resolve } from "node:path";
+import { existsSync, rmSync } from "node:fs";
+import { dirname, join, relative, resolve } from "node:path";
 import { Command, CommanderError, Option } from "commander";
 import inquirer from "inquirer";
 import * as ui from "./ui.ts";
@@ -53,6 +53,11 @@ type CliInvocation = {
   json: boolean;
 };
 
+type InitOptions = {
+  install: boolean;
+  packageManager?: PackageManager;
+};
+
 type CompletionOptions = {
   shell?: CompletionShell;
   index?: string;
@@ -76,6 +81,15 @@ type CacheClearOptions = {
   local: boolean;
   global: boolean;
   all: boolean;
+};
+
+type PackageManager = "bun" | "pnpm" | "npm" | "skip";
+
+type InitInstallResult = {
+  packageManager: PackageManager;
+  command?: string;
+  skipped: boolean;
+  reason?: "json" | "no-install" | "non-interactive";
 };
 
 type EngineProjectInfo = {
@@ -204,9 +218,15 @@ async function runCli(argv: string[]): Promise<void> {
 
   program
     .command("init")
-    .description("Create rigkit/index.ts in the current directory")
-    .action(async () => {
-      await runInit(makeInvocation(rootOptions(program)));
+    .description("Initialize a Rigkit project")
+    .option("--package-manager <packageManager>", "Install with bun, pnpm, npm, or skip")
+    .option("--no-install", "Write files without installing dependencies")
+    .option("--json", "Print machine-readable JSON")
+    .action(async (options: { packageManager?: string; install?: boolean; json?: boolean }) => {
+      await runInit(makeInvocation(rootOptions(program), options.json), {
+        install: options.install !== false,
+        packageManager: parsePackageManagerOption(options.packageManager),
+      });
     });
 
   for (const operation of ["plan", "apply"] as const) {
@@ -475,7 +495,11 @@ function handleCliError(error: unknown): void {
   process.exitCode = 1;
 }
 
-async function runInit(invocation: CliInvocation): Promise<void> {
+async function runInit(invocation: CliInvocation, options: InitOptions): Promise<void> {
+  if (wantsJson(invocation) && options.packageManager && options.packageManager !== "skip") {
+    throw new Error(`rig init --json only supports --package-manager skip`);
+  }
+
   if (!wantsJson(invocation)) {
     console.log(`${ui.bold("rig")} ${ui.dim("· initialize")}`);
     console.log("");
@@ -484,17 +508,49 @@ async function runInit(invocation: CliInvocation): Promise<void> {
   const result = initProject({
     projectDir: resolve(process.cwd(), invocation.global.chdir ?? "."),
   });
+  const packageManager = await resolveInitPackageManager(invocation, options, result.projectDir);
+  const install = await runPackageManagerInstall(result.projectDir, packageManager, wantsJson(invocation));
 
   if (wantsJson(invocation)) {
-    printJson(result);
+    printJson({ ...result, install });
     return;
   }
 
-  printInitResult(result);
+  printInitResult(result, install);
 }
 
 function canPrompt(): boolean {
   return Boolean(process.stdin.isTTY && process.stdout.isTTY);
+}
+
+async function resolveInitPackageManager(
+  invocation: CliInvocation,
+  options: InitOptions,
+  projectDir: string,
+): Promise<PackageManager> {
+  if (!options.install) return "skip";
+  if (wantsJson(invocation)) {
+    return "skip";
+  }
+  if (options.packageManager) return options.packageManager;
+  if (!canPrompt()) return "skip";
+  return promptPackageManager(detectPackageManager(projectDir));
+}
+
+async function promptPackageManager(defaultValue: PackageManager): Promise<PackageManager> {
+  const answers = await inquirer.prompt<{ packageManager: PackageManager }>([{
+    type: "list",
+    name: "packageManager",
+    message: "Install dependencies with:",
+    default: defaultValue,
+    choices: [
+      { name: "bun", value: "bun" },
+      { name: "pnpm", value: "pnpm" },
+      { name: "npm", value: "npm" },
+      { name: "Skip for now", value: "skip" },
+    ],
+  }]);
+  return answers.packageManager;
 }
 
 async function promptWorkspaceName(defaultValue: string): Promise<string> {
@@ -534,11 +590,47 @@ async function defaultWorkspaceName(runtime: RuntimeClient): Promise<string> {
   return generateWorkspaceName(existingNames);
 }
 
-function printInitResult(result: InitProjectResult): void {
-  console.log(`${ui.ok(ui.sym.ok)} ${ui.bold("rigkit")} ${ui.dim("ready")}`);
+async function runPackageManagerInstall(
+  projectDir: string,
+  packageManager: PackageManager,
+  jsonMode: boolean,
+): Promise<InitInstallResult> {
+  if (packageManager === "skip") {
+    return {
+      packageManager,
+      skipped: true,
+      reason: jsonMode ? "json" : canPrompt() ? "no-install" : "non-interactive",
+    };
+  }
+
+  const command = packageManagerInstallCommand(packageManager);
+  if (!jsonMode) {
+    process.stderr.write(`${ui.accent(ui.sym.active)} ${ui.dim(`$ ${command.join(" ")}`)}\n`);
+  }
+
+  const proc = Bun.spawn(command, {
+    cwd: projectDir,
+    stdin: "inherit",
+    stdout: jsonMode ? "pipe" : "inherit",
+    stderr: jsonMode ? "pipe" : "inherit",
+  });
+  const exitCode = await proc.exited;
+  if (exitCode !== 0) {
+    throw new Error(`${command.join(" ")} failed with exit code ${exitCode}`);
+  }
+
+  return { packageManager, command: command.join(" "), skipped: false };
+}
+
+function printInitResult(result: InitProjectResult, install: InitInstallResult): void {
+  console.log(`${ui.ok(ui.sym.ok)} ${ui.bold(result.name)} ${ui.dim("ready")}`);
   console.log("");
 
   console.log(ui.fileStatus(initStatus(result.created.config, false), shortPath(result.configPath)));
+  console.log(ui.fileStatus(initStatus(result.created.packageJson, result.updated.packageJson), shortPath(result.packageJsonPath)));
+  if (!install.skipped && install.command) {
+    console.log(ui.fileStatus("created", install.command));
+  }
 
   console.log("");
   console.log(ui.bold("Next"));
@@ -546,7 +638,44 @@ function printInitResult(result: InitProjectResult): void {
   if (projectDir !== ".") {
     console.log(ui.hint(`cd ${projectDir}`));
   }
+  if (install.skipped) {
+    console.log(ui.hint(detectInstallCommand(result.packageJsonPath)));
+  }
   console.log(ui.hint("rig plan"));
+}
+
+function parsePackageManagerOption(value: string | undefined): PackageManager | undefined {
+  if (value === undefined) return undefined;
+  if (isPackageManager(value)) return value;
+  throw new Error(`Unsupported package manager "${value}". Use bun, pnpm, npm, or skip.`);
+}
+
+function isPackageManager(value: string): value is PackageManager {
+  return value === "bun" || value === "pnpm" || value === "npm" || value === "skip";
+}
+
+function detectPackageManager(projectDir: string): PackageManager {
+  if (existsSync(join(projectDir, "bun.lock")) || existsSync(join(projectDir, "bun.lockb"))) return "bun";
+  if (existsSync(join(projectDir, "pnpm-lock.yaml"))) return "pnpm";
+  if (existsSync(join(projectDir, "package-lock.json"))) return "npm";
+  return "npm";
+}
+
+function detectInstallCommand(packageJsonPath: string): string {
+  const projectDir = dirname(packageJsonPath);
+  const packageManager = detectPackageManager(projectDir);
+  return `${packageManager} install`;
+}
+
+function packageManagerInstallCommand(packageManager: Exclude<PackageManager, "skip">): string[] {
+  switch (packageManager) {
+    case "bun":
+      return ["bun", "install"];
+    case "pnpm":
+      return ["pnpm", "install"];
+    case "npm":
+      return ["npm", "install"];
+  }
 }
 
 function initStatus(created: boolean, updated: boolean): ui.FileStatus {

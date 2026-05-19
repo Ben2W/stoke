@@ -190,14 +190,25 @@ describe("CLI entrypoint", () => {
       expect(result.exitCode).toBe(0);
       expect(result.stderr).toBe("");
       expect(JSON.parse(result.stdout)).toEqual({
+        name: projectDir.split("/").at(-1)?.toLowerCase(),
         projectDir,
         configPath: join(projectDir, "rigkit", "index.ts"),
+        packageJsonPath: join(projectDir, "package.json"),
         created: {
           config: true,
+          packageJson: true,
+        },
+        updated: {
+          packageJson: false,
+        },
+        install: {
+          packageManager: "skip",
+          skipped: true,
+          reason: "json",
         },
       });
       expect(existsSync(join(projectDir, "rigkit", "index.ts"))).toBe(true);
-      expect(existsSync(join(projectDir, "package.json"))).toBe(false);
+      expect(existsSync(join(projectDir, "package.json"))).toBe(true);
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }
@@ -213,6 +224,22 @@ describe("CLI entrypoint", () => {
       expect(result.stdout).toBe("");
       expect(result.stderr).toContain("too many arguments");
       expect(existsSync(join(cwd, "rigkit", "index.ts"))).toBe(false);
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects package manager installs in JSON init before writing files", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "rigkit-cli-init-json-install-"));
+
+    try {
+      const result = await runCli(["init", "--json", "--package-manager", "npm"], { cwd });
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toContain("rig init --json only supports --package-manager skip");
+      expect(existsSync(join(cwd, "rigkit", "index.ts"))).toBe(false);
+      expect(existsSync(join(cwd, "package.json"))).toBe(false);
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }
