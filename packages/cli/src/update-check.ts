@@ -30,15 +30,19 @@ type UpdateCheckOptions = {
 
 const DEFAULT_UPDATE_URL = "https://www.rigkit.dev/latest.json";
 const DEFAULT_INSTALL_URL = "https://www.rigkit.dev/install";
-const CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
+const UPDATE_AVAILABLE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
+const NO_UPDATE_CHECK_INTERVAL_MS = 5 * 60 * 1000;
 const DEFAULT_TIMEOUT_MS = 900;
 
 export async function maybePrintUpdateNotice(options: UpdateCheckOptions): Promise<void> {
   const stream = options.stream ?? process.stderr;
-  if (!shouldCheckForUpdates(options, stream)) return;
+  const mode = normalizeUpdateCheckMode(process.env.RIGKIT_UPDATE_CHECK);
+  if (!shouldCheckForUpdates(options, stream, mode)) return;
 
   const updateUrl = process.env.RIGKIT_UPDATE_URL?.trim() || DEFAULT_UPDATE_URL;
-  const latest = await resolveLatestRelease(updateUrl);
+  const latest = await resolveLatestRelease(updateUrl, options.currentVersion, {
+    force: mode === "force",
+  });
   if (!latest || !isNewerVersion(latest.version, options.currentVersion)) return;
 
   stream.write(renderUpdateNotice({
@@ -47,11 +51,14 @@ export async function maybePrintUpdateNotice(options: UpdateCheckOptions): Promi
   }));
 }
 
-function shouldCheckForUpdates(options: UpdateCheckOptions, stream: NoticeStream): boolean {
+function shouldCheckForUpdates(
+  options: UpdateCheckOptions,
+  stream: NoticeStream,
+  mode: ReturnType<typeof normalizeUpdateCheckMode>,
+): boolean {
   if (options.json) return false;
   if (options.commandName === "completion") return false;
 
-  const mode = normalizeUpdateCheckMode(process.env.RIGKIT_UPDATE_CHECK);
   if (mode === "off") return false;
   if (mode === "force") return true;
   if (process.env.CI) return false;
@@ -77,9 +84,13 @@ function normalizeUpdateCheckMode(value: string | undefined): "auto" | "force" |
   }
 }
 
-async function resolveLatestRelease(updateUrl: string): Promise<LatestRelease | undefined> {
+async function resolveLatestRelease(
+  updateUrl: string,
+  currentVersion: string,
+  options: { force: boolean },
+): Promise<LatestRelease | undefined> {
   const cached = readUpdateCache(updateUrl);
-  if (cached && isFreshCache(cached)) return cached.latest;
+  if (!options.force && cached && isFreshCache(cached, currentVersion)) return cached.latest;
 
   const latest = await fetchLatestRelease(updateUrl);
   if (latest) {
@@ -103,10 +114,14 @@ function readUpdateCache(updateUrl: string): UpdateCache | undefined {
   }
 }
 
-function isFreshCache(cache: UpdateCache): boolean {
+function isFreshCache(cache: UpdateCache, currentVersion: string): boolean {
   const checkedAt = Date.parse(cache.checkedAt);
   if (!Number.isFinite(checkedAt)) return false;
-  return Date.now() - checkedAt < CHECK_INTERVAL_MS;
+
+  const interval = cache.latest && isNewerVersion(cache.latest.version, currentVersion)
+    ? UPDATE_AVAILABLE_CHECK_INTERVAL_MS
+    : NO_UPDATE_CHECK_INTERVAL_MS;
+  return Date.now() - checkedAt < interval;
 }
 
 async function fetchLatestRelease(updateUrl: string): Promise<LatestRelease | undefined> {
