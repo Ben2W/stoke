@@ -90,6 +90,15 @@ export function getOrStartRuntimeEffect(options: GetOrStartRuntimeOptions): Effe
 async function getOrStartRuntimeUnsafe(options: GetOrStartRuntimeOptions): Promise<RuntimeClient> {
   const projectDir = resolve(options.projectDir);
   const configPath = resolve(options.configPath);
+  const canonicalConfigPath = join(projectDir, "rigkit", "index.ts");
+  if (configPath !== canonicalConfigPath) {
+    throw new RuntimeStartupError({
+      reason: "missing-runtime",
+      projectDir,
+      path: configPath,
+      message: `Rigkit config must be ${canonicalConfigPath}; ${configPath} is not supported.`,
+    });
+  }
   const statePath = options.statePath ? resolve(options.statePath) : undefined;
   const globalFragmentRoot = options.globalFragmentRoot
     ? resolve(options.globalFragmentRoot)

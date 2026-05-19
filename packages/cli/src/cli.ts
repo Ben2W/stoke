@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
-import { existsSync, rmSync } from "node:fs";
-import { basename, dirname, join, relative, resolve } from "node:path";
+import { rmSync } from "node:fs";
+import { join, relative, resolve } from "node:path";
 import { Command, CommanderError, Option } from "commander";
 import inquirer from "inquirer";
 import * as ui from "./ui.ts";
@@ -21,9 +21,9 @@ import {
   cmuxHostCapabilities,
   type CmuxHostCapabilityHandler,
 } from "@rigkit/provider-cmux/host";
-import { DEFAULT_CONFIG_PATH, discoverProjectConfigs, resolveConfigPaths, PROJECT_PACKAGE_NAME } from "./project.ts";
+import { DEFAULT_CONFIG_PATH, discoverProjectConfigs, resolveConfigPaths } from "./project.ts";
 import { RIGKIT_CLI_VERSION } from "./version.ts";
-import { initProject, normalizeMachineName, type InitProjectResult } from "./init.ts";
+import { initProject, type InitProjectResult } from "./init.ts";
 import { openExternalTarget } from "./interaction.ts";
 import { createRunPresenter, type RunPresenter } from "./run-presenter.ts";
 import { createRunLogger, type RunLogger } from "./run-logger.ts";
@@ -44,7 +44,6 @@ import { generateWorkspaceName } from "./workspace-name.ts";
 
 type GlobalOptions = {
   chdir?: string;
-  config?: string;
   state?: string;
   json: boolean;
 };
@@ -52,14 +51,6 @@ type GlobalOptions = {
 type CliInvocation = {
   global: GlobalOptions;
   json: boolean;
-};
-
-type InitOptions = {
-  force: boolean;
-  dir?: string;
-  name?: string;
-  apiKey?: string;
-  packageManager?: PackageManager;
 };
 
 type CompletionOptions = {
@@ -85,15 +76,6 @@ type CacheClearOptions = {
   local: boolean;
   global: boolean;
   all: boolean;
-};
-
-type PackageManager = "npm" | "bun" | "pnpm" | "skip";
-
-type InitInstallResult = {
-  packageManager: PackageManager;
-  command?: string;
-  skipped: boolean;
-  reported?: boolean;
 };
 
 type EngineProjectInfo = {
@@ -197,14 +179,12 @@ async function runCli(argv: string[]): Promise<void> {
     .exitOverride()
     .argument("[command]")
     .addOption(new Option("--chdir <dir>", `Switch to a directory containing ${DEFAULT_CONFIG_PATH} before running the command`).hideHelp())
-    .addOption(new Option("--config <file>", "Config file to load, relative to --chdir when set").hideHelp())
     .addOption(new Option("--state <file>", "Local runtime state database path").hideHelp())
     .addOption(new Option("--json", "Print machine-readable JSON where supported").hideHelp())
     .addHelpText("after", [
       "",
       "Global Options:",
       "  --chdir <dir>     Switch to a directory containing rigkit/index.ts before running the command",
-      "  --config <file>   Config file to load, relative to --chdir when set",
       "  --state <file>    Local runtime state database path",
       "  --json            Print machine-readable JSON where supported",
       "",
@@ -224,32 +204,9 @@ async function runCli(argv: string[]): Promise<void> {
 
   program
     .command("init")
-    .description("Initialize a Rigkit project")
-    .argument("[dir]", "Directory to initialize")
-    .option("--dir <dir>", "Directory to initialize")
-    .option("--name <name>", "Project/package name")
-    .option("--api-key <apiKey>", "Freestyle API key")
-    .option("--package-manager <packageManager>", "Install with npm, bun, pnpm, or skip")
-    .option("--force", "Overwrite an existing config file")
-    .option("--json", "Print machine-readable JSON")
-    .action(async (dir: string | undefined, options: {
-      dir?: string;
-      name?: string;
-      apiKey?: string;
-      packageManager?: string;
-      force?: boolean;
-      json?: boolean;
-    }) => {
-      if (dir && options.dir) {
-        throw new Error(`rig init accepts either a positional directory or --dir, not both`);
-      }
-      await runInit(makeInvocation(rootOptions(program), options.json), {
-        dir: options.dir ?? dir,
-        name: options.name,
-        apiKey: options.apiKey,
-        packageManager: parsePackageManagerOption(options.packageManager),
-        force: Boolean(options.force),
-      });
+    .description("Create rigkit/index.ts in the current directory")
+    .action(async () => {
+      await runInit(makeInvocation(rootOptions(program)));
     });
 
   for (const operation of ["plan", "apply"] as const) {
@@ -428,13 +385,11 @@ async function runCli(argv: string[]): Promise<void> {
 function rootOptions(program: Command): GlobalOptions {
   const options = program.opts<{
     chdir?: string;
-    config?: string;
     state?: string;
     json?: boolean;
   }>();
   return {
     chdir: options.chdir,
-    config: options.config,
     state: options.state,
     json: Boolean(options.json),
   };
@@ -443,12 +398,6 @@ function rootOptions(program: Command): GlobalOptions {
 function commandWantsJson(program: Command, actionCommand: Command): boolean {
   const options = actionCommand.opts<{ json?: boolean }>();
   return Boolean(rootOptions(program).json || options.json);
-}
-
-function parsePackageManagerOption(value: string | undefined): PackageManager | undefined {
-  if (value === undefined) return undefined;
-  if (isPackageManager(value)) return value;
-  throw new Error(`Unknown package manager ${value}. Expected npm, bun, pnpm, or skip.`);
 }
 
 function makeInvocation(global: GlobalOptions, commandJson = false): CliInvocation {
@@ -526,116 +475,26 @@ function handleCliError(error: unknown): void {
   process.exitCode = 1;
 }
 
-async function runInit(invocation: CliInvocation, options: InitOptions): Promise<void> {
-  const answers = await resolveInitAnswers(options, wantsJson(invocation));
-  const paths = resolveInitProjectPaths(invocation, options.dir ?? answers.name);
-
-  if (existsSync(paths.configPath) && !options.force) {
-    throw new Error(`${paths.configPath} already exists. Pass --force to overwrite it.`);
-  }
-
-  const result = initProject({
-    projectDir: paths.projectDir,
-    configPath: paths.configPath,
-    name: answers.name,
-    apiKey: answers.apiKey,
-    force: options.force,
-  });
-  const install = await runPackageManagerInstall(paths.projectDir, answers.packageManager, wantsJson(invocation));
-
-  if (wantsJson(invocation)) {
-    printJson({ ...result, install });
-    return;
-  }
-
-  printInitResult(result, install);
-}
-
-async function resolveInitAnswers(
-  options: InitOptions,
-  jsonMode: boolean,
-): Promise<{ name: string; apiKey?: string; packageManager: PackageManager }> {
-  if (jsonMode && options.packageManager && options.packageManager !== "skip") {
-    throw new Error(`rig init --json only supports --package-manager skip`);
-  }
-
-  if (!jsonMode) {
+async function runInit(invocation: CliInvocation): Promise<void> {
+  if (!wantsJson(invocation)) {
     console.log(`${ui.bold("rig")} ${ui.dim("· initialize")}`);
     console.log("");
   }
 
-  const defaultName = normalizeMachineName(options.name ?? basename(options.dir ?? process.cwd()));
-  const name = options.name !== undefined
-    ? normalizeMachineName(options.name)
-    : !jsonMode && canPrompt()
-      ? await promptName(defaultName)
-      : defaultName;
-  const apiKey = options.apiKey?.trim();
-  const packageManager = options.packageManager ?? (jsonMode || !canPrompt() ? "skip" : await promptPackageManager("skip"));
+  const result = initProject({
+    projectDir: resolve(process.cwd(), invocation.global.chdir ?? "."),
+  });
 
-  return {
-    name,
-    apiKey,
-    packageManager,
-  };
+  if (wantsJson(invocation)) {
+    printJson(result);
+    return;
+  }
+
+  printInitResult(result);
 }
 
 function canPrompt(): boolean {
   return Boolean(process.stdin.isTTY && process.stdout.isTTY);
-}
-
-function resolveInitProjectPaths(invocation: CliInvocation, dir: string | undefined): { projectDir: string; configPath: string } {
-  const options = invocation.global;
-  if (options.config) {
-    throw new Error(`rig init does not support --config. Use --chdir to choose the parent directory.`);
-  }
-
-  const parentDir = resolve(process.cwd(), options.chdir ?? ".");
-  const projectDir = dir ? resolve(parentDir, dir) : parentDir;
-  return {
-    projectDir,
-    configPath: join(projectDir, DEFAULT_CONFIG_PATH),
-  };
-}
-
-async function promptName(defaultValue: string): Promise<string> {
-  const answers = await inquirer.prompt<{ name: string }>([{
-    type: "input",
-    name: "name",
-    message: "Project name:",
-    default: defaultValue,
-    validate(value: string) {
-      try {
-        normalizeMachineName(value);
-        return true;
-      } catch (error) {
-        return error instanceof Error ? error.message : String(error);
-      }
-    },
-    filter: (value: string) => normalizeMachineName(value),
-  }]);
-  return answers.name;
-}
-
-async function promptPackageManager(defaultValue: PackageManager): Promise<PackageManager> {
-  const choices: Array<{ value: PackageManager; label: string; hint: string }> = [
-    { value: "npm", label: "npm", hint: "npm install" },
-    { value: "bun", label: "bun", hint: "bun install" },
-    { value: "pnpm", label: "pnpm", hint: "pnpm install" },
-    { value: "skip", label: "skip", hint: "do not install now" },
-  ];
-  const answers = await inquirer.prompt<{ packageManager: PackageManager }>([{
-    type: "select",
-    name: "packageManager",
-    message: "Install dependencies?",
-    default: defaultValue,
-    choices: choices.map((choice) => ({
-      name: choice.label,
-      value: choice.value,
-      description: choice.hint,
-    })),
-  }]);
-  return answers.packageManager;
 }
 
 async function promptWorkspaceName(defaultValue: string): Promise<string> {
@@ -675,63 +534,17 @@ async function defaultWorkspaceName(runtime: RuntimeClient): Promise<string> {
   return generateWorkspaceName(existingNames);
 }
 
-async function runPackageManagerInstall(
-  projectDir: string,
-  packageManager: PackageManager,
-  jsonMode: boolean,
-): Promise<InitInstallResult> {
-  if (packageManager === "skip") {
-    return { packageManager, skipped: true };
-  }
-
-  const command = packageManagerInstallCommand(packageManager);
-  if (!jsonMode) {
-    process.stderr.write(`${ui.accent(ui.sym.active)} ${ui.dim(`$ ${command.join(" ")}`)}\n`);
-  }
-
-  const proc = Bun.spawn(command, {
-    cwd: projectDir,
-    stdin: "inherit",
-    stdout: jsonMode ? "pipe" : "inherit",
-    stderr: jsonMode ? "pipe" : "inherit",
-  });
-  const exitCode = await proc.exited;
-
-  if (exitCode !== 0) {
-    throw new Error(`${command.join(" ")} failed with exit code ${exitCode}`);
-  }
-
-  return { packageManager, command: command.join(" "), skipped: false };
-}
-
-function printInitResult(result: InitProjectResult, install: InitInstallResult): void {
-  console.log(`${ui.ok(ui.sym.ok)} ${ui.bold(result.name)} ${ui.dim("ready")}`);
+function printInitResult(result: InitProjectResult): void {
+  console.log(`${ui.ok(ui.sym.ok)} ${ui.bold("rigkit")} ${ui.dim("ready")}`);
   console.log("");
 
-  const fileLines = [
-    ui.fileStatus(initStatus(result.created.config, false), shortPath(result.configPath)),
-    ui.fileStatus(initStatus(result.created.env, result.updated.envApiKey), shortPath(result.envPath)),
-    ui.fileStatus(initStatus(result.created.envExample, false), shortPath(result.envExamplePath)),
-    ui.fileStatus(initStatus(result.created.packageJson, result.updated.packageJson), shortPath(result.packageJsonPath)),
-    ui.fileStatus(initStatus(result.created.gitignore, result.updated.gitignore), shortPath(result.gitignorePath)),
-  ];
-  if (result.updated.sdkDependency) {
-    fileLines.push(ui.fileStatus("pinned", `${PROJECT_PACKAGE_NAME}@${RIGKIT_CLI_VERSION}`));
-  }
-  for (const line of fileLines) console.log(line);
-
-  if (!install.skipped && install.command && !install.reported) {
-    console.log(ui.fileStatus("created", install.command));
-  }
+  console.log(ui.fileStatus(initStatus(result.created.config, false), shortPath(result.configPath)));
 
   console.log("");
   console.log(ui.bold("Next"));
   const projectDir = displayProjectDir(result.projectDir);
   if (projectDir !== ".") {
     console.log(ui.hint(`cd ${projectDir}`));
-  }
-  if (install.skipped) {
-    console.log(ui.hint(detectInstallCommand(result.packageJsonPath)));
   }
   console.log(ui.hint("rig plan"));
 }
@@ -751,30 +564,6 @@ function displayProjectDir(projectDir: string): string {
   const path = relative(process.cwd(), projectDir);
   if (!path) return ".";
   return path && !path.startsWith("..") ? path : projectDir;
-}
-
-function detectInstallCommand(packageJsonPath: string): string {
-  const projectDir = dirname(packageJsonPath);
-  if (existsSync(join(projectDir, "bun.lock")) || existsSync(join(projectDir, "bun.lockb"))) return "bun install";
-  if (existsSync(join(projectDir, "pnpm-lock.yaml"))) return "pnpm install";
-  if (existsSync(join(projectDir, "yarn.lock"))) return "yarn install";
-  if (existsSync(join(projectDir, "package-lock.json"))) return "npm install";
-  return "npm install";
-}
-
-function isPackageManager(value: string): value is PackageManager {
-  return value === "npm" || value === "bun" || value === "pnpm" || value === "skip";
-}
-
-function packageManagerInstallCommand(packageManager: Exclude<PackageManager, "skip">): string[] {
-  switch (packageManager) {
-    case "bun":
-      return ["bun", "install"];
-    case "pnpm":
-      return ["pnpm", "install"];
-    case "npm":
-      return ["npm", "install"];
-  }
 }
 
 async function runProjectOperation(
@@ -1026,7 +815,6 @@ async function runDiscoveredProjectOperation(
 ): Promise<void> {
   const projects = discoverProjectConfigs({
     chdir: invocation.global.chdir,
-    config: invocation.global.config,
   });
   if (projects.length === 0) {
     throw new Error("No Rigkit projects found.");
@@ -1034,7 +822,7 @@ async function runDiscoveredProjectOperation(
   if (!options.all && projects.length > 1) {
     throw new Error([
       "Multiple Rigkit projects found.",
-      "Use `rig projects` to list candidates, pass --chdir or --config to select one, or pass --all to run every discovered project.",
+      "Use `rig projects` to list candidates, pass --chdir to select one, or pass --all to run every discovered project.",
       ...projects.map((project) => `- ${project.configPath}`),
     ].join("\n"));
   }
@@ -1084,7 +872,6 @@ async function runDiscoveredProjectOperation(
 async function runProjects(invocation: CliInvocation): Promise<void> {
   const projects = discoverProjectConfigs({
     chdir: invocation.global.chdir,
-    config: invocation.global.config,
   });
   if (wantsJson(invocation)) {
     printJson({ projects });
@@ -1155,8 +942,8 @@ async function runCacheClear(invocation: CliInvocation, options: CacheClearOptio
   }
 
   if (options.global && options.all) {
-    if (invocation.global.chdir || invocation.global.config || invocation.global.state) {
-      throw new Error(`rig cache clear --global --all cannot be combined with --chdir, --config, or --state`);
+    if (invocation.global.chdir || invocation.global.state) {
+      throw new Error(`rig cache clear --global --all cannot be combined with --chdir or --state`);
     }
     const fragmentRoot = join(defaultRigkitHome(), "fragments");
     rmSync(fragmentRoot, { recursive: true, force: true });
@@ -1869,7 +1656,6 @@ async function runHelp(invocation: CliInvocation): Promise<void> {
     "",
     ui.dim("Options:"),
     opt("--chdir <dir>",   "Switch to a directory containing rigkit/index.ts before running the command"),
-    opt("--config <file>", "Config file to load, relative to --chdir when set"),
     opt("--state <file>",  "Local runtime state database path"),
     opt("--json",          "Print machine-readable JSON where supported"),
   ].join("\n"));
@@ -2198,7 +1984,7 @@ function resolveEngineOptions(invocation: CliInvocation): { projectDir: string; 
 
 function resolveCommandConfigPaths(invocation: CliInvocation): { projectDir: string; configPath: string } {
   const options = invocation.global;
-  return resolveConfigPaths({ chdir: options.chdir, config: options.config });
+  return resolveConfigPaths({ chdir: options.chdir });
 }
 
 function resolveGlobalPath(invocation: CliInvocation, path: string): string {

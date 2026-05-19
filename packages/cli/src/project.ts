@@ -1,17 +1,12 @@
-import { basename, dirname, join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { existsSync, readdirSync } from "node:fs";
 
 export const RIGKIT_DIR = "rigkit";
 export const DEFAULT_CONFIG_FILE = "index.ts";
 export const DEFAULT_CONFIG_PATH = join(RIGKIT_DIR, DEFAULT_CONFIG_FILE);
-export const PROJECT_PACKAGE_NAME = "@rigkit/sdk";
-export const FREESTYLE_PROVIDER_PACKAGE_NAME = "@rigkit/provider-freestyle";
-export const FREESTYLE_SDK_PACKAGE_NAME = "freestyle";
-export const FREESTYLE_SDK_PACKAGE_VERSION = "^0.1.51";
 
 export type ConfigPathOptions = {
   chdir?: string;
-  config?: string;
   cwd?: string;
 };
 
@@ -25,13 +20,6 @@ export type DiscoveredProject = ResolvedConfigPaths;
 export function resolveConfigPaths(options: ConfigPathOptions): ResolvedConfigPaths {
   const cwd = resolve(options.cwd ?? process.cwd());
   const workingDir = options.chdir ? resolve(cwd, options.chdir) : cwd;
-  if (options.config) {
-    const configPath = resolve(workingDir, options.config);
-    return {
-      projectDir: projectDirForConfigPath(configPath),
-      configPath,
-    };
-  }
 
   const projectDir = options.chdir ? workingDir : findNearestProjectDir(workingDir);
   const configPath = join(projectDir, DEFAULT_CONFIG_PATH);
@@ -47,8 +35,6 @@ export function resolveConfigPaths(options: ConfigPathOptions): ResolvedConfigPa
 }
 
 export function discoverProjectConfigs(options: ConfigPathOptions = {}): DiscoveredProject[] {
-  if (options.config) return [resolveConfigPaths(options)];
-
   const cwd = resolve(options.cwd ?? process.cwd());
   const root = resolve(cwd, options.chdir ?? ".");
   const projects: DiscoveredProject[] = [];
@@ -97,23 +83,10 @@ function shouldSkipDiscoveryDir(name: string): boolean {
     name === "build";
 }
 
-export function rigConfigFilesInDir(dir: string): string[] {
-  return existsSync(join(dir, DEFAULT_CONFIG_PATH)) ? [DEFAULT_CONFIG_PATH] : [];
-}
-
-export function isRigConfigFileName(name: string): boolean {
-  return name === DEFAULT_CONFIG_PATH;
-}
-
-export function projectDirForConfigPath(configPath: string): string {
-  const configDir = dirname(configPath);
-  return basename(configDir) === RIGKIT_DIR ? dirname(configDir) : configDir;
-}
-
 function formatConfigNotFoundAt(configPath: string): string {
-  return `No Rigkit config found at ${configPath}. Run "rig init" or pass --config=<file>.`;
+  return `No Rigkit config found at ${configPath}. Run "rig init".`;
 }
 
 function formatConfigNotFoundFrom(start: string): string {
-  return `No Rigkit config found from ${start} upward. Run "rig init" or pass --config=<file>.`;
+  return `No Rigkit config found from ${start} upward. Run "rig init".`;
 }

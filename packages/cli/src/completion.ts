@@ -1,7 +1,7 @@
 import { readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { getOrStartRuntime } from "@rigkit/runtime-client";
-import { DEFAULT_CONFIG_FILE, DEFAULT_CONFIG_PATH, projectDirForConfigPath } from "./project.ts";
+import { DEFAULT_CONFIG_PATH } from "./project.ts";
 
 export type CompletionShell = "bash" | "fish" | "zsh";
 
@@ -48,9 +48,7 @@ type CompletionContext = {
 
 type ValueCompletionKind =
   | "directories"
-  | "config-files"
-  | "filesystem"
-  | "package-managers";
+  | "filesystem";
 
 type OptionDefinition = {
   flags: string[];
@@ -161,14 +159,6 @@ const GLOBAL_OPTIONS: OptionDefinition[] = [
       { value: "--chdir=", noSpace: true },
     ],
   }),
-  option(["--config"], "config file", {
-    group: GROUP_GLOBAL,
-    takesValue: true,
-    valueKind: "config-files",
-    completions: [
-      { value: "--config=", noSpace: true },
-    ],
-  }),
   option(["--state"], "state database path", {
     group: GROUP_GLOBAL,
     takesValue: true,
@@ -193,15 +183,6 @@ const GLOBAL_OPTIONS: OptionDefinition[] = [
 
 const COMMAND_OPTIONS: Record<CommandName, OptionDefinition[]> = {
   init: [
-    option(["--dir"], "directory to initialize", { takesValue: true, valueKind: "directories" }),
-    option(["--name"], "project/package name", { takesValue: true }),
-    option(["--api-key"], "Freestyle API key", { takesValue: true }),
-    option(["--package-manager"], "npm, bun, pnpm, or skip", {
-      takesValue: true,
-      valueKind: "package-managers",
-    }),
-    option(["--force"], "overwrite existing config"),
-    JSON_OPTION,
     HELP_OPTION,
   ],
   plan: [
@@ -542,19 +523,8 @@ async function completeOptionValue(input: {
     case "directories":
       items = completeDirectories(input.cwd, input.current);
       break;
-    case "config-files":
-      items = completeConfigPaths(projectBaseDir(input.words, input.cwd), input.current);
-      break;
     case "filesystem":
       items = completeFilesystemPaths(input.cwd, input.current);
-      break;
-    case "package-managers":
-      items = filterItems([
-        { value: "npm", group: GROUP_VALUES },
-        { value: "bun", group: GROUP_VALUES },
-        { value: "pnpm", group: GROUP_VALUES },
-        { value: "skip", group: GROUP_VALUES },
-      ], input.current);
       break;
     default:
       items = await completeRuntimeOptionValue(input.option, input.current, input.words, input.cwd);
@@ -1114,7 +1084,6 @@ function isCommandName(value: string): value is CommandName {
 
 function resolveProjectDir(words: string[], cwd: string): { projectDir: string; configPath: string } {
   let chdir: string | undefined;
-  let config: string | undefined;
   for (let index = 0; index < words.length; index += 1) {
     const word = words[index]!;
     if (word === "--chdir") {
@@ -1126,37 +1095,10 @@ function resolveProjectDir(words: string[], cwd: string): { projectDir: string; 
       chdir = word.slice("--chdir=".length);
       continue;
     }
-    if (word === "--config") {
-      config = words[index + 1];
-      index += 1;
-      continue;
-    }
-    if (word.startsWith("--config=")) {
-      config = word.slice("--config=".length);
-      continue;
-    }
   }
 
   const baseDir = resolve(cwd, chdir ?? ".");
-  if (config) {
-    const configPath = resolve(baseDir, config);
-    return { projectDir: projectDirForConfigPath(configPath), configPath };
-  }
   return projectPaths(baseDir);
-}
-
-function projectBaseDir(words: string[], cwd: string): string {
-  for (let index = 0; index < words.length; index += 1) {
-    const word = words[index]!;
-    if (word === "--chdir") {
-      const value = words[index + 1];
-      if (value) return resolve(cwd, value);
-    }
-    if (word.startsWith("--chdir=")) {
-      return resolve(cwd, word.slice("--chdir=".length));
-    }
-  }
-  return cwd;
 }
 
 function projectPaths(projectDir: string): { projectDir: string; configPath: string } {
@@ -1167,14 +1109,6 @@ function completeDirectories(baseDir: string, current: string): CompletionItem[]
   return completePathEntries(baseDir, current, {
     includeFiles: false,
     includeDirectories: true,
-  });
-}
-
-function completeConfigPaths(baseDir: string, current: string): CompletionItem[] {
-  return completePathEntries(baseDir, current, {
-    includeFiles: true,
-    includeDirectories: true,
-    fileFilter: (name) => name === DEFAULT_CONFIG_FILE,
   });
 }
 

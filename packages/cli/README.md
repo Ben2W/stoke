@@ -10,7 +10,7 @@ rig ls
 rig --chdir=examples/smoke plan
 ```
 
-`rig init` asks for a project name, Freestyle API key, and package manager. It creates a project folder containing `rigkit/index.ts`, `.env`, `.env.example`, `package.json`, and local ignore rules.
+`rig init` creates `rigkit/index.ts` in the current directory. It does not prompt and does not write package metadata, environment files, or ignore rules.
 
 Interactive terminals use Inquirer prompts and a chalk/log-update run timeline. Set `RIGKIT_RENDER=0` to force the plain text renderer; `--json` and flag-driven flows remain suitable for agents and scripts.
 
@@ -23,8 +23,7 @@ defined by the project run as `rig run <workspace> <operation>`, for example
 
 `rig ls` lists workspaces for the selected project. `rig ls snapshots` lists cached snapshot runs, and `rig ls config` shows the resolved project paths.
 
-Use global context options before the command to select another project or
-config:
+Use global context options before the command to select another project:
 
 ```bash
 rig --chdir=examples/smoke plan

@@ -43,6 +43,25 @@ describe("runtime manager", () => {
     expect(differentSource).not.toBe(first);
   });
 
+  test("rejects non-canonical config paths before starting a runtime", async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-runtime-manager-config-"));
+    const configPath = join(projectDir, "rig.config.ts");
+    const rigkitHome = mkdtempSync(join(tmpdir(), "rigkit-runtime-manager-home-"));
+
+    try {
+      await expect(getOrStartRuntime({
+        projectDir,
+        configPath,
+        rigkitHome,
+      })).rejects.toThrow(
+        `Rigkit config must be ${join(projectDir, "rigkit", "index.ts")}; ${configPath} is not supported.`,
+      );
+    } finally {
+      rmSync(projectDir, { recursive: true, force: true });
+      rmSync(rigkitHome, { recursive: true, force: true });
+    }
+  });
+
   test("keeps project ids stable while config fingerprints change", () => {
     const root = mkdtempSync(join(tmpdir(), "rigkit-runtime-client-id-"));
     try {

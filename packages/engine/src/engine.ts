@@ -291,6 +291,10 @@ function projectDirForConfigPath(configPath: string): string {
   return basename(configDir) === "rigkit" ? dirname(configDir) : configDir;
 }
 
+function canonicalConfigPath(projectDir: string): string {
+  return join(projectDir, "rigkit", "index.ts");
+}
+
 // The engine owns the workflow graph, cache, and event emission for one
 // project. The runtime daemon hosts a single long-lived instance per project.
 export class DevMachineEngine {
@@ -313,10 +317,13 @@ export class DevMachineEngine {
   private workflows = new Map<string, LoadedWorkflow>();
 
   constructor(options: CreateDevMachineEngineOptions = {}) {
-    this.configPath = options.configPath
-      ? resolve(options.configPath)
-      : join(resolve(options.projectDir ?? process.cwd()), "rigkit", "index.ts");
-    this.projectDir = resolve(options.projectDir ?? projectDirForConfigPath(this.configPath));
+    const requestedConfigPath = options.configPath ? resolve(options.configPath) : undefined;
+    this.projectDir = resolve(options.projectDir ?? (requestedConfigPath ? projectDirForConfigPath(requestedConfigPath) : process.cwd()));
+    this.configPath = requestedConfigPath ?? canonicalConfigPath(this.projectDir);
+    const expectedConfigPath = canonicalConfigPath(this.projectDir);
+    if (this.configPath !== expectedConfigPath) {
+      throw new Error(`Rigkit config must be ${expectedConfigPath}; ${this.configPath} is not supported.`);
+    }
     this.statePath = options.state?.path ?? (options.statePath ? resolve(options.statePath) : join(this.projectDir, ".rigkit", "state.sqlite"));
     this.state = options.state;
     this.providers = options.providers ?? [];
@@ -352,7 +359,7 @@ export class DevMachineEngine {
 
     if (!existsSync(this.configPath)) {
       throw new Error(
-        `No Rigkit config found at ${this.configPath}. Run "rig init" or pass --config=<file>.`,
+        `No Rigkit config found at ${this.configPath}. Run "rig init".`,
       );
     }
 

@@ -25,6 +25,16 @@ function writeRigkitIndex(projectDir: string, contents: string): string {
 }
 
 describe("DevMachineEngine workflow runtime", () => {
+  test("rejects non-canonical config paths", async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-noncanonical-config-"));
+    const configPath = join(projectDir, "rig.config.ts");
+    writeFileSync(configPath, "export const dev = {}\n");
+
+    await expect(createDevMachineEngine({ projectDir, configPath })).rejects.toThrow(
+      `Rigkit config must be ${rigkitIndexPath(projectDir)}; ${configPath} is not supported.`,
+    );
+  });
+
   test("plans, applies graph nodes, reuses graph cache, and forks workspaces", async () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-"));
     writeRigkitIndex(projectDir,
@@ -525,12 +535,14 @@ describe("DevMachineEngine workflow runtime", () => {
   });
 
   test("invalidates task cache when handler source changes", async () => {
-    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-handler-cache-"));
-    const statePath = join(projectDir, ".rigkit", "state.sqlite");
-    mkdirSync(join(projectDir, ".rigkit"));
-    const writeConfig = (configPath: string, value: string) =>
-      writeFileSync(
-        configPath,
+    const rootDir = mkdtempSync(join(tmpdir(), "rigkit-handler-cache-"));
+    const firstProjectDir = join(rootDir, "one");
+    const secondProjectDir = join(rootDir, "two");
+    const statePath = join(rootDir, ".rigkit", "state.sqlite");
+    mkdirSync(join(rootDir, ".rigkit"));
+    const writeConfig = (projectDir: string, value: string) =>
+      writeRigkitIndex(
+        projectDir,
         `
           import { workflow } from "${import.meta.dir}/index.ts";
 
@@ -542,13 +554,11 @@ describe("DevMachineEngine workflow runtime", () => {
         `,
       );
 
-    const firstConfigPath = join(projectDir, "rig.one.config.ts");
-    const secondConfigPath = join(projectDir, "rig.two.config.ts");
-    writeConfig(firstConfigPath, "one");
-    writeConfig(secondConfigPath, "two");
+    const firstConfigPath = writeConfig(firstProjectDir, "one");
+    const secondConfigPath = writeConfig(secondProjectDir, "two");
 
     const first = await createDevMachineEngine({
-      projectDir,
+      projectDir: firstProjectDir,
       configPath: firstConfigPath,
       statePath,
     });
@@ -560,7 +570,7 @@ describe("DevMachineEngine workflow runtime", () => {
     expect(cached.cachedNodeCount).toBe(1);
 
     const second = await createDevMachineEngine({
-      projectDir,
+      projectDir: secondProjectDir,
       configPath: secondConfigPath,
       statePath,
     });
@@ -575,14 +585,16 @@ describe("DevMachineEngine workflow runtime", () => {
   });
 
   test("stores globally scoped sequence runs in fragment state and busts downstream local cache", async () => {
-    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-global-fragment-"));
-    const statePath = join(projectDir, ".rigkit", "state.sqlite");
-    const fragmentRoot = join(projectDir, "fragments");
-    mkdirSync(join(projectDir, ".rigkit"));
+    const rootDir = mkdtempSync(join(tmpdir(), "rigkit-global-fragment-"));
+    const firstProjectDir = join(rootDir, "one");
+    const secondProjectDir = join(rootDir, "two");
+    const statePath = join(rootDir, ".rigkit", "state.sqlite");
+    const fragmentRoot = join(rootDir, "fragments");
+    mkdirSync(join(rootDir, ".rigkit"));
 
-    const writeConfig = (configPath: string, value: string) =>
-      writeFileSync(
-        configPath,
+    const writeConfig = (projectDir: string, value: string) =>
+      writeRigkitIndex(
+        projectDir,
         `
           import { sequence } from "${import.meta.dir}/index.ts";
 
@@ -597,20 +609,19 @@ describe("DevMachineEngine workflow runtime", () => {
         `,
       );
 
-    const firstConfigPath = join(projectDir, "rig.one.config.ts");
-    const secondConfigPath = join(projectDir, "rig.two.config.ts");
-    writeConfig(firstConfigPath, "one");
-    writeConfig(secondConfigPath, "two");
+    const firstConfigPath = writeConfig(firstProjectDir, "one");
+    const secondConfigPath = writeConfig(secondProjectDir, "two");
 
-    const engineOptions = {
+    const engineOptions = (projectDir: string, configPath: string) => ({
       projectDir,
+      configPath,
       statePath,
       globalFragmentStateLocator: (fragment: { hash: string }) => ({
         statePath: join(fragmentRoot, fragment.hash, "state.sqlite"),
       }),
-    };
+    });
 
-    const first = await createDevMachineEngine({ ...engineOptions, configPath: firstConfigPath });
+    const first = await createDevMachineEngine(engineOptions(firstProjectDir, firstConfigPath));
     await first.load();
     await first.apply({ workflow: "site" });
     expect((await first.plan({ workflow: "site" })).cachedNodeCount).toBe(2);
@@ -628,7 +639,7 @@ describe("DevMachineEngine workflow runtime", () => {
     const cache = await first.listCache();
     expect(cache.entries.map((entry) => entry.scope).sort()).toEqual(["global", "local"]);
 
-    const second = await createDevMachineEngine({ ...engineOptions, configPath: secondConfigPath });
+    const second = await createDevMachineEngine(engineOptions(secondProjectDir, secondConfigPath));
     await second.load();
     const changed = await second.plan({ workflow: "site" });
     expect(changed.cachedNodeCount).toBe(0);

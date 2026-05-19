@@ -115,8 +115,10 @@ curl -fsSL https://www.rigkit.dev/install | sh
 Create a project:
 
 ```sh
-rig init website --package-manager pnpm
+mkdir website
 cd website
+pnpm add -D @rigkit/sdk @rigkit/provider-freestyle @rigkit/provider-cmux freestyle
+rig init
 rig plan
 rig apply
 rig create dev

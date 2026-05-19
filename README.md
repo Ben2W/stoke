@@ -52,8 +52,10 @@ npm install -g @rigkit/cli
 Create a project:
 
 ```sh
-rig init website --package-manager pnpm
+mkdir website
 cd website
+pnpm add -D @rigkit/sdk @rigkit/provider-freestyle @rigkit/provider-cmux freestyle
+rig init
 ```
 
 Plan and apply the workflow:
@@ -71,9 +73,10 @@ rig ls
 rig rm dev
 ```
 
-The generated config prepares a Node.js 22 Freestyle VM and creates workspaces
-from the cached snapshot. From there, add operations such as SSH, cmux, VS Code,
-or preview URLs in `rigkit/index.ts`. See the
+The generated config prepares a Node.js 22 Freestyle VM, installs GitHub CLI,
+authenticates `gh`, clones `octocat/Hello-World`, and creates workspaces from
+the cached snapshot. It includes `ssh`, `open-cmux`, and `open-vscode`
+operations in `rigkit/index.ts`. See the
 [Quickstart](https://docs.rigkit.dev/guides/quickstart) and
 [workspace guide](https://docs.rigkit.dev/guides/workspaces) for the full loop.
 

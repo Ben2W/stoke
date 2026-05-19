@@ -180,21 +180,39 @@ describe("CLI entrypoint", () => {
     }
   });
 
-  test("initializes into a project directory by default", async () => {
+  test("initializes the current directory without init options", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "rigkit-cli-init-"));
 
     try {
-      const result = await runCli(["init", "website", "--package-manager", "skip", "--json"], { cwd });
-      const projectDir = join(realpathSync(cwd), "website");
+      const result = await runCli(["--json", "init"], { cwd });
+      const projectDir = realpathSync(cwd);
 
       expect(result.exitCode).toBe(0);
       expect(result.stderr).toBe("");
-      expect(JSON.parse(result.stdout)).toMatchObject({
-        name: "website",
+      expect(JSON.parse(result.stdout)).toEqual({
         projectDir,
         configPath: join(projectDir, "rigkit", "index.ts"),
+        created: {
+          config: true,
+        },
       });
       expect(existsSync(join(projectDir, "rigkit", "index.ts"))).toBe(true);
+      expect(existsSync(join(projectDir, "package.json"))).toBe(false);
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects removed init options", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "rigkit-cli-init-options-"));
+
+    try {
+      const result = await runCli(["init", "website"], { cwd });
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toContain("too many arguments");
+      expect(existsSync(join(cwd, "rigkit", "index.ts"))).toBe(false);
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }

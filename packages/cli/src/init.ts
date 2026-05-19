@@ -1,114 +1,73 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { RIGKIT_CLI_VERSION } from "./version.ts";
-import {
-  FREESTYLE_PROVIDER_PACKAGE_NAME,
-  FREESTYLE_SDK_PACKAGE_NAME,
-  FREESTYLE_SDK_PACKAGE_VERSION,
-  PROJECT_PACKAGE_NAME,
-} from "./project.ts";
+import { DEFAULT_CONFIG_PATH } from "./project.ts";
 
 export type InitProjectInput = {
   projectDir: string;
-  configPath: string;
-  name: string;
-  apiKey?: string;
-  force?: boolean;
 };
 
 export type InitProjectResult = {
-  name: string;
   projectDir: string;
   configPath: string;
-  envPath: string;
-  envExamplePath: string;
-  gitignorePath: string;
-  packageJsonPath: string;
   created: {
     config: boolean;
-    env: boolean;
-    envExample: boolean;
-    packageJson: boolean;
-    gitignore: boolean;
-  };
-  updated: {
-    envApiKey: boolean;
-    gitignore: boolean;
-    packageJson: boolean;
-    sdkDependency: boolean;
   };
 };
 
 export function initProject(input: InitProjectInput): InitProjectResult {
-  const name = normalizeMachineName(input.name);
+  const configPath = join(input.projectDir, DEFAULT_CONFIG_PATH);
   mkdirSync(input.projectDir, { recursive: true });
-  mkdirSync(dirname(input.configPath), { recursive: true });
+  mkdirSync(dirname(configPath), { recursive: true });
 
-  if (existsSync(input.configPath) && !input.force) {
-    throw new Error(`${input.configPath} already exists. Pass --force to overwrite it.`);
+  if (existsSync(configPath)) {
+    throw new Error(`${configPath} already exists.`);
   }
 
-  const wroteConfig = !existsSync(input.configPath) || Boolean(input.force);
-  if (wroteConfig) {
-    writeFileSync(input.configPath, starterConfig(name));
-  }
-
-  const apiKey = input.apiKey?.trim();
-  const envPath = join(input.projectDir, ".env");
-  const env = apiKey
-    ? writeEnvFile(envPath, apiKey)
-    : { created: false, updated: false };
-
-  const envExamplePath = join(input.projectDir, ".env.example");
-  const wroteEnvExample = Boolean(apiKey) && !existsSync(envExamplePath);
-  if (wroteEnvExample) {
-    writeFileSync(envExamplePath, "FREESTYLE_API_KEY=\n");
-  }
-
-  const gitignore = ensureGitignore(input.projectDir);
-  const packageJson = ensureProjectPackageJson(input.projectDir, name);
+  writeFileSync(configPath, starterConfig());
 
   return {
-    name,
     projectDir: input.projectDir,
-    configPath: input.configPath,
-    envPath,
-    envExamplePath,
-    gitignorePath: gitignore.path,
-    packageJsonPath: packageJson.path,
+    configPath,
     created: {
-      config: wroteConfig,
-      env: env.created,
-      envExample: wroteEnvExample,
-      gitignore: gitignore.created,
-      packageJson: packageJson.created,
-    },
-    updated: {
-      envApiKey: env.updated,
-      gitignore: gitignore.updated,
-      packageJson: packageJson.updated,
-      sdkDependency: packageJson.sdkDependencyChanged,
+      config: true,
     },
   };
 }
 
-export function normalizeMachineName(value: string): string {
-  const name = value.trim().toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
-  if (!name) {
-    throw new Error("Project name is required.");
-  }
-  return name;
-}
-
-export function starterConfig(name: string): string {
+export function starterConfig(): string {
   const workflowName = JSON.stringify("dev");
 
   return `import { workflow } from "@rigkit/sdk";
+import { cmux } from "@rigkit/provider-cmux";
 import { freestyle, VmBaseImage, VmSpec } from "@rigkit/provider-freestyle";
 
+const repo = "octocat/Hello-World";
+const repoPath = "/workspace/Hello-World";
+const vmHome = "/root";
 const vmIdleTimeoutSeconds = 3600;
 const vmSpec = new VmSpec()
   .baseImage(new VmBaseImage("FROM node:22"))
+  .runCommands(
+    \`
+set -e
+export DEBIAN_FRONTEND=noninteractive
+
+apt-get update -qq
+apt-get install -y -qq ca-certificates curl git gnupg openssh-client
+mkdir -p /etc/apt/keyrings
+
+curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /etc/apt/keyrings/githubcli-archive-keyring.gpg
+chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg
+printf 'deb [arch=%s signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main\\\\n' "$(dpkg --print-architecture)" > /etc/apt/sources.list.d/github-cli.list
+
+apt-get update -qq
+apt-get install -y -qq gh
+
+git config --system init.defaultBranch main
+gh --version
+rm -rf /var/lib/apt/lists/*
+\`,
+  )
   .idleTimeoutSeconds(vmIdleTimeoutSeconds);
 
 const freestyleProvider = freestyle.provider();
@@ -116,10 +75,12 @@ const freestyleProvider = freestyle.provider();
 export const dev = workflow(${workflowName}, {
   providers: {
     freestyle: freestyleProvider,
+    terminal: freestyle.terminal(),
+    cmux: cmux.provider(),
   },
 })
-  .step("verify-node-22", async ({ providers }) => {
-    console.log("creating verification vm");
+  .step("create-base-vm", async ({ providers }) => {
+    console.log("creating base vm");
     const { vm, vmId } = await providers.freestyle.client.vms.create({
       spec: vmSpec,
       logger: console.log,
@@ -135,6 +96,63 @@ export const dev = workflow(${workflowName}, {
       await providers.freestyle.client.vms.delete({ vmId });
     }
   })
+  .step("github-auth", async ({ providers, step }) => {
+    const { vm, vmId } = await providers.freestyle.client.vms.create({
+      snapshotId: step.ctx.snapshotId,
+      idleTimeoutSeconds: vmIdleTimeoutSeconds,
+      logger: console.log,
+    });
+    try {
+      const authenticated = await vm.exec(withVmHome("gh auth status -h github.com >/dev/null 2>&1"));
+      if ((authenticated.statusCode ?? 0) !== 0) {
+        await providers.terminal.open("Log in to GitHub", {
+          ssh: await providers.freestyle.createSSHOptions({ vmId }),
+          command: "gh auth login --hostname github.com --git-protocol https --web",
+          keepOpenAfterCommand: true,
+          instructions: "Complete the GitHub browser login in this terminal. After gh succeeds, type exit to continue.",
+        });
+
+        const verified = await vm.exec(withVmHome("gh auth status -h github.com >/dev/null 2>&1"));
+        if ((verified.statusCode ?? 0) !== 0) {
+          const status = await vm.exec(withVmHome("gh auth status -h github.com 2>&1"));
+          throw new Error(\`GitHub CLI is not authenticated:\\n\${status.stdout || status.stderr}\`.trim());
+        }
+      }
+
+      const snapshot = await vm.snapshot();
+      return { ctx: { snapshotId: snapshot.snapshotId } };
+    } finally {
+      await providers.freestyle.client.vms.delete({ vmId });
+    }
+  })
+  .step("clone-hello-world", async ({ providers, step }) => {
+    const { vm, vmId } = await providers.freestyle.client.vms.create({
+      snapshotId: step.ctx.snapshotId,
+      idleTimeoutSeconds: vmIdleTimeoutSeconds,
+      logger: console.log,
+    });
+    try {
+      const clone = await vm.exec({
+        command: [
+          "set -e",
+          \`export HOME=\${shellQuote(vmHome)}\`,
+          \`mkdir -p \${shellQuote(dirname(repoPath))}\`,
+          \`rm -rf \${shellQuote(repoPath)}\`,
+          \`gh repo clone \${shellQuote(repo)} \${shellQuote(repoPath)}\`,
+          \`git -C \${shellQuote(repoPath)} status --short\`,
+        ].join("\\n"),
+        timeoutMs: 5 * 60 * 1000,
+      });
+      if ((clone.statusCode ?? 0) !== 0) {
+        throw new Error(\`Hello-World clone failed:\\n\${clone.stdout ?? ""}\${clone.stderr ?? ""}\`.trim());
+      }
+
+      const snapshot = await vm.snapshot();
+      return { ctx: { snapshotId: snapshot.snapshotId, repoPath } };
+    } finally {
+      await providers.freestyle.client.vms.delete({ vmId });
+    }
+  })
   .workspace({
     create: async ({ workflow, providers }) => {
       console.log("booting workspace vm");
@@ -145,124 +163,68 @@ export const dev = workflow(${workflowName}, {
       });
       return {
         vmId,
+        repoPath: workflow.ctx.repoPath,
       };
     },
     remove: async ({ providers, workspace }) => {
       await providers.freestyle.client.vms.delete({ vmId: workspace.ctx.vmId });
     },
+  })
+  .workspaceOperation("open-cmux", {
+    title: "Open cmux",
+    description: "Open the workspace in cmux",
+    run: async ({ providers, workspace }) => {
+      await providers.cmux.open({
+        name: workspace.name,
+        ssh: await providers.freestyle.cmux.createSshOptions({
+          vmId: workspace.ctx.vmId,
+        }),
+        cwd: workspace.ctx.repoPath,
+        surfaceLayout: "tabs",
+        terminals: [
+          { command: "git status && exec bash -l" },
+        ],
+        focus: true,
+      });
+    },
+  })
+  .workspaceOperation("open-vscode", {
+    title: "Open VS Code",
+    description: "Open the workspace in VS Code",
+    run: async ({ providers, workspace, local }) => {
+      const url = await providers.freestyle.vscode.createUrl({
+        vmId: workspace.ctx.vmId,
+        cwd: workspace.ctx.repoPath,
+      });
+      await local.open(url);
+    },
+  })
+  .workspaceOperation("ssh", {
+    title: "SSH",
+    description: "Open an interactive SSH session",
+    run: async ({ providers, workspace }) => {
+      await providers.terminal.open(\`SSH \${workspace.name}\`, {
+        ssh: await providers.freestyle.createSSHOptions({
+          vmId: workspace.ctx.vmId,
+        }),
+        command: \`cd \${shellQuote(workspace.ctx.repoPath)} && exec bash -l\`,
+        keepOpenAfterCommand: true,
+        instructions: "Exit the SSH session when you are done.",
+      });
+    },
   });
+
+function dirname(path: string): string {
+  const index = path.lastIndexOf("/");
+  return index <= 0 ? "/" : path.slice(0, index);
+}
+
+function withVmHome(command: string): string {
+  return \`HOME=\${shellQuote(vmHome)} \${command}\`;
+}
+
+function shellQuote(value: string): string {
+  return \`'\${value.replaceAll("'", \`'\\\\''\`)}'\`;
+}
 `;
-}
-
-function writeEnvFile(path: string, apiKey: string): { created: boolean; updated: boolean } {
-  const created = !existsSync(path);
-  const existing = created ? "" : readFileSync(path, "utf8");
-  const lines = existing ? existing.split(/\r?\n/) : [];
-  const nextLine = `FREESTYLE_API_KEY=${apiKey}`;
-  let found = false;
-  let updated = created;
-
-  const next = lines.map((line) => {
-    if (!line.startsWith("FREESTYLE_API_KEY=")) return line;
-    found = true;
-    if (line === nextLine) return line;
-    updated = true;
-    return nextLine;
-  });
-
-  if (!found) {
-    if (next.length > 0 && next[next.length - 1] !== "") next.push("");
-    next.push(nextLine);
-    updated = true;
-  }
-
-  if (updated) {
-    writeFileSync(path, `${next.join("\n").replace(/\n+$/, "")}\n`);
-  }
-
-  return { created, updated };
-}
-
-function ensureGitignore(projectDir: string): { path: string; created: boolean; updated: boolean } {
-  const path = join(projectDir, ".gitignore");
-  const created = !existsSync(path);
-  const existing = created ? "" : readFileSync(path, "utf8");
-  const entries = existing.split(/\r?\n/).filter(Boolean);
-  let updated = false;
-
-  for (const entry of [".env", ".rigkit/"]) {
-    if (!entries.includes(entry)) {
-      entries.push(entry);
-      updated = true;
-    }
-  }
-
-  if (created || updated) {
-    writeFileSync(path, `${entries.join("\n")}\n`);
-  }
-
-  return { path, created, updated: created || updated };
-}
-
-function ensureProjectPackageJson(
-  projectDir: string,
-  name: string,
-): { path: string; created: boolean; updated: boolean; sdkDependencyChanged: boolean } {
-  const path = join(projectDir, "package.json");
-  const created = !existsSync(path);
-  const pkg = created
-    ? {
-        name,
-        private: true,
-        type: "module",
-        scripts: {},
-      }
-    : JSON.parse(readFileSync(path, "utf8")) as Record<string, any>;
-
-  let updated = created;
-
-  if (!isRecord(pkg.scripts)) {
-    pkg.scripts = {};
-    updated = true;
-  }
-
-  const scripts = pkg.scripts as Record<string, string>;
-  for (const [key, value] of Object.entries({
-    plan: "rig plan",
-    apply: "rig apply",
-  })) {
-    if (scripts[key] !== value) {
-      scripts[key] = value;
-      updated = true;
-    }
-  }
-  pkg.scripts = sortObject(scripts);
-
-  const devDependencies = isRecord(pkg.devDependencies) ? pkg.devDependencies : {};
-  const sdkDependencyChanged =
-    devDependencies[PROJECT_PACKAGE_NAME] !== RIGKIT_CLI_VERSION ||
-    devDependencies[FREESTYLE_PROVIDER_PACKAGE_NAME] !== RIGKIT_CLI_VERSION ||
-    devDependencies[FREESTYLE_SDK_PACKAGE_NAME] !== FREESTYLE_SDK_PACKAGE_VERSION;
-  if (sdkDependencyChanged) {
-    delete devDependencies["@rigkit/runtime"];
-    devDependencies[PROJECT_PACKAGE_NAME] = RIGKIT_CLI_VERSION;
-    devDependencies[FREESTYLE_PROVIDER_PACKAGE_NAME] = RIGKIT_CLI_VERSION;
-    devDependencies[FREESTYLE_SDK_PACKAGE_NAME] = FREESTYLE_SDK_PACKAGE_VERSION;
-    updated = true;
-  }
-  pkg.devDependencies = sortObject(devDependencies);
-
-  if (created || updated) {
-    writeFileSync(path, `${JSON.stringify(pkg, null, 2)}\n`);
-  }
-
-  return { path, created, updated, sdkDependencyChanged };
-}
-
-function isRecord(value: unknown): value is Record<string, any> {
-  return Boolean(value && typeof value === "object" && !Array.isArray(value));
-}
-
-function sortObject<T>(value: Record<string, T>): Record<string, T> {
-  return Object.fromEntries(Object.entries(value).sort(([left], [right]) => left.localeCompare(right)));
 }

@@ -15,14 +15,6 @@ describe("CLI project resolution", () => {
     expect(paths.configPath).toBe(join(cwd, "example", "rigkit", "index.ts"));
   });
 
-  test("resolves --config project root from rigkit parent", () => {
-    const cwd = mkdtempSync(join(tmpdir(), "rigkit-cli-"));
-    const paths = resolveConfigPaths({ cwd, config: "platform/rigkit/index.ts" });
-
-    expect(paths.projectDir).toBe(join(cwd, "platform"));
-    expect(paths.configPath).toBe(join(cwd, "platform", "rigkit", "index.ts"));
-  });
-
   test("searches upward from cwd for the nearest config", () => {
     const cwd = mkdtempSync(join(tmpdir(), "rigkit-cli-"));
     mkdirSync(join(cwd, "project", "nested"), { recursive: true });
@@ -41,6 +33,16 @@ describe("CLI project resolution", () => {
     expect(() => resolveConfigPaths({ cwd })).toThrow(
       /No Rigkit config found from .* upward/,
     );
+  });
+
+  test("does not treat rig.config.ts as a project config", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "rigkit-cli-"));
+    writeFileSync(join(cwd, "rig.config.ts"), "export const dev = {}\n");
+
+    expect(() => resolveConfigPaths({ cwd })).toThrow(
+      /No Rigkit config found from .* upward/,
+    );
+    expect(discoverProjectConfigs({ cwd })).toEqual([]);
   });
 
   test("discovers projects downward without entering dependency directories", () => {

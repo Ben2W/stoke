@@ -102,7 +102,6 @@ describe("CLI completion", () => {
 
     expect(items.map((item) => item.value)).toEqual([
       "--chdir=",
-      "--config=",
       "--state=",
       "--json",
       "--help",
@@ -127,49 +126,6 @@ describe("CLI completion", () => {
         noSpace: true,
         group: "Paths",
       });
-    } finally {
-      rmSync(cwd, { recursive: true, force: true });
-    }
-  });
-
-  test("completes canonical config path", async () => {
-    const cwd = mkdtempSync(join(tmpdir(), "rigkit-completion-configs-"));
-    writeRigkitIndex(cwd);
-
-    try {
-      const roots = await completeRig({
-        cwd,
-        words: ["rig", "--config="],
-        currentIndex: 1,
-      });
-
-      expect(roots.map((item) => item.value)).toContain("--config=rigkit/");
-
-      const items = await completeRig({
-        cwd,
-        words: ["rig", "--config=rigkit/"],
-        currentIndex: 1,
-      });
-
-      expect(items.map((item) => item.value)).toEqual(["--config=rigkit/index.ts"]);
-    } finally {
-      rmSync(cwd, { recursive: true, force: true });
-    }
-  });
-
-  test("respects --chdir when completing config files", async () => {
-    const cwd = mkdtempSync(join(tmpdir(), "rigkit-completion-configs-"));
-    const projectDir = join(cwd, "global-fragments");
-    writeRigkitIndex(projectDir);
-
-    try {
-      const items = await completeRig({
-        cwd,
-        words: ["rig", "--chdir=global-fragments", "--config=rigkit/"],
-        currentIndex: 2,
-      });
-
-      expect(items.map((item) => item.value)).toEqual(["--config=rigkit/index.ts"]);
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }
@@ -285,7 +241,7 @@ describe("CLI completion", () => {
   test("completes cache at the root command position after global options", async () => {
     const items = await completeRig({
       cwd: process.cwd(),
-      words: ["rig", "--config=rigkit/index.ts", "c"],
+      words: ["rig", "--chdir=.", "c"],
       currentIndex: 2,
     });
 
@@ -438,22 +394,7 @@ describe("CLI completion", () => {
       words: ["rig", "init", "--"],
       currentIndex: 2,
     });
-    expect(initFlags.map((item) => item.value)).toEqual([
-      "--dir",
-      "--name",
-      "--api-key",
-      "--package-manager",
-      "--force",
-      "--json",
-      "--help",
-    ]);
-
-    const packageManagers = await completeRig({
-      cwd: process.cwd(),
-      words: ["rig", "init", "--package-manager", "p"],
-      currentIndex: 3,
-    });
-    expect(packageManagers.map((item) => item.value)).toEqual(["pnpm"]);
+    expect(initFlags.map((item) => item.value)).toEqual(["--help"]);
 
     const doctorFlags = await completeRig({
       cwd: process.cwd(),
