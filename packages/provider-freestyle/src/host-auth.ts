@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { Freestyle } from "freestyle";
-import type { LocalWorkspaceRuntime, ProviderStorage } from "@rigkit/engine";
+import type { LocalWorkspaceRuntime, ProviderStorage, WorkflowProviderCheckResult } from "@rigkit/engine";
 import type { JsonValue } from "@rigkit/sdk";
 import { freestyleIdentityId, freestyleToken, freestyleTokenId } from "./auth.ts";
 import { createFreestyleStore } from "./store.ts";
@@ -29,6 +29,7 @@ export type FreestyleAuthenticatedClient = {
   identityId: ReturnType<typeof freestyleIdentityId>;
   tokenId: ReturnType<typeof freestyleTokenId>;
   token: ReturnType<typeof freestyleToken>;
+  team?: FreestyleResolvedTeam;
 };
 
 type CreateFreestyleAuthenticatedClientInput = {
@@ -43,6 +44,7 @@ type CreateFreestyleAuthenticatedClientInput = {
 type ResolvedClientAuth = {
   client: Freestyle;
   identityKey: string;
+  team?: FreestyleResolvedTeam;
 };
 
 type StackAuthConfig = {
@@ -58,6 +60,7 @@ type StackAuthState = {
   refreshToken: string;
   updatedAt: number;
   defaultTeamId?: string;
+  defaultTeamName?: string;
   accessToken?: string;
   accessTokenUpdatedAt?: number;
 };
@@ -73,6 +76,11 @@ type FreestyleTeam = {
   sandboxAccountId?: string | null;
 };
 
+export type FreestyleResolvedTeam = {
+  id: string;
+  displayName?: string;
+};
+
 export async function createFreestyleAuthenticatedClient(
   input: CreateFreestyleAuthenticatedClientInput,
 ): Promise<FreestyleAuthenticatedClient> {
@@ -85,6 +93,7 @@ export async function createFreestyleAuthenticatedClient(
       identityId: savedIdentity.identityId,
       tokenId: savedIdentity.tokenId,
       token: savedIdentity.token,
+      team: auth.team,
     };
   }
 
@@ -102,7 +111,101 @@ export async function createFreestyleAuthenticatedClient(
     identityId: createdIdentity.identityId,
     tokenId: createdIdentity.tokenId,
     token: createdIdentity.token,
+    team: auth.team,
   };
+}
+
+export function checkFreestyleProviderAuth(input: {
+  config?: FreestyleProviderConfig;
+  hostStorage: ProviderStorage;
+}): WorkflowProviderCheckResult[] {
+  const apiKey = nonEmpty(input.config?.apiKey);
+  const apiUrl = nonEmpty(input.config?.apiUrl) ?? nonEmpty(process.env.FREESTYLE_API_URL);
+  const store = createFreestyleStore(input.hostStorage);
+
+  if (apiKey) {
+    const identityKey = apiKeyIdentityKey({ apiUrl, apiKey });
+    return [{
+      id: "auth",
+      label: "Freestyle auth",
+      status: "ok",
+      value: "API key",
+      fingerprint: providerIdentityFingerprint(identityKey, store.getIdentity(identityKey)),
+    }];
+  }
+
+  const stack = resolveStackAuthConfig(input.config);
+  const stored = readStackAuthState(input.hostStorage.get(stackAuthStateKey(stack))?.value);
+  const configuredTeamId = nonEmpty(input.config?.teamId) ?? nonEmpty(process.env.FREESTYLE_TEAM_ID);
+
+  if (!stored?.refreshToken) {
+    return [{
+      id: "auth",
+      label: "Freestyle auth",
+      status: "required",
+      value: "login required",
+      message: "Run rig apply, rig create, or rig run to authenticate with Freestyle.",
+      fingerprint: `browser:${stack.profile}:auth:missing`,
+    }];
+  }
+
+  const teamId = configuredTeamId ?? stored.defaultTeamId;
+  if (!teamId) {
+    return [{
+      id: "team",
+      label: "Freestyle team",
+      status: "required",
+      value: "team selection required",
+      message: "Run rig apply, rig create, or rig run to choose a Freestyle team.",
+      fingerprint: `browser:${stack.profile}:team:missing`,
+    }];
+  }
+
+  const identityKey = browserIdentityKey({
+    apiUrl,
+    dashboardUrl: stack.dashboardUrl,
+    profile: stack.profile,
+    teamId,
+  });
+  const storedTeamName = teamId === stored.defaultTeamId ? stored.defaultTeamName : undefined;
+  return [{
+    id: "team",
+    label: "Freestyle team",
+    status: "ok",
+    value: formatFreestyleTeam({ id: teamId, displayName: storedTeamName }),
+    detail: teamId,
+    fingerprint: providerIdentityFingerprint(identityKey, store.getIdentity(identityKey)),
+    metadata: {
+      teamId,
+      ...(storedTeamName ? { teamName: storedTeamName } : {}),
+    },
+  }];
+}
+
+export function freestyleProviderChecksFromAuthenticated(
+  auth: FreestyleAuthenticatedClient,
+): WorkflowProviderCheckResult[] {
+  if (auth.team) {
+    return [{
+      id: "team",
+      label: "Freestyle team",
+      status: "ok",
+      value: formatFreestyleTeam(auth.team),
+      detail: auth.team.id,
+      fingerprint: `identity:${auth.identityId}`,
+      metadata: {
+        teamId: auth.team.id,
+        ...(auth.team.displayName ? { teamName: auth.team.displayName } : {}),
+      },
+    }];
+  }
+  return [{
+    id: "auth",
+    label: "Freestyle auth",
+    status: "ok",
+    value: "API key",
+    fingerprint: `identity:${auth.identityId}`,
+  }];
 }
 
 export function createFreestyleProxyFetch(input: {
@@ -213,7 +316,7 @@ async function resolveClientAuth(input: CreateFreestyleAuthenticatedClientInput)
         ...(apiUrl ? { baseUrl: apiUrl } : {}),
         fetch: createFreestyleSdkFetch(fetchFn),
       }),
-      identityKey: `api-key:${fingerprint({ apiUrl: apiUrl ?? "default", apiKey })}`,
+      identityKey: apiKeyIdentityKey({ apiUrl, apiKey }),
     };
   }
 
@@ -230,7 +333,7 @@ async function resolveClientAuth(input: CreateFreestyleAuthenticatedClientInput)
     timeoutMs: input.timeoutMs ?? DEFAULT_CLI_AUTH_TIMEOUT_MILLIS,
     pollIntervalMs: input.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MILLIS,
   });
-  const teamId = await resolveTeamId({
+  const team = await resolveTeam({
     configuredTeamId: input.config?.teamId,
     stored: readStackAuthState(input.hostStorage.get(stackStateKey)?.value) ?? stored,
     accessToken: refreshed.accessToken,
@@ -238,6 +341,7 @@ async function resolveClientAuth(input: CreateFreestyleAuthenticatedClientInput)
     storage: input.hostStorage,
     storageKey: stackStateKey,
     fetch: fetchFn,
+    local: input.local,
   });
   const client = new Freestyle({
     apiKey: "rigkit-browser-auth",
@@ -245,19 +349,20 @@ async function resolveClientAuth(input: CreateFreestyleAuthenticatedClientInput)
     fetch: createFreestyleProxyFetch({
       dashboardUrl: stack.dashboardUrl,
       accessToken: refreshed.accessToken,
-      teamId,
+      teamId: team.id,
       fetch: fetchFn,
     }),
   });
 
   return {
     client,
-    identityKey: `browser:${fingerprint({
-      apiUrl: apiUrl ?? "default",
+    identityKey: browserIdentityKey({
+      apiUrl,
       dashboardUrl: stack.dashboardUrl,
       profile: stack.profile,
-      teamId,
-    })}`,
+      teamId: team.id,
+    }),
+    team,
   };
 }
 
@@ -470,6 +575,7 @@ async function resolveStackAccessToken(input: {
     saveStackAuthState(input.storage, input.storageKey, {
       refreshToken,
       defaultTeamId: input.stored?.defaultTeamId,
+      defaultTeamName: input.stored?.defaultTeamName,
       updatedAt: Date.now(),
     });
   }
@@ -481,6 +587,7 @@ async function resolveStackAccessToken(input: {
     saveStackAuthState(input.storage, input.storageKey, {
       refreshToken,
       defaultTeamId: input.stored?.defaultTeamId,
+      defaultTeamName: input.stored?.defaultTeamName,
       updatedAt: Date.now(),
     });
     refreshed = await refreshStackAccessToken(input.config, refreshToken, input.fetch);
@@ -494,6 +601,7 @@ async function resolveStackAccessToken(input: {
   saveStackAuthState(input.storage, input.storageKey, {
     refreshToken: nextRefreshToken,
     defaultTeamId: input.stored?.defaultTeamId,
+    defaultTeamName: input.stored?.defaultTeamName,
     accessToken: refreshed.accessToken,
     accessTokenUpdatedAt: Date.now(),
     updatedAt: Date.now(),
@@ -589,7 +697,7 @@ async function refreshStackAccessToken(
   };
 }
 
-async function resolveTeamId(input: {
+async function resolveTeam(input: {
   configuredTeamId: string | undefined;
   stored: StackAuthState | undefined;
   accessToken: string;
@@ -597,19 +705,27 @@ async function resolveTeamId(input: {
   storage: ProviderStorage;
   storageKey: string;
   fetch: typeof fetch;
-}): Promise<string> {
+  local: LocalWorkspaceRuntime;
+}): Promise<FreestyleResolvedTeam> {
   const teamId =
     nonEmpty(input.configuredTeamId) ??
       nonEmpty(process.env.FREESTYLE_TEAM_ID) ??
       nonEmpty(input.stored?.defaultTeamId);
   if (teamId) {
+    const storedTeamName = teamId === input.stored?.defaultTeamId
+      ? input.stored?.defaultTeamName
+      : undefined;
     saveStackAuthState(input.storage, input.storageKey, {
       ...input.stored,
       refreshToken: input.stored?.refreshToken ?? "",
       defaultTeamId: teamId,
+      defaultTeamName: storedTeamName,
       updatedAt: Date.now(),
     });
-    return teamId;
+    return {
+      id: teamId,
+      ...(storedTeamName ? { displayName: storedTeamName } : {}),
+    };
   }
 
   const teams = await listTeams(input.config, input.accessToken, input.fetch);
@@ -619,19 +735,68 @@ async function resolveTeamId(input: {
       ...input.stored,
       refreshToken: input.stored?.refreshToken ?? "",
       defaultTeamId: onlyTeam.id,
+      defaultTeamName: nonEmpty(onlyTeam.displayName),
       updatedAt: Date.now(),
     });
-    return onlyTeam.id;
+    return freestyleResolvedTeam(onlyTeam);
   }
 
   if (teams.length === 0) {
     throw new Error("Freestyle authentication succeeded, but no teams were available for this account.");
   }
 
-  const choices = teams.map((team) => `${team.displayName ?? team.id} (${team.id})`).join(", ");
-  throw new Error(
-    `Freestyle authentication found multiple teams. Set freestyle.provider({ teamId }) or FREESTYLE_TEAM_ID. Teams: ${choices}`,
-  );
+  const selectedTeamId = await selectFreestyleTeam(input.local, teams);
+  const selectedTeam = teams.find((team) => team.id === selectedTeamId);
+  if (!selectedTeam) {
+    throw new Error(`Freestyle team selection returned unknown team ${selectedTeamId}.`);
+  }
+  saveStackAuthState(input.storage, input.storageKey, {
+    ...input.stored,
+    refreshToken: input.stored?.refreshToken ?? "",
+    defaultTeamId: selectedTeam.id,
+    defaultTeamName: nonEmpty(selectedTeam.displayName),
+    updatedAt: Date.now(),
+  });
+  return freestyleResolvedTeam(selectedTeam);
+}
+
+async function selectFreestyleTeam(
+  local: LocalWorkspaceRuntime,
+  teams: FreestyleTeam[],
+): Promise<string> {
+  if (!local.prompt?.select) {
+    const choices = teams.map((team) => `${team.displayName ?? team.id} (${team.id})`).join(", ");
+    throw new Error(
+      `Freestyle authentication found multiple teams. Set freestyle.provider({ teamId }) or FREESTYLE_TEAM_ID. Teams: ${choices}`,
+    );
+  }
+  return await local.prompt.select({
+    message: "Choose Freestyle team",
+    options: teams.map((team) => ({
+      value: team.id,
+      label: team.displayName ? `${team.displayName} (${team.id})` : team.id,
+      description: team.sandboxAccountId ? `sandbox ${team.sandboxAccountId}` : undefined,
+    })),
+  });
+}
+
+function freestyleResolvedTeam(team: FreestyleTeam): FreestyleResolvedTeam {
+  const displayName = nonEmpty(team.displayName);
+  return {
+    id: team.id,
+    ...(displayName ? { displayName } : {}),
+  };
+}
+
+function formatFreestyleTeam(team: FreestyleResolvedTeam): string {
+  return team.displayName ? `${team.displayName} (${team.id})` : team.id;
+}
+
+function providerIdentityFingerprint(
+  identityKey: string,
+  identity: { identityId: string } | undefined,
+): string {
+  return `${identityKey}:${identity?.identityId ?? "missing-identity"}`;
 }
 
 async function listTeams(config: StackAuthConfig, accessToken: string, fetchFn: typeof fetch): Promise<FreestyleTeam[]> {
@@ -672,6 +837,24 @@ function stackAuthStateKey(config: StackAuthConfig): string {
   })}`;
 }
 
+function apiKeyIdentityKey(input: { apiUrl: string | undefined; apiKey: string }): string {
+  return `api-key:${fingerprint({ apiUrl: input.apiUrl ?? "default", apiKey: input.apiKey })}`;
+}
+
+function browserIdentityKey(input: {
+  apiUrl: string | undefined;
+  dashboardUrl: string;
+  profile: string;
+  teamId: string;
+}): string {
+  return `browser:${fingerprint({
+    apiUrl: input.apiUrl ?? "default",
+    dashboardUrl: input.dashboardUrl,
+    profile: input.profile,
+    teamId: input.teamId,
+  })}`;
+}
+
 function readStackAuthState(value: JsonValue | undefined): StackAuthState | undefined {
   if (!isRecord(value)) return undefined;
   const refreshToken = typeof value.refreshToken === "string" ? value.refreshToken : undefined;
@@ -680,6 +863,7 @@ function readStackAuthState(value: JsonValue | undefined): StackAuthState | unde
     refreshToken,
     updatedAt: typeof value.updatedAt === "number" ? value.updatedAt : Date.now(),
     defaultTeamId: typeof value.defaultTeamId === "string" ? value.defaultTeamId : undefined,
+    defaultTeamName: typeof value.defaultTeamName === "string" ? value.defaultTeamName : undefined,
     accessToken: typeof value.accessToken === "string" ? value.accessToken : undefined,
     accessTokenUpdatedAt: typeof value.accessTokenUpdatedAt === "number" ? value.accessTokenUpdatedAt : undefined,
   };
@@ -691,6 +875,7 @@ function saveStackAuthState(storage: ProviderStorage, key: string, state: StackA
     refreshToken: state.refreshToken,
     updatedAt: state.updatedAt,
     ...(state.defaultTeamId ? { defaultTeamId: state.defaultTeamId } : {}),
+    ...(state.defaultTeamName ? { defaultTeamName: state.defaultTeamName } : {}),
     ...(state.accessToken ? { accessToken: state.accessToken } : {}),
     ...(state.accessTokenUpdatedAt ? { accessTokenUpdatedAt: state.accessTokenUpdatedAt } : {}),
   });

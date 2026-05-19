@@ -222,7 +222,7 @@ describe("CLI completion", () => {
         currentIndex: 1,
       });
 
-      expect(items.map((item) => item.value)).toEqual(["plan", "projects"]);
+      expect(items.map((item) => item.value)).toEqual(["plan", "providers", "projects"]);
     });
   });
 
@@ -258,6 +258,40 @@ describe("CLI completion", () => {
       "--json",
       "--help",
     ]);
+  });
+
+  test("completes provider targets, subcommands, and flags", async () => {
+    const targets = await completeRig({
+      cwd: process.cwd(),
+      words: ["rig", "providers", ""],
+      currentIndex: 2,
+    });
+
+    expect(targets.map((item) => item.value)).toEqual(["freestyle"]);
+
+    const targetFlags = await completeRig({
+      cwd: process.cwd(),
+      words: ["rig", "providers", "--"],
+      currentIndex: 2,
+    });
+
+    expect(targetFlags.map((item) => item.value)).toEqual(["--help"]);
+
+    const subcommands = await completeRig({
+      cwd: process.cwd(),
+      words: ["rig", "providers", "freestyle", ""],
+      currentIndex: 3,
+    });
+
+    expect(subcommands.map((item) => item.value)).toEqual(["clear"]);
+
+    const clearFlags = await completeRig({
+      cwd: process.cwd(),
+      words: ["rig", "providers", "freestyle", "clear", "--"],
+      currentIndex: 4,
+    });
+
+    expect(clearFlags.map((item) => item.value)).toEqual(["--json", "--help"]);
   });
 
   test("completes project operation flags and workflow values", async () => {

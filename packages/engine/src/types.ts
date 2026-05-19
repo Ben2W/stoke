@@ -54,6 +54,7 @@ export type CommandOptions = ExecOptions & {
 
 export type LocalWorkspaceRuntime = {
   open(target: string): MaybePromise<void>;
+  prompt?: LocalPromptRuntime;
   command?(input: LocalCommandRequest): MaybePromise<LocalCommandResult>;
   requestCapability?<Result = unknown>(
     capability: string,
@@ -65,6 +66,38 @@ export type LocalWorkspaceRuntime = {
     params: unknown,
     options?: LocalHostCapabilityRequestOptions,
   ): MaybePromise<HostCapabilitySession<Result>>;
+};
+
+export type LocalPromptRuntime = {
+  message(input: LocalMessageRequest): MaybePromise<void>;
+  text(input: LocalTextRequest): MaybePromise<string>;
+  confirm(input: LocalConfirmRequest): MaybePromise<boolean>;
+  select(input: LocalSelectRequest): MaybePromise<string>;
+};
+
+export type LocalMessageRequest = {
+  message: string;
+  level?: "info" | "warn" | "error";
+};
+
+export type LocalTextRequest = {
+  message: string;
+  defaultValue?: string;
+};
+
+export type LocalConfirmRequest = {
+  message: string;
+  defaultValue?: boolean;
+};
+
+export type LocalSelectRequest = {
+  message: string;
+  options: Array<{
+    value: string;
+    label?: string;
+    description?: string;
+  }>;
+  defaultValue?: string;
 };
 
 export type LocalHostCapabilityRequestOptions = {
@@ -810,9 +843,29 @@ export type WorkflowPlanNode = {
   upstreamRunIds: string[];
 };
 
+export type WorkflowProviderCheckStatus = "ok" | "required";
+
+export type WorkflowProviderCheck = {
+  providerId: string;
+  providerName: string;
+  id: string;
+  label: string;
+  status: WorkflowProviderCheckStatus;
+  value: string;
+  message?: string;
+  detail?: string;
+  fingerprint?: string;
+  metadata?: JsonObject;
+};
+
+export type WorkflowProviderCheckResult =
+  & Omit<WorkflowProviderCheck, "providerId" | "providerName">
+  & Partial<Pick<WorkflowProviderCheck, "providerId" | "providerName">>;
+
 export type WorkflowPlan = {
   workflow: string;
   providerFingerprint: string;
+  providerChecks?: WorkflowProviderCheck[];
   cachedNodeCount: number;
   nodeCount: number;
   nodes: WorkflowPlanNode[];

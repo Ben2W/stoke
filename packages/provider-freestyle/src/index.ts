@@ -6,13 +6,16 @@ import type { BaseProviderPlugin } from "@rigkit/engine";
 import * as z from "zod/v4-mini";
 import { freestyleIdentityId, freestyleToken, freestyleTokenId } from "./auth.ts";
 import {
+  checkFreestyleProviderAuth,
   createFreestyleAuthenticatedClient,
   createFreestyleProxyFetch,
+  freestyleProviderChecksFromAuthenticated,
   type FreestyleProviderConfig,
 } from "./host-auth.ts";
 import {
   FREESTYLE_PROVIDER_ID,
   FREESTYLE_TERMINAL_PROVIDER_ID,
+  createLazyFreestyleWorkflowController,
   createFreestyleTerminalController,
   createFreestyleWorkflowProvider,
 } from "./provider.ts";
@@ -65,15 +68,20 @@ export const freestyleProviderPlugin: BaseProviderPlugin = {
   providerId: FREESTYLE_PROVIDER_ID,
   async createProvider({ provider, hostStorage, local }) {
     const config = parseFreestyleProviderConfig(provider.config);
-    const authenticated = await createFreestyleAuthenticatedClient({
+    let authenticated: ReturnType<typeof createFreestyleAuthenticatedClient> | undefined;
+    const authenticate = () => authenticated ??= createFreestyleAuthenticatedClient({
       config,
       hostStorage,
       local,
     });
-    return createFreestyleWorkflowProvider({
-      client: authenticated.client,
-      identityId: authenticated.identityId,
-      token: authenticated.token,
+    return createLazyFreestyleWorkflowController({
+      authenticate,
+      checks: async ({ mode }) => {
+        if (mode === "require") {
+          return freestyleProviderChecksFromAuthenticated(await authenticate());
+        }
+        return checkFreestyleProviderAuth({ config, hostStorage });
+      },
     });
   },
 };
@@ -86,9 +94,11 @@ export const freestyleTerminalPlugin: BaseProviderPlugin = {
 };
 
 export {
+  checkFreestyleProviderAuth,
   createFreestyleAuthenticatedClient,
   createFreestyleProxyFetch,
   createFreestyleSdkFetch,
+  freestyleProviderChecksFromAuthenticated,
 } from "./host-auth.ts";
 export {
   freestyleIdentityId,
@@ -102,6 +112,7 @@ export {
   FREESTYLE_PROVIDER_ID,
   FREESTYLE_TERMINAL_PROVIDER_ID,
   createFreestyleTerminalController,
+  createLazyFreestyleWorkflowController,
   createFreestyleWorkflowController,
   createFreestyleWorkflowProvider,
 } from "./provider.ts";
@@ -120,6 +131,7 @@ export type {
   FreestyleVscodeUrlOptions,
 } from "./provider.ts";
 export type { FreestyleGitRelationship, FreestyleIdentity } from "./store.ts";
+export type { FreestyleResolvedTeam } from "./host-auth.ts";
 
 function parseFreestyleProviderConfig(value: unknown): FreestyleProviderConfig {
   const result = z.safeParse(freestyleProviderConfigSchema, normalizeFreestyleProviderOptions(value));

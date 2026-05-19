@@ -92,6 +92,32 @@ async function executeOperation(run: RunRecord, store: RunStore, options: Engine
       open: async (target) => {
         await requestHost(store, run, "open.external", { target, kind: guessExternalKind(target) });
       },
+      prompt: {
+        message: async (request) => {
+          await requestHost(store, run, "message.show", request);
+        },
+        text: async (request) => {
+          const result = await requestHost(store, run, "prompt.text", request);
+          if (typeof result !== "string") {
+            throw new Error("Host text prompt returned a non-string result");
+          }
+          return result;
+        },
+        confirm: async (request) => {
+          const result = await requestHost(store, run, "prompt.confirm", request);
+          if (typeof result !== "boolean") {
+            throw new Error("Host confirm prompt returned a non-boolean result");
+          }
+          return result;
+        },
+        select: async (request) => {
+          const result = await requestHost(store, run, "prompt.select", request);
+          if (typeof result !== "string") {
+            throw new Error("Host select prompt returned a non-string result");
+          }
+          return result;
+        },
+      },
       command: async (command) => {
         const result = await requestHost(store, run, "host.command.run", command);
         return HostCommandResultSchema.parse(result);

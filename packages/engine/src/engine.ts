@@ -46,6 +46,8 @@ import type {
   WorkflowPlan,
   WorkflowPlanNode,
   WorkflowProviderMap,
+  WorkflowProviderCheck,
+  WorkflowProviderCheckResult,
   WorkflowStepInvalidation,
   WorkflowTaskCacheTTL,
   WorkflowTaskNode,
@@ -68,7 +70,7 @@ export type CreateDevMachineEngineOptions = {
   interaction?: {
     present?: InteractionPresenter;
   };
-  local?: Partial<LocalWorkspaceRuntime>;
+  local?: LocalWorkspaceRuntimeOptions;
 };
 
 export type { InteractionPresenter, InteractionPresentationRequest };
@@ -100,6 +102,12 @@ export type EngineProjectInfo = {
   workflows: WorkflowSummary[];
   workflow?: WorkflowSummary;
 };
+
+export type LocalWorkspaceRuntimeOptions =
+  & Partial<Omit<LocalWorkspaceRuntime, "prompt">>
+  & {
+    prompt?: Partial<NonNullable<LocalWorkspaceRuntime["prompt"]>>;
+  };
 
 export type EngineCacheScope = WorkflowCacheScope;
 
@@ -313,6 +321,12 @@ export class DevMachineEngine {
     this.interactionPresenter = options.interaction?.present ?? defaultInteractionPresenter;
     this.local = {
       open: options.local?.open ?? openLocalTarget,
+      prompt: {
+        message: options.local?.prompt?.message ?? showLocalMessage,
+        text: options.local?.prompt?.text ?? promptLocalText,
+        confirm: options.local?.prompt?.confirm ?? confirmLocalPrompt,
+        select: options.local?.prompt?.select ?? selectLocalOption,
+      },
       command: options.local?.command ?? runLocalCommand,
       requestCapability: options.local?.requestCapability ?? requestUnsupportedHostCapability,
       requestCapabilitySession: options.local?.requestCapabilitySession ?? requestUnsupportedHostCapabilitySession,
@@ -794,6 +808,7 @@ export class DevMachineEngine {
   async runOperation(input: { operation: string; workflow?: string; input?: unknown }): Promise<unknown> {
     const { workflow, operation } = this.getWorkflowOperation(input.operation, input.workflow);
     const providers = await this.createProviders(workflow);
+    await this.requireProviderChecks(workflow, providers);
     const metadata: JsonObject = {};
     const runtime = await this.createTaskRuntime({
       workflow,
@@ -928,6 +943,7 @@ export class DevMachineEngine {
     const applied = await this.apply({ workflow: input.workflow ?? input.machine });
     const workflow = this.getWorkflow(input.workflow ?? input.machine);
     const providers = await this.createProviders(workflow);
+    await this.requireProviderChecks(workflow, providers);
     if (!workflow.workspace) {
       throw new Error(`Workflow ${workflow.name} does not define a workspace`);
     }
@@ -986,6 +1002,7 @@ export class DevMachineEngine {
       throw new Error(`Workflow ${workflow.name} does not define a workspace`);
     }
     const providers = await this.createProviders(workflow);
+    await this.requireProviderChecks(workflow, providers);
     const metadata: JsonObject = {};
     const runtime = await this.createTaskRuntime({
       workflow,
@@ -1021,7 +1038,10 @@ export class DevMachineEngine {
     providers: ProviderControllers;
     mode: EvaluationMode;
   }): Promise<{ context: Record<string, JsonValue>; plan: WorkflowPlan; fragments: Set<string> }> {
-    const providerFingerprint = providerFingerprintFor(input.workflow);
+    const providerChecks = await this.collectProviderChecks(input.workflow, input.providers, {
+      mode: input.mode === "plan" ? "plan" : "require",
+    });
+    const providerFingerprint = providerFingerprintFor(input.workflow, providerChecks);
     const planNodes: WorkflowPlanNode[] = [];
     const previousEvaluationFragmentHashes = this.evaluationFragmentHashes;
     const fragments = new Set<string>();
@@ -1060,6 +1080,7 @@ export class DevMachineEngine {
     const plan: WorkflowPlan = {
       workflow: input.workflow.name,
       providerFingerprint,
+      ...(providerChecks.length > 0 ? { providerChecks } : {}),
       cachedNodeCount,
       nodeCount: planNodes.length,
       nodes: planNodes,
@@ -1547,6 +1568,7 @@ export class DevMachineEngine {
     operation: WorkflowWorkspaceOperationDefinition<any, any, any, any>;
     rawInput: unknown;
   }): Promise<unknown> {
+    await this.requireProviderChecks(input.workflow, input.providers);
     const metadata: JsonObject = {};
     const providers = await this.createTaskRuntime({
       workflow: input.workflow,
@@ -1829,6 +1851,48 @@ export class DevMachineEngine {
     return Object.fromEntries(entries);
   }
 
+  private async collectProviderChecks(
+    workflow: LoadedWorkflow,
+    providers: ProviderControllers,
+    input: { mode: "plan" | "require" },
+  ): Promise<WorkflowProviderCheck[]> {
+    const checks = await Promise.all(
+      Object.entries(providers).map(async ([providerName, controller]) => {
+        const result = await controller.checks?.({
+          mode: input.mode,
+          workflow: workflow.name,
+          local: this.local,
+        });
+        return normalizeProviderChecks(result).map((check) => ({
+          providerId: check.providerId ?? controller.providerId,
+          providerName: check.providerName ?? providerName,
+          id: check.id,
+          label: check.label,
+          status: check.status,
+          value: check.value,
+          ...(check.message ? { message: check.message } : {}),
+          ...(check.detail ? { detail: check.detail } : {}),
+          ...(check.fingerprint ? { fingerprint: check.fingerprint } : {}),
+          ...(check.metadata ? { metadata: check.metadata } : {}),
+        }));
+      }),
+    );
+    const flatChecks = checks.flat();
+    if (input.mode === "require") {
+      const required = flatChecks.find((check) => check.status !== "ok");
+      if (required) {
+        throw new Error(
+          `Provider check required: ${required.label}${required.message ? `. ${required.message}` : ""}`,
+        );
+      }
+    }
+    return flatChecks;
+  }
+
+  private async requireProviderChecks(workflow: LoadedWorkflow, providers: ProviderControllers): Promise<void> {
+    await this.collectProviderChecks(workflow, providers, { mode: "require" });
+  }
+
   private async createProviderFromPlugin(input: Parameters<ProviderFactory>[0]): Promise<WorkflowProviderController> {
     const plugin = this.providers.find((provider) => provider.providerId === input.provider.providerId);
     if (!plugin) {
@@ -2034,9 +2098,9 @@ function collectNodePaths(root: WorkflowNodeDefinition<any, any, any>): string[]
   }
 }
 
-function providerFingerprintFor(workflow: LoadedWorkflow): string {
+function providerFingerprintFor(workflow: LoadedWorkflow, providerChecks: WorkflowProviderCheck[]): string {
   return hash({
-    cache: "provider-v2",
+    cache: "provider-v3",
     providers: Object.fromEntries(
       Object.entries(workflow.providers).map(([name, provider]) => [
         name,
@@ -2047,6 +2111,13 @@ function providerFingerprintFor(workflow: LoadedWorkflow): string {
         },
       ]),
     ),
+    checks: providerChecks.map((check) => ({
+      providerName: check.providerName,
+      providerId: check.providerId,
+      id: check.id,
+      status: check.status,
+      fingerprint: check.fingerprint ?? check.value,
+    })),
   });
 }
 
@@ -2484,6 +2555,13 @@ function optionalBooleanInput(
   return value;
 }
 
+function normalizeProviderChecks(
+  result: WorkflowProviderCheckResult | WorkflowProviderCheckResult[] | undefined,
+): WorkflowProviderCheckResult[] {
+  if (result === undefined) return [];
+  return Array.isArray(result) ? result : [result];
+}
+
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value) && Object.getPrototypeOf(value) === Object.prototype);
 }
@@ -2505,6 +2583,30 @@ async function openLocalTarget(target: string): Promise<void> {
   if (code !== 0) {
     throw new Error(`Failed to open ${target}`);
   }
+}
+
+async function showLocalMessage(input: { message: string; level?: "info" | "warn" | "error" }): Promise<void> {
+  const writer = input.level === "error" || input.level === "warn" ? console.error : console.log;
+  writer(input.message);
+}
+
+async function promptLocalText(input: { message: string; defaultValue?: string }): Promise<string> {
+  if (input.defaultValue !== undefined) return input.defaultValue;
+  throw new Error(`Host text prompt requires an interactive runtime host: ${input.message}`);
+}
+
+async function confirmLocalPrompt(input: { message: string; defaultValue?: boolean }): Promise<boolean> {
+  if (input.defaultValue !== undefined) return input.defaultValue;
+  throw new Error(`Host confirm prompt requires an interactive runtime host: ${input.message}`);
+}
+
+async function selectLocalOption(input: {
+  message: string;
+  options: Array<{ value: string; label?: string; description?: string }>;
+  defaultValue?: string;
+}): Promise<string> {
+  if (input.defaultValue) return input.defaultValue;
+  throw new Error(`Host select prompt requires an interactive runtime host: ${input.message}`);
 }
 
 async function requestUnsupportedHostCapability<Result = unknown>(capability: string): Promise<Result> {

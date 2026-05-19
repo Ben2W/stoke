@@ -21,6 +21,18 @@ const app = workflow("website", {
 
 Default auth opens Freestyle browser login and stores credentials in
 provider-owned host storage, outside project `.rigkit/state.sqlite`.
+If the account belongs to multiple teams, Rigkit prompts for the team and
+reuses that selection on later runs. `rig plan` shows Freestyle provider checks,
+including missing auth or the active team, without starting OAuth.
+
+To clear browser auth, selected team, and provider identity state:
+
+```sh
+rig providers freestyle clear
+```
+
+Clearing this state changes the provider check fingerprint and makes cached
+Freestyle-dependent tasks stale.
 
 For API-key auth:
 

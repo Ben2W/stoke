@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createFileProviderHostStorage } from "@rigkit/engine";
 import { projectIdFor, runtimeFingerprintFor, runtimePaths, SUPPORTED_RUNTIME_API_VERSION } from "@rigkit/runtime-client";
 import { RIGKIT_CLI_VERSION } from "./version.ts";
 
@@ -27,6 +28,7 @@ describe("CLI entrypoint", () => {
     expect(rootHelp.stdout).toContain("rm          Remove a workspace");
     expect(rootHelp.stdout).toContain("run         Run a workspace operation");
     expect(rootHelp.stdout).toContain("cache       Inspect and clear Rigkit cache");
+    expect(rootHelp.stdout).toContain("providers   Manage provider-owned local state");
 
     const version = await runCli(["version"]);
     expect(version.exitCode).toBe(0);
@@ -41,6 +43,7 @@ describe("CLI entrypoint", () => {
     expect(help.stdout).toContain("rm          Remove a workspace");
     expect(help.stdout).toContain("run         Run a workspace operation");
     expect(help.stdout).toContain("cache       Inspect and clear Rigkit cache");
+    expect(help.stdout).toContain("providers   Manage provider-owned local state");
   });
 
   test("prints an update notice when latest metadata is newer", async () => {
@@ -212,6 +215,31 @@ describe("CLI entrypoint", () => {
       expect(existsSync(fragmentDir)).toBe(false);
     } finally {
       rmSync(rigkitHome, { recursive: true, force: true });
+    }
+  });
+
+  test("clears Freestyle provider host storage without loading a project", async () => {
+    const storageRoot = mkdtempSync(join(tmpdir(), "rigkit-provider-storage-"));
+    const storage = createFileProviderHostStorage({ providerId: "freestyle", rootDir: storageRoot });
+    storage.set("stack-auth:test", { refreshToken: "refresh-token", updatedAt: 1 });
+    storage.set("identity:test", { token: "ssh-token" });
+
+    try {
+      const result = await runCli(["providers", "freestyle", "clear", "--json"], {
+        env: { RIGKIT_HOST_STORAGE_DIR: storageRoot },
+      });
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stderr).toBe("");
+      expect(JSON.parse(result.stdout)).toMatchObject({
+        ok: true,
+        providerId: "freestyle",
+        deleted: 2,
+        storageRoot,
+      });
+      expect(storage.entries()).toEqual([]);
+    } finally {
+      rmSync(storageRoot, { recursive: true, force: true });
     }
   });
 

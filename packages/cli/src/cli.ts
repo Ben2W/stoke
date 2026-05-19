@@ -10,6 +10,8 @@ import {
   type RuntimeClient,
 } from "@rigkit/runtime-client";
 import {
+  createFileProviderHostStorage,
+  defaultProviderHostStorageDir,
   type DevMachineEvent,
   type WorkflowPlan,
   type SnapshotRecord,
@@ -162,6 +164,7 @@ const STATIC_COMMANDS = new Set([
   "run",
   "ls",
   "cache",
+  "providers",
   "projects",
   "doctor",
   "version",
@@ -360,6 +363,22 @@ async function runCli(argv: string[]): Promise<void> {
         all: Boolean(options.all),
         yes: Boolean(options.yes),
       });
+    });
+
+  const providers = program
+    .command("providers")
+    .description("Manage provider-owned local state");
+
+  const freestyleProvider = providers
+    .command("freestyle")
+    .description("Manage Freestyle provider local state");
+
+  freestyleProvider
+    .command("clear")
+    .description("Clear Freestyle provider local auth and identity state")
+    .option("--json", "Print machine-readable JSON")
+    .action(async (options: { json?: boolean }) => {
+      await runProvidersFreestyleClear(makeInvocation(rootOptions(program), options.json));
     });
 
   program
@@ -1106,6 +1125,32 @@ async function runCacheClear(invocation: CliInvocation, options: CacheClearOptio
   console.log(`Cleared ${result.deleted} cache ${result.deleted === 1 ? "entry" : "entries"}.`);
 }
 
+async function runProvidersFreestyleClear(invocation: CliInvocation): Promise<void> {
+  const providerId = "freestyle";
+  const storageRoot = defaultProviderHostStorageDir();
+  const storage = createFileProviderHostStorage({ providerId, rootDir: storageRoot });
+  const keys = storage.entries().map((entry) => entry.key);
+  for (const key of keys) storage.delete(key);
+
+  const result = {
+    ok: true,
+    providerId,
+    deleted: keys.length,
+    storageRoot,
+  };
+
+  if (wantsJson(invocation)) {
+    printJson(result);
+    return;
+  }
+
+  if (keys.length === 0) {
+    console.log("No Freestyle provider local state to clear.");
+    return;
+  }
+  console.log(`Cleared ${keys.length} Freestyle provider ${keys.length === 1 ? "entry" : "entries"}.`);
+}
+
 type CacheInvalidateOptions = {
   step?: string;
   all: boolean;
@@ -1526,6 +1571,7 @@ async function runHelp(invocation: CliInvocation): Promise<void> {
         { name: "run", description: "Run a workspace operation" },
         { name: "ls", description: "List project workspaces" },
         { name: "cache", description: "Inspect and clear Rigkit cache" },
+        { name: "providers", description: "Manage provider-owned local state" },
         { name: "projects", description: "Discover Rigkit projects below the current directory" },
         { name: "doctor", description: "Show Rigkit runtime diagnostics" },
         { name: "version", description: "Show Rigkit CLI version" },
@@ -1555,6 +1601,7 @@ async function runHelp(invocation: CliInvocation): Promise<void> {
     cmd("run",        "Run a workspace operation"),
     cmd("ls",         "List project workspaces"),
     cmd("cache",      "Inspect and clear Rigkit cache"),
+    cmd("providers",  "Manage provider-owned local state"),
     cmd("projects",   "Discover Rigkit projects below the current directory"),
     cmd("doctor",     "Show Rigkit runtime diagnostics"),
     cmd("version",    "Show Rigkit CLI version"),
@@ -2120,8 +2167,12 @@ async function promptHostSelect(params: unknown): Promise<string> {
       .filter((item) => item.value)
     : [];
   if (options.length === 0) throw new Error(`Host select prompt has no options`);
-  const defaultValue = stringField(params, "defaultValue") ?? options[0]!.value;
-  if (!canPrompt()) return defaultValue;
+  const configuredDefaultValue = stringField(params, "defaultValue");
+  const defaultValue = configuredDefaultValue ?? options[0]!.value;
+  if (!canPrompt()) {
+    if (configuredDefaultValue !== undefined) return configuredDefaultValue;
+    throw new Error(`Host select prompt requires an interactive terminal: ${message}`);
+  }
   const answers = await inquirer.prompt<{ value: string }>([{
     type: "select",
     name: "value",
@@ -2305,6 +2356,16 @@ function printPlan(plan: WorkflowPlan): void {
   console.log(`${ui.bold(plan.workflow)}  ${ui.dim(`${plan.cachedNodeCount}/${plan.nodeCount} cached`)}`);
   console.log("");
 
+  if (plan.providerChecks?.length) {
+    const rows = plan.providerChecks.map((check) => [
+      { text: check.label || check.providerName, style: ui.dim },
+      { text: check.status, style: providerCheckStatusStyle(check.status) },
+      { text: providerCheckValue(check), style: check.status === "ok" ? ((value: string) => value) : ui.warn },
+    ]);
+    console.log(ui.columns(["provider check", "status", "current"], rows));
+    console.log("");
+  }
+
   const rows = plan.nodes.map((node) => [
     { text: String(node.index + 1), style: ui.dim },
     { text: node.status, style: planStatusStyle(node.status) },
@@ -2312,6 +2373,18 @@ function printPlan(plan: WorkflowPlan): void {
     { text: node.reason ?? "", style: ui.dim },
   ]);
   console.log(ui.columns(["#", "status", "node", "reason"], rows));
+}
+
+function providerCheckValue(check: NonNullable<WorkflowPlan["providerChecks"]>[number]): string {
+  if (check.status === "required" && check.message) return check.message;
+  if (check.detail && check.detail !== check.value && !check.value.includes(check.detail)) {
+    return `${check.value} ${ui.dim(check.detail)}`;
+  }
+  return check.value;
+}
+
+function providerCheckStatusStyle(status: string): (text: string) => string {
+  return status === "ok" ? ui.ok : ui.warn;
 }
 
 function planStatusStyle(status: string): (text: string) => string {

@@ -137,8 +137,9 @@ Options:
 | `--discover` | Discover projects below the selected directory. |
 | `--json` | Print JSON. |
 
-`plan` does not run pending tasks. It reports the graph state Rigkit would use
-for `apply`.
+`plan` does not run pending tasks or start provider auth flows. It reports the
+graph state Rigkit would use for `apply`, plus provider checks such as missing
+Freestyle authentication or the currently selected Freestyle team.
 
 ## `rig apply`
 
@@ -268,6 +269,21 @@ Options:
 Use invalidation when you want Rigkit to keep the cache records but mark them
 stale. Use clear when you want to delete cache records.
 
+## `rig providers`
+
+Manage provider-owned local state.
+
+Clear Freestyle browser auth, selected team, and provider identity state:
+
+```sh
+rig providers freestyle clear
+rig providers freestyle clear --json
+```
+
+This does not load a project config or delete project `.rigkit` state. Clearing
+provider-owned state changes the provider check fingerprint, so cached workflow
+tasks that depended on that provider are treated as stale.
+
 ## `rig projects`
 
 Discover Rigkit projects below the current or selected directory:
@@ -324,6 +340,7 @@ rig run --help
 | `RIGKIT_RENDER=0` | Force the plain text renderer instead of the interactive timeline. |
 | `RIGKIT_NO_CONSOLE_INTERCEPT=1` | Disable task console interception and write directly to the host terminal. |
 | `FREESTYLE_API_KEY` | Optional Freestyle API key when configs opt into API-key auth. |
+| `FREESTYLE_TEAM_ID` | Select a Freestyle team without prompting during browser auth. |
 
 Project `.env` files are loaded from the selected project directory.
 
