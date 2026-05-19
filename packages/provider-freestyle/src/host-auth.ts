@@ -8,6 +8,7 @@ import { RIGKIT_PROVIDER_FREESTYLE_VERSION } from "./version.ts";
 
 const DEFAULT_STACK_API_URL = "https://api.stack-auth.com";
 const DEFAULT_STACK_APP_URL = "https://dash.freestyle.sh";
+const DEFAULT_FREESTYLE_API_URL = "https://api.freestyle.sh";
 const DEFAULT_STACK_PROJECT_ID = "0edf478c-f123-46fb-818f-34c0024a9f35";
 const DEFAULT_STACK_PUBLISHABLE_CLIENT_KEY = "pck_h2aft7g9pqjzrkdnzs199h1may5wjtdtdxeex7m2wzp1r";
 const DEFAULT_CLI_AUTH_TIMEOUT_MILLIS = 10 * 60 * 1000;
@@ -112,10 +113,15 @@ export function createFreestyleProxyFetch(input: {
 }): typeof fetch {
   const fetchFn = input.fetch ?? globalThis.fetch;
   const dashboardUrl = trimTrailingSlash(input.dashboardUrl);
+  const backgroundRequests = new Map<string, string>();
 
   const proxyFetch = async (resource: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
     const url = resourceUrl(resource);
     const path = `${url.pathname}${url.search}`.replace(/^\/+/, "");
+    const freestyleRequestInit: RequestInit = {
+      ...init,
+      headers: withRigkitHeaders(init?.headers),
+    };
     const proxyResponse = await fetchFn(`${dashboardUrl}/api/proxy/request`, {
       method: "POST",
       headers: withRigkitHeaders({
@@ -126,8 +132,8 @@ export function createFreestyleProxyFetch(input: {
           accessToken: input.accessToken,
           teamId: input.teamId,
           path,
-          method: init?.method ?? "GET",
-          headers: Object.fromEntries(withRigkitHeaders(init?.headers).entries()),
+          method: resolveRequestMethod(resource, init),
+          headers: Object.fromEntries(new Headers(freestyleRequestInit.headers).entries()),
           body: init?.body ? String(init.body) : undefined,
         },
       }),
@@ -135,6 +141,13 @@ export function createFreestyleProxyFetch(input: {
 
     if (!proxyResponse.ok) {
       const errorText = await proxyResponse.text();
+      await logFreestyleApiRequestFailure({
+        backgroundRequests,
+        resource,
+        init: freestyleRequestInit,
+        response: proxyResponse,
+        responseText: errorText,
+      });
       const normalized = normalizeProxyError(errorText, proxyResponse.status);
       return new Response(normalized.body, {
         status: proxyResponse.status,
@@ -146,6 +159,9 @@ export function createFreestyleProxyFetch(input: {
     const data = await proxyResponse.json();
     if (isBackgroundRequestPending(data)) {
       const requestId = backgroundRequestId(data);
+      if (requestId) {
+        backgroundRequests.set(requestId, formatReplayableFetchRequest(resource, freestyleRequestInit));
+      }
       return Response.json(data, {
         status: 202,
         headers: {
@@ -162,11 +178,24 @@ export function createFreestyleProxyFetch(input: {
 }
 
 export function createFreestyleSdkFetch(fetchFn: typeof fetch = globalThis.fetch): typeof fetch {
-  const rigkitFetch = (async (resource, init) =>
-    await fetchFn(resource, {
+  const backgroundRequests = new Map<string, string>();
+  const rigkitFetch = (async (resource, init) => {
+    const requestInit: RequestInit = {
       ...init,
       headers: withRigkitHeaders(init?.headers),
-    })) as typeof fetch;
+    };
+    const response = await fetchFn(resource, requestInit);
+    await rememberBackgroundRequest(backgroundRequests, resource, requestInit, response);
+    if (!response.ok) {
+      await logFreestyleApiRequestFailure({
+        backgroundRequests,
+        resource,
+        init: requestInit,
+        response,
+      });
+    }
+    return response;
+  }) as typeof fetch;
   return Object.assign(rigkitFetch, {
     preconnect: fetchFn.preconnect?.bind(fetchFn) ?? (() => {}),
   }) as typeof fetch;
@@ -267,6 +296,162 @@ function withRigkitHeaders(headers: HeadersInit | undefined): Headers {
   next.set(RIGKIT_HEADER, "true");
   next.set(RIGKIT_VERSION_HEADER, RIGKIT_PROVIDER_FREESTYLE_VERSION);
   return next;
+}
+
+async function rememberBackgroundRequest(
+  backgroundRequests: Map<string, string>,
+  resource: Parameters<typeof fetch>[0],
+  init: RequestInit,
+  response: Response,
+): Promise<void> {
+  if (response.status !== 202) return;
+  const requestId = await responseBackgroundRequestId(response);
+  if (!requestId) return;
+  backgroundRequests.set(requestId, formatReplayableFetchRequest(resource, init));
+}
+
+async function logFreestyleApiRequestFailure(input: {
+  backgroundRequests: Map<string, string>;
+  resource: Parameters<typeof fetch>[0];
+  init: RequestInit;
+  response: Response;
+  responseText?: string;
+}): Promise<void> {
+  if (isFreestyleBackgroundLogRequest(input.resource)) return;
+
+  const requestId = backgroundRequestIdFromResource(input.resource);
+  const replayRequest = requestId ? input.backgroundRequests.get(requestId) : undefined;
+  const responseSummary = await formatResponseSummary(input.response, input.responseText);
+  const heading = requestId
+    ? `Freestyle background request ${requestId} failed. Original API request:`
+    : "Freestyle API request failed. Replay request:";
+  const request = replayRequest ?? formatReplayableFetchRequest(input.resource, input.init);
+  console.error(`${heading}\n${request}\n${responseSummary}`);
+}
+
+async function responseBackgroundRequestId(response: Response): Promise<string | undefined> {
+  const header = response.headers.get("x-freestyle-background-request-id");
+  if (header) return header;
+  const data = await response.clone().json().catch(() => undefined);
+  return backgroundRequestId(data);
+}
+
+function backgroundRequestIdFromResource(resource: Parameters<typeof fetch>[0]): string | undefined {
+  const path = resourceUrl(resource).pathname;
+  const match = path.match(/\/auth\/v1\/background-requests\/([^/]+)$/);
+  return match?.[1] ? decodeURIComponent(match[1]) : undefined;
+}
+
+function isFreestyleBackgroundLogRequest(resource: Parameters<typeof fetch>[0]): boolean {
+  return resourceUrl(resource).pathname === "/observability/v1/logs";
+}
+
+async function formatResponseSummary(response: Response, responseText?: string): Promise<string> {
+  const text = responseText ?? await response.clone().text().catch(() => "");
+  const status = [response.status, response.statusText].filter(Boolean).join(" ");
+  const redactedBody = formatRedactedResponseBody(text);
+  return [
+    `Response: ${status}`,
+    ...(redactedBody ? [`Response body: ${redactedBody}`] : []),
+  ].join("\n");
+}
+
+function formatRedactedResponseBody(text: string): string | undefined {
+  if (!text) return undefined;
+  try {
+    return JSON.stringify(redactSensitiveFields(JSON.parse(text)));
+  } catch {
+    return text;
+  }
+}
+
+function formatReplayableFetchRequest(resource: Parameters<typeof fetch>[0], init: RequestInit): string {
+  const lines = [
+    `await fetch(${JSON.stringify(resourceUrl(resource).href)}, {`,
+    `  method: ${JSON.stringify(resolveRequestMethod(resource, init))},`,
+  ];
+  const headers = replayableHeaders(resource, init);
+  if (Object.keys(headers).length > 0) {
+    lines.push(`  headers: ${indentContinuation(JSON.stringify(headers, null, 2), 2)},`);
+  }
+  const body = replayableBody(init.body);
+  if (body) {
+    lines.push(`  body: ${indentContinuation(body, 2)},`);
+  }
+  lines.push("});");
+  return lines.join("\n");
+}
+
+function replayableHeaders(resource: Parameters<typeof fetch>[0], init: RequestInit): Record<string, string> {
+  const headers = resource instanceof Request ? new Headers(resource.headers) : new Headers();
+  new Headers(init.headers).forEach((value, key) => {
+    headers.set(key, value);
+  });
+  const result: Record<string, string> = {};
+  headers.forEach((value, key) => {
+    result[displayHeaderName(key)] = redactHeaderValue(key, value);
+  });
+  return result;
+}
+
+function resolveRequestMethod(resource: Parameters<typeof fetch>[0], init?: RequestInit): string {
+  return init?.method ?? (resource instanceof Request ? resource.method : "GET");
+}
+
+function replayableBody(body: BodyInit | null | undefined): string | undefined {
+  if (body === undefined || body === null) return undefined;
+  if (typeof body === "string") {
+    try {
+      const parsed = JSON.parse(body) as unknown;
+      return `JSON.stringify(${JSON.stringify(redactSensitiveFields(parsed), null, 2)})`;
+    } catch {
+      return JSON.stringify(body);
+    }
+  }
+  if (body instanceof URLSearchParams) {
+    return `new URLSearchParams(${JSON.stringify(body.toString())})`;
+  }
+  return JSON.stringify(String(body));
+}
+
+function indentContinuation(value: string, spaces: number): string {
+  const lines = value.split("\n");
+  const indent = " ".repeat(spaces);
+  return [lines[0], ...lines.slice(1).map((line) => `${indent}${line}`)].join("\n");
+}
+
+function displayHeaderName(name: string): string {
+  const normalized = name.toLowerCase();
+  return {
+    authorization: "Authorization",
+    "content-type": "Content-Type",
+    "user-agent": "User-Agent",
+    "x-freestyle-identity-access-token": "X-Freestyle-Identity-Access-Token",
+    [RIGKIT_HEADER]: RIGKIT_HEADER,
+    [RIGKIT_VERSION_HEADER]: RIGKIT_VERSION_HEADER,
+  }[normalized] ?? name;
+}
+
+function redactHeaderValue(name: string, value: string): string {
+  if (name.toLowerCase() === "authorization" && /^Bearer\s+/i.test(value)) {
+    return "Bearer <redacted FREESTYLE_API_KEY>";
+  }
+  return isSensitiveFieldName(name) ? "[redacted]" : value;
+}
+
+function redactSensitiveFields(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(redactSensitiveFields);
+  if (!value || typeof value !== "object") return value;
+  const next: Record<string, unknown> = {};
+  for (const [key, field] of Object.entries(value)) {
+    next[key] = isSensitiveFieldName(key) ? "[redacted]" : redactSensitiveFields(field);
+  }
+  return next;
+}
+
+function isSensitiveFieldName(name: string): boolean {
+  return /authorization|api[-_]?key|access[-_]?token|refresh[-_]?token|password|secret|credential|cookie/i
+    .test(name);
 }
 
 async function resolveStackAccessToken(input: {
@@ -512,7 +697,7 @@ function saveStackAuthState(storage: ProviderStorage, key: string, state: StackA
 }
 
 function resourceUrl(resource: Parameters<typeof fetch>[0]): URL {
-  if (typeof resource === "string") return new URL(resource);
+  if (typeof resource === "string") return new URL(resource, DEFAULT_FREESTYLE_API_URL);
   if (resource instanceof URL) return resource;
   return new URL(resource.url);
 }

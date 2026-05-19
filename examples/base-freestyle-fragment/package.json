@@ -11,7 +11,7 @@
     "@rigkit/fragments": "workspace:*",
     "@rigkit/provider-freestyle": "workspace:*",
     "@rigkit/sdk": "workspace:*",
-    "freestyle": "^0.1.51"
+    "freestyle": "^0.1.52"
   },
   "devDependencies": {
     "@rigkit/cli": "workspace:*",

@@ -27,11 +27,11 @@
     "zod": "^4"
   },
   "peerDependencies": {
-    "freestyle": "^0.1.51"
+    "freestyle": "^0.1.52"
   },
   "devDependencies": {
     "@types/bun": "latest",
-    "freestyle": "^0.1.51",
+    "freestyle": "^0.1.52",
     "typescript": "latest"
   },
   "publishConfig": {

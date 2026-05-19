@@ -8,7 +8,7 @@ import type {
   WorkflowEvent,
 } from "@rigkit/engine";
 import { FREESTYLE_PROVIDER_ID, freestyle, freestyleProviderPlugin } from "./index.ts";
-import { createFreestyleProxyFetch } from "./host-auth.ts";
+import { createFreestyleProxyFetch, createFreestyleSdkFetch } from "./host-auth.ts";
 import type { FreestyleRuntime } from "./provider.ts";
 import { RIGKIT_PROVIDER_FREESTYLE_VERSION } from "./version.ts";
 
@@ -293,6 +293,102 @@ describe("Freestyle provider host auth", () => {
 });
 
 describe("Freestyle provider proxy fetch", () => {
+  test("logs a replayable API-key fetch with the Freestyle API key redacted", async () => {
+    const sdkFetch = createFreestyleSdkFetch(testFetch(async () =>
+      Response.json({
+        code: "INTERNAL_ERROR",
+        message: "Internal server error",
+      }, { status: 500, statusText: "Internal Server Error" })
+    ));
+
+    const messages = await captureConsoleError(async () => {
+      const response = await sdkFetch("https://api.freestyle.sh/v1/vms", {
+        method: "POST",
+        headers: {
+          Authorization: "Bearer real-api-key",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          image: "ubuntu-24.04",
+          apiKey: "body-api-key",
+        }),
+      });
+      expect(response.status).toBe(500);
+      await response.text();
+    });
+
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toContain('await fetch("https://api.freestyle.sh/v1/vms", {');
+    expect(messages[0]).toContain('"Authorization": "Bearer <redacted FREESTYLE_API_KEY>"');
+    expect(messages[0]).toContain('"image": "ubuntu-24.04"');
+    expect(messages[0]).toContain('"apiKey": "[redacted]"');
+    expect(messages[0]).toContain('Response: 500 Internal Server Error');
+    expect(messages[0]).not.toContain("real-api-key");
+    expect(messages[0]).not.toContain("body-api-key");
+  });
+
+  test("logs the original replayable request when a background request fails through the proxy", async () => {
+    const proxyFetch = createFreestyleProxyFetch({
+      dashboardUrl: "https://dash.freestyle.sh",
+      accessToken: "stack-access-token",
+      teamId: "team_123",
+      fetch: testFetch(async (resource, init) => {
+        const url = resourceUrl(resource);
+        expect(url.href).toBe("https://dash.freestyle.sh/api/proxy/request");
+        const body = JSON.parse(String(init?.body));
+        if (body.data.path === "v1/vms") {
+          return Response.json({
+            requestId: "ri_test_123",
+            status: "pending",
+          });
+        }
+        if (body.data.path === "auth/v1/background-requests/ri_test_123") {
+          return Response.json({
+            code: "INTERNAL_ERROR",
+            message: "Internal server error",
+            accessToken: "should-redact",
+          }, { status: 500, statusText: "Internal Server Error" });
+        }
+        return Response.json({ error: "unexpected request", body }, { status: 500 });
+      }),
+    });
+
+    const first = await proxyFetch("https://api.freestyle.sh/v1/vms", {
+      method: "POST",
+      headers: {
+        Authorization: "Bearer rigkit-browser-auth",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        image: "ubuntu-24.04",
+      }),
+    });
+    expect(first.status).toBe(202);
+
+    const messages = await captureConsoleError(async () => {
+      const failed = await proxyFetch("https://api.freestyle.sh/auth/v1/background-requests/ri_test_123", {
+        method: "GET",
+        headers: {
+          Authorization: "Bearer rigkit-browser-auth",
+        },
+      });
+      expect(failed.status).toBe(500);
+      await failed.text();
+    });
+
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toContain("Freestyle background request ri_test_123 failed. Original API request:");
+    expect(messages[0]).toContain('await fetch("https://api.freestyle.sh/v1/vms", {');
+    expect(messages[0]).toContain('method: "POST"');
+    expect(messages[0]).toContain('"Authorization": "Bearer <redacted FREESTYLE_API_KEY>"');
+    expect(messages[0]).toContain('"image": "ubuntu-24.04"');
+    expect(messages[0]).toContain('Response: 500 Internal Server Error');
+    expect(messages[0]).toContain('"accessToken":"[redacted]"');
+    expect(messages[0]).not.toContain("stack-access-token");
+    expect(messages[0]).not.toContain("rigkit-browser-auth");
+    expect(messages[0]).not.toContain("should-redact");
+  });
+
   test("preserves Freestyle background request semantics through the browser-auth proxy", async () => {
     const proxyFetch = createFreestyleProxyFetch({
       dashboardUrl: "https://dash.freestyle.sh",
@@ -356,13 +452,16 @@ describe("Freestyle provider proxy fetch", () => {
       ),
     });
 
-    const response = await proxyFetch("https://api.freestyle.sh/v1/vms", {
-      method: "POST",
-      body: "{}",
+    let response: Response | undefined;
+    await captureConsoleError(async () => {
+      response = await proxyFetch("https://api.freestyle.sh/v1/vms", {
+        method: "POST",
+        body: "{}",
+      });
     });
 
-    expect(response.status).toBe(500);
-    await expect(response.json()).resolves.toEqual({
+    expect(response?.status).toBe(500);
+    await expect(response?.json()).resolves.toEqual({
       code: "INTERNAL_ERROR",
       message: "VM setup failed",
       details: {
@@ -389,10 +488,13 @@ describe("Freestyle provider proxy fetch", () => {
       ),
     });
 
-    const response = await proxyFetch("https://api.freestyle.sh/v1/vms");
+    let response: Response | undefined;
+    await captureConsoleError(async () => {
+      response = await proxyFetch("https://api.freestyle.sh/v1/vms");
+    });
 
-    expect(response.status).toBe(500);
-    await expect(response.json()).resolves.toEqual({
+    expect(response?.status).toBe(500);
+    await expect(response?.json()).resolves.toEqual({
       code: "INTERNAL_ERROR",
       message: "Internal server error",
       requestId: "req_123",
@@ -473,6 +575,20 @@ function resourceUrl(resource: Parameters<typeof fetch>[0]): URL {
   if (typeof resource === "string") return new URL(resource);
   if (resource instanceof URL) return resource;
   return new URL(resource.url);
+}
+
+async function captureConsoleError(action: () => Promise<void>): Promise<string[]> {
+  const previous = console.error;
+  const messages: string[] = [];
+  console.error = (...args: unknown[]) => {
+    messages.push(args.map((arg) => String(arg)).join(" "));
+  };
+  try {
+    await action();
+  } finally {
+    console.error = previous;
+  }
+  return messages;
 }
 
 function setEnv(name: string, value: string | undefined): void {
