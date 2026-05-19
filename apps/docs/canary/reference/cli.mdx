@@ -14,9 +14,9 @@ Global options come before the command. Use double-dash long flags for
 consistency with command options:
 
 ```sh
-rig --chdir=examples/smoke plan --workflow smoke
+rig --chdir=examples/smoke plan
 rig --chdir=examples/global-fragments apply --workflow api
-rig --state=/tmp/rigkit-state.sqlite plan --workflow dev
+rig --state=/tmp/rigkit-state.sqlite plan
 rig --json plan --workflow dev
 ```
 
@@ -61,7 +61,7 @@ ignore rules for `.env` and `.rigkit/`.
 Show which workflow tasks are cached or pending:
 
 ```sh
-rig plan --workflow dev
+rig plan
 rig plan --workflow api
 rig plan --all
 rig plan --discover
@@ -72,7 +72,7 @@ Options:
 
 | Option | Description |
 | --- | --- |
-| `--workflow <name>` | Select a workflow. Interactive terminals prompt when omitted. |
+| `--workflow <name>` | Select a workflow explicitly. Interactive terminals prompt when omitted; non-interactive JSON runs should pass it. |
 | `--all` | Run against every discovered project. |
 | `--discover` | Discover projects below the selected directory. |
 | `--json` | Print JSON. |
@@ -86,7 +86,7 @@ Freestyle authentication or the currently selected Freestyle team.
 Run pending workflow tasks and write cached outputs:
 
 ```sh
-rig apply --workflow dev
+rig apply
 rig apply --workflow web
 rig apply --all
 rig apply --discover
@@ -100,12 +100,14 @@ Options are the same as `plan`.
 Create a named workspace from the selected workflow's final context:
 
 ```sh
-rig create --workflow dev dev
+rig create dev
 rig create --workflow api review-123
 rig create --workflow dev dev --json
 ```
 
 If the project has no workspace lifecycle, `create` is not available.
+In multi-workflow projects, use `--workflow` when you need to choose a specific
+workflow or when running non-interactively.
 
 ## `rig run`
 

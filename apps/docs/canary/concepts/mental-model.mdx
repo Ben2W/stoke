@@ -11,7 +11,7 @@ those resources.
 
 ```mermaid
 flowchart TD
-  Config["rigkit/index.ts"] --> Plan["rig plan --workflow <name>"]
+  Config["rigkit/index.ts"] --> Plan["rig plan"]
   Config --> Apply["rig apply"]
   Apply --> Cache["Cached workflow context"]
   Cache --> Workspace["rig create <workspace>"]
@@ -147,7 +147,7 @@ A workspace is a named runtime instance created from the final workflow
 context.
 
 ```sh
-rig apply --workflow dev
+rig apply
 rig create alice
 rig create review-123
 ```

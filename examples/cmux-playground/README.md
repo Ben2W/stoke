@@ -11,9 +11,9 @@ echo hello world
 Run from this directory:
 
 ```bash
-rig plan --workflow cmux-playground
-rig apply --workflow cmux-playground
-rig create --workflow cmux-playground cmux-playground
+rig plan
+rig apply
+rig create cmux-playground
 rig run cmux-playground open
 ```
 

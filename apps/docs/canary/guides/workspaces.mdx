@@ -4,10 +4,10 @@ description: "Create named workspaces from workflow output and expose project-sp
 noindex: true
 ---
 
-`rig apply --workflow <workflow>` prepares workflow context.
-`rig create --workflow <workflow> <name>` turns that context into a named
-workspace. `rig run <name> <operation>` runs actions against an existing
-workspace.
+`rig apply` prepares workflow context. `rig create <name>` turns that context
+into a named workspace. `rig run <name> <operation>` runs actions against an
+existing workspace. Use `--workflow <workflow>` when selecting a specific
+workflow in a multi-workflow project or running non-interactively.
 
 ## Add a workspace lifecycle
 
@@ -60,8 +60,8 @@ resources.
 Apply the workflow before creating workspaces:
 
 ```sh
-rig apply --workflow website
-rig create --workflow website dev
+rig apply
+rig create dev
 rig ls
 rig rm dev
 ```

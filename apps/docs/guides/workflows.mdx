@@ -65,9 +65,9 @@ export const web = services.sequence("web").task("prepare-web", async () => ({
 }));
 ```
 
-Commands that target workflow setup or workspace creation take `--workflow`.
-Interactive terminals prompt when it is omitted; JSON and other non-interactive
-runs must pass it explicitly:
+The default interactive path can omit `--workflow`; Rigkit prompts when a
+workflow choice is needed. Pass `--workflow` when selecting a specific workflow,
+especially in JSON and other non-interactive runs:
 
 ```sh
 rig plan --workflow api

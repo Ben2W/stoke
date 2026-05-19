@@ -15,9 +15,9 @@ The workflow has two layers:
 Run from this directory:
 
 ```bash
-rig plan --workflow base-freestyle-fragment-example
-rig apply --workflow base-freestyle-fragment-example
-rig create --workflow base-freestyle-fragment-example base-fragment-workspace
+rig plan
+rig apply
+rig create base-fragment-workspace
 rig run base-fragment-workspace status --json
 rig run base-fragment-workspace ssh
 ```
@@ -29,9 +29,9 @@ enabled auth/init steps.
 Developers can override the base fragment options with environment variables:
 
 ```bash
-RIGKIT_BASE_CLAUDE=0 rig apply --workflow base-freestyle-fragment-example
-RIGKIT_BASE_CODEX=0 rig apply --workflow base-freestyle-fragment-example
-RIGKIT_BASE_MEM_SIZE_GB=32 rig apply --workflow base-freestyle-fragment-example
+RIGKIT_BASE_CLAUDE=0 rig apply
+RIGKIT_BASE_CODEX=0 rig apply
+RIGKIT_BASE_MEM_SIZE_GB=32 rig apply
 ```
 
 Available overrides:

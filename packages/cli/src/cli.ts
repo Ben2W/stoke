@@ -726,7 +726,7 @@ function printInitResult(result: InitProjectResult, install: InitInstallResult):
   if (install.skipped) {
     console.log(ui.hint(detectInstallCommand(result.packageJsonPath)));
   }
-  console.log(ui.hint("rig plan --workflow dev"));
+  console.log(ui.hint("rig plan"));
 }
 
 function initStatus(created: boolean, updated: boolean): ui.FileStatus {

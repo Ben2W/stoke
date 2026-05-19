@@ -228,8 +228,8 @@ function ensureProjectPackageJson(
 
   const scripts = pkg.scripts as Record<string, string>;
   for (const [key, value] of Object.entries({
-    plan: "rig plan --workflow dev",
-    apply: "rig apply --workflow dev",
+    plan: "rig plan",
+    apply: "rig apply",
   })) {
     if (scripts[key] !== value) {
       scripts[key] = value;

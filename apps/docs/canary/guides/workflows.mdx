@@ -60,8 +60,9 @@ export const web = services.sequence("web").task("prepare-web", async () => ({
 }));
 ```
 
-When a config has multiple workflows, pass `--workflow` to core operations when
-the target is ambiguous:
+The default interactive path can omit `--workflow`; Rigkit prompts when a
+workflow choice is needed. Pass `--workflow` when selecting a specific workflow,
+especially in JSON and other non-interactive runs:
 
 ```sh
 rig plan --workflow api

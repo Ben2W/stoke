@@ -59,14 +59,14 @@ cd website
 Plan and apply the workflow:
 
 ```sh
-rig plan --workflow dev
-rig apply --workflow dev
+rig plan
+rig apply
 ```
 
 Create and manage a workspace:
 
 ```sh
-rig create --workflow dev dev
+rig create dev
 rig ls
 rig rm dev
 ```
@@ -127,9 +127,9 @@ pnpm build
 Run a local example with the workspace CLI:
 
 ```sh
-pnpm --dir examples/smoke exec rig plan --workflow smoke
-pnpm --dir examples/smoke exec rig apply --workflow smoke
-pnpm --dir examples/smoke exec rig create --workflow smoke smoke-workspace
+pnpm --dir examples/smoke exec rig plan
+pnpm --dir examples/smoke exec rig apply
+pnpm --dir examples/smoke exec rig create smoke-workspace
 ```
 
 The `examples/` directory also includes a shared `.envrc` for direnv users. Once

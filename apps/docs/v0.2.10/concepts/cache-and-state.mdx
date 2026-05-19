@@ -5,45 +5,10 @@ noindex: true
 ---
 
 Rigkit is useful because setup work is durable. Expensive tasks can run once,
-write JSON context to the state database, and be reused by later plans,
-applies, workspace creates, and operations.
-
-```mermaid
-flowchart LR
-  TaskA["Task A"] --> RunA["Cached run A"]
-  RunA --> TaskB["Task B"]
-  TaskB --> RunB["Cached run B"]
-  RunB --> TaskC["Task C"]
-  TaskC --> RunC["Cached run C"]
-
-  Change["Change Task A or provider config"] -. invalidates .-> RunA
-  RunA -. upstream changed .-> RunB
-  RunB -. upstream changed .-> RunC
-```
+write JSON context and be reused by later plans.
 
 Rigkit tracks upstream run ids, so a change to one task affects the dependent
 part of the graph without forcing unrelated work to rerun.
-
-## Where state lives
-
-Rigkit separates several kinds of state so that workflow cache, workspace
-records, shared bases, and provider credentials can be cleared and reused
-independently.
-
-```mermaid
-flowchart TD
-  Task["Task output ctx"] --> State["Project .rigkit/state.sqlite"]
-  Workspace["Workspace ctx"] --> State
-  Global["Global fragment task runs"] --> Fragment["~/.rigkit/fragments/&lt;hash&gt;/state.sqlite"]
-  ProviderProject["Provider project records"] --> State
-  ProviderHost["Provider host credentials"] --> HostStorage["Provider host storage"]
-
-  State --> Runtime["Project runtime"]
-  Fragment --> Runtime
-  HostStorage --> Runtime
-```
-
-Each kind is covered below.
 
 ## What is cached
 
@@ -141,27 +106,27 @@ Use global fragments for expensive shared setup, such as:
 - authenticated CLI initialization that is intentionally shared;
 - warmed package stores.
 
-Be careful with credentials. If a global fragment snapshots authenticated
-state, that is the cache boundary you are choosing.
-
 ## Returning to local cache
 
 `.local()` switches a subtree back to local cache after a global fragment.
 
 ```ts
-const base = app.sequence("base").global().task("install-tooling", async () => {
-  return { ctx: { snapshotId: "snap_base" } };
-});
+const base = app
+  .sequence("base")
+  .global()
+  .task("install-tooling", async () => {
+    return { ctx: { snapshotId: "snap_base" } };
+  });
 
-const repo = app.sequence<{ snapshotId: string }>("repo").local().task(
-  "clone-repo",
-  async ({ step }) => ({
+const repo = app
+  .sequence<{ snapshotId: string }>("repo")
+  .local()
+  .task("clone-repo", async ({ step }) => ({
     ctx: {
       ...step.ctx,
       repoPath: "/workspace/app",
     },
-  }),
-);
+  }));
 ```
 
 This is useful when the base should be shared but repo-specific work should
@@ -183,6 +148,83 @@ Use `cacheTTL` for output that should be considered stale after a duration:
 
 Supported string units are `ms`, `s`, `m`, `h`, and `d`. `cacheTTL: 0` makes
 the task run every apply.
+
+## Auth expiration example
+
+The same pattern works well for credentials that expire. For instance, you might
+set up a `gcloud` CLI with a long-lived cache, but credentials expire after 24
+hours. A refresh task can check and reauthenticate cheaply:
+
+```ts
+.task(
+  "setup-gcloud",
+  { cacheTTL: "7d" },
+  async ({ freestyle, terminal }) => {
+    const { vm, vmId } = await freestyle.client.vms.create({
+      logger: console.log,
+    });
+
+    try {
+      await vm.exec("curl https://sdk.cloud.google.com | bash");
+
+      await terminal.open("Authenticate with gcloud", {
+        ssh: await freestyle.createSSHOptions({ vmId }),
+        command: "gcloud auth login",
+        keepOpenAfterCommand: true,
+        instructions:
+          "Complete Google authentication in the browser, then exit the terminal or click Complete task.",
+      });
+
+      const snapshot = await vm.snapshot();
+      return {
+        ctx: {
+          snapshotId: snapshot.snapshotId,
+        },
+      };
+    } finally {
+      await freestyle.client.vms.delete({ vmId });
+    }
+  },
+);
+```
+
+Then check credentials daily and reauthenticate if needed:
+
+```ts
+.task(
+  "refresh-gcloud-auth",
+  { cacheTTL: "24h" },
+  async ({ step, freestyle, terminal }) => {
+    const { vm, vmId } = await freestyle.client.vms.create({
+      snapshotId: step.ctx.snapshotId,
+      logger: console.log,
+    });
+
+    try {
+      // Check if current credentials are valid
+      const authStatus = await vm.exec("gcloud auth application-default print-access-token");
+      if (!authStatus.ok) {
+        // Credentials expired, reauthenticate
+        await terminal.open("Refresh gcloud authentication", {
+          ssh: await freestyle.createSSHOptions({ vmId }),
+          command: "gcloud auth login",
+          keepOpenAfterCommand: true,
+          instructions:
+            "Complete Google authentication again to refresh credentials.",
+        });
+      }
+
+      return { ctx: step.ctx };
+    } finally {
+      await freestyle.client.vms.delete({ vmId });
+    }
+  },
+);
+```
+
+When credentials expire, `refresh-gcloud-auth` detects it and opens an
+interactive terminal to reauthenticate. The setup remains cached; only the
+credentials are refreshed.
 
 ## Invalidate a previous task from a later task
 
@@ -210,6 +252,78 @@ checks that run after repo setup but discover stale shared state.
 When invalidation happens, Rigkit invalidates the target cached run and the
 current task, then restarts evaluation so the workflow can rebuild from the
 refreshed task.
+
+## Keeping cached tasks fresh
+
+Caching can optimize expensive setup, but stale cache becomes a problem in
+fast-moving codebases. A common pattern is to cache the initial setup with a
+long TTL, then run cheaper health checks that invalidate the cache if needed.
+
+For example, you might have a large repo that takes 10+ minutes to clone and
+install. You set `cacheTTL: 30d`, but by day 29 the repo is stale and
+dependencies are out of date.
+
+Create a setup task:
+
+```ts
+.task(
+  "clone-and-install",
+  { cacheTTL: "30d" },
+  async ({ freestyle }) => {
+    const { vm, vmId } = await freestyle.client.vms.create({
+      logger: console.log,
+    });
+
+    try {
+      await vm.exec("git clone https://github.com/acme/huge-repo .");
+      await vm.exec("npm install");
+
+      const snapshot = await vm.snapshot();
+      return {
+        ctx: {
+          snapshotId: snapshot.snapshotId,
+        },
+      };
+    } finally {
+      await freestyle.client.vms.delete({ vmId });
+    }
+  },
+);
+```
+
+Then create a refresh task that runs often (or every apply) and checks if the
+repo or dependencies are stale:
+
+```ts
+.task(
+  "refresh-repo",
+  { cacheTTL: "1d" },
+  async ({ step, freestyle }) => {
+    const { vm, vmId } = await freestyle.client.vms.create({
+      snapshotId: step.ctx.snapshotId,
+      logger: console.log,
+    });
+
+    try {
+      await vm.exec("git fetch");
+
+      // Check if package-lock.json has changed
+      const depsStatus = await vm.exec("git diff --quiet origin/HEAD package-lock.json");
+      if (!depsStatus.ok) {
+        return step.invalidate("clone-and-install");
+      }
+
+      return { ctx: step.ctx };
+    } finally {
+      await freestyle.client.vms.delete({ vmId });
+    }
+  },
+);
+```
+
+When invalidation happens, the workflow rebuilds from `clone-and-install` with
+fresh code and dependencies, while still benefiting from long-term caching when
+the repo is quiet.
 
 ## Manual cache commands
 

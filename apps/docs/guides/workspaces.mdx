@@ -8,10 +8,10 @@ This page is for config authors. For command syntax, use the
 [CLI reference](/reference/cli).
 </Note>
 
-`rig apply --workflow <workflow>` prepares workflow context.
-`rig create --workflow <workflow> <name>` uses that context to create a named
-workspace. `rig run <name> <operation>` runs project code against that
-workspace.
+`rig apply` prepares workflow context. `rig create <name>` uses that context to
+create a named workspace. `rig run <name> <operation>` runs project code
+against that workspace. Use `--workflow <workflow>` when selecting a specific
+workflow in a multi-workflow project or running non-interactively.
 
 ## Workspace lifecycle
 
@@ -53,8 +53,8 @@ resources.
 Run the lifecycle:
 
 ```sh
-rig apply --workflow website
-rig create --workflow website dev
+rig apply
+rig create dev
 rig ls
 rig rm dev
 ```

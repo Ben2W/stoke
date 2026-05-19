@@ -16,14 +16,14 @@ If you're new to `rig`, these are the command sequences you'll run most often.
 ```sh
 rig init website --package-manager pnpm
 cd website
-rig plan --workflow dev    # see what will run
-rig apply --workflow dev   # run pending setup tasks, cache results
+rig plan                   # see what will run
+rig apply                  # run pending setup tasks, cache results
 ```
 
 **Create and use a workspace:**
 
 ```sh
-rig create --workflow dev dev  # create a workspace from cached state
+rig create dev              # create a workspace from cached state
 rig run dev ssh             # run a project-defined operation
 rig run dev open-cmux       # operations are defined in rigkit/index.ts
 rig ls                      # list workspaces
@@ -33,8 +33,8 @@ rig rm dev                  # tear down a workspace
 **Refresh setup after editing the config:**
 
 ```sh
-rig plan --workflow dev     # preview what will rerun
-rig apply --workflow dev    # rerun only stale tasks
+rig plan                    # preview what will rerun
+rig apply                   # rerun only stale tasks
 ```
 
 **Force a rerun:**
@@ -71,9 +71,9 @@ Global options come before the command. Use double-dash long flags for
 consistency with command options:
 
 ```sh
-rig --chdir=examples/smoke plan --workflow smoke
+rig --chdir=examples/smoke plan
 rig --chdir=examples/global-fragments apply --workflow api
-rig --state=/tmp/rigkit-state.sqlite plan --workflow dev
+rig --state=/tmp/rigkit-state.sqlite plan
 rig --json plan --workflow dev
 ```
 
@@ -119,6 +119,7 @@ ignore rules for `.env` and `.rigkit/`.
 Show which workflow tasks are cached or pending:
 
 ```sh
+rig plan
 rig plan --workflow api
 rig plan --all
 rig plan --discover
@@ -129,7 +130,7 @@ Options:
 
 | Option | Description |
 | --- | --- |
-| `--workflow <name>` | Select a workflow. Interactive terminals prompt when omitted. |
+| `--workflow <name>` | Select a workflow explicitly. Interactive terminals prompt when omitted; non-interactive JSON runs should pass it. |
 | `--all` | Run against every discovered project. |
 | `--discover` | Discover projects below the selected directory. |
 | `--json` | Print JSON. |
@@ -143,6 +144,7 @@ Freestyle authentication or the currently selected Freestyle team.
 Run pending workflow tasks and write cached outputs:
 
 ```sh
+rig apply
 rig apply --workflow web
 rig apply --all
 rig apply --discover
@@ -156,12 +158,14 @@ Options are the same as `plan`.
 Create a named workspace from the selected workflow's final context:
 
 ```sh
-rig create --workflow api dev
+rig create dev
 rig create --workflow api review-123
 rig create --workflow api dev --json
 ```
 
 If the project has no workspace lifecycle, `create` is not available.
+In multi-workflow projects, use `--workflow` when you need to choose a specific
+workflow or when running non-interactively.
 
 ## `rig run`
 

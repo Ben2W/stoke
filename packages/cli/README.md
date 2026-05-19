@@ -5,9 +5,9 @@ Global `rig` CLI.
 ```bash
 npm i -g @rigkit/cli
 rig init
-rig plan --workflow dev
+rig plan
 rig ls
-rig --chdir=examples/smoke plan --workflow smoke
+rig --chdir=examples/smoke plan
 ```
 
 `rig init` asks for a project name, Freestyle API key, and package manager. It creates a project folder containing `rigkit/index.ts`, `.env`, `.env.example`, `package.json`, and local ignore rules.
@@ -27,7 +27,7 @@ Use global context options before the command to select another project or
 config:
 
 ```bash
-rig --chdir=examples/smoke plan --workflow smoke
+rig --chdir=examples/smoke plan
 rig --chdir=examples/global-fragments apply --workflow api
 ```
 

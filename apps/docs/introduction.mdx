@@ -19,16 +19,16 @@ Create a project and bring up your first workspace:
 ```sh
 rig init website --package-manager pnpm
 cd website
-rig plan --workflow dev
-rig apply --workflow dev
-rig create --workflow dev dev
+rig plan
+rig apply
+rig create dev
 rig run dev ssh
 rig rm dev
 ```
 
 - `rig plan` shows which setup tasks are cached or pending.
 - `rig apply` runs pending tasks and stores their JSON `ctx`.
-- `rig create --workflow <workflow> <name>` creates a workspace from the workflow output.
+- `rig create <name>` creates a workspace from the workflow output.
 - `rig run <name> <operation>` runs an operation defined by `rigkit/index.ts`.
 
 ## Read next

@@ -122,9 +122,9 @@ The only persisted values here are `snapshotId` and `vmId`.
 ## Plan and apply
 
 ```sh
-rig plan --workflow dev
-rig apply --workflow dev
-rig plan --workflow dev
+rig plan
+rig apply
+rig plan
 ```
 
 The first plan shows the setup task as pending. `rig apply` runs it and stores
@@ -138,7 +138,7 @@ or manual invalidation.
 ## Create a workspace
 
 ```sh
-rig create --workflow dev dev
+rig create dev
 rig ls
 ```
 
@@ -179,8 +179,8 @@ export const dev = workflow("dev", {
 Run it:
 
 ```sh
-rig apply --workflow dev
-rig create --workflow dev dev
+rig apply
+rig create dev
 rig run dev ssh
 ```
 
