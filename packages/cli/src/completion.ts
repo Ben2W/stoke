@@ -18,6 +18,103 @@ type CompleteRigInput = {
   cwd?: string;
 };
 
+type CommandName =
+  | "help"
+  | "init"
+  | "plan"
+  | "apply"
+  | "create"
+  | "rm"
+  | "run"
+  | "ls"
+  | "cache"
+  | "projects"
+  | "doctor"
+  | "version"
+  | "completion";
+
+type CompletionContext = {
+  cwd: string;
+  words: string[];
+  currentIndex: number;
+  current: string;
+  before: string[];
+  command?: CommandName;
+  commandIndex?: number;
+  argsBefore: string[];
+  unknownRootPositionals: string[];
+};
+
+type ValueCompletionKind =
+  | "directories"
+  | "config-files"
+  | "filesystem"
+  | "package-managers";
+
+type OptionDefinition = {
+  flags: string[];
+  completions?: Array<{ value: string; noSpace?: boolean }>;
+  description: string;
+  group: string;
+  takesValue?: boolean;
+  valueKind?: ValueCompletionKind;
+  operation?: RuntimeOperationDefinition;
+  runtimeOption?: RuntimeOperationCliOption;
+};
+
+type RuntimeOperationManifest = {
+  operations: RuntimeOperationDefinition[];
+  workspaceOperations?: RuntimeOperationDefinition[];
+};
+
+type RuntimeOperationDefinition = {
+  id: string;
+  aliases?: string[];
+  title?: string;
+  description?: string;
+  createsWorkspace?: boolean;
+  cli?: {
+    positionals?: Array<{ name: string; index: number }>;
+    options?: RuntimeOperationCliOption[];
+  };
+  inputSchema?: {
+    properties?: Record<string, JsonSchemaProperty>;
+    required?: string[];
+  };
+};
+
+type RuntimeOperationCliOption = {
+  name: string;
+  flag: string;
+  aliases?: string[];
+  required?: boolean;
+  runtime?: boolean;
+  type?: "string" | "boolean" | "number";
+};
+
+type JsonSchemaProperty = {
+  type?: string;
+  description?: string;
+  default?: unknown;
+  enum?: unknown[];
+};
+
+type RuntimeWorkspaceCompletion = {
+  name: string;
+  workflow: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+type RuntimeCacheCompletionEntry = {
+  scope: "local" | "global";
+  workflow: string;
+  nodePath: string;
+  nodeName: string;
+  invalidated: boolean;
+  createdAt: string;
+};
+
 const GROUP_COMMANDS = "Commands";
 const GROUP_SUBCOMMANDS = "Subcommands";
 const GROUP_FLAGS = "Flags";
@@ -28,6 +125,7 @@ const GROUP_OPERATIONS = "Operations";
 const GROUP_VALUES = "Values";
 const GROUP_PATHS = "Paths";
 const GROUP_SHELLS = "Shells";
+const GROUP_CACHE = "Cache entries";
 
 const COMMANDS: CompletionItem[] = withGroup(GROUP_COMMANDS, [
   { value: "help", description: "show CLI help" },
@@ -45,237 +143,585 @@ const COMMANDS: CompletionItem[] = withGroup(GROUP_COMMANDS, [
   { value: "completion", description: "generate shell completion" },
 ]);
 
-const COMMAND_ALIASES = new Map<string, string>();
+const COMMAND_NAMES = new Set(COMMANDS.map((command) => command.value as CommandName));
 
-const GLOBAL_OPTIONS: CompletionItem[] = withGroup(GROUP_GLOBAL, [
-  { value: "-chdir=", description: "working directory", noSpace: true },
-  { value: "-config=", description: "config file", noSpace: true },
-  { value: "-state=", description: "state database path", noSpace: true },
-  { value: "-json", description: "print JSON" },
-  { value: "-help", description: "show help" },
-  { value: "-version", description: "show version" },
+const JSON_OPTION = option(["--json"], "print JSON");
+const HELP_OPTION = option(["--help"], "show help");
+
+const GLOBAL_OPTIONS: OptionDefinition[] = [
+  option(["-chdir", "--chdir"], "working directory", {
+    group: GROUP_GLOBAL,
+    takesValue: true,
+    valueKind: "directories",
+    completions: [
+      { value: "-chdir=", noSpace: true },
+      { value: "--chdir=", noSpace: true },
+    ],
+  }),
+  option(["-config", "--config"], "config file", {
+    group: GROUP_GLOBAL,
+    takesValue: true,
+    valueKind: "config-files",
+    completions: [
+      { value: "-config=", noSpace: true },
+      { value: "--config=", noSpace: true },
+    ],
+  }),
+  option(["-state", "--state"], "state database path", {
+    group: GROUP_GLOBAL,
+    takesValue: true,
+    valueKind: "filesystem",
+    completions: [
+      { value: "-state=", noSpace: true },
+      { value: "--state=", noSpace: true },
+    ],
+  }),
+  option(["-json", "--json"], "print JSON", { group: GROUP_GLOBAL }),
+  option(["-help", "--help"], "show help", { group: GROUP_GLOBAL }),
+  option(["-version", "--version", "-v"], "show version", { group: GROUP_GLOBAL }),
+];
+
+const COMMAND_OPTIONS: Record<CommandName, OptionDefinition[]> = {
+  init: [
+    option(["--name"], "project and workflow name", { takesValue: true }),
+    option(["--api-key"], "Freestyle API key", { takesValue: true }),
+    option(["--package-manager"], "npm, bun, pnpm, or skip", {
+      takesValue: true,
+      valueKind: "package-managers",
+    }),
+    option(["--force"], "overwrite existing config"),
+    JSON_OPTION,
+    HELP_OPTION,
+  ],
+  plan: [
+    option(["--all"], "run against every discovered project"),
+    option(["--discover"], "discover projects below the selected directory"),
+    JSON_OPTION,
+    HELP_OPTION,
+  ],
+  apply: [
+    option(["--all"], "run against every discovered project"),
+    option(["--discover"], "discover projects below the selected directory"),
+    JSON_OPTION,
+    HELP_OPTION,
+  ],
+  create: [
+    JSON_OPTION,
+    HELP_OPTION,
+  ],
+  rm: [
+    option(["-y", "--yes"], "skip confirmation"),
+    option(["--all"], "remove every workspace"),
+    JSON_OPTION,
+    HELP_OPTION,
+  ],
+  run: [
+    JSON_OPTION,
+    HELP_OPTION,
+  ],
+  ls: [
+    JSON_OPTION,
+    HELP_OPTION,
+  ],
+  cache: [
+    HELP_OPTION,
+  ],
+  projects: [
+    JSON_OPTION,
+    HELP_OPTION,
+  ],
+  doctor: [
+    option(["--cli"], "show CLI diagnostics only"),
+    JSON_OPTION,
+    HELP_OPTION,
+  ],
+  version: [
+    JSON_OPTION,
+    HELP_OPTION,
+  ],
+  help: [
+    JSON_OPTION,
+    HELP_OPTION,
+  ],
+  completion: [
+    HELP_OPTION,
+  ],
+};
+
+const CORE_OPERATION_OPTIONS: Partial<Record<CommandName, OptionDefinition[]>> = {
+  plan: [
+    option(["--workflow"], "workflow name", { takesValue: true }),
+  ],
+  apply: [
+    option(["--workflow"], "workflow name", { takesValue: true }),
+    option(["--dry-run"], "plan without applying changes"),
+  ],
+  create: [
+    option(["--workflow"], "workflow name", { takesValue: true }),
+    option(["--name"], "workspace name", { takesValue: true }),
+  ],
+};
+
+const LIST_TARGETS: CompletionItem[] = withGroup(GROUP_TARGETS, [
+  { value: "workspaces", description: "list workspaces" },
+  { value: "snapshots", description: "list snapshots" },
+  { value: "config", description: "show project config" },
 ]);
 
-const COMMAND_OPTIONS: Record<string, CompletionItem[]> = {
-  init: withGroup(GROUP_FLAGS, [
-    { value: "--name", description: "project and workflow name" },
-    { value: "--api-key", description: "Freestyle API key" },
-    { value: "--package-manager", description: "npm, bun, pnpm, or skip" },
-    { value: "--force", description: "overwrite existing config" },
-    { value: "--json", description: "print JSON" },
-  ]),
-  plan: withGroup(GROUP_FLAGS, [
-    { value: "--all", description: "run against every discovered project" },
-    { value: "--discover", description: "discover projects below the selected directory" },
-    { value: "--json", description: "print JSON" },
-  ]),
-  apply: withGroup(GROUP_FLAGS, [
-    { value: "--all", description: "run against every discovered project" },
-    { value: "--discover", description: "discover projects below the selected directory" },
-    { value: "--json", description: "print JSON" },
-  ]),
-  create: withGroup(GROUP_FLAGS, [
-    { value: "--json", description: "print JSON" },
-  ]),
-  rm: withGroup(GROUP_FLAGS, [
-    { value: "-y", description: "skip confirmation" },
-    { value: "--yes", description: "skip confirmation" },
-    { value: "--json", description: "print JSON" },
-  ]),
-  run: withGroup(GROUP_FLAGS, [
-    { value: "--json", description: "print JSON" },
-  ]),
+const CACHE_SUBCOMMANDS: CompletionItem[] = withGroup(GROUP_SUBCOMMANDS, [
+  { value: "ls", description: "list cache entries" },
+  { value: "clear", description: "clear cache entries" },
+  { value: "invalidate", description: "mark cached task outputs stale" },
+]);
+
+const CACHE_SUBCOMMAND_OPTIONS: Record<string, OptionDefinition[]> = {
   ls: [
-    ...withGroup(GROUP_TARGETS, [
-      { value: "workspaces", description: "list workspaces" },
-      { value: "snapshots", description: "list snapshots" },
-      { value: "config", description: "show project config" },
-    ]),
-    ...withGroup(GROUP_FLAGS, [
-      { value: "--json", description: "print JSON" },
-    ]),
+    JSON_OPTION,
+    HELP_OPTION,
   ],
-  projects: withGroup(GROUP_FLAGS, [
-    { value: "--json", description: "print JSON" },
-  ]),
-  cache: withGroup(GROUP_SUBCOMMANDS, [
-    { value: "ls", description: "list cache entries" },
-    { value: "clear", description: "clear cache entries" },
-  ]),
-  completion: withGroup(GROUP_SHELLS, [
-    { value: "bash", description: "Bash completion" },
-    { value: "fish", description: "fish completion" },
-    { value: "zsh", description: "zsh completion" },
-  ]),
+  clear: [
+    option(["--local"], "clear local cache entries"),
+    option(["--global"], "clear global cache fragments"),
+    option(["--all"], "clear every global fragment with --global"),
+    JSON_OPTION,
+    HELP_OPTION,
+  ],
+  invalidate: [
+    option(["--all"], "invalidate every cached task"),
+    option(["-y", "--yes"], "skip confirmation"),
+    JSON_OPTION,
+    HELP_OPTION,
+  ],
 };
 
-const CACHE_SUBCOMMAND_OPTIONS: Record<string, CompletionItem[]> = {
-  ls: withGroup(GROUP_FLAGS, [
-    { value: "--json", description: "print JSON" },
-  ]),
-  clear: withGroup(GROUP_FLAGS, [
-    { value: "--local", description: "clear local cache entries" },
-    { value: "--global", description: "clear global cache fragments" },
-    { value: "--all", description: "clear every global fragment" },
-    { value: "--json", description: "print JSON" },
-  ]),
-};
+const COMPLETION_SHELLS: CompletionItem[] = withGroup(GROUP_SHELLS, [
+  { value: "bash", description: "Bash completion" },
+  { value: "fish", description: "fish completion" },
+  { value: "zsh", description: "zsh completion" },
+]);
+
+const PROJECT_OPERATION_COMMANDS = new Set<CommandName>(["plan", "apply", "create"]);
 
 function withGroup(group: string, items: Omit<CompletionItem, "group">[]): CompletionItem[] {
   return items.map((item) => ({ ...item, group }));
 }
 
-const PROJECT_OPERATION_COMMANDS = new Set(["plan", "apply", "create"]);
-
-const OPTIONS_WITH_VALUES = new Set([
-  "-chdir",
-  "--chdir",
-  "-config",
-  "--config",
-  "-state",
-  "--state",
-  "--name",
-  "--api-key",
-  "--package-manager",
-]);
-
-type RuntimeOperationManifest = {
-  operations: RuntimeOperationDefinition[];
-  workspaceOperations?: RuntimeOperationDefinition[];
-};
-
-type RuntimeOperationDefinition = {
-  id: string;
-  aliases?: string[];
-  description?: string;
-  cli?: {
-    positionals?: Array<{ name: string; index: number }>;
-    options?: Array<{ name: string; flag: string; aliases?: string[]; runtime?: boolean; type?: string }>;
+function option(
+  flags: string[],
+  description: string,
+  input: Partial<Omit<OptionDefinition, "flags" | "description">> = {},
+): OptionDefinition {
+  return {
+    flags,
+    description,
+    group: input.group ?? GROUP_FLAGS,
+    takesValue: input.takesValue,
+    valueKind: input.valueKind,
+    completions: input.completions,
+    operation: input.operation,
+    runtimeOption: input.runtimeOption,
   };
-};
-
-type RuntimeWorkspaceCompletion = {
-  name: string;
-  workflow: string;
-  createdAt: string;
-  updatedAt: string;
-};
+}
 
 export async function completeRig(input: CompleteRigInput): Promise<CompletionItem[]> {
+  const context = completionContext(input);
+
+  const valueRequest = await optionValueRequest(context);
+  if (valueRequest) {
+    return await completeOptionValue(valueRequest);
+  }
+
+  if (!context.command) {
+    if (context.unknownRootPositionals.length > 0) return [];
+    return filterItems(
+      context.current.startsWith("-")
+        ? optionItems(GLOBAL_OPTIONS)
+        : [...COMMANDS, ...optionItems(GLOBAL_OPTIONS)],
+      context.current,
+    );
+  }
+
+  return await completeCommand(context);
+}
+
+function completionContext(input: CompleteRigInput): CompletionContext {
   const cwd = input.cwd ?? process.cwd();
   const words = input.words.length > 0 ? input.words : ["rig"];
   const currentIndex = input.currentIndex ?? Math.max(0, words.length - 1);
   const current = words[currentIndex] ?? "";
   const before = words.slice(1, currentIndex);
-  const command = findCommand(before);
+  const unknownRootPositionals: string[] = [];
+  let command: CommandName | undefined;
+  let commandIndex: number | undefined;
 
-  const inlineOption = parseInlineValueOption(current);
+  for (let index = 0; index < before.length; index += 1) {
+    const word = before[index]!;
+    const globalOption = findOption(GLOBAL_OPTIONS, word);
+    if (globalOption?.takesValue && !hasInlineValue(word)) {
+      index += 1;
+      continue;
+    }
+    if (isOptionToken(word)) continue;
+
+    if (isCommandName(word)) {
+      command = word;
+      commandIndex = index;
+      break;
+    }
+
+    unknownRootPositionals.push(word);
+  }
+
+  return {
+    cwd,
+    words,
+    currentIndex,
+    current,
+    before,
+    command,
+    commandIndex,
+    argsBefore: commandIndex === undefined ? [] : before.slice(commandIndex + 1),
+    unknownRootPositionals,
+  };
+}
+
+async function optionValueRequest(context: CompletionContext): Promise<{
+  option: OptionDefinition;
+  current: string;
+  cwd: string;
+  words: string[];
+  inlinePrefix?: string;
+} | undefined> {
+  const inlineOption = parseInlineValueOption(context.current);
   if (inlineOption) {
-    return await completeOptionValue({
-      option: inlineOption.option,
-      current: inlineOption.value,
-      cwd,
-      words,
-      inlinePrefix: inlineOption.prefix,
-    });
-  }
-
-  const valueOption = optionExpectingValue(before);
-  if (valueOption) {
-    return await completeOptionValue({
-      option: valueOption,
-      current,
-      cwd,
-      words,
-    });
-  }
-
-  if (!command) {
-    return filterItems(
-      current.startsWith("-")
-        ? GLOBAL_OPTIONS
-        : [...COMMANDS, ...GLOBAL_OPTIONS],
-      current,
-    );
-  }
-
-  if (current.startsWith("-")) {
-    if (command === "rm") {
-      const remove = parseRemoveCommand(before);
-      if (remove.workspace) {
-        const operation = await safeResolveWorkspaceOperation(resolveProjectDir(words, cwd), "remove");
-        return filterItems([
-          ...(operation?.cli?.options ?? []).flatMap((option) => [
-            { value: option.flag, description: option.name, group: GROUP_FLAGS },
-            ...(option.aliases ?? []).map((alias) => ({ value: alias, description: option.name, group: GROUP_FLAGS })),
-          ]),
-          ...COMMAND_OPTIONS.rm,
-          ...GLOBAL_OPTIONS,
-        ], current);
-      }
+    const definition = await resolveOptionDefinition(context, inlineOption.option);
+    if (definition?.takesValue || definition?.runtimeOption?.type === "boolean") {
+      return {
+        option: definition,
+        current: inlineOption.value,
+        cwd: context.cwd,
+        words: context.words,
+        inlinePrefix: inlineOption.prefix,
+      };
     }
-    if (command === "run") {
-      const run = parseWorkspaceRunCommand(before);
-      if (run.workspace && run.operation) {
-        const operation = await safeResolveWorkspaceOperation(resolveProjectDir(words, cwd), run.operation);
-        return filterItems([
-          ...(operation?.cli?.options ?? []).flatMap((option) => [
-            { value: option.flag, description: option.name, group: GROUP_FLAGS },
-            ...(option.aliases ?? []).map((alias) => ({ value: alias, description: option.name, group: GROUP_FLAGS })),
-          ]),
-          ...COMMAND_OPTIONS.run,
-          ...GLOBAL_OPTIONS,
-        ], current);
-      }
+  }
+
+  const previous = context.before.at(-1);
+  if (!previous) return undefined;
+  if (hasInlineValue(previous)) return undefined;
+
+  const definition = await resolveOptionDefinition(context, previous);
+  if (!definition?.takesValue) return undefined;
+  return {
+    option: definition,
+    current: context.current,
+    cwd: context.cwd,
+    words: context.words,
+  };
+}
+
+async function resolveOptionDefinition(
+  context: CompletionContext,
+  flag: string,
+): Promise<OptionDefinition | undefined> {
+  const globalOption = findOption(GLOBAL_OPTIONS, flag);
+  if (globalOption) return globalOption;
+  if (!context.command) return undefined;
+
+  const commandOptions = await optionsForCommandContext(context);
+  return findOption(commandOptions, flag);
+}
+
+async function optionsForCommandContext(context: CompletionContext): Promise<OptionDefinition[]> {
+  if (!context.command) return GLOBAL_OPTIONS;
+
+  if (PROJECT_OPERATION_COMMANDS.has(context.command)) {
+    const operation = await safeResolveRuntimeOperation(resolveProjectDir(context.words, context.cwd), context.command);
+    return mergeOptions([
+      ...operationOptions(operation),
+      ...(CORE_OPERATION_OPTIONS[context.command] ?? []),
+      ...COMMAND_OPTIONS[context.command],
+    ]);
+  }
+
+  if (context.command === "run") {
+    const run = parseRunArgs(context);
+    if (run.workspace && run.operation) {
+      const operation = await safeResolveWorkspaceOperation(resolveProjectDir(context.words, context.cwd), run.operation);
+      return mergeOptions([
+        ...operationOptions(operation),
+        ...COMMAND_OPTIONS.run,
+      ]);
     }
-    if (PROJECT_OPERATION_COMMANDS.has(command)) {
-      const operation = await safeResolveRuntimeOperation(resolveProjectDir(words, cwd), command);
-      return filterItems([
-        ...(operation?.cli?.options ?? []).flatMap((option) => [
-          { value: option.flag, description: option.name },
-          ...(option.aliases ?? []).map((alias) => ({ value: alias, description: option.name })),
-        ]),
-        ...(COMMAND_OPTIONS[command] ?? []),
-        ...GLOBAL_OPTIONS,
-      ], current);
+  }
+
+  if (context.command === "rm") {
+    const remove = parseRmArgs(context);
+    if (remove.workspace) {
+      const operation = await safeResolveWorkspaceOperation(resolveProjectDir(context.words, context.cwd), "remove");
+      return mergeOptions([
+        ...operationOptions(operation),
+        ...COMMAND_OPTIONS.rm,
+      ]);
     }
-    if (command === "cache") {
-      return filterItems([
-        ...cacheOptionTargets(before),
-        ...GLOBAL_OPTIONS,
-      ], current);
-    }
-    return filterItems([...(COMMAND_OPTIONS[command] ?? []), ...GLOBAL_OPTIONS], current);
   }
 
-  const positionalCount = countPositionals(before, command);
-
-  if (command === "run") {
-    const run = parseWorkspaceRunCommand(before);
-    if (!run.workspace) return filterItems(await workspaceTargets(resolveProjectDir(words, cwd)), current);
-    if (!run.operation) return filterItems(await safeWorkspaceOperationTargets(resolveProjectDir(words, cwd)), current);
+  if (context.command === "cache") {
+    const cache = parseCacheArgs(context);
+    if (cache.subcommand) return CACHE_SUBCOMMAND_OPTIONS[cache.subcommand] ?? [HELP_OPTION];
   }
 
-  if (command === "rm") {
-    const remove = parseRemoveCommand(before);
-    if (!remove.workspace) return filterItems(await workspaceTargets(resolveProjectDir(words, cwd)), current);
+  return COMMAND_OPTIONS[context.command] ?? [];
+}
+
+async function completeOptionValue(input: {
+  option: OptionDefinition;
+  current: string;
+  cwd: string;
+  words: string[];
+  inlinePrefix?: string;
+}): Promise<CompletionItem[]> {
+  let items: CompletionItem[];
+  switch (input.option.valueKind) {
+    case "directories":
+      items = completeDirectories(input.cwd, input.current);
+      break;
+    case "config-files":
+      items = completeConfigPaths(projectBaseDir(input.words, input.cwd), input.current);
+      break;
+    case "filesystem":
+      items = completeFilesystemPaths(input.cwd, input.current);
+      break;
+    case "package-managers":
+      items = filterItems([
+        { value: "npm", group: GROUP_VALUES },
+        { value: "bun", group: GROUP_VALUES },
+        { value: "pnpm", group: GROUP_VALUES },
+        { value: "skip", group: GROUP_VALUES },
+      ], input.current);
+      break;
+    default:
+      items = await completeRuntimeOptionValue(input.option, input.current, input.words, input.cwd);
+      break;
   }
 
-  if (command === "completion" && positionalCount === 0) {
-    return filterItems(COMMAND_OPTIONS.completion, current);
+  if (!input.inlinePrefix) return items;
+  return items.map((item) => ({
+    ...item,
+    value: `${input.inlinePrefix}${item.value}`,
+  }));
+}
+
+async function completeRuntimeOptionValue(
+  option: OptionDefinition,
+  current: string,
+  words: string[],
+  cwd: string,
+): Promise<CompletionItem[]> {
+  const runtimeOption = option.runtimeOption;
+  const operation = option.operation;
+
+  if (runtimeOption?.type === "boolean") {
+    return filterItems([
+      { value: "true", group: GROUP_VALUES },
+      { value: "false", group: GROUP_VALUES },
+    ], current);
   }
 
-  if (command === "ls" && positionalCount === 0) {
-    return filterItems(COMMAND_OPTIONS.ls, current);
-  }
+  const schema = operation && runtimeOption ? operation.inputSchema?.properties?.[runtimeOption.name] : undefined;
+  const enumItems = enumCompletionItems(schema);
+  if (enumItems.length > 0) return filterItems(enumItems, current);
 
-  if (command === "cache") {
-    const cache = parseCacheCommand(before);
-    if (!cache.subcommand) return filterItems(COMMAND_OPTIONS.cache ?? [], current);
-    return filterItems(cacheOptionTargets(before), current);
+  if (runtimeOption?.name === "workflow" || option.flags.includes("--workflow")) {
+    return filterItems(await safeWorkflowTargets(resolveProjectDir(words, cwd)), current);
   }
 
   return [];
+}
+
+async function completeCommand(context: CompletionContext): Promise<CompletionItem[]> {
+  switch (context.command) {
+    case "plan":
+    case "apply":
+    case "create":
+      return await completeProjectOperationCommand(context);
+    case "run":
+      return await completeRunCommand(context);
+    case "rm":
+      return await completeRmCommand(context);
+    case "ls":
+      return completeLsCommand(context);
+    case "cache":
+      return await completeCacheCommand(context);
+    case "completion":
+      return completeCompletionCommand(context);
+    case "init":
+    case "projects":
+    case "doctor":
+    case "version":
+    case "help":
+      return completeOptionsOnlyCommand(context, COMMAND_OPTIONS[context.command]);
+  }
+  return [];
+}
+
+async function completeProjectOperationCommand(context: CompletionContext): Promise<CompletionItem[]> {
+  const operation = await safeResolveRuntimeOperation(resolveProjectDir(context.words, context.cwd), context.command!);
+  const options = mergeOptions([
+    ...operationOptions(operation),
+    ...(CORE_OPERATION_OPTIONS[context.command!] ?? []),
+    ...COMMAND_OPTIONS[context.command!],
+  ]);
+  const positionals = positionalsFrom(context.argsBefore, options);
+
+  if (context.current.startsWith("-") || context.current === "") {
+    const positionalItems = operation ? operationPositionalValueItems(operation, positionals.length, context.current) : [];
+    return filterItems([...positionalItems, ...optionItems(options)], context.current);
+  }
+
+  if (!operation) return [];
+  return filterItems(operationPositionalValueItems(operation, positionals.length, context.current), context.current);
+}
+
+async function completeRunCommand(context: CompletionContext): Promise<CompletionItem[]> {
+  const paths = resolveProjectDir(context.words, context.cwd);
+  const baseOptions = COMMAND_OPTIONS.run;
+  const run = parseRunArgs(context);
+
+  if (!run.workspace) {
+    return completeMixed({
+      primary: await safeWorkspaceTargets(paths),
+      options: baseOptions,
+      current: context.current,
+    });
+  }
+
+  if (!run.operation) {
+    return completeMixed({
+      primary: await safeWorkspaceOperationTargets(paths),
+      options: baseOptions,
+      current: context.current,
+    });
+  }
+
+  const operation = await safeResolveWorkspaceOperation(paths, run.operation);
+  const options = mergeOptions([
+    ...operationOptions(operation),
+    ...baseOptions,
+  ]);
+  const positionals = positionalsFrom(run.args, options);
+
+  if (context.current.startsWith("-") || context.current === "") {
+    const positionalItems = operation ? operationPositionalValueItems(operation, positionals.length, context.current) : [];
+    return filterItems([...positionalItems, ...optionItems(options)], context.current);
+  }
+
+  if (!operation) return [];
+  return filterItems(operationPositionalValueItems(operation, positionals.length, context.current), context.current);
+}
+
+async function completeRmCommand(context: CompletionContext): Promise<CompletionItem[]> {
+  const paths = resolveProjectDir(context.words, context.cwd);
+  const remove = parseRmArgs(context);
+  const operation = remove.workspace ? await safeResolveWorkspaceOperation(paths, "remove") : undefined;
+  const options = mergeOptions([
+    ...operationOptions(operation),
+    ...COMMAND_OPTIONS.rm,
+  ]);
+
+  if (!remove.workspace) {
+    return completeMixed({
+      primary: await safeWorkspaceTargets(paths),
+      options,
+      current: context.current,
+    });
+  }
+
+  if (context.current.startsWith("-") || context.current === "") {
+    return filterItems(optionItems(options), context.current);
+  }
+
+  return [];
+}
+
+function completeLsCommand(context: CompletionContext): CompletionItem[] {
+  const options = COMMAND_OPTIONS.ls;
+  const targets = positionalsFrom(context.argsBefore, options);
+  if (targets.length === 0) {
+    return completeMixed({
+      primary: LIST_TARGETS,
+      options,
+      current: context.current,
+    });
+  }
+
+  if (context.current.startsWith("-") || context.current === "") {
+    return filterItems(optionItems(options), context.current);
+  }
+
+  return [];
+}
+
+async function completeCacheCommand(context: CompletionContext): Promise<CompletionItem[]> {
+  const cache = parseCacheArgs(context);
+  if (!cache.subcommand) {
+    if (context.current.startsWith("-")) return filterItems(optionItems(COMMAND_OPTIONS.cache), context.current);
+    return filterItems(CACHE_SUBCOMMANDS, context.current);
+  }
+
+  const options = CACHE_SUBCOMMAND_OPTIONS[cache.subcommand] ?? [HELP_OPTION];
+  if (cache.subcommand !== "invalidate") {
+    return completeOptionsOnlyCommand(context, options);
+  }
+
+  const stepArgs = positionalsFrom(cache.args, options);
+  if (stepArgs.length === 0) {
+    return completeMixed({
+      primary: await safeCacheInvalidateTargets(resolveProjectDir(context.words, context.cwd)),
+      options,
+      current: context.current,
+    });
+  }
+
+  if (context.current.startsWith("-") || context.current === "") {
+    return filterItems(optionItems(options), context.current);
+  }
+
+  return [];
+}
+
+function completeCompletionCommand(context: CompletionContext): CompletionItem[] {
+  const shells = positionalsFrom(context.argsBefore, COMMAND_OPTIONS.completion);
+  if (shells.length === 0) {
+    return completeMixed({
+      primary: COMPLETION_SHELLS,
+      options: COMMAND_OPTIONS.completion,
+      current: context.current,
+    });
+  }
+
+  if (context.current.startsWith("-") || context.current === "") {
+    return filterItems(optionItems(COMMAND_OPTIONS.completion), context.current);
+  }
+
+  return [];
+}
+
+function completeOptionsOnlyCommand(context: CompletionContext, options: OptionDefinition[]): CompletionItem[] {
+  if (context.current.startsWith("-") || context.current === "") {
+    return filterItems(optionItems(options), context.current);
+  }
+  return [];
+}
+
+function completeMixed(input: {
+  primary: CompletionItem[];
+  options: OptionDefinition[];
+  current: string;
+}): CompletionItem[] {
+  if (input.current.startsWith("-")) return filterItems(optionItems(input.options), input.current);
+  if (input.current === "") return filterItems([...input.primary, ...optionItems(input.options)], input.current);
+  return filterItems(input.primary, input.current);
 }
 
 export function formatCompletionItems(items: CompletionItem[], shell: CompletionShell): string {
@@ -287,7 +733,6 @@ export function formatCompletionItems(items: CompletionItem[], shell: Completion
       const group = item.group ?? "";
       return `${item.value}\t${description}\t${marker}\t${group}`;
     }
-    // fish: legacy two-column format works fine; descriptions render dim by default
     return item.description ? `${item.value}\t${item.description}` : item.value;
   });
   return lines.join("\n");
@@ -310,6 +755,9 @@ _rig_completion() {
   local completions
   completions="$(command rig __complete --shell bash --index "$COMP_CWORD" -- "\${COMP_WORDS[@]}" 2>/dev/null)"
   COMPREPLY=($(compgen -W "$completions" -- "\${COMP_WORDS[COMP_CWORD]}"))
+  if [[ "\${#COMPREPLY[@]}" -eq 1 && ( "\${COMPREPLY[0]}" == */ || "\${COMPREPLY[0]}" == *= ) ]]; then
+    compopt -o nospace 2>/dev/null || true
+  fi
 }
 complete -F _rig_completion rig
 `;
@@ -327,11 +775,8 @@ complete -c rig -f -a "(__rig_complete)"
 `;
   }
 
-return `#compdef rig
-# rig zsh completion — auto-generated by \`rig completion zsh\`.
-# Visual defaults are scoped to :completion:*:rig:* so they don't override your
-# global completion theme. Group headers render bold blue; descriptions inherit
-# your usual style.
+  return `#compdef rig
+# rig zsh completion generated by \`rig completion zsh\`.
 
 () {
   zstyle ':completion:*:rig:*:descriptions' format $'\\e[1;34m%d\\e[0m'
@@ -381,166 +826,170 @@ compdef _rig rig
 `;
 }
 
-function findCommand(words: string[]): string | undefined {
-  for (let index = 0; index < words.length; index += 1) {
-    const word = words[index]!;
-    if (OPTIONS_WITH_VALUES.has(word)) {
-      index += 1;
-      continue;
-    }
-    if (word.startsWith("--") && word.includes("=")) continue;
-    if (word.startsWith("-")) continue;
-
-    const canonical = COMMAND_ALIASES.get(word) ?? word;
-    if (COMMANDS.some((command) => command.value === canonical)) return canonical;
-  }
-  return undefined;
-}
-
-function countPositionals(words: string[], command: string): number {
-  let foundCommand = false;
-  let count = 0;
-
-  for (let index = 0; index < words.length; index += 1) {
-    const word = words[index]!;
-    if (OPTIONS_WITH_VALUES.has(word)) {
-      index += 1;
-      continue;
-    }
-    if (word.startsWith("--") && word.includes("=")) continue;
-    if (word.startsWith("-")) continue;
-
-    const canonical = COMMAND_ALIASES.get(word) ?? word;
-    if (!foundCommand && canonical === command) {
-      foundCommand = true;
-      continue;
-    }
-    if (foundCommand) count += 1;
-  }
-
-  return count;
-}
-
-function parseWorkspaceRunCommand(words: string[]): { workspace?: string; operation?: string; args: string[] } {
-  let foundRun = false;
-  const args: string[] = [];
-  for (let index = 0; index < words.length; index += 1) {
-    const word = words[index]!;
-    if (OPTIONS_WITH_VALUES.has(word)) {
-      index += 1;
-      continue;
-    }
-    if (word.startsWith("--") && word.includes("=")) continue;
-    if (word.startsWith("-")) continue;
-    if (!foundRun) {
-      if (word === "run") foundRun = true;
-      continue;
-    }
-    args.push(word);
-  }
-  return { workspace: args[0], operation: args[1], args: args.slice(2) };
-}
-
-function parseRemoveCommand(words: string[]): { workspace?: string; args: string[] } {
-  let foundRemove = false;
-  const args: string[] = [];
-  for (let index = 0; index < words.length; index += 1) {
-    const word = words[index]!;
-    if (OPTIONS_WITH_VALUES.has(word)) {
-      index += 1;
-      continue;
-    }
-    if (word.includes("=") && OPTIONS_WITH_VALUES.has(word.slice(0, word.indexOf("=")))) continue;
-    if (word.startsWith("-")) continue;
-    if (!foundRemove) {
-      if (word === "rm") foundRemove = true;
-      continue;
-    }
-    args.push(word);
-  }
-  return { workspace: args[0], args: args.slice(1) };
-}
-
-function parseCacheCommand(words: string[]): { subcommand?: string; args: string[] } {
-  let foundCache = false;
-  const args: string[] = [];
-  for (let index = 0; index < words.length; index += 1) {
-    const word = words[index]!;
-    if (OPTIONS_WITH_VALUES.has(word)) {
-      index += 1;
-      continue;
-    }
-    if (word.startsWith("--") && word.includes("=")) continue;
-    if (word.startsWith("-")) continue;
-    if (!foundCache) {
-      if (word === "cache") foundCache = true;
-      continue;
-    }
-    args.push(word);
-  }
-  return { subcommand: args[0], args: args.slice(1) };
-}
-
-function cacheOptionTargets(words: string[]): CompletionItem[] {
-  const subcommand = parseCacheCommand(words).subcommand;
-  return subcommand ? CACHE_SUBCOMMAND_OPTIONS[subcommand] ?? [] : [];
-}
-
-function optionExpectingValue(words: string[]): string | undefined {
-  const previous = words.at(-1);
-  return previous && OPTIONS_WITH_VALUES.has(previous) ? previous : undefined;
-}
-
-async function completeOptionValue(input: {
-  option: string;
-  current: string;
-  cwd: string;
-  words: string[];
-  inlinePrefix?: string;
-}): Promise<CompletionItem[]> {
-  let items: CompletionItem[];
-  switch (input.option) {
-    case "-chdir":
-    case "--chdir":
-      items = completeDirectories(input.cwd, input.current);
-      break;
-    case "-config":
-    case "--config":
-      items = completeConfigPaths(projectBaseDir(input.words, input.cwd), input.current);
-      break;
-    case "--package-manager":
-      items = filterItems([
-        { value: "npm", group: GROUP_VALUES },
-        { value: "bun", group: GROUP_VALUES },
-        { value: "pnpm", group: GROUP_VALUES },
-        { value: "skip", group: GROUP_VALUES },
-      ], input.current);
-      break;
-    case "-state":
-    case "--state":
-      items = completeFilesystemPaths(input.cwd, input.current);
-      break;
-    default:
-      items = [];
-  }
-
-  if (!input.inlinePrefix) return items;
-  return items.map((item) => ({
-    ...item,
-    value: `${input.inlinePrefix}${item.value}`,
-  }));
-}
-
 function parseInlineValueOption(current: string): { option: string; value: string; prefix: string } | undefined {
   const index = current.indexOf("=");
   if (index < 0) return undefined;
-  const option = current.slice(0, index);
-  if (!OPTIONS_WITH_VALUES.has(option)) return undefined;
   return {
-    option,
+    option: current.slice(0, index),
     value: current.slice(index + 1),
     prefix: current.slice(0, index + 1),
   };
+}
+
+function parseRunArgs(context: CompletionContext): { workspace?: string; operation?: string; args: string[] } {
+  const basePositionals = positionalTokensFrom(context.argsBefore, COMMAND_OPTIONS.run);
+  const workspace = basePositionals[0]?.value;
+  const operation = basePositionals[1]?.value;
+  const operationTokenIndex = basePositionals[1]?.index;
+  return {
+    workspace,
+    operation,
+    args: operationTokenIndex === undefined ? [] : context.argsBefore.slice(operationTokenIndex + 1),
+  };
+}
+
+function parseRmArgs(context: CompletionContext): { workspace?: string } {
+  const positionals = positionalsFrom(context.argsBefore, COMMAND_OPTIONS.rm);
+  return { workspace: positionals[0] };
+}
+
+function parseCacheArgs(context: CompletionContext): { subcommand?: string; args: string[] } {
+  const positionals = positionalsFrom(context.argsBefore, COMMAND_OPTIONS.cache);
+  return {
+    subcommand: positionals[0],
+    args: positionals.slice(1),
+  };
+}
+
+function positionalsFrom(tokens: string[], options: OptionDefinition[]): string[] {
+  return positionalTokensFrom(tokens, options).map((token) => token.value);
+}
+
+function positionalTokensFrom(tokens: string[], options: OptionDefinition[]): Array<{ value: string; index: number }> {
+  const positionalTokens: Array<{ value: string; index: number }> = [];
+
+  for (let index = 0; index < tokens.length; index += 1) {
+    const word = tokens[index]!;
+    if (word === "--") {
+      positionalTokens.push(...tokens.slice(index + 1).map((value, offset) => ({ value, index: index + 1 + offset })));
+      break;
+    }
+
+    const option = findOption(options, word) ?? findOption(GLOBAL_OPTIONS, word);
+    if (option && isOptionToken(word)) {
+      if (option.takesValue && !hasInlineValue(word)) index += 1;
+      continue;
+    }
+
+    if (isOptionToken(word)) continue;
+    positionalTokens.push({ value: word, index });
+  }
+
+  return positionalTokens;
+}
+
+function operationOptions(operation: RuntimeOperationDefinition | undefined): OptionDefinition[] {
+  if (!operation) return [];
+  return inferOperationOptions(operation).map((runtimeOption) =>
+    option([runtimeOption.flag, ...(runtimeOption.aliases ?? [])], optionDescription(operation, runtimeOption), {
+      takesValue: runtimeOption.type !== "boolean",
+      operation,
+      runtimeOption,
+    })
+  );
+}
+
+function inferOperationOptions(operation: RuntimeOperationDefinition): RuntimeOperationCliOption[] {
+  const properties = operation.inputSchema?.properties ?? {};
+  const runtimeOptions = operation.cli?.options ?? Object.entries(properties).map(([name, schema]) => ({
+    name,
+    flag: `--${dashCase(name)}`,
+    required: operation.inputSchema?.required?.includes(name),
+    type: schema.type === "boolean" ? "boolean" : schema.type === "number" ? "number" : "string",
+  } satisfies RuntimeOperationCliOption));
+
+  return runtimeOptions.map((runtimeOption) => ({
+    ...runtimeOption,
+    type: runtimeOption.type ?? schemaType(properties[runtimeOption.name]) ?? "string",
+  }));
+}
+
+function operationPositionalValueItems(
+  operation: RuntimeOperationDefinition,
+  positionalIndex: number,
+  current: string,
+): CompletionItem[] {
+  const positionals = operation.cli?.positionals ?? [];
+  const positional = positionals.find((item) => item.index === positionalIndex);
+  if (!positional) return [];
+
+  const schema = operation.inputSchema?.properties?.[positional.name];
+  const enumItems = enumCompletionItems(schema);
+  return filterItems(enumItems, current);
+}
+
+function optionDescription(operation: RuntimeOperationDefinition, option: RuntimeOperationCliOption): string {
+  const schemaDescription = operation.inputSchema?.properties?.[option.name]?.description;
+  if (schemaDescription) return schemaDescription;
+  return option.required ? `${option.name} (required)` : option.name;
+}
+
+function schemaType(schema: JsonSchemaProperty | undefined): RuntimeOperationCliOption["type"] | undefined {
+  if (schema?.type === "boolean" || schema?.type === "number" || schema?.type === "string") return schema.type;
+  return undefined;
+}
+
+function enumCompletionItems(schema: JsonSchemaProperty | undefined): CompletionItem[] {
+  const values = schema?.enum ?? [];
+  return values
+    .filter((value): value is string => typeof value === "string")
+    .map((value) => ({ value, group: GROUP_VALUES }));
+}
+
+function optionItems(options: OptionDefinition[]): CompletionItem[] {
+  return dedupeItems(options.flatMap((option) =>
+    (option.completions ?? option.flags.map((value): { value: string; noSpace?: boolean } => ({ value }))).map((completion) => ({
+      value: completion.value,
+      description: option.description,
+      noSpace: completion.noSpace,
+      group: option.group,
+    }))
+  ));
+}
+
+function mergeOptions(options: OptionDefinition[]): OptionDefinition[] {
+  const seen = new Set<string>();
+  const merged: OptionDefinition[] = [];
+  for (const option of options) {
+    const key = option.flags.join("\0");
+    if (option.flags.some((flag) => seen.has(flag))) continue;
+    for (const flag of option.flags) seen.add(flag);
+    seen.add(key);
+    merged.push(option);
+  }
+  return merged;
+}
+
+function findOption(options: OptionDefinition[], word: string): OptionDefinition | undefined {
+  const flag = optionFlag(word);
+  return options.find((option) => option.flags.includes(flag));
+}
+
+function optionFlag(word: string): string {
+  const index = word.indexOf("=");
+  return index < 0 ? word : word.slice(0, index);
+}
+
+function hasInlineValue(word: string): boolean {
+  return word.includes("=");
+}
+
+function isOptionToken(word: string): boolean {
+  return word.startsWith("-") && word !== "-";
+}
+
+function isCommandName(value: string): value is CommandName {
+  return COMMAND_NAMES.has(value as CommandName);
 }
 
 function resolveProjectDir(words: string[], cwd: string): { projectDir: string; configPath: string } {
@@ -662,7 +1111,7 @@ function completePathEntries(
       if (options.fileFilter && !options.fileFilter(entry.name)) return [];
       return [{
         value: `${dirPart}${entry.name}`,
-        description: "config",
+        description: options.fileFilter ? "config" : "file",
         group: GROUP_PATHS,
       }];
     })
@@ -704,17 +1153,19 @@ function splitCompletionPath(baseDir: string, current: string): {
   };
 }
 
-async function workspaceTargets(
+async function safeWorkspaceTargets(
   paths: { projectDir: string; configPath: string },
 ): Promise<CompletionItem[]> {
-  const workspaces = await readWorkspaces(paths);
-  const items = workspaces.map((workspace) => ({
-    value: workspace.name,
-    description: workspaceDescription(workspace),
-    group: GROUP_WORKSPACES,
-  }));
-
-  return dedupeItems(items);
+  try {
+    const workspaces = await readWorkspaces(paths);
+    return dedupeItems(workspaces.map((workspace) => ({
+      value: workspace.name,
+      description: workspaceDescription(workspace),
+      group: GROUP_WORKSPACES,
+    })));
+  } catch {
+    return [];
+  }
 }
 
 async function readWorkspaces(paths: { projectDir: string; configPath: string }): Promise<RuntimeWorkspaceCompletion[]> {
@@ -726,6 +1177,22 @@ async function readWorkspaces(paths: { projectDir: string; configPath: string })
     createdAt: workspace.createdAt,
     updatedAt: workspace.updatedAt,
   }));
+}
+
+async function safeWorkflowTargets(
+  paths: { projectDir: string; configPath: string },
+): Promise<CompletionItem[]> {
+  try {
+    const runtime = await getOrStartRuntime(paths);
+    const { workflows } = await runtime.control.workflows();
+    return workflows.map((workflow) => ({
+      value: workflow.name,
+      description: "workflow",
+      group: GROUP_VALUES,
+    }));
+  } catch {
+    return [];
+  }
 }
 
 async function safeWorkspaceOperationTargets(
@@ -740,18 +1207,36 @@ async function safeWorkspaceOperationTargets(
 }
 
 function workspaceOperationTargets(manifest: RuntimeOperationManifest): CompletionItem[] {
-  return (manifest.workspaceOperations ?? []).flatMap((operation) => [
+  return dedupeItems((manifest.workspaceOperations ?? []).flatMap((operation) => [
     {
       value: operation.id,
-      description: operation.description ?? "workspace operation",
+      description: operation.description || "workspace operation",
       group: GROUP_OPERATIONS,
     },
     ...(operation.aliases ?? []).map((alias) => ({
       value: alias,
-      description: operation.description ?? "workspace operation",
+      description: operation.description || "workspace operation",
       group: GROUP_OPERATIONS,
     })),
-  ]);
+  ]));
+}
+
+async function safeCacheInvalidateTargets(
+  paths: { projectDir: string; configPath: string },
+): Promise<CompletionItem[]> {
+  try {
+    const runtime = await getOrStartRuntime(paths);
+    const cache = await runtime.control.cache() as unknown as { entries: readonly RuntimeCacheCompletionEntry[] };
+    return dedupeItems(cache.entries
+      .filter((entry) => entry.scope === "local" && !entry.invalidated)
+      .map((entry) => ({
+        value: entry.nodePath || entry.nodeName,
+        description: entry.workflow ? `workflow ${entry.workflow}` : "cached task",
+        group: GROUP_CACHE,
+      })));
+  } catch {
+    return [];
+  }
 }
 
 async function resolveRuntimeOperation(
@@ -841,4 +1326,8 @@ export function formatWorkspaceAge(createdAt: string, nowMs = Date.now()): strin
   if (elapsedMonths < 24) return `${elapsedMonths}mo ago`;
 
   return `${Math.floor(elapsedMonths / 12)}y ago`;
+}
+
+function dashCase(value: string): string {
+  return value.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);
 }

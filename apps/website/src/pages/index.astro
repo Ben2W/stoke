@@ -311,30 +311,58 @@ const configSnippets: ConfigSnippet[] = await Promise.all(
       </section>
 
       <section
-        class="mx-auto mt-24 flex w-full max-w-4xl flex-col items-center gap-6 px-6 text-center sm:mt-32 sm:px-10"
+        class="mx-auto mt-24 flex w-full max-w-4xl flex-col items-center gap-8 px-6 sm:mt-32 sm:px-10"
       >
         <p
-          class="max-w-xl font-sans text-[15px] leading-[1.55] text-[#2a2a2a]"
+          class="max-w-xl text-center font-sans text-[15px] leading-[1.55] text-[#2a2a2a]"
         >
           The full API reference, provider catalog, and a handful of worked
           examples — including the website and cmux configs powering this page.
         </p>
-        <div class="flex flex-wrap items-center justify-center gap-3">
-          <a
-            href="https://docs.rigkit.dev"
-            class="inline-flex items-center gap-1.5 rounded-md bg-[var(--color-fg)] px-4 py-2 font-sans text-[14px] font-medium text-[var(--color-bg)] transition-transform hover:-translate-y-[1px]"
+        <a
+          href="https://docs.rigkit.dev"
+          class="group relative flex w-full max-w-2xl items-center justify-between gap-6 overflow-hidden rounded-2xl bg-[var(--color-accent)] py-6 pr-6 pl-7 text-left transition-transform hover:-translate-y-[1px] sm:py-8 sm:pr-8 sm:pl-12"
+        >
+          <span
+            aria-hidden="true"
+            class="pointer-events-none absolute inset-y-3 left-3 hidden w-px bg-white/15 sm:block"
+          ></span>
+          <div class="flex flex-col gap-1.5">
+            <span
+              class="inline-flex items-center gap-1.5 font-mono text-[10.5px] uppercase tracking-[0.16em] text-white/70"
+            >
+              <span aria-hidden="true">$</span>
+              docs.rigkit.dev
+            </span>
+            <span
+              class="font-sans text-[28px] font-extrabold leading-[1.02] tracking-[-0.03em] text-white sm:text-[44px]"
+            >
+              Read the docs.
+            </span>
+            <span
+              class="mt-0.5 font-sans text-[12.5px] leading-[1.45] text-white/75 sm:text-[13.5px]"
+            >
+              API reference · providers · examples
+            </span>
+          </div>
+          <span
+            class="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-white text-[var(--color-accent)] transition-transform group-hover:translate-x-1 sm:h-16 sm:w-16"
+            aria-hidden="true"
           >
-            Read the docs
-            <span aria-hidden="true">→</span>
-          </a>
-          <a
-            href="https://github.com/freestyle-sh/rigkit/tree/main/examples"
-            class="inline-flex items-center gap-1.5 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-2 font-mono text-[13px] text-[var(--color-fg)] transition-colors hover:bg-[#f6f3eb]"
-          >
-            Browse examples
-            <span aria-hidden="true">→</span>
-          </a>
-        </div>
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2.2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              class="h-5 w-5 sm:h-6 sm:w-6"
+            >
+              <path d="M5 12h14"></path>
+              <path d="M13 5l7 7-7 7"></path>
+            </svg>
+          </span>
+        </a>
       </section>
     </main>
 

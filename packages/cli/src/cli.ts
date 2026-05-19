@@ -1158,6 +1158,10 @@ async function runCacheInvalidate(invocation: CliInvocation, options: CacheInval
     printJson(result);
     return;
   }
+  if (result.invalidated === 0) {
+    console.log(ui.dim("no cache entries invalidated"));
+    return;
+  }
   console.log(
     `${ui.ok(ui.sym.ok)} invalidated ${result.invalidated} cache ${result.invalidated === 1 ? "entry" : "entries"}`,
   );

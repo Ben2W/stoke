@@ -194,6 +194,31 @@ describe("CLI entrypoint", () => {
     }
   });
 
+  test("does not render a success marker when cache invalidation is a no-op", async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-cli-cache-invalidate-"));
+
+    await withWorkspaceRuntime({ projectDir, cacheInvalidated: 0 }, async ({ env }) => {
+      const result = await runCli([`-chdir=${projectDir}`, "cache", "invalidate", "missing-task"], { env });
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stderr).toBe("");
+      expect(result.stdout.trim()).toBe("no cache entries invalidated");
+      expect(result.stdout).not.toContain("✓");
+    });
+  });
+
+  test("preserves JSON output for zero cache invalidations", async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-cli-cache-invalidate-json-"));
+
+    await withWorkspaceRuntime({ projectDir, cacheInvalidated: 0 }, async ({ env }) => {
+      const result = await runCli([`-chdir=${projectDir}`, "cache", "invalidate", "missing-task", "--json"], { env });
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stderr).toBe("");
+      expect(JSON.parse(result.stdout)).toEqual({ ok: true, invalidated: 0 });
+    });
+  });
+
   test("lists workspaces from the project runtime", async () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-cli-ls-"));
 
@@ -333,7 +358,7 @@ function nextPatchVersion(version: string): string {
 }
 
 async function withWorkspaceRuntime(
-  input: { projectDir: string },
+  input: { projectDir: string; cacheInvalidated?: number },
   run: (context: { env: Record<string, string> }) => Promise<void>,
 ): Promise<void> {
   const rigkitHome = mkdtempSync(join(tmpdir(), "rigkit-home-"));
@@ -382,6 +407,9 @@ async function withWorkspaceRuntime(
             updatedAt: now,
           }],
         });
+      }
+      if (pathname === "/cache/invalidate") {
+        return runtimeJson({ ok: true, invalidated: input.cacheInvalidated ?? 1 });
       }
       if (pathname === "/operations") {
         return runtimeJson({

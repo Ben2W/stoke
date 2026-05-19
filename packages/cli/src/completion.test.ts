@@ -15,7 +15,7 @@ describe("CLI completion", () => {
         currentIndex: 2,
       });
 
-      expect(items.map((item) => item.value)).toEqual(["api", "web"]);
+      expect(items.map((item) => item.value)).toEqual(["api", "web", "--json", "--help"]);
       expect(items[0]?.description).toBe("created 2h ago");
     });
   });
@@ -43,7 +43,7 @@ describe("CLI completion", () => {
         currentIndex: 3,
       });
 
-      expect(items.map((item) => item.value)).toEqual(["api", "web"]);
+      expect(items.map((item) => item.value)).toEqual(["api", "web", "--json", "--help"]);
     });
   });
 
@@ -128,7 +128,7 @@ describe("CLI completion", () => {
         words: ["rig", "run", ""],
         currentIndex: 2,
       });
-      expect(roots.map((item) => item.value)).toEqual(["api", "web"]);
+      expect(roots.map((item) => item.value)).toEqual(["api", "web", "--json", "--help"]);
       expect(roots[0]).toMatchObject({ description: "created 2h ago" });
 
       const exactWorkspace = await completeRig({
@@ -143,7 +143,7 @@ describe("CLI completion", () => {
         words: ["rig", "run", "api", ""],
         currentIndex: 3,
       });
-      expect(workspaceAfterSpace.map((item) => item.value)).toEqual(["remove", "open-cmux"]);
+      expect(workspaceAfterSpace.map((item) => item.value)).toEqual(["remove", "open-cmux", "--json", "--help"]);
 
       const operationPrefix = await completeRig({
         cwd: projectDir,
@@ -162,7 +162,7 @@ describe("CLI completion", () => {
         words: ["rig", "rm", ""],
         currentIndex: 2,
       });
-      expect(workspaces.map((item) => item.value)).toEqual(["api", "web"]);
+      expect(workspaces.map((item) => item.value)).toEqual(["api", "web", "-y", "--yes", "--all", "--json", "--help"]);
 
       const flags = await completeRig({
         cwd: projectDir,
@@ -204,7 +204,7 @@ describe("CLI completion", () => {
       currentIndex: 2,
     });
 
-    expect(subcommands.map((item) => item.value)).toEqual(["ls", "clear"]);
+    expect(subcommands.map((item) => item.value)).toEqual(["ls", "clear", "invalidate"]);
 
     const clearFlags = await completeRig({
       cwd: process.cwd(),
@@ -217,7 +217,127 @@ describe("CLI completion", () => {
       "--global",
       "--all",
       "--json",
+      "--help",
     ]);
+  });
+
+  test("completes project operation flags and workflow values", async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-completion-"));
+    await withWorkspaceRuntime({ projectDir }, async () => {
+      const flags = await completeRig({
+        cwd: projectDir,
+        words: ["rig", "apply", "--"],
+        currentIndex: 2,
+      });
+
+      expect(flags.map((item) => item.value)).toEqual([
+        "--workflow",
+        "--dry-run",
+        "--all",
+        "--discover",
+        "--json",
+        "--help",
+      ]);
+
+      const workflowValues = await completeRig({
+        cwd: projectDir,
+        words: ["rig", "apply", "--workflow", ""],
+        currentIndex: 3,
+      });
+      expect(workflowValues.map((item) => item.value)).toEqual(["smoke", "api"]);
+
+      const inlineWorkflow = await completeRig({
+        cwd: projectDir,
+        words: ["rig", "apply", "--workflow=s"],
+        currentIndex: 2,
+      });
+      expect(inlineWorkflow.map((item) => item.value)).toEqual(["--workflow=smoke"]);
+    });
+  });
+
+  test("completes workspace operation flags and enum values", async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-completion-"));
+    await withWorkspaceRuntime({ projectDir }, async () => {
+      const flags = await completeRig({
+        cwd: projectDir,
+        words: ["rig", "run", "api", "open-cmux", "--"],
+        currentIndex: 4,
+      });
+
+      expect(flags.map((item) => item.value)).toEqual(["--layout", "--json", "--help"]);
+
+      const values = await completeRig({
+        cwd: projectDir,
+        words: ["rig", "run", "api", "open-cmux", "--layout", ""],
+        currentIndex: 5,
+      });
+      expect(values.map((item) => item.value)).toEqual(["tabs", "splits"]);
+    });
+  });
+
+  test("completes cache invalidate targets and flags", async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-completion-"));
+    await withWorkspaceRuntime({ projectDir }, async () => {
+      const targets = await completeRig({
+        cwd: projectDir,
+        words: ["rig", "cache", "invalidate", ""],
+        currentIndex: 3,
+      });
+
+      expect(targets.map((item) => item.value)).toEqual([
+        "install-tooling",
+        "build",
+        "--all",
+        "-y",
+        "--yes",
+        "--json",
+        "--help",
+      ]);
+
+      const flags = await completeRig({
+        cwd: projectDir,
+        words: ["rig", "cache", "invalidate", "--"],
+        currentIndex: 3,
+      });
+      expect(flags.map((item) => item.value)).toEqual(["--all", "--yes", "--json", "--help"]);
+    });
+  });
+
+  test("completes static command flags and option values", async () => {
+    const initFlags = await completeRig({
+      cwd: process.cwd(),
+      words: ["rig", "init", "--"],
+      currentIndex: 2,
+    });
+    expect(initFlags.map((item) => item.value)).toEqual([
+      "--name",
+      "--api-key",
+      "--package-manager",
+      "--force",
+      "--json",
+      "--help",
+    ]);
+
+    const packageManagers = await completeRig({
+      cwd: process.cwd(),
+      words: ["rig", "init", "--package-manager", "p"],
+      currentIndex: 3,
+    });
+    expect(packageManagers.map((item) => item.value)).toEqual(["pnpm"]);
+
+    const doctorFlags = await completeRig({
+      cwd: process.cwd(),
+      words: ["rig", "doctor", "--"],
+      currentIndex: 2,
+    });
+    expect(doctorFlags.map((item) => item.value)).toEqual(["--cli", "--json", "--help"]);
+
+    const completionShells = await completeRig({
+      cwd: process.cwd(),
+      words: ["rig", "completion", ""],
+      currentIndex: 2,
+    });
+    expect(completionShells.map((item) => item.value)).toEqual(["bash", "fish", "zsh", "--help"]);
   });
 
   test("formats shell completion items", () => {
@@ -254,7 +374,7 @@ describe("CLI completion", () => {
       currentIndex: 2,
     });
 
-    expect(items.map((item) => item.value)).toEqual(["workspaces", "snapshots", "config", "--json"]);
+    expect(items.map((item) => item.value)).toEqual(["workspaces", "snapshots", "config", "--json", "--help"]);
   });
 });
 
@@ -321,9 +441,139 @@ async function withWorkspaceRuntime(
           ],
         });
       }
+      if (pathname === "/workflows") {
+        return runtimeJson({
+          workflows: [
+            {
+              name: "smoke",
+              providers: [],
+              nodes: ["install-tooling", "build"],
+              operations: ["plan", "apply", "create"],
+              createsWorkspace: true,
+            },
+            {
+              name: "api",
+              providers: [],
+              nodes: ["install-tooling"],
+              operations: ["plan", "apply"],
+              createsWorkspace: false,
+            },
+          ],
+        });
+      }
+      if (pathname === "/cache") {
+        const nowMs = Date.now();
+        return runtimeJson({
+          entries: [
+            {
+              scope: "local",
+              workflow: "smoke",
+              nodePath: "install-tooling",
+              nodeName: "install-tooling",
+              nodeKind: "task",
+              runId: "run-install",
+              invalidated: false,
+              createdAt: new Date(nowMs - 60_000).toISOString(),
+            },
+            {
+              scope: "local",
+              workflow: "smoke",
+              nodePath: "build",
+              nodeName: "build",
+              nodeKind: "task",
+              runId: "run-build",
+              invalidated: false,
+              createdAt: new Date(nowMs - 30_000).toISOString(),
+            },
+            {
+              scope: "local",
+              workflow: "smoke",
+              nodePath: "old-task",
+              nodeName: "old-task",
+              nodeKind: "task",
+              runId: "run-old",
+              invalidated: true,
+              createdAt: new Date(nowMs - 10_000).toISOString(),
+            },
+            {
+              scope: "global",
+              workflow: "smoke",
+              nodePath: "base",
+              nodeName: "base",
+              nodeKind: "task",
+              runId: "run-base",
+              invalidated: false,
+              createdAt: new Date(nowMs - 5_000).toISOString(),
+              fragmentHash: "fragment",
+            },
+          ],
+        });
+      }
       if (pathname === "/operations") {
         return runtimeJson({
           operations: [
+            {
+              id: "plan",
+              kind: "command",
+              source: "core",
+              title: "Plan",
+              description: "Show cached and pending steps",
+              cli: {
+                options: [{ name: "workflow", flag: "--workflow" }],
+              },
+              inputSchema: {
+                type: "object",
+                additionalProperties: false,
+                properties: {
+                  workflow: { type: "string", enum: ["smoke", "api"] },
+                },
+              },
+            },
+            {
+              id: "apply",
+              kind: "command",
+              source: "core",
+              title: "Apply",
+              description: "Resolve the workflow",
+              cli: {
+                options: [
+                  { name: "workflow", flag: "--workflow" },
+                  { name: "dryRun", flag: "--dry-run", type: "boolean" },
+                ],
+              },
+              inputSchema: {
+                type: "object",
+                additionalProperties: false,
+                properties: {
+                  workflow: { type: "string", enum: ["smoke", "api"] },
+                  dryRun: { type: "boolean" },
+                },
+              },
+            },
+            {
+              id: "create",
+              kind: "command",
+              source: "core",
+              title: "Create",
+              description: "Create a workspace",
+              createsWorkspace: true,
+              cli: {
+                positionals: [{ name: "name", index: 0 }],
+                options: [
+                  { name: "workflow", flag: "--workflow" },
+                  { name: "name", flag: "--name", required: true },
+                ],
+              },
+              inputSchema: {
+                type: "object",
+                additionalProperties: false,
+                required: ["name"],
+                properties: {
+                  workflow: { type: "string", enum: ["smoke", "api"] },
+                  name: { type: "string" },
+                },
+              },
+            },
             {
               id: "ssh",
               kind: "command",
@@ -365,10 +615,15 @@ async function withWorkspaceRuntime(
               source: "config",
               title: "Open cmux",
               description: "open cmux",
+              cli: {
+                options: [{ name: "layout", flag: "--layout", type: "string" }],
+              },
               inputSchema: {
                 type: "object",
                 additionalProperties: false,
-                properties: {},
+                properties: {
+                  layout: { type: "string", enum: ["tabs", "splits"] },
+                },
               },
             },
           ],
