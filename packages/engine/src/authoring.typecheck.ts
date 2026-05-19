@@ -59,6 +59,26 @@ sequence("typed-step-invalidation-targets")
     return step.invalidate("missing-auth");
   });
 
+type AnnotatedAuthCheckResult = {
+  ctx: {
+    token: string;
+    checked: true;
+  };
+};
+
+sequence("step-invalidation-does-not-contribute-to-return-type")
+  .step("github-auth", async () => ({ ctx: { token: "ok" } }))
+  .step("check-auth", async ({ step }): Promise<AnnotatedAuthCheckResult> => {
+    if (step.ctx.token === "refresh") {
+      return step.invalidate("github-auth");
+    }
+    return { ctx: { token: step.ctx.token, checked: true } };
+  })
+  .step("next", async ({ step }) => {
+    const checked: true = step.ctx.checked;
+    void checked;
+  });
+
 sequence("typed-config")
   .configure({
     nodeMajor: 22,

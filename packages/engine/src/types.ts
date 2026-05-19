@@ -187,7 +187,7 @@ export type WorkflowStepRuntime<
   PreviousTaskIds extends string = string,
 > = WorkflowRuntimeHelpers & {
   readonly ctx: Readonly<Context>;
-  invalidate<const Target extends PreviousTaskIds>(target: Target): WorkflowStepInvalidation<Target>;
+  invalidate<const Target extends PreviousTaskIds>(target: Target): never;
 };
 
 export type WorkflowTaskContextResult<Context extends JsonObject = JsonObject> = {

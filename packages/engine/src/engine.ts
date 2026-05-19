@@ -1648,7 +1648,7 @@ export class DevMachineEngine {
       metadata: (value: JsonObject) => {
         Object.assign(metadata, value);
       },
-      invalidate: <Target extends string>(target: Target) => {
+      invalidate: <Target extends string>(target: Target): never => {
         const matches = previousTasks.filter((task) => task.name === target || task.path === target);
         if (matches.length === 0) {
           throw new Error(`Task ${nodePath} cannot invalidate ${target} because it has not run earlier in this workflow`);
@@ -1660,7 +1660,7 @@ export class DevMachineEngine {
           kind: STEP_INVALIDATION_KIND,
           target,
           targetNodePath: matches[0]!.path,
-        };
+        } as never;
       },
     };
   }

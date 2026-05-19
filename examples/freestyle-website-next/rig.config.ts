@@ -15,8 +15,10 @@ const devCommand = `bun run dev -- --host 0.0.0.0 --port ${devPort}`;
 const vmIdleTimeoutSeconds = 600;
 const vmHome = "/root";
 
-const vmBaseImage = new VmBaseImage("FROM node:22").runCommands(
-  `
+const vmSpec = new VmSpec()
+  .baseImage(new VmBaseImage("FROM node:22"))
+  .runCommands(
+    `
 set -e
 export DEBIAN_FRONTEND=noninteractive
 
@@ -54,13 +56,7 @@ codex --version
 
 rm -rf /var/lib/apt/lists/*
 `,
-);
-
-const vmSpec = new VmSpec()
-  .baseImage(vmBaseImage)
-  .memSizeGb(16)
-  .vcpuCount(4)
-  .rootfsSizeGb(24)
+  )
   .idleTimeoutSeconds(vmIdleTimeoutSeconds)
   .snapshot();
 
@@ -77,7 +73,7 @@ const websiteSetup = app
   .task(
     "install-dependencies",
     { version: "agent-cli-tooling-v4" },
-    async ({ freestyle, step }) => {
+    async ({ freestyle }) => {
       const { vm, vmId } = await freestyle.client.vms.create({
         spec: vmSpec,
         logger: console.log,
@@ -229,7 +225,13 @@ const websiteSetup = app
         });
 
         const snapshot = await vm.snapshot();
-        return { ctx: { ...step.ctx, snapshotId: snapshot.snapshotId } };
+        return {
+          ctx: {
+            ...step.ctx,
+            snapshotId: snapshot.snapshotId,
+            hello: "world" as const,
+          },
+        };
       } finally {
         await freestyle.client.vms.delete({ vmId });
       }
