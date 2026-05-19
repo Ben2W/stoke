@@ -1,186 +1,160 @@
-# RigKit
+# Rigkit
 
-`rig` is a CLI and engine for building forkable development workflows from typed task graphs and provider-owned artifacts.
+Declarative dev environments, in TypeScript.
 
-This repo is a pnpm/turbo workspace:
+Rigkit lets you describe a development environment in `rig.config.ts`, run it
+through the `rig` CLI, and create isolated named workspaces from cached
+provider-owned artifacts. It is built for agent work, remote development, CI
+jobs, and tests where the same environment has to be prepared once and reused
+reliably.
+
+- Website: <https://www.rigkit.dev>
+- Docs: <https://docs.rigkit.dev>
+- Discord: <https://discord.com/invite/v5WT4fbXhc>
+
+## What Rigkit Does
+
+- Defines complete development environments with a typed TypeScript API.
+- Runs setup as a workflow graph, with cache keys based on code, inputs,
+  provider fingerprints, and upstream outputs.
+- Creates named workspaces from prepared state, such as VM snapshots.
+- Exposes project-defined workspace operations like `ssh`, `open-cmux`,
+  `open-vscode`, `preview`, or anything else your project needs.
+- Keeps provider resources and credentials behind provider-owned boundaries
+  instead of baking them into project state.
+
+Rigkit currently ships a Freestyle VM provider, a Freestyle browser-terminal
+provider, a cmux integration, a local Google Cloud CLI config provider, a VS
+Code host package, the `rig` CLI, and reusable workflow fragments.
+
+## Install
+
+Install the released CLI:
+
+```sh
+curl -fsSL https://www.rigkit.dev/install | sh
+```
+
+Open a new terminal, then verify the install:
+
+```sh
+rig version
+```
+
+You can also install the npm package directly:
+
+```sh
+npm install -g @rigkit/cli
+```
+
+## Quickstart
+
+Create a project:
+
+```sh
+rig init --name website --package-manager pnpm
+cd website
+```
+
+Plan and apply the workflow:
+
+```sh
+rig plan
+rig apply
+```
+
+Create and manage a workspace:
+
+```sh
+rig create dev
+rig ls
+rig rm dev
+```
+
+The generated config prepares a Node.js 22 Freestyle VM and creates workspaces
+from the cached snapshot. From there, add operations such as SSH, cmux, VS Code,
+or preview URLs in `rig.config.ts`. See the
+[Quickstart](https://docs.rigkit.dev/guides/quickstart) and
+[workspace guide](https://docs.rigkit.dev/guides/workspaces) for the full loop.
+
+By default, the Freestyle provider opens a browser login and stores
+provider-owned host credentials outside project `.rigkit` state. Configs that
+opt into API-key auth can pass `freestyle.provider({ apiKey })` or read
+`FREESTYLE_API_KEY` from the environment.
+
+## Repository Layout
 
 ```text
-packages/sdk/          project authoring API and project-local runtime binary
-packages/engine/   authoring API, config loader, workflow engine, provider contracts, state
-packages/runtime-client/ shared daemon lifecycle client
-packages/provider-freestyle/ Freestyle provider implementation
-packages/fragments/ reusable workflow fragments for configs
-packages/provider-gcloud-cli/    local Google Cloud CLI auth provider
-packages/provider-vscode/   VS Code host package
-packages/cli/      global `rig` command
-apps/app/               placeholder for the future app
-apps/website/           Astro marketing site + install Worker (www.rigkit.dev, rigkit.dev redirect)
-apps/docs/              Mintlify docs site (docs.rigkit.dev, /docs redirects)
-examples/smoke/         runnable smoke workflow
-examples/gcloud-on-open/ copy local gcloud config files with a workspace operation
-examples/base-freestyle-fragment/ consume a reusable Freestyle company base fragment
-docs/                   design docs
+packages/sdk/                  project authoring API and project-local runtime
+packages/engine/               workflow engine, provider contracts, and state
+packages/runtime-client/       shared runtime daemon client
+packages/cli/                  global `rig` command
+packages/provider-freestyle/   Freestyle VM and terminal provider
+packages/provider-cmux/        cmux host capability and provider facade
+packages/provider-gcloud-cli/  local Google Cloud CLI config provider
+packages/provider-vscode/      VS Code host extension package
+packages/fragments/            reusable workflow fragments
+apps/website/                  Astro website and install Worker
+apps/docs/                     Mintlify documentation site
+apps/app/                      placeholder for the future app
+examples/                      runnable example Rigkit projects
+docs/                          design and release notes
 ```
 
-## Setup
+## Development
 
-Freestyle auth is handled by the provider. By default Rigkit opens the Freestyle browser login and stores provider-owned host credentials outside project state. To use API-key auth, pass `freestyle.provider({ apiKey: env("FREESTYLE_API_KEY") })` or `freestyle.provider(env("FREESTYLE_API_KEY"))`.
+Prerequisites:
 
-```bash
-# Optional, only used by configs that opt into API-key auth.
-FREESTYLE_API_KEY=fs_live_...
-```
+- Bun
+- pnpm 9.x
+- Node.js 22 or newer
 
 Install dependencies:
 
-```bash
+```sh
+corepack enable
 pnpm install
 ```
 
-### Local example CLI
+Common checks:
 
-The `examples/` directory has a shared `.envrc` that puts an example-aware `rig`
-shim first on `PATH`. With direnv enabled, plain `rig ...` inside an example
-delegates to that example's `node_modules/.bin/rig` instead of a globally
-installed `~/.rigkit/bin/rig`.
-
-Install direnv and enable the shell hook once:
-
-```bash
-brew install direnv
-echo 'eval "$(direnv hook zsh)"' >> ~/.zshrc
-exec zsh
-```
-
-Then allow the examples directory once:
-
-```bash
-cd examples
-direnv allow
-cd global-fragments
-which rig
-rig --version
-```
-
-`which rig` should point at `examples/bin/rig`. If your shell still reports a
-global install after `direnv allow`, run `rehash` and check again.
-If you do not use direnv, use the manual fallback:
-
-```bash
-export PATH="$PWD/node_modules/.bin:$PATH"
-rehash
-```
-
-## Commands
-
-```bash
+```sh
 pnpm typecheck
 pnpm test
-pnpm release:check
-pnpm build:cli-binaries
-
-cd examples/smoke
-rig plan
-rig apply
-rig create my-workspace
-rig projects
-rig run my-workspace ssh --print
-rig rm my-workspace
+pnpm build
 ```
 
-The CLI also has built-in help:
+Run a local example with the workspace CLI:
 
-```bash
-rig help
-rig run --help
+```sh
+pnpm --dir examples/smoke exec rig plan
+pnpm --dir examples/smoke exec rig apply
+pnpm --dir examples/smoke exec rig create smoke-workspace
 ```
 
-Shell completion lets your shell suggest `rig` commands, options, workspace
-names, and workspace operations when you press tab. If you installed `rig` with
-the official installer, you can usually skip this step: the installer adds the
-completion hook to your shell profile for future terminal sessions.
+The `examples/` directory also includes a shared `.envrc` for direnv users. Once
+allowed, plain `rig` inside an example resolves to that example's local CLI.
 
-For local development, or to enable completion in the current terminal session
-without restarting your shell, run the command for your shell:
+Run the website or docs locally:
 
-```bash
-eval "$(rig completion zsh)"
-# or: eval "$(rig completion bash)"
-# or: rig completion fish | source
+```sh
+pnpm --filter @rigkit/website dev
+pnpm --filter @rigkit/docs dev
 ```
 
-To test dynamic completion from this checkout, run it inside an example project:
+## Releases
 
-```bash
-cd examples/smoke
-rig run <tab>
-```
+Stable releases are version-branch driven and published from immutable `v*`
+tags. Canary builds can be published from `main` for testing. See
+[docs/release.md](docs/release.md) for the release model, release labels, and
+maintainer workflows.
 
-In a Rigkit project, `rig run <tab>` suggests locally known workspaces, and
-`rig run <workspace> <tab>` suggests operations exposed by that workspace.
+## Contributing
 
-Initialize a new Rigkit project:
+Issues and pull requests are welcome. Start with
+[CONTRIBUTING.md](CONTRIBUTING.md) for local setup, PR expectations, release
+notes, and test guidance.
 
-```bash
-rig init
-```
+## License
 
-`rig init` asks for a project name and whether to install dependencies with npm, bun, pnpm, or skip. It then creates a project folder with `rig.config.ts`, `package.json`, and `.gitignore` entries. For non-interactive setup:
-
-```bash
-rig init --name platform --package-manager pnpm
-```
-
-That creates `./platform`. Use `-chdir=DIR` with `init` to choose a parent
-directory for the new project.
-
-By default other `rig` commands load `rig.config.ts` from the current directory
-or nearest parent project. Use Terraform-style global context options before the
-command to run against another project or config:
-
-```bash
-rig -chdir=examples/smoke plan
-rig -chdir=examples/global-fragments -config=api.rig.config.ts apply
-```
-
-## Current Scope
-
-Implemented:
-
-- `workflow(name, { providers })` with typed `sequence`, `parallel`, `add`, and `task` builders
-- task handlers with typed `ctx` plus flattened workflow provider runtimes
-- generic typed workspaces with required `create`/`remove` handlers and workspace operations
-- `DevMachineEngine` with `load`, `plan`, `apply`, `fork`, `attachTerminal`, `listWorkspaces`, and `deleteWorkspace`
-- graph-based node-run caching keyed by upstream run IDs and provider fingerprints
-- Freestyle provider package for VM create, snapshot refs, create-from-snapshot, provider-owned terminal sessions, workspace fork, exec, and SSH command generation
-- Google Cloud provider package for copying local `gcloud` config/auth files, token brokering, and injection helpers
-- local `.rigkit/state.sqlite` node-run/workspace cache
-- manifest-driven CLI host for project operations and `rig run <workspace> <operation>` workspace operations
-- project-local runtime daemon with handle/token/lock lifecycle through `@rigkit/runtime-client`
-- VS Code host package using the shared runtime manager
-- pnpm/turbo workspace with project package, engine, hosts, app placeholder, and smoke example
-
-The app is intentionally not implemented yet. It should later wrap the same `DevMachineEngine`.
-
-## CLI Releases
-
-The global `rig` command is distributed as Bun-compiled binaries through GitHub Releases.
-
-See [docs/release.md](docs/release.md) for the release model.
-
-Release tags use the package version:
-
-```bash
-git tag v0.1.0
-git push origin v0.1.0
-```
-
-The release workflow builds:
-
-- `rig-darwin-arm64.tar.gz`
-- `rig-darwin-x64.tar.gz`
-- `rig-linux-arm64.tar.gz`
-- `rig-linux-x64.tar.gz`
-- `checksums.txt`
-
-The install Worker serves `curl -fsSL https://www.rigkit.dev/install | sh`. It reads GitHub Releases as the source of truth, redirects downloads to the release assets, installs to `~/.rigkit/bin/rig`, and adds that directory to the detected shell profile.
+Rigkit is licensed under the [MIT License](LICENSE).
