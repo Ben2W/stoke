@@ -1,0 +1,163 @@
+---
+title: "Freestyle provider"
+description: "Use Freestyle VMs, snapshots, SSH options, cmux adapters, and VS Code URLs from Rigkit workflows."
+noindex: true
+---
+
+The Freestyle provider gives Rigkit configs an authenticated Freestyle SDK
+client plus helpers for SSH, cmux, and VS Code.
+
+## Add the provider
+
+```ts
+import { workflow } from "@rigkit/sdk";
+import { freestyle } from "@rigkit/provider-freestyle";
+
+const app = workflow("website", {
+  providers: {
+    freestyle: freestyle.provider(),
+  },
+});
+```
+
+Default auth opens Freestyle browser login and stores credentials in
+provider-owned host storage, outside project `.rigkit/state.sqlite`.
+If the account belongs to multiple teams, Rigkit prompts for the team and
+reuses that selection on later runs. `rig plan` shows Freestyle provider checks,
+including missing auth or the active team, without starting OAuth.
+
+To clear browser auth, selected team, and provider identity state:
+
+```sh
+rig providers freestyle clear
+```
+
+Clearing this state changes the provider check fingerprint and makes cached
+Freestyle-dependent tasks stale.
+
+For API-key auth:
+
+```ts
+import { env } from "@rigkit/sdk";
+
+freestyle.provider({
+  apiKey: env.secret("FREESTYLE_API_KEY"),
+  teamId: env("FREESTYLE_TEAM_ID"),
+});
+```
+
+`freestyle.provider(env.secret("FREESTYLE_API_KEY"))` is also supported.
+
+## Prepare a snapshot
+
+```ts
+import { VmSpec } from "@rigkit/provider-freestyle";
+
+const vmSpec = new VmSpec()
+  .runCommands("corepack enable")
+  .memSizeGb(16)
+  .vcpuCount(4)
+  .rootfsSizeGb(24)
+  .idleTimeoutSeconds(3600);
+
+const setup = app.sequence("setup").task("prepare-image", async ({ freestyle }) => {
+  const { vm, vmId } = await freestyle.client.vms.create({
+    spec: vmSpec,
+    logger: console.log,
+  });
+
+  try {
+    const snapshot = await vm.snapshot();
+    return { ctx: { snapshotId: snapshot.snapshotId } };
+  } finally {
+    await freestyle.client.vms.delete({ vmId });
+  }
+});
+```
+
+Pass `logger: console.log` to Freestyle SDK calls that support logging. Rigkit
+streams task console output to the CLI.
+
+## Create workspace VMs
+
+```ts
+.workspace({
+  create: async ({ workflow, freestyle }) => {
+    const { vmId } = await freestyle.client.vms.create({
+      snapshotId: workflow.ctx.snapshotId,
+      idleTimeoutSeconds: 3600,
+      logger: console.log,
+    });
+
+    return { vmId };
+  },
+  remove: async ({ freestyle, workspace }) => {
+    await freestyle.client.vms.delete({
+      vmId: workspace.ctx.vmId,
+    });
+  },
+});
+```
+
+Return `snapshotId` from setup tasks and `vmId` from workspace creates. Those
+ids are durable JSON values Rigkit can cache and reload.
+
+## SSH helpers
+
+Create SSH options when another provider or host action needs to connect to the
+VM:
+
+```ts
+const ssh = await providers.freestyle.createSSHOptions({
+  vmId: workspace.ctx.vmId,
+});
+```
+
+The provider grants SSH access for the active Freestyle identity and returns a
+provider-owned token connection. Project code does not manage SSH keys.
+
+## cmux and VS Code
+
+```ts
+await providers.cmux.open({
+  name: workspace.name,
+  ssh: await providers.freestyle.cmux.createSshOptions({
+    vmId: workspace.ctx.vmId,
+  }),
+  cwd: workspace.ctx.repoPath,
+  terminals: [{ command: "pnpm dev" }],
+  url: "http://localhost:3000",
+});
+```
+
+```ts
+const url = await providers.freestyle.vscode.createUrl({
+  vmId: workspace.ctx.vmId,
+  cwd: workspace.ctx.repoPath,
+});
+
+await local.open(url);
+```
+
+## Exports
+
+`@rigkit/provider-freestyle` re-exports the Freestyle SDK classes used by
+configs:
+
+```ts
+import {
+  freestyle,
+  Freestyle,
+  VmBaseImage,
+  VmSpec,
+  type FreestyleSdkVm,
+} from "@rigkit/provider-freestyle";
+```
+
+## Patterns
+
+- Create temporary VMs in setup tasks, snapshot them, and delete them in
+  `finally`.
+- Store IDs, paths, ports, branch names, and commands in JSON context.
+- Use the terminal provider for interactive auth flows.
+- Set `idleTimeoutSeconds` deliberately for both setup and workspace VMs.
