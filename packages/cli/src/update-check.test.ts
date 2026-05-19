@@ -38,6 +38,8 @@ describe("update check", () => {
 
     try {
       process.env.RIGKIT_HOME = rigkitHome;
+      delete process.env.CI;
+      process.env.RIGKIT_UPDATE_CHECK = "auto";
       process.env.RIGKIT_UPDATE_URL = updateUrl;
       process.env.RIGKIT_UPDATE_TIMEOUT_MS = "2000";
 
