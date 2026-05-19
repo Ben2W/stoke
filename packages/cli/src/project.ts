@@ -159,7 +159,7 @@ function appendConfigFilesHint(
   options: { commandCwd: string; hint?: ConfigFilesHint },
 ): string {
   const hint = options.hint;
-  if (!hint) return `${message} Run "rig init" or pass -config=<file>.`;
+  if (!hint) return `${message} Run "rig init" or pass --config=<file>.`;
 
   const configFile = hint.files[0]!;
   const configPath = displayPath(options.commandCwd, join(hint.dir, configFile));
@@ -171,8 +171,8 @@ function appendConfigFilesHint(
     ...hint.files.map((file) => `- ${file}`),
     "",
     "Choose one explicitly:",
-    `  rig -config=${configPath} <command>`,
-    `  rig -chdir=${projectDir} -config=${configFile} <command>`,
+    `  rig --config=${configPath} <command>`,
+    `  rig --chdir=${projectDir} --config=${configFile} <command>`,
   ].join("\n");
 }
 

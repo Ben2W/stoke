@@ -15,15 +15,15 @@ stays local to each config.
 Run one config:
 
 ```sh
-rig -config=api.rig.config.ts apply
-rig -config=api.rig.config.ts cache ls
+rig --config=api.rig.config.ts apply
+rig --config=api.rig.config.ts cache ls
 ```
 
 Then run another:
 
 ```sh
-rig -config=web.rig.config.ts apply
-rig -config=web.rig.config.ts cache ls
+rig --config=web.rig.config.ts apply
+rig --config=web.rig.config.ts cache ls
 ```
 
 The shared `base-dependencies` tasks should be cached globally, while each

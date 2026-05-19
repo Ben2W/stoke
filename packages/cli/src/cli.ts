@@ -205,16 +205,18 @@ async function runCli(argv: string[]): Promise<void> {
     .exitOverride()
     .argument("[command]")
     .addOption(new Option("--chdir <dir>", `Switch to a directory containing ${DEFAULT_CONFIG_FILE} before running the command`).hideHelp())
-    .addOption(new Option("--config <file>", "Config file to load, relative to -chdir when set").hideHelp())
+    .addOption(new Option("--config <file>", "Config file to load, relative to --chdir when set").hideHelp())
     .addOption(new Option("--state <file>", "Local runtime state database path").hideHelp())
     .addOption(new Option("--json", "Print machine-readable JSON where supported").hideHelp())
     .addHelpText("after", [
       "",
       "Global Options:",
-      "  -chdir=DIR    Switch to a directory containing rig.config.ts before running the command",
-      "  -config=FILE  Config file to load, relative to -chdir when set",
-      "  -state=FILE   Local runtime state database path",
-      "  -json         Print machine-readable JSON where supported",
+      "  --chdir <dir>     Switch to a directory containing rig.config.ts before running the command",
+      "  --config <file>   Config file to load, relative to --chdir when set",
+      "  --state <file>    Local runtime state database path",
+      "  --json            Print machine-readable JSON where supported",
+      "",
+      "Legacy single-dash global aliases such as -chdir=DIR are still accepted.",
     ].join("\n"))
     .action(async (command?: string) => {
       if (command) program.error(`unknown command '${command}'`);
@@ -574,7 +576,7 @@ function canPrompt(): boolean {
 function resolveInitProjectPaths(invocation: CliInvocation, name: string): { projectDir: string; configPath: string } {
   const options = invocation.global;
   if (options.config) {
-    throw new Error(`rig init does not support -config. Use -chdir to choose the parent directory.`);
+    throw new Error(`rig init does not support --config. Use --chdir to choose the parent directory.`);
   }
 
   const parentDir = resolve(process.cwd(), options.chdir ?? ".");
@@ -964,7 +966,7 @@ async function runDiscoveredProjectOperation(
   if (!options.all && projects.length > 1) {
     throw new Error([
       "Multiple Rigkit projects found.",
-      "Use `rig projects` to list candidates, pass -chdir or -config to select one, or pass --all to run every discovered project.",
+      "Use `rig projects` to list candidates, pass --chdir or --config to select one, or pass --all to run every discovered project.",
       ...projects.map((project) => `- ${project.configPath}`),
     ].join("\n"));
   }
@@ -1082,7 +1084,7 @@ async function runCacheClear(invocation: CliInvocation, options: CacheClearOptio
 
   if (options.global && options.all) {
     if (invocation.global.chdir || invocation.global.config || invocation.global.state) {
-      throw new Error(`rig cache clear --global --all cannot be combined with -chdir, -config, or -state`);
+      throw new Error(`rig cache clear --global --all cannot be combined with --chdir, --config, or --state`);
     }
     const fragmentRoot = join(defaultRigkitHome(), "fragments");
     rmSync(fragmentRoot, { recursive: true, force: true });
@@ -1535,7 +1537,7 @@ async function runHelp(invocation: CliInvocation): Promise<void> {
   const cmd = (name: string, description: string): string =>
     `  ${ui.bold(name.padEnd(10))}  ${description}`;
   const opt = (flag: string, description: string): string =>
-    `  ${ui.bold(flag.padEnd(12))}  ${description}`;
+    `  ${ui.bold(flag.padEnd(17))}  ${description}`;
 
   console.log([
     `${ui.bold("rig")} ${ui.dim(RIGKIT_CLI_VERSION)}`,
@@ -1559,10 +1561,12 @@ async function runHelp(invocation: CliInvocation): Promise<void> {
     cmd("completion", "Generate shell completion script"),
     "",
     ui.dim("Options:"),
-    opt("-chdir=DIR",   "Switch to a directory containing rig.config.ts before running the command"),
-    opt("-config=FILE", "Config file to load, relative to -chdir when set"),
-    opt("-state=FILE",  "Local runtime state database path"),
-    opt("-json",        "Print machine-readable JSON where supported"),
+    opt("--chdir <dir>",   "Switch to a directory containing rig.config.ts before running the command"),
+    opt("--config <file>", "Config file to load, relative to --chdir when set"),
+    opt("--state <file>",  "Local runtime state database path"),
+    opt("--json",          "Print machine-readable JSON where supported"),
+    "",
+    ui.dim("Legacy single-dash global aliases such as -chdir=DIR are still accepted."),
   ].join("\n"));
 }
 

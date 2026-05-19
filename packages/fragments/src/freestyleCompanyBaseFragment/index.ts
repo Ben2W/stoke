@@ -1,4 +1,5 @@
 import {
+  VmBaseImage,
   VmSpec,
   type FreestyleProviderDefinition,
   type FreestyleTerminalProviderDefinition,
@@ -341,17 +342,21 @@ function freestyleCompanyBaseAuthCheckFragment<Context extends FreestyleCompanyB
 
 function createVmSpec(config: FreestyleCompanyBaseFragmentConfig): VmSpec {
   return new VmSpec()
-    .runCommands(installToolingCommand(config))
+    .baseImage(
+      new VmBaseImage(`FROM node:${config.nodeMajor}`).runCommands(
+        installToolingCommand(config),
+      ),
+    )
     .memSizeGb(config.vm.memSizeGb)
     .vcpuCount(config.vm.vcpuCount)
     .rootfsSizeGb(config.vm.rootfsSizeGb)
-    .idleTimeoutSeconds(config.vm.idleTimeoutSeconds);
+    .idleTimeoutSeconds(config.vm.idleTimeoutSeconds)
+    .snapshot();
 }
 
 function installToolingCommand(config: FreestyleCompanyBaseFragmentConfig): string {
   const aptPackages = [...config.systemPackages];
   if (config.github && !aptPackages.includes("gh")) aptPackages.push("gh");
-  if (!aptPackages.includes("nodejs")) aptPackages.push("nodejs");
 
   const lines = [
     "set -e",
@@ -371,7 +376,7 @@ function installToolingCommand(config: FreestyleCompanyBaseFragmentConfig): stri
   }
 
   lines.push(
-    `curl -fsSL https://deb.nodesource.com/setup_${config.nodeMajor}.x | bash -`,
+    "apt-get update -qq",
     `apt-get install -y -qq ${aptPackages.map(shellQuote).join(" ")}`,
     "corepack enable || true",
     "npm config set prefix /usr/local",

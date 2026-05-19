@@ -26,8 +26,10 @@ for (const step of gcloudConfigCopyInjectionSteps(gcloudConfigFiles)) {
   await vm.exec(step.command, { name: step.name, env: step.env });
 }
 
-const verified = await vm.probe(gcloudCopiedConfigReadyCommand());
-if (!verified.ok) throw new Error("gcloud did not accept the copied config files");
+const verified = await vm.exec(gcloudCopiedConfigReadyCommand());
+if ((verified.statusCode ?? 0) !== 0) {
+  throw new Error("gcloud did not accept the copied config files");
+}
 ```
 
 By default, provider startup requires local `gcloud` to be installed and authenticated before Rigkit runs project commands. If local `gcloud` is missing, startup fails with the Google Cloud SDK install URL. If it is not authenticated, startup asks the user to run `gcloud auth login`.

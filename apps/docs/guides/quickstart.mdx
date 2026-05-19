@@ -3,56 +3,73 @@ title: "Quickstart"
 description: "Install Rigkit, initialize a project, apply the workflow, and create your first workspace."
 ---
 
-This guide creates a minimal Rigkit project that prepares a Freestyle VM,
-caches a snapshot, and creates named workspaces from that snapshot.
+This guide creates a minimal Rigkit project, prepares it once, and creates one
+workspace.
 
-## Install Rigkit
+## Install
 
 ```sh
 curl -fsSL https://www.rigkit.dev/install | sh
 ```
 
-Open a new terminal so your shell can find `rig`, then check the install:
+Open a new terminal, then verify the CLI:
 
 ```sh
 rig version
 ```
 
-## Create a project
+## Initialize a project
 
 ```sh
-rig init --name website --package-manager pnpm
+rig init
 cd website
 ```
 
-`rig init` creates:
-
-- `rig.config.ts`, the workflow config.
-- `package.json`, with local `@rigkit/sdk` and provider dependencies.
-- `.env` and `.env.example` when you pass `--api-key`.
-- `.gitignore`, including `.env` and `.rigkit/`.
-
-If you skip dependency installation during init, install them before running
-the project:
+<Note>
+Agents, CI, and other non-interactive callers should avoid prompts and parse
+JSON:
 
 ```sh
+rig init --name website --package-manager skip --json
+cd website
 pnpm install
 ```
 
-## Understand the generated config
+Use `--json` on later commands, and use `--yes` when removing workspaces.
 
-The generated `rig.config.ts` has three important parts:
+</Note>
+
+`rig init` creates:
+
+- `rig.config.ts`
+- `package.json` with local `@rigkit/sdk` and provider dependencies
+- `.gitignore` entries for `.env` and `.rigkit/`
+- `.env` and `.env.example` only when `--api-key` is passed
+
+The generated config uses Freestyle browser login by default:
 
 ```ts
-import { defineConfig, sequence } from "@rigkit/sdk";
-import { freestyle, VmBaseImage, VmSpec } from "@rigkit/provider-freestyle";
+const freestyleProvider = freestyle.provider();
+```
 
-const vmSpec = new VmSpec()
-  .baseImage(new VmBaseImage("FROM node:22"))
-  .idleTimeoutSeconds(3600);
+If you want API-key auth, change that line to:
 
-const dev = sequence("website")
-  .step("verify-node-22", async ({ providers }) => {
+```ts
+import { env } from "@rigkit/sdk";
+
+const freestyleProvider = freestyle.provider({
+  apiKey: env.secret("FREESTYLE_API_KEY"),
+});
+```
+
+## What was generated
+
+The starter config prepares a Node.js 22 Freestyle VM and snapshots it:
+
+```ts
+const dev = sequence("website").step(
+  "verify-node-22",
+  async ({ providers }) => {
     const { vm, vmId } = await providers.freestyle.client.vms.create({
       spec: vmSpec,
       logger: console.log,
@@ -60,116 +77,82 @@ const dev = sequence("website")
 
     try {
       const result = await vm.exec("node --version");
-      if (!result.stdout.trim().startsWith("v22.")) {
-        throw new Error(`Expected Node.js v22, got: ${result.stdout}`);
+      if (
+        (result.statusCode ?? 0) !== 0 ||
+        !result.stdout.trim().startsWith("v22.")
+      ) {
+        throw new Error(
+          `Expected Node.js v22, got: ${result.stdout}${result.stderr}`,
+        );
       }
+
       const snapshot = await vm.snapshot();
       return { ctx: { snapshotId: snapshot.snapshotId } };
     } finally {
       await providers.freestyle.client.vms.delete({ vmId });
     }
-  })
-  .workspace({
-    create: async ({ workflow, providers }) => {
-      const { vmId } = await providers.freestyle.client.vms.create({
-        snapshotId: workflow.ctx.snapshotId,
-        logger: console.log,
-      });
-      return { vmId };
-    },
-    remove: async ({ providers, workspace }) => {
-      await providers.freestyle.client.vms.delete({ vmId: workspace.ctx.vmId });
-    },
-  });
-
-export default defineConfig({
-  providers: {
-    freestyle: freestyle.provider(),
   },
-  workflows: {
-    dev,
-  },
-});
+);
 ```
 
-The workflow step creates a VM, verifies it has Node.js 22, snapshots it, and
-returns `snapshotId` in the workflow context. The workspace lifecycle hook uses
-that snapshot to create a long-lived workspace VM.
+It also defines how to create and remove workspace VMs from that snapshot:
+
+```ts
+.workspace({
+  create: async ({ workflow, providers }) => {
+    const { vmId } = await providers.freestyle.client.vms.create({
+      snapshotId: workflow.ctx.snapshotId,
+      idleTimeoutSeconds: vmIdleTimeoutSeconds,
+      logger: console.log,
+    });
+    return { vmId };
+  },
+  remove: async ({ providers, workspace }) => {
+    await providers.freestyle.client.vms.delete({ vmId: workspace.ctx.vmId });
+  },
+})
+```
+
+The only persisted values here are `snapshotId` and `vmId`.
 
 ## Plan and apply
 
-Run a plan first:
-
 ```sh
 rig plan
-```
-
-The plan shows which tasks are already cached and which tasks are pending.
-On the first run, the setup task is pending.
-
-Apply the workflow:
-
-```sh
 rig apply
-```
-
-During apply, Rigkit starts the project runtime, loads `.env`, creates provider
-runtimes, runs pending tasks, and writes cached task outputs to
-`.rigkit/state.sqlite`.
-
-Run the plan again:
-
-```sh
 rig plan
 ```
 
-Now the setup task should be cached. Rigkit can reuse the snapshot until the
-task code, provider config, upstream task output, output schema, cache TTL, or
-manual invalidation makes it stale.
+The first plan shows the setup task as pending. `rig apply` runs it and stores
+the task output in `.rigkit/state.sqlite`. The second plan should show the task
+as cached.
 
-## Create and list workspaces
+Cached setup is reused until a cache input changes: task code, provider config,
+upstream task output, output schema, `cacheTTL`, provider artifact validation,
+or manual invalidation.
 
-Create a workspace from the prepared workflow context:
+## Create a workspace
 
 ```sh
 rig create dev
-```
-
-List workspaces:
-
-```sh
 rig ls
 ```
 
-Remove the workspace when you are done:
+`rig create` runs `apply` first if setup is stale, then calls
+`workspace.create`. Remove the workspace when you are done:
 
 ```sh
 rig rm dev
 ```
 
-## Add your first operation
+## Add an SSH operation
 
-Workspaces become useful when the config exposes operations. Add a terminal
-provider and an `ssh` operation:
+Workspaces are useful once the config exposes operations. Add the terminal
+provider and a workspace operation:
 
 ```ts
-import { defineConfig, sequence } from "@rigkit/sdk";
-import { freestyle, VmBaseImage, VmSpec } from "@rigkit/provider-freestyle";
-
 const dev = sequence("website")
-  // existing setup task
-  .workspace({
-    create: async ({ workflow, providers }) => {
-      const { vmId } = await providers.freestyle.client.vms.create({
-        snapshotId: workflow.ctx.snapshotId,
-        logger: console.log,
-      });
-      return { vmId };
-    },
-    remove: async ({ providers, workspace }) => {
-      await providers.freestyle.client.vms.delete({ vmId: workspace.ctx.vmId });
-    },
-  })
+  // keep the generated setup task and workspace lifecycle
   .workspaceOperation("ssh", {
     title: "SSH",
     description: "Open a shell in the workspace VM",
@@ -185,7 +168,7 @@ const dev = sequence("website")
 
 export default defineConfig({
   providers: {
-    freestyle: freestyle.provider(),
+    freestyle: freestyleProvider,
     terminal: freestyle.terminal(),
   },
   workflows: {
@@ -194,17 +177,18 @@ export default defineConfig({
 });
 ```
 
-Apply the config, create a workspace if you do not already have one, then run:
+Run it:
 
 ```sh
+rig apply
+rig create dev
 rig run dev ssh
 ```
 
-## Common next steps
+## Next steps
 
-- Add repository setup steps that clone your repo and install dependencies.
-- Return `repoPath`, `devPort`, and other JSON values in workflow context.
-- Add workspace operations such as `open-cmux`, `open-vscode`, `ssh`, `status`,
-  or `preview`.
-- Move expensive shared setup into a global fragment when multiple repos use
-  the same base image.
+- Return `repoPath`, `devPort`, branch names, and other durable values from
+  setup tasks.
+- Add operations such as `open-cmux`, `open-vscode`, `status`, or `preview`.
+- Move shared base setup into a [global fragment](/advanced/fragments) when
+  multiple projects use the same toolchain.

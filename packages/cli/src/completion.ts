@@ -149,36 +149,42 @@ const JSON_OPTION = option(["--json"], "print JSON");
 const HELP_OPTION = option(["--help"], "show help");
 
 const GLOBAL_OPTIONS: OptionDefinition[] = [
-  option(["-chdir", "--chdir"], "working directory", {
+  option(["--chdir", "-chdir"], "working directory", {
     group: GROUP_GLOBAL,
     takesValue: true,
     valueKind: "directories",
     completions: [
-      { value: "-chdir=", noSpace: true },
       { value: "--chdir=", noSpace: true },
     ],
   }),
-  option(["-config", "--config"], "config file", {
+  option(["--config", "-config"], "config file", {
     group: GROUP_GLOBAL,
     takesValue: true,
     valueKind: "config-files",
     completions: [
-      { value: "-config=", noSpace: true },
       { value: "--config=", noSpace: true },
     ],
   }),
-  option(["-state", "--state"], "state database path", {
+  option(["--state", "-state"], "state database path", {
     group: GROUP_GLOBAL,
     takesValue: true,
     valueKind: "filesystem",
     completions: [
-      { value: "-state=", noSpace: true },
       { value: "--state=", noSpace: true },
     ],
   }),
-  option(["-json", "--json"], "print JSON", { group: GROUP_GLOBAL }),
-  option(["-help", "--help"], "show help", { group: GROUP_GLOBAL }),
-  option(["-version", "--version", "-v"], "show version", { group: GROUP_GLOBAL }),
+  option(["--json", "-json"], "print JSON", {
+    group: GROUP_GLOBAL,
+    completions: [{ value: "--json" }],
+  }),
+  option(["--help", "-help"], "show help", {
+    group: GROUP_GLOBAL,
+    completions: [{ value: "--help" }],
+  }),
+  option(["--version", "-version", "-v"], "show version", {
+    group: GROUP_GLOBAL,
+    completions: [{ value: "--version" }, { value: "-v" }],
+  }),
 ];
 
 const COMMAND_OPTIONS: Record<CommandName, OptionDefinition[]> = {

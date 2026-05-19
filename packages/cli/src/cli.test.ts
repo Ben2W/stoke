@@ -165,7 +165,28 @@ describe("CLI entrypoint", () => {
       expect(result.stderr).toContain("Found named Rigkit configs");
       expect(result.stderr).toContain("api.rig.config.ts");
       expect(result.stderr).toContain("web.rig.config.ts");
-      expect(result.stderr).toContain("rig -chdir=. -config=api.rig.config.ts <command>");
+      expect(result.stderr).toContain("rig --chdir=. --config=api.rig.config.ts <command>");
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("accepts conventional double-dash global options", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "rigkit-cli-global-options-"));
+    mkdirSync(join(cwd, "api"));
+    writeFileSync(join(cwd, "api", "rig.config.ts"), "export default {}\n");
+
+    try {
+      const result = await runCli(["--chdir=api", "projects", "--json"], { cwd });
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stderr).toBe("");
+      expect(JSON.parse(result.stdout)).toEqual({
+        projects: [{
+          projectDir: join(realpathSync(cwd), "api"),
+          configPath: join(realpathSync(cwd), "api", "rig.config.ts"),
+        }],
+      });
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }

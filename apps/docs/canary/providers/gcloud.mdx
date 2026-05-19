@@ -49,9 +49,9 @@ for (const step of gcloudConfigCopyInjectionSteps(gcloudConfigFiles)) {
   });
 }
 
-const verified = await vm.probe(gcloudCopiedConfigReadyCommand());
-if (!verified.ok) {
-  throw new Error("gcloud did not accept the copied config files");
+const verified = await vm.exec(gcloudCopiedConfigReadyCommand());
+if ((verified.statusCode ?? 0) !== 0) {
+  throw new Error(`gcloud did not accept the copied config files:\n${verified.stdout}${verified.stderr}`);
 }
 ```
 

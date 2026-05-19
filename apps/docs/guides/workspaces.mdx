@@ -4,20 +4,17 @@ description: "Create named workspaces from workflow output and expose project-sp
 ---
 
 <Note>
-This guide covers the config-author side of workspaces — how to define
-`.workspace({ create, remove })` and `.workspaceOperation(...)`. If you just
-want to use the `rig create` / `rig run` commands, see the
+This page is for config authors. For command syntax, use the
 [CLI reference](/reference/cli).
 </Note>
 
-`rig apply` prepares workflow context. `rig create <name>` turns that context
-into a named workspace. `rig run <name> <operation>` runs actions against an
-existing workspace.
+`rig apply` prepares workflow context. `rig create <name>` uses that context to
+create a named workspace. `rig run <name> <operation>` runs project code against
+that workspace.
 
-## Add a workspace lifecycle
+## Workspace lifecycle
 
-A workflow becomes workspace-capable when it has `.workspace({ create, remove
-})`.
+Add `.workspace({ create, remove })` to make a workflow workspace-capable:
 
 ```ts
 export default app
@@ -45,24 +42,14 @@ export default app
   });
 ```
 
-`create` receives:
-
-- `workflow.name`, the workflow name.
-- `workflow.ctx`, the final context produced by the workflow graph.
-- `workspace.name`, the requested workspace name.
-- `providers`, the configured provider runtimes.
-- `local`, host helpers such as `open(...)` and host capabilities.
-- `step`, runtime helpers for metadata and invalidation.
-
-The object returned from `create` is the workspace context. It must be
-JSON-serializable, and Rigkit stores it in `.rigkit/state.sqlite`.
+`create` receives the final workflow context and the requested workspace name.
+It returns workspace context, which must be JSON-serializable. Rigkit stores it
+in `.rigkit/state.sqlite`.
 
 `remove` receives the saved workspace context and should clean up provider
 resources.
 
-## Create, list, and remove
-
-Apply the workflow before creating workspaces:
+Run the lifecycle:
 
 ```sh
 rig apply
@@ -74,10 +61,9 @@ rig rm dev
 Workspace names may contain letters, numbers, `.`, `_`, and `-`, and cannot
 start with `-`.
 
-## Add workspace operations
+## Workspace operations
 
-Workspace operations are project-defined actions. They run with the saved
-workspace context.
+Workspace operations are project-defined commands:
 
 ```ts
 .workspaceOperation("status", {
@@ -91,19 +77,19 @@ workspace context.
 });
 ```
 
-Run it with:
+Run it:
 
 ```sh
 rig run dev status
+rig run dev status --json
 ```
 
-Operation results must be JSON-serializable. With `--json`, the CLI prints
-machine-readable output.
+Operation results must be JSON-serializable. `--json` prints machine-readable
+output.
 
-## Open a terminal
+## SSH operation
 
-Freestyle terminal sessions are provider-owned browser terminals. The CLI only
-presents the provider URL.
+Use the Freestyle terminal provider for browser terminal sessions:
 
 ```ts
 .workspaceOperation("ssh", {
@@ -116,21 +102,19 @@ presents the provider URL.
       }),
       command: `cd ${workspace.ctx.repoPath} && exec bash -l`,
       keepOpenAfterCommand: true,
-      instructions: "Exit the SSH session when you are done.",
     });
   },
 });
 ```
 
-## Open cmux
+## cmux operation
 
-The cmux provider delegates to a trusted host capability registered by the CLI.
-Use the Freestyle helper to create cmux-compatible SSH options:
+Use the cmux provider when local cmux should open terminals and an optional
+browser URL connected to the remote workspace:
 
 ```ts
 .workspaceOperation("open-cmux", {
   title: "Open cmux",
-  description: "Open the workspace in cmux",
   run: async ({ providers, workspace }) => {
     await providers.cmux.open({
       name: workspace.name,
@@ -154,12 +138,12 @@ Use the Freestyle helper to create cmux-compatible SSH options:
 });
 ```
 
-Use `surfaceLayout: "tabs"` to put terminals and the browser URL in tabs in the
-same cmux pane. Omit it, or set `"splits"`, for split panes.
+`surfaceLayout: "tabs"` puts terminals and the browser URL in tabs. Omit it, or
+set `"splits"`, for split panes.
 
-## Open VS Code
+## VS Code operation
 
-The Freestyle provider can build a VS Code Remote SSH URL:
+The Freestyle provider can create a VS Code Remote SSH URL:
 
 ```ts
 .workspaceOperation("open-vscode", {
@@ -174,79 +158,38 @@ The Freestyle provider can build a VS Code Remote SSH URL:
 });
 ```
 
-## Add operation inputs
+## Operation input
 
-Workspace operations can ask for extra string, boolean, or number input.
+Operations can declare string, boolean, number, or workspace inputs. Runtime
+hosts use the input schema to prompt or build CLI flags.
 
 ```ts
 .workspaceOperation("dev", {
   title: "Start dev server",
   input: (input) => input.workspaceInput({
     name: "source",
-    description: "Workspace to copy settings from",
+    description: "Optional workspace to copy settings from",
     required: false,
   }).extend({
     port: input.number({
       defaultValue: 3000,
       description: "Port to use",
     }),
-    watch: input.boolean({
-      defaultValue: true,
-      description: "Enable watch mode",
-    }),
   }),
-  run: async ({ input, workspace }) => {
-    return {
-      workspace: workspace.name,
-      source: input.source?.name,
-      port: input.port,
-      watch: input.watch,
-    };
-  },
-});
-```
-
-For a workspace operation, the main target workspace still comes from
-`rig run <workspace> <operation>`. `workspaceInput(...)` is useful when an
-operation needs a second workspace as an argument.
-
-## Add workflow-level operations
-
-Use `.operation(...)` for commands that are not tied to one workspace. A common
-pattern is a command that selects a workspace through input:
-
-```ts
-.operation("snapshot-workspace", {
-  title: "Snapshot workspace",
-  input: (input) => input.workspaceInput({
-    name: "workspace",
-    description: "Workspace to snapshot",
-  }).extend({
-    label: input.string({
-      defaultValue: "manual",
-      description: "Snapshot label",
-    }),
-  }),
-  run: async ({ input }) => ({
-    workspace: input.workspace.name,
-    label: input.label,
-    ctx: input.workspace.ctx,
+  run: async ({ input, workspace }) => ({
+    workspace: workspace.name,
+    source: input.source?.name,
+    port: input.port,
   }),
 });
 ```
 
-Workflow-level operations are exposed through the runtime operation manifest for
-hosts and API clients. The current CLI has first-class commands for core
-operations such as `plan`, `apply`, and `create`, plus workspace operations
-through `rig run <workspace> <operation>`.
+For workspace operations, `rig run <workspace> <operation>` still supplies the
+main workspace. `workspaceInput(...)` is for additional workspace arguments.
 
-Built-in command ids such as `plan`, `apply`, `create`, `run`, and `help` are
-reserved operation ids.
+## Defensive create hooks
 
-## Keep lifecycle hooks defensive
-
-If `create` allocates provider resources and then fails, clean up before
-throwing:
+If `create` allocates resources and then fails, clean them up before throwing:
 
 ```ts
 create: async ({ workflow, providers, workspace }) => {
@@ -266,5 +209,4 @@ create: async ({ workflow, providers, workspace }) => {
 }
 ```
 
-This keeps failed workspace creates from leaking VMs or other provider
-resources.
+This prevents failed workspace creates from leaking provider resources.

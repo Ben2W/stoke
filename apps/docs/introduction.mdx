@@ -3,23 +3,12 @@ title: "Rigkit"
 description: "Declarative dev environments, in TypeScript."
 ---
 
-Rigkit is a CLI for declarative dev environments. You define your environment
-once in a `rig.config.ts` file, and then spin up as many isolated workspaces
-as you need — for agents, developers, CI jobs, and tests.
+Rigkit runs development environments from a TypeScript config.
 
-The `rig` CLI plans the setup graph, caches expensive work, creates named
-workspaces from prepared state, and runs typed operations like `ssh`,
-`open-cmux`, or anything else your project defines.
+You write the setup once, Rigkit prepares it, and then you create as many named
+workspaces as you need for agents, developers, CI jobs, or tests.
 
-<Tip>
-  **New here?** Jump straight to the [Quickstart](/guides/quickstart) to get a
-  working environment in a few commands. The [CLI reference](/reference/cli)
-  covers every command.
-</Tip>
-
-## First steps
-
-Install the CLI:
+## Core loop
 
 ```sh
 curl -fsSL https://www.rigkit.dev/install | sh
@@ -33,104 +22,22 @@ cd website
 rig plan
 rig apply
 rig create dev
-```
-
-Then run a project-defined workspace operation:
-
-```sh
 rig run dev ssh
+rig rm dev
 ```
 
-That's the full CLI loop: `init` once, `plan`/`apply` whenever your config
-changes, and `create`/`run`/`rm` to manage workspaces.
+- `rig plan` shows which setup tasks are cached or pending.
+- `rig apply` runs pending tasks and stores their JSON `ctx`.
+- `rig create <name>` creates a workspace from the workflow output.
+- `rig run <name> <operation>` runs an operation defined by `rig.config.ts`.
 
-## What Rigkit is good at
+## Read next
 
-- **Defining complete environments.** Put the VM image, packages, repository,
-  credentials, CLIs, services, ports, editor entry points, and project actions
-  in one typed config.
-- **Spinning up agents.** Prepare the environment once, snapshot it, then create
-  isolated named workspaces for agents that need the same tools and context.
-- **Remote development.** Create a remote workspace from the same prepared
-  state and open it in SSH, cmux, VS Code, or a preview URL.
-- **CI and testing.** Use the same workflow model to build repeatable test
-  environments, run validation tasks, and reuse expensive setup across runs.
+- [Quickstart](/guides/quickstart): install, initialize, apply, and create a workspace.
+- [CLI reference](/reference/cli): command syntax and global options.
+- [Workflows](/guides/workflows): tasks, context, composition, config, and caching.
+- [Workspaces and operations](/guides/workspaces): workspace lifecycle hooks and `rig run`.
+- [Provider overview](/providers/overview): built-in providers and provider design rules.
 
-## How to read these docs
-
-Three groups of users read these docs, with different needs:
-
-- **You run the `rig` CLI.** Most users. Start with the
-  [Quickstart](/guides/quickstart), then keep the
-  [CLI reference](/reference/cli) handy. Skim
-  [Concepts](/concepts/mental-model) when something behaves unexpectedly.
-- **You write `rig.config.ts` for your team.** Read
-  [Concepts](/concepts/mental-model) first, then
-  [Workflows](/guides/workflows), [Workspaces and operations](/guides/workspaces),
-  and [Fragments](/advanced/fragments). The
-  [built-in providers](/providers/overview) section tells you what's available.
-- **You're building a custom provider.** See
-  [Creating providers](/providers/creating-providers).
-
-Questions and examples live in the
-[Rigkit GitHub repo](https://github.com/freestyle-sh/rigkit). You can also
-[join the Discord](https://discord.com/invite/v5WT4fbXhc).
-
-## Example config
-
-For a sense of what a `rig.config.ts` looks like, here's a complete website
-config with a setup task, a workspace lifecycle, and an SSH operation:
-
-```ts
-import { workflow } from "@rigkit/sdk";
-import { freestyle, VmSpec } from "@rigkit/provider-freestyle";
-
-const app = workflow("website", {
-  providers: {
-    freestyle: freestyle.provider(),
-    terminal: freestyle.terminal(),
-  },
-});
-
-export default app
-  .sequence("website")
-  .task("prepare-image", async ({ freestyle }) => {
-    const { vm, vmId } = await freestyle.client.vms.create({
-      spec: new VmSpec().runCommands("corepack enable"),
-      logger: console.log,
-    });
-
-    try {
-      const snapshot = await vm.snapshot();
-      return {
-        ctx: { snapshotId: snapshot.snapshotId, repoPath: "/workspace/app" },
-      };
-    } finally {
-      await freestyle.client.vms.delete({ vmId });
-    }
-  })
-  .workspace({
-    create: async ({ workflow, providers }) => {
-      const { vmId } = await providers.freestyle.client.vms.create({
-        snapshotId: workflow.ctx.snapshotId,
-        logger: console.log,
-      });
-      return { vmId, repoPath: workflow.ctx.repoPath };
-    },
-    remove: async ({ providers, workspace }) => {
-      await providers.freestyle.client.vms.delete({ vmId: workspace.ctx.vmId });
-    },
-  })
-  .workspaceOperation("ssh", {
-    title: "SSH",
-    run: async ({ providers, workspace }) => {
-      await providers.terminal.open(`SSH ${workspace.name}`, {
-        ssh: await providers.freestyle.createSSHOptions({
-          vmId: workspace.ctx.vmId,
-        }),
-        command: `cd ${workspace.ctx.repoPath} && exec bash -l`,
-        keepOpenAfterCommand: true,
-      });
-    },
-  });
-```
+Runnable examples live in the
+[Rigkit repository](https://github.com/freestyle-sh/rigkit/tree/main/examples).

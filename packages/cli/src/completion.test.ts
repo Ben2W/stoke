@@ -82,6 +82,45 @@ describe("CLI completion", () => {
     }
   });
 
+  test("suggests conventional double-dash global flags by default", async () => {
+    const items = await completeRig({
+      cwd: process.cwd(),
+      words: ["rig", "--"],
+      currentIndex: 1,
+    });
+
+    expect(items.map((item) => item.value)).toEqual([
+      "--chdir=",
+      "--config=",
+      "--state=",
+      "--json",
+      "--help",
+      "--version",
+    ]);
+  });
+
+  test("completes project directories for --chdir", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "rigkit-completion-dirs-"));
+    mkdirSync(join(cwd, "examples", "global-fragments"), { recursive: true });
+
+    try {
+      const roots = await completeRig({
+        cwd,
+        words: ["rig", "--chdir="],
+        currentIndex: 1,
+      });
+
+      expect(roots).toContainEqual({
+        value: "--chdir=examples/",
+        description: "directory",
+        noSpace: true,
+        group: "Paths",
+      });
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
   test("completes named config files", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "rigkit-completion-configs-"));
     writeFileSync(join(cwd, "api.rig.config.ts"), "export default {}\n");

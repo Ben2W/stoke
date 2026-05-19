@@ -329,7 +329,7 @@ export class DevMachineEngine {
 
     if (!existsSync(this.configPath)) {
       throw new Error(
-        `No Rigkit config found at ${this.configPath}. Create one with "rig init" or pass -config=<file>.`,
+        `No Rigkit config found at ${this.configPath}. Create one with "rig init" or pass --config=<file>.`,
       );
     }
 
