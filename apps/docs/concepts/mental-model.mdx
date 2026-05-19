@@ -71,8 +71,8 @@ Sequences and parallel branches compile into a graph:
 ```mermaid
 flowchart LR
   Base["base image"] --> Tooling["install tooling"]
-  Tooling --> Repo["clone repo"]
-  Tooling --> Auth["authenticate CLIs"]
+  Tooling --> Repo["setup repo"]
+  Tooling --> Auth["provision database"]
   Repo --> Join["final context"]
   Auth --> Join
   Join --> Workspace["workspace.create"]

@@ -50,9 +50,10 @@ const SCRIPT: Step[] = [
     kind: "output",
     lines: [
       { text: "▸ booting vm from snapshot …", tone: "muted" },
+      { text: "▸ creating branch workspace-1", tone: "muted" },
       { text: "✓ workspace-1 ready", tone: "ok" },
     ],
-    perLineMs: 420,
+    perLineMs: 380,
     pauseAfterMs: 700,
   },
   {
@@ -79,7 +80,7 @@ type Line = { id: string; tokens: LineToken[]; partial?: string };
 
 const PROMPT = "$ ";
 
-export function CliShowcase() {
+export function CliShowcase({ configHtml }: { configHtml: string }) {
   const [stepIndex, setStepIndex] = useState(0);
   const [lines, setLines] = useState<Line[]>([]);
   const [showIde, setShowIde] = useState(false);
@@ -182,6 +183,7 @@ export function CliShowcase() {
           setTimeout(() => {
             if (cancelled) return;
             setShowIde(true);
+            setStepIndex((index) => index + 1);
           }, 120),
         );
         return;
@@ -195,12 +197,38 @@ export function CliShowcase() {
     };
   }, [stepIndex]);
 
+  const [leftTab, setLeftTab] = useState<"terminal" | "config">("terminal");
+
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]">
-      <div className="overflow-hidden rounded-xl border border-[var(--color-border)] bg-[#faf8f2] shadow-[0_1px_0_rgba(10,10,10,0.04)]">
-        <ChromeBar label="terminal" />
-        <div className="h-[340px] sm:h-[380px]">
-          <TerminalLog lines={lines} idle={!showIde} />
+      <div className="flex min-h-0 flex-col overflow-hidden rounded-xl border border-[var(--color-border)] bg-[#faf8f2] shadow-[0_1px_0_rgba(10,10,10,0.04)]">
+        <div className="flex items-stretch gap-1 border-b border-[var(--color-border)] bg-[#f2efe7] px-2 pt-2">
+          <Tab
+            label="terminal"
+            icon={<TerminalGlyph />}
+            active={leftTab === "terminal"}
+            onClick={() => setLeftTab("terminal")}
+          />
+          <Tab
+            label="rig.config.ts"
+            icon={<FileGlyph />}
+            active={leftTab === "config"}
+            onClick={() => setLeftTab("config")}
+          />
+        </div>
+        <div className="relative h-[340px] sm:h-[380px]">
+          <div
+            className={`absolute inset-0 ${leftTab === "terminal" ? "" : "pointer-events-none opacity-0"}`}
+            aria-hidden={leftTab !== "terminal"}
+          >
+            <TerminalLog lines={lines} idle={stepIndex >= SCRIPT.length} />
+          </div>
+          <div
+            className={`absolute inset-0 overflow-auto ${leftTab === "config" ? "" : "pointer-events-none opacity-0"}`}
+            aria-hidden={leftTab !== "config"}
+          >
+            <ConfigPane html={configHtml} />
+          </div>
         </div>
       </div>
       <div className="flex min-h-0 flex-col overflow-hidden rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] shadow-[0_1px_0_rgba(10,10,10,0.04)]">
@@ -240,6 +268,48 @@ export function CliShowcase() {
         </AnimatePresence>
       </div>
     </div>
+  );
+}
+
+function ConfigPane({ html }: { html: string }) {
+  return (
+    <div
+      className="config-pane h-full px-4 py-3 font-mono text-[12.5px] leading-[1.6]"
+      dangerouslySetInnerHTML={{ __html: html }}
+    />
+  );
+}
+
+function TerminalGlyph() {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="h-[10px] w-[10px]"
+    >
+      <path d="M3 5l3 3-3 3" />
+      <path d="M8.5 11h4.5" />
+    </svg>
+  );
+}
+
+function FileGlyph() {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinejoin="round"
+      className="h-[10px] w-[10px]"
+    >
+      <path d="M3.5 2h5.5L13 5.5V14H3.5z" />
+      <path d="M9 2v3.5H13" />
+    </svg>
   );
 }
 
@@ -284,12 +354,6 @@ function TerminalLog({ lines, idle }: { lines: Line[]; idle: boolean }) {
           <div className="whitespace-pre">
             <span className={toneClass("prompt")}>{PROMPT}</span>
             <span>{tail.partial}</span>
-            {idle && <Cursor />}
-          </div>
-        )}
-        {tail && !tailIsCommand && idle && (
-          <div className="whitespace-pre">
-            <span className={toneClass("prompt")}>{PROMPT}</span>
             <Cursor />
           </div>
         )}
@@ -518,7 +582,7 @@ const EDITOR_LINES: { tokens: { text: string; cls: string }[] }[] = [
     tokens: [
       { text: "      <", cls: "text-[#800000]" },
       { text: "h1", cls: "text-[#800000]" },
-      { text: ">Hello from workspace-1</", cls: "text-[#0a0a0a]" },
+      { text: ">Hello World</", cls: "text-[#0a0a0a]" },
       { text: "h1", cls: "text-[#800000]" },
       { text: ">", cls: "text-[#800000]" },
     ],
@@ -591,7 +655,7 @@ function BrowserPane() {
             next dev · port 3000
           </span>
           <h2 className="font-sans text-[26px] font-extrabold leading-[1.05] tracking-[-0.03em] text-[var(--color-fg)]">
-            Hello from workspace-1
+            Hello World
           </h2>
           <p className="mt-2 font-mono text-[11.5px] text-[var(--color-muted)]">
             edit <code className="text-[var(--color-fg)]">app/page.tsx</code>{" "}

@@ -1,7 +1,7 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { useState } from "react";
 
-const COMMAND = "curl -fsSL https://rigkit.freestyle.sh/install | sh";
+const COMMAND = "curl -fsSL https://www.rigkit.dev/install | sh";
 
 export function InstallBlock() {
   const [copied, setCopied] = useState(false);

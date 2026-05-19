@@ -13,7 +13,7 @@ const {
   path = Astro.url.pathname,
 } = Astro.props;
 
-const site = Astro.site ?? new URL("https://rigkit.freestyle.sh");
+const site = Astro.site ?? new URL("https://www.rigkit.dev");
 const canonical = new URL(path, site).toString();
 ---
 

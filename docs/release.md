@@ -78,7 +78,7 @@ The workflow:
 2. Computes the next version and verifies it matches the selected version.
 3. Creates the target version branch for minor and major releases.
 4. Runs `pnpm release:bump <version>`, which updates package versions and constants.
-5. Runs `pnpm docs:version -- --version <version>`, which snapshots the current docs into `apps/docs/v<version>` and updates the Mintlify version dropdown.
+5. Runs `pnpm docs:version -- --version <version>`, which snapshots the current docs into `apps/docs/v<version>` and updates the Mintlify version dropdown while keeping latest docs on unversioned URLs.
 6. Runs release preflight, docs broken-link validation, typecheck, tests, and build.
 7. Opens a release PR back into the target `version/x.y` branch.
 
@@ -140,7 +140,7 @@ unaffected.
 Install a canary CLI:
 
 ```bash
-curl -fsSL https://rigkit.freestyle.sh/install/canary | sh
+curl -fsSL https://www.rigkit.dev/install/canary | sh
 ```
 
 Install canary npm packages:
@@ -186,29 +186,39 @@ in that config.
 
 Mintlify deploys from the docs files and `docs.json` in the connected branch,
 so Rigkit commits release docs snapshots into the repository. The editable docs
-at the root of `apps/docs` are the canary docs. Stable release docs live under
-`apps/docs/v<version>`.
+at the root of `apps/docs` are the canonical latest docs and keep stable,
+unversioned URLs for SEO. Stable release archives live under
+`apps/docs/v<version>`. Canary docs live under `apps/docs/canary` and are
+marked `noindex`.
 
 ```text
 apps/docs/
-  introduction.mdx          # canary
+  introduction.mdx          # latest, canonical
   guides/
   providers/
+  canary/
+    introduction.mdx        # canary preview, noindex
   v0.2.8/
-    introduction.mdx        # stable snapshot
+    introduction.mdx        # stable archive, noindex
     guides/
     providers/
 ```
 
-`pnpm docs:version -- --version <version>` copies the current docs into the
-version directory, rewrites absolute docs links to point at that version, marks
-the new version as `Latest`, keeps `canary` in the version dropdown, and removes
-the previous `Latest` marker. The command fails if the snapshot already exists
-unless `--force` is passed.
+`pnpm docs:version -- --version <version>` copies the current root docs into the
+version directory, rewrites absolute docs links to point at that archive, marks
+archive pages `noindex: true`, and updates the Mintlify version dropdown so:
+
+- `v<version>` is the default, is tagged `Latest`, and points at unversioned root pages.
+- `Canary` points at `/canary/...` pages and is tagged `Preview`.
+- Older `v<version>` entries point at immutable release archives.
+
+The command fails if the snapshot already exists unless `--force` is passed.
 
 `pnpm docs:check-version -- --version <version>` verifies that the version
-directory exists, `docs.json` has the expected Mintlify version entry, exactly
-one stable version is marked `Latest`, and all versioned navigation pages exist.
+directory exists, `docs.json` has the expected Mintlify version entries,
+the current stable version is the only default and is tagged `Latest`, current
+pages are unversioned, archived pages are version-prefixed, and archive/canary
+pages are marked `noindex`.
 
 ## Published Packages
 
@@ -299,7 +309,7 @@ The public installer is served by the website Worker (which also hosts the
 marketing page at the root):
 
 ```bash
-curl -fsSL https://rigkit.freestyle.sh/install | sh
+curl -fsSL https://www.rigkit.dev/install | sh
 ```
 
 The Worker uses GitHub Releases as the source of truth, serves latest-version

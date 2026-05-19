@@ -39,7 +39,13 @@ fi
 
 update_path() {
   case ":$PATH:" in
-    *":$install_dir:"*) return ;;
+    *":$install_dir:"*)
+      echo ""
+      echo "Shell setup"
+      echo "  rig is already on PATH for this terminal."
+      print_current_shell_instructions
+      return
+      ;;
   esac
 
   if [ "${RIGKIT_NO_MODIFY_PATH:-}" = "1" ]; then
@@ -58,8 +64,9 @@ update_path() {
 
   if grep -F "$install_dir" "$profile" >/dev/null 2>&1; then
     echo ""
-    echo "rig install directory is already referenced in $profile"
-    print_current_shell_instructions
+    echo "Shell setup"
+    echo "  $profile already references $install_dir."
+    print_profile_refresh_instructions "$profile"
     return
   fi
 
@@ -83,8 +90,9 @@ update_path() {
   esac
 
   echo ""
-  echo "Added rig to PATH and enabled shell completion in $profile"
-  print_current_shell_instructions
+  echo "Shell setup"
+  echo "  Added rig to PATH and enabled shell completion in $profile."
+  print_profile_refresh_instructions "$profile"
 }
 
 detect_profile() {
@@ -125,7 +133,8 @@ detect_profile() {
 
 print_path_instructions() {
   echo ""
-  echo "Add this to your shell profile:"
+  echo "Shell setup"
+  echo "  Add this to your shell profile:"
   case "$shell_name" in
     fish)
       echo "  fish_add_path \"$install_dir\""
@@ -139,8 +148,31 @@ print_path_instructions() {
   print_current_shell_instructions
 }
 
+print_profile_refresh_instructions() {
+  profile="$1"
+  shell_label="$shell_name"
+  if [ -z "$shell_label" ]; then
+    shell_label="your shell"
+  fi
+
+  echo "Restart your terminal, or refresh $shell_label now:"
+  case "$shell_name" in
+    fish|bash|zsh)
+      echo "  source \"$profile\""
+      ;;
+    *)
+      echo "  . \"$profile\""
+      ;;
+  esac
+}
+
 print_current_shell_instructions() {
-  echo "Restart your shell, or run this now:"
+  shell_label="$shell_name"
+  if [ -z "$shell_label" ]; then
+    shell_label="your shell"
+  fi
+
+  echo "Restart your terminal, or run this command to use rig in $shell_label now:"
   case "$shell_name" in
     fish)
       echo "  set -gx PATH \"$install_dir\" \$PATH"
@@ -195,6 +227,6 @@ chmod +x "$install_dir/rig"
 
 echo "Installed rig to $install_dir/rig"
 
-update_path
-
 "$install_dir/rig" --version
+
+update_path

@@ -14,8 +14,8 @@ packages/provider-gcloud-cli/    local Google Cloud CLI auth provider
 packages/provider-vscode/   VS Code host package
 packages/cli/      global `rig` command
 apps/app/               placeholder for the future app
-apps/website/           Astro marketing site + install Worker (rigkit.freestyle.sh)
-apps/docs/              Mintlify docs site (docs.rigkit.freestyle.sh)
+apps/website/           Astro marketing site + install Worker (www.rigkit.dev, rigkit.dev redirect)
+apps/docs/              Mintlify docs site (docs.rigkit.dev, /docs redirects)
 examples/smoke/         runnable smoke workflow
 examples/gcloud-on-open/ copy local gcloud config files with a workspace operation
 examples/base-freestyle-fragment/ consume a reusable Freestyle company base fragment
@@ -183,4 +183,4 @@ The release workflow builds:
 - `rig-linux-x64.tar.gz`
 - `checksums.txt`
 
-The install Worker serves `curl -fsSL https://rigkit.freestyle.sh/install | sh`. It reads GitHub Releases as the source of truth, redirects downloads to the release assets, installs to `~/.rigkit/bin/rig`, and adds that directory to the detected shell profile.
+The install Worker serves `curl -fsSL https://www.rigkit.dev/install | sh`. It reads GitHub Releases as the source of truth, redirects downloads to the release assets, installs to `~/.rigkit/bin/rig`, and adds that directory to the detected shell profile.

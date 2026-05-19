@@ -43,6 +43,76 @@ describe("CLI entrypoint", () => {
     expect(help.stdout).toContain("cache       Inspect and clear Rigkit cache");
   });
 
+  test("prints an update notice when latest metadata is newer", async () => {
+    const rigkitHome = mkdtempSync(join(tmpdir(), "rigkit-cli-update-"));
+    const latestVersion = nextPatchVersion(RIGKIT_CLI_VERSION);
+    const server = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch() {
+        return Response.json({
+          version: latestVersion,
+          installerUrl: "https://www.rigkit.dev/install",
+        });
+      },
+    });
+
+    try {
+      const result = await runCli(["doctor", "--cli"], {
+        env: {
+          RIGKIT_HOME: rigkitHome,
+          RIGKIT_UPDATE_CHECK: "1",
+          RIGKIT_UPDATE_TIMEOUT_MS: "2000",
+          RIGKIT_UPDATE_URL: `http://127.0.0.1:${server.port}/latest.json`,
+        },
+      });
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain(RIGKIT_CLI_VERSION);
+      expect(result.stderr).toContain(`rig ${latestVersion} is available`);
+      expect(result.stderr).toContain("update with: curl -fsSL https://www.rigkit.dev/install | sh");
+    } finally {
+      server.stop(true);
+      rmSync(rigkitHome, { recursive: true, force: true });
+    }
+  });
+
+  test("does not print update notices for JSON output", async () => {
+    const rigkitHome = mkdtempSync(join(tmpdir(), "rigkit-cli-update-json-"));
+    let requests = 0;
+    const server = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch() {
+        requests += 1;
+        return Response.json({
+          version: nextPatchVersion(RIGKIT_CLI_VERSION),
+          installerUrl: "https://www.rigkit.dev/install",
+        });
+      },
+    });
+
+    try {
+      const result = await runCli(["doctor", "--cli", "--json"], {
+        env: {
+          RIGKIT_HOME: rigkitHome,
+          RIGKIT_UPDATE_CHECK: "1",
+          RIGKIT_UPDATE_URL: `http://127.0.0.1:${server.port}/latest.json`,
+        },
+      });
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stderr).toBe("");
+      expect(JSON.parse(result.stdout)).toMatchObject({
+        cliVersion: RIGKIT_CLI_VERSION,
+      });
+      expect(requests).toBe(0);
+    } finally {
+      server.stop(true);
+      rmSync(rigkitHome, { recursive: true, force: true });
+    }
+  });
+
   test("rejects operation shorthand at the root", async () => {
     const result = await runCli(["unknown"]);
 
@@ -122,6 +192,31 @@ describe("CLI entrypoint", () => {
     } finally {
       rmSync(rigkitHome, { recursive: true, force: true });
     }
+  });
+
+  test("does not render a success marker when cache invalidation is a no-op", async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-cli-cache-invalidate-"));
+
+    await withWorkspaceRuntime({ projectDir, cacheInvalidated: 0 }, async ({ env }) => {
+      const result = await runCli([`-chdir=${projectDir}`, "cache", "invalidate", "missing-task"], { env });
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stderr).toBe("");
+      expect(result.stdout.trim()).toBe("no cache entries invalidated");
+      expect(result.stdout).not.toContain("✓");
+    });
+  });
+
+  test("preserves JSON output for zero cache invalidations", async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-cli-cache-invalidate-json-"));
+
+    await withWorkspaceRuntime({ projectDir, cacheInvalidated: 0 }, async ({ env }) => {
+      const result = await runCli([`-chdir=${projectDir}`, "cache", "invalidate", "missing-task", "--json"], { env });
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stderr).toBe("");
+      expect(JSON.parse(result.stdout)).toEqual({ ok: true, invalidated: 0 });
+    });
   });
 
   test("lists workspaces from the project runtime", async () => {
@@ -241,6 +336,7 @@ async function runCli(
     stderr: "pipe",
     env: {
       ...process.env,
+      RIGKIT_UPDATE_CHECK: "0",
       ...options.env,
       FORCE_COLOR: "0",
       NO_COLOR: "1",
@@ -255,8 +351,14 @@ async function runCli(
   return { exitCode, stdout, stderr };
 }
 
+function nextPatchVersion(version: string): string {
+  const match = version.match(/^(\d+)\.(\d+)\.(\d+)/);
+  if (!match) return "999.0.0";
+  return `${match[1]}.${match[2]}.${Number(match[3]) + 1}`;
+}
+
 async function withWorkspaceRuntime(
-  input: { projectDir: string },
+  input: { projectDir: string; cacheInvalidated?: number },
   run: (context: { env: Record<string, string> }) => Promise<void>,
 ): Promise<void> {
   const rigkitHome = mkdtempSync(join(tmpdir(), "rigkit-home-"));
@@ -305,6 +407,9 @@ async function withWorkspaceRuntime(
             updatedAt: now,
           }],
         });
+      }
+      if (pathname === "/cache/invalidate") {
+        return runtimeJson({ ok: true, invalidated: input.cacheInvalidated ?? 1 });
       }
       if (pathname === "/operations") {
         return runtimeJson({

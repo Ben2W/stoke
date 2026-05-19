@@ -3,6 +3,14 @@ title: "Creating providers"
 description: "Create a custom Rigkit provider with typed config, runtime helpers, storage, host capabilities, and artifact validation."
 ---
 
+<Note>
+This page is for users building a **new provider package** (e.g., a custom
+integration for an internal database service or platform). Most users —
+including most config authors — never need to write a provider. If you're just
+wiring built-in providers into a config, see the
+[provider overview](/providers/overview).
+</Note>
+
 Create a provider when workflow code needs a stable integration boundary around
 an external system: an internal platform, a database service, a cloud API, a
 local tool, or a host capability.

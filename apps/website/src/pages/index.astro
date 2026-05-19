@@ -1,11 +1,201 @@
 ---
+import { codeToHtml } from "shiki";
 import SiteLayout from "@/layouts/SiteLayout.astro";
 import Header from "@/components/Header.astro";
 import { InstallBlock } from "@/components/InstallBlock";
-import CodeShowcase from "@/components/CodeShowcase.astro";
 import { CliShowcase } from "@/components/CliShowcase";
+import { ConfigShowcase } from "@/components/ConfigShowcase";
+import type { ConfigSnippet } from "@/components/ConfigShowcase";
+import { CmuxShowcase } from "@/components/CmuxShowcase";
 import DiscordIcon from "@/components/DiscordIcon.astro";
 import { LatestVersionBadge } from "@/components/LatestVersionBadge";
+
+const rigConfigSnippet = `import { freestyle, VmBaseImage, VmSpec } from "@rigkit/provider-freestyle";
+import { workflow } from "@rigkit/sdk";
+
+const repo = "vercel/next.js-starter";
+const repoPath = "/workspace/app";
+const devPort = 3000;
+
+const vmSpec = new VmSpec()
+  .idleTimeoutSeconds(3600);
+
+const app = workflow("playground", {
+  providers: { freestyle: freestyle.provider() },
+});
+
+export default app
+  .sequence("playground")
+  .task("clone-and-install", async ({ freestyle }) => {
+    const { vm } = await freestyle.client.vms.create({
+      spec: vmSpec,
+      logger: console.log,
+    });
+    await vm.exec(\`git clone https://github.com/\${repo}.git \${repoPath}\`);
+    await vm.exec(\`cd \${repoPath} && bun install\`);
+    const snapshot = await vm.snapshot();
+    return { ctx: { snapshotId: snapshot.snapshotId } };
+  })
+  .workspace({
+    create: async ({ workflow, providers }) => {
+      const { vmId } = await providers.freestyle.client.vms.create({
+        snapshotId: workflow.ctx.snapshotId,
+      });
+      return { vmId, repoPath, devPort };
+    },
+  })
+  .workspaceOperation("open", {
+    title: "Open",
+    run: async ({ providers, workspace, local }) => {
+      const vscode = await providers.freestyle.vscode.createUrl({
+        vmId: workspace.ctx.vmId,
+        cwd: workspace.ctx.repoPath,
+      });
+      const preview = await providers.freestyle.forwardPort({
+        vmId: workspace.ctx.vmId,
+        port: workspace.ctx.devPort,
+      });
+      await Promise.all([local.open(vscode), local.open(preview)]);
+    },
+  });
+`;
+
+const rigConfigHtml = await codeToHtml(rigConfigSnippet, {
+  lang: "ts",
+  theme: "github-light",
+});
+
+type RawSnippet = {
+  id: string;
+  label: string;
+  blurb: string;
+  code: string;
+  interactive?: boolean;
+};
+
+const rawSnippets: RawSnippet[] = [
+  {
+    id: "interactive-auth",
+    label: "Interactive auth",
+    interactive: true,
+    blurb:
+      "Need a human in the loop? Open an interactive SSH terminal in the user's local environment. rig apply pauses until they finish — then snapshots the authenticated state so the next run is one-shot.",
+    code: `.task("github-auth", async ({ step, freestyle, terminal }) => {
+  const { vm, vmId } = await freestyle.client.vms.create({
+    snapshotId: step.ctx.snapshotId,
+  });
+
+  await terminal.open("Log in to GitHub", {
+    ssh: await freestyle.createSSHOptions({ vmId }),
+    command: "gh auth login --hostname github.com --web",
+    keepOpenAfterCommand: true,
+    instructions: "Complete the GitHub login in this terminal.",
+  });
+
+  const snapshot = await vm.snapshot();
+  return { ctx: { snapshotId: snapshot.snapshotId } };
+});
+`,
+  },
+  {
+    id: "workspace-branches",
+    label: "One branch per workspace",
+    blurb:
+      "Every workspace.create gets a fresh branch off main — no shared working directory, no rebasing dance. rig run \\${name} open picks up exactly where the agent left off.",
+    code: `.workspace({
+  create: async ({ workflow, providers, workspace }) => {
+    const { vm, vmId } = await providers.freestyle.client.vms.create({
+      snapshotId: workflow.ctx.snapshotId,
+    });
+
+    const branch = \`rigkit/\${workspace.name.replaceAll(
+      /[^A-Za-z0-9._/-]/g,
+      "-",
+    )}\`;
+    await vm.exec(
+      [
+        \`cd \${workflow.ctx.repoPath}\`,
+        \`git switch -C \${branch}\`,
+      ].join("\\n"),
+    );
+
+    return {
+      vmId,
+      branch,
+      repoPath: workflow.ctx.repoPath,
+      devPort: workflow.ctx.devPort,
+    };
+  },
+});
+`,
+  },
+  {
+    id: "vm-setup",
+    label: "VM image",
+    blurb:
+      "Tools, package managers, runtimes — bake them once into a snapshot. Every workspace boots from the same image in seconds, with bun, gh, node, and codex preinstalled.",
+    code: `const vmSpec = new VmSpec()
+  .runCommands(\`
+    set -e
+    export DEBIAN_FRONTEND=noninteractive
+
+    apt-get update -qq
+    apt-get install -y -qq \\
+      ca-certificates curl gnupg gh git nodejs
+
+    curl -fsSL https://bun.sh/install | bash
+    npm install -g @openai/codex
+    corepack enable
+
+    bun --version
+    codex --version
+  \`)
+  .memSizeGb(16)
+  .vcpuCount(4)
+  .rootfsSizeGb(24)
+  .idleTimeoutSeconds(3600);
+`,
+  },
+  {
+    id: "workspace-operations",
+    label: "Workspace operations",
+    blurb:
+      "Define what \\\"opening\\\" a workspace means: a cmux layout with the dev server, the agent CLI, and the preview URL — all wired up to the right SSH session and forwarded port.",
+    code: `.workspaceOperation("open-cmux", {
+  title: "Open cmux",
+  description: "Open the workspace in cmux",
+  run: async ({ providers, workspace }) => {
+    await providers.cmux.open({
+      name: workspace.name,
+      ssh: await providers.freestyle.cmux.createSshOptions({
+        vmId: workspace.ctx.vmId,
+      }),
+      cwd: workspace.ctx.repoPath,
+      surfaceLayout: "tabs",
+      terminals: [
+        { command: "bun run dev" },
+        { command: "claude", focus: true },
+      ],
+      url: \`http://localhost:\${workspace.ctx.devPort}\`,
+    });
+  },
+});
+`,
+  },
+];
+
+const configSnippets: ConfigSnippet[] = await Promise.all(
+  rawSnippets.map(async (snippet) => ({
+    id: snippet.id,
+    label: snippet.label,
+    blurb: snippet.blurb,
+    interactive: snippet.interactive,
+    html: await codeToHtml(snippet.code, {
+      lang: "ts",
+      theme: "github-light",
+    }),
+  })),
+);
 ---
 
 <SiteLayout
@@ -42,7 +232,7 @@ import { LatestVersionBadge } from "@/components/LatestVersionBadge";
           class="mt-8 flex flex-wrap items-center gap-x-5 gap-y-3 font-mono text-[13px]"
         >
           <a
-            href="/docs"
+            href="https://docs.rigkit.dev"
             class="inline-flex items-center gap-1.5 text-[var(--color-accent)] underline-offset-4 transition-all hover:underline"
           >
             Read the docs
@@ -67,8 +257,112 @@ import { LatestVersionBadge } from "@/components/LatestVersionBadge";
       </section>
 
       <section class="mx-auto mt-16 flex w-full max-w-4xl flex-col gap-6 sm:mt-20">
-        <CliShowcase client:visible />
-        <CodeShowcase />
+        <CliShowcase client:visible configHtml={rigConfigHtml} />
+      </section>
+
+      <section
+        class="mx-auto mt-24 flex w-full max-w-4xl flex-col gap-6 sm:mt-32"
+      >
+        <header class="flex flex-col gap-3">
+          <span
+            class="inline-flex w-fit items-center gap-1.5 rounded-full border border-[var(--color-accent)] px-2.5 py-1 font-mono text-[10.5px] uppercase tracking-[0.1em] text-[var(--color-accent)]"
+          >
+            multi-agent
+          </span>
+          <h2
+            class="font-sans text-[32px] font-extrabold leading-[1.05] tracking-[-0.03em] text-[var(--color-fg)] sm:text-[40px]"
+          >
+            Manage multi-agent workloads better than worktrees
+          </h2>
+          <p
+            class="max-w-xl font-sans text-[15px] leading-[1.55] text-[#2a2a2a]"
+          >
+            Git worktrees fork your branch. Because you declared your dev
+            environment, rigkit forks the whole thing — VM, processes, ports,
+            and branch — so every agent gets a real copy.
+          </p>
+        </header>
+        <CmuxShowcase client:visible />
+      </section>
+
+      <section class="mt-24 border-y border-[var(--color-border)] bg-[#f7f4ec] py-20 sm:mt-32 sm:py-24">
+        <div class="mx-auto flex w-full max-w-5xl flex-col gap-8 px-6 sm:px-10">
+          <header class="flex flex-col gap-3">
+            <span
+              class="inline-flex w-fit items-center gap-1.5 rounded-full border border-[var(--color-accent)] px-2.5 py-1 font-mono text-[10.5px] uppercase tracking-[0.1em] text-[var(--color-accent)]"
+            >
+              config in typescript
+            </span>
+            <h2
+              class="font-sans text-[32px] font-extrabold leading-[1.05] tracking-[-0.03em] text-[var(--color-fg)] sm:text-[40px]"
+            >
+              Your config is just TypeScript.
+            </h2>
+            <p
+              class="max-w-2xl font-sans text-[15px] leading-[1.55] text-[#2a2a2a]"
+            >
+              Tasks, workspaces, and operations are just typed functions. Compose
+              VM images, branch-per-workspace git, and even interactive logins
+              the same way you'd write any other module.
+            </p>
+          </header>
+          <ConfigShowcase client:visible snippets={configSnippets} />
+        </div>
+      </section>
+
+      <section
+        class="mx-auto mt-24 flex w-full max-w-4xl flex-col items-center gap-8 px-6 sm:mt-32 sm:px-10"
+      >
+        <p
+          class="max-w-xl text-center font-sans text-[15px] leading-[1.55] text-[#2a2a2a]"
+        >
+          The full API reference, provider catalog, and a handful of worked
+          examples — including the website and cmux configs powering this page.
+        </p>
+        <a
+          href="https://docs.rigkit.dev"
+          class="group relative flex w-full max-w-2xl items-center justify-between gap-6 overflow-hidden rounded-2xl bg-[var(--color-accent)] py-6 pr-6 pl-7 text-left transition-transform hover:-translate-y-[1px] sm:py-8 sm:pr-8 sm:pl-12"
+        >
+          <span
+            aria-hidden="true"
+            class="pointer-events-none absolute inset-y-3 left-3 hidden w-px bg-white/15 sm:block"
+          ></span>
+          <div class="flex flex-col gap-1.5">
+            <span
+              class="inline-flex items-center gap-1.5 font-mono text-[10.5px] uppercase tracking-[0.16em] text-white/70"
+            >
+              <span aria-hidden="true">$</span>
+              docs.rigkit.dev
+            </span>
+            <span
+              class="font-sans text-[28px] font-extrabold leading-[1.02] tracking-[-0.03em] text-white sm:text-[44px]"
+            >
+              Read the docs.
+            </span>
+            <span
+              class="mt-0.5 font-sans text-[12.5px] leading-[1.45] text-white/75 sm:text-[13.5px]"
+            >
+              API reference · providers · examples
+            </span>
+          </div>
+          <span
+            class="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-white text-[var(--color-accent)] transition-transform group-hover:translate-x-1 sm:h-16 sm:w-16"
+            aria-hidden="true"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2.2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              class="h-5 w-5 sm:h-6 sm:w-6"
+            >
+              <path d="M5 12h14"></path>
+              <path d="M13 5l7 7-7 7"></path>
+            </svg>
+          </span>
+        </a>
       </section>
     </main>
 
@@ -101,3 +395,18 @@ import { LatestVersionBadge } from "@/components/LatestVersionBadge";
     </footer>
   </div>
 </SiteLayout>
+
+<style is:global>
+  .config-pane pre.shiki,
+  .config-pane pre.shiki > code {
+    background: transparent !important;
+    font-family: var(--font-mono) !important;
+    font-size: 12.5px;
+    line-height: 1.6;
+  }
+  .config-pane pre.shiki {
+    margin: 0;
+    padding: 0;
+    white-space: pre;
+  }
+</style>

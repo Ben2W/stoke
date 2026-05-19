@@ -7,6 +7,46 @@ The global command is `rig`. It starts or connects to the project-local runtime
 installed by `@rigkit/sdk`, loads the selected `rig.config.ts`, and runs core
 or project-defined operations.
 
+## Common workflows
+
+If you're new to `rig`, these are the command sequences you'll run most often.
+
+**Set up a project for the first time:**
+
+```sh
+rig init --name website --package-manager pnpm
+cd website
+rig plan         # see what will run
+rig apply        # run pending setup tasks, cache results
+```
+
+**Create and use a workspace:**
+
+```sh
+rig create dev              # create a workspace from cached state
+rig run dev ssh             # run a project-defined operation
+rig run dev open-cmux       # operations are defined in rig.config.ts
+rig ls                      # list workspaces
+rig rm dev                  # tear down a workspace
+```
+
+**Refresh setup after editing the config:**
+
+```sh
+rig plan                    # preview what will rerun
+rig apply                   # rerun only stale tasks
+```
+
+**Force a rerun:**
+
+```sh
+rig cache invalidate <task>     # mark one task stale
+rig cache invalidate --all      # mark every task stale
+rig cache clear --local         # delete local cache entries
+```
+
+The rest of this page is a reference for every command and option.
+
 ## Global options
 
 Global options come before the command. Rigkit accepts Terraform-style single
@@ -118,8 +158,15 @@ rig run dev status --json
 The first argument is the workspace name. The second is a
 `.workspaceOperation(...)` id from the config.
 
+Operations such as `ssh`, `open-cmux`, `open-vscode`, and `status` are defined
+in `rig.config.ts`. The names and behavior vary by project — run `rig run dev`
+without an operation to see what your project exposes, or `rig run --help` for
+flag details.
+
 Project-defined operation inputs become CLI flags when the runtime exposes a
-CLI shape for them. Use `--json` for machine-readable operation results.
+CLI shape for them. For example, an operation declaring a `port` input becomes
+`--port` on the command line. Use `--json` for machine-readable operation
+results.
 
 ## `rig rm`
 

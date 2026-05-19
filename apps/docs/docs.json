@@ -3,10 +3,6 @@
   "theme": "mint",
   "name": "Rigkit",
   "description": "Declarative dev environments, in TypeScript.",
-  "banner": {
-    "content": "Rigkit is early. These docs track the current workflow, provider, and fragment APIs.",
-    "dismissible": true
-  },
   "colors": {
     "primary": "#2d4df5",
     "light": "#5a76ff",
@@ -29,7 +25,7 @@
     "links": [
       {
         "label": "Home",
-        "href": "https://rigkit.freestyle.sh"
+        "href": "https://www.rigkit.dev"
       },
       {
         "label": "Discord",
@@ -54,91 +50,78 @@
         "default": true,
         "tag": "Latest",
         "pages": [
-          "v0.2.9/introduction",
+          "introduction",
           {
-            "group": "Start",
-            "pages": [
-              "v0.2.9/guides/quickstart",
-              "v0.2.9/guides/workflows",
-              "v0.2.9/guides/workspaces"
-            ]
-          },
-          {
-            "group": "Providers",
-            "pages": [
-              "v0.2.9/providers/overview",
-              "v0.2.9/providers/freestyle",
-              "v0.2.9/providers/terminal",
-              "v0.2.9/providers/cmux",
-              "v0.2.9/providers/gcloud",
-              "v0.2.9/providers/storage",
-              "v0.2.9/providers/creating-providers"
-            ]
+            "group": "Get started",
+            "pages": ["guides/quickstart", "reference/cli"]
           },
           {
             "group": "Concepts",
-            "pages": [
-              "v0.2.9/concepts/mental-model",
-              "v0.2.9/concepts/cache-and-state"
-            ]
+            "pages": ["concepts/mental-model", "concepts/cache-and-state"]
           },
           {
-            "group": "Advanced",
+            "group": "Writing configs",
             "pages": [
-              "v0.2.9/advanced/fragments"
-            ]
-          },
-          {
-            "group": "Reference",
-            "pages": [
-              "v0.2.9/reference/cli"
-            ]
-          }
-        ]
-      },
-      {
-        "version": "canary",
-        "tag": "Canary",
-        "pages": [
-          "introduction",
-          {
-            "group": "Start",
-            "pages": [
-              "guides/quickstart",
               "guides/workflows",
-              "guides/workspaces"
+              "guides/workspaces",
+              "advanced/fragments"
             ]
           },
           {
-            "group": "Providers",
+            "group": "Built-in providers",
             "pages": [
               "providers/overview",
               "providers/freestyle",
               "providers/terminal",
               "providers/cmux",
-              "providers/gcloud",
-              "providers/storage",
-              "providers/creating-providers"
+              "providers/gcloud"
+            ]
+          },
+          {
+            "group": "Extending Rigkit",
+            "pages": ["providers/creating-providers"]
+          }
+        ]
+      },
+      {
+        "version": "Canary",
+        "tag": "Preview",
+        "pages": [
+          "canary/introduction",
+          {
+            "group": "Start",
+            "pages": [
+              "canary/guides/quickstart",
+              "canary/guides/workflows",
+              "canary/guides/workspaces"
+            ]
+          },
+          {
+            "group": "Providers",
+            "pages": [
+              "canary/providers/overview",
+              "canary/providers/freestyle",
+              "canary/providers/terminal",
+              "canary/providers/cmux",
+              "canary/providers/gcloud",
+              "canary/providers/storage",
+              "canary/providers/creating-providers"
             ]
           },
           {
             "group": "Concepts",
             "pages": [
-              "concepts/mental-model",
-              "concepts/cache-and-state"
+              "canary/concepts/mental-model",
+              "canary/concepts/cache-and-state"
             ]
           },
           {
             "group": "Advanced",
-            "pages": [
-              "advanced/fragments"
-            ]
+            "pages": ["canary/advanced/fragments"]
           },
           {
             "group": "Reference",
-            "pages": [
-              "reference/cli"
-            ]
+            "pages": ["canary/reference/cli"]
           }
         ]
       },
@@ -175,15 +158,11 @@
           },
           {
             "group": "Advanced",
-            "pages": [
-              "v0.2.8/advanced/fragments"
-            ]
+            "pages": ["v0.2.8/advanced/fragments"]
           },
           {
             "group": "Reference",
-            "pages": [
-              "v0.2.8/reference/cli"
-            ]
+            "pages": ["v0.2.8/reference/cli"]
           }
         ]
       }

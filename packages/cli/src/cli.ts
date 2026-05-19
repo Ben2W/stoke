@@ -25,6 +25,7 @@ import { initProject, normalizeMachineName, type InitProjectResult } from "./ini
 import { openExternalTarget } from "./interaction.ts";
 import { createRunPresenter, type RunPresenter } from "./run-presenter.ts";
 import { createRunLogger, type RunLogger } from "./run-logger.ts";
+import { maybePrintUpdateNotice } from "./update-check.ts";
 import {
   completeRig,
   formatCompletionItems,
@@ -220,6 +221,14 @@ async function runCli(argv: string[]): Promise<void> {
       await runHelp(makeInvocation(rootOptions(program)));
     });
 
+  program.hook("postAction", async (_thisCommand, actionCommand) => {
+    await maybePrintUpdateNotice({
+      commandName: actionCommand.name(),
+      currentVersion: RIGKIT_CLI_VERSION,
+      json: commandWantsJson(program, actionCommand),
+    });
+  });
+
   program
     .command("init")
     .description("Initialize a Rigkit project")
@@ -406,6 +415,11 @@ function rootOptions(program: Command): GlobalOptions {
     state: options.state,
     json: Boolean(options.json),
   };
+}
+
+function commandWantsJson(program: Command, actionCommand: Command): boolean {
+  const options = actionCommand.opts<{ json?: boolean }>();
+  return Boolean(rootOptions(program).json || options.json);
 }
 
 function parsePackageManagerOption(value: string | undefined): PackageManager | undefined {
@@ -1142,6 +1156,10 @@ async function runCacheInvalidate(invocation: CliInvocation, options: CacheInval
   const result = await runtime.control.invalidateCache({ nodePaths: targets });
   if (wantsJson(invocation)) {
     printJson(result);
+    return;
+  }
+  if (result.invalidated === 0) {
+    console.log(ui.dim("no cache entries invalidated"));
     return;
   }
   console.log(

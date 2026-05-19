@@ -1,5 +1,5 @@
 import { getReleaseState } from "../release/lib";
-import { assertDocsReleaseSnapshot } from "./lib";
+import { assertDocsVersion } from "./lib";
 
 function valueArg(name: string): string | undefined {
   const index = process.argv.indexOf(name);
@@ -10,5 +10,5 @@ const version = valueArg("--version") ?? process.argv.slice(2).find((arg) =>
   arg !== "--" && !arg.startsWith("--")
 ) ?? getReleaseState().version;
 
-assertDocsReleaseSnapshot(version);
-console.log(`Docs snapshot ${version.startsWith("v") ? version : `v${version}`} is ready`);
+assertDocsVersion(version);
+console.log(`Docs version ${version.startsWith("v") ? version : `v${version}`} is ready`);
