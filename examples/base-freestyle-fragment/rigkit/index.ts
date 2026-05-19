@@ -92,7 +92,7 @@ const projectSetup = app
     };
   });
 
-export default app
+export const baseFreestyleFragmentExample = app
   .sequence("company-project")
   .add(withFreestyleCompanyBase(projectSetup, companyBaseOptions))
   .workspace({

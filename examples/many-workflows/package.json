@@ -1,0 +1,18 @@
+{
+  "name": "@rigkit/example-many-workflows",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "echo no many workflows example tests yet"
+  },
+  "dependencies": {
+    "@rigkit/sdk": "workspace:*"
+  },
+  "devDependencies": {
+    "@rigkit/cli": "workspace:*",
+    "@types/bun": "latest",
+    "typescript": "latest"
+  }
+}

@@ -5,9 +5,9 @@ This example defines a single `smoke` workflow that creates a Freestyle VM, inst
 Run from this directory:
 
 ```bash
-rig plan
-rig apply
-rig create smoke-workspace
+rig plan --workflow smoke
+rig apply --workflow smoke
+rig create --workflow smoke smoke-workspace
 rig projects
 rig run smoke-workspace ssh --print
 ```

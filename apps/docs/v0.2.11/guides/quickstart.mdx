@@ -31,7 +31,7 @@ Agents, CI, and other non-interactive callers should avoid prompts and parse
 JSON:
 
 ```sh
-rig init --name website --package-manager skip --json
+rig init website --package-manager skip --json
 cd website
 pnpm install
 ```
@@ -42,7 +42,7 @@ Use `--json` on later commands, and use `--yes` when removing workspaces.
 
 `rig init` creates:
 
-- `rig.config.ts`
+- `rigkit/index.ts`
 - `package.json` with local `@rigkit/sdk` and provider dependencies
 - `.gitignore` entries for `.env` and `.rigkit/`
 - `.env` and `.env.example` only when `--api-key` is passed
@@ -68,7 +68,11 @@ const freestyleProvider = freestyle.provider({
 The starter config prepares a Node.js 22 Freestyle VM and snapshots it:
 
 ```ts
-const dev = sequence("website").step(
+export const dev = workflow("dev", {
+  providers: {
+    freestyle: freestyleProvider,
+  },
+}).sequence("website").step(
   "verify-node-22",
   async ({ providers }) => {
     const { vm, vmId } = await providers.freestyle.client.vms.create({
@@ -119,9 +123,9 @@ The only persisted values here are `snapshotId` and `vmId`.
 ## Plan and apply
 
 ```sh
-rig plan
-rig apply
-rig plan
+rig plan --workflow dev
+rig apply --workflow dev
+rig plan --workflow dev
 ```
 
 The first plan shows the setup task as pending. `rig apply` runs it and stores
@@ -135,7 +139,7 @@ or manual invalidation.
 ## Create a workspace
 
 ```sh
-rig create dev
+rig create --workflow dev dev
 rig ls
 ```
 
@@ -152,7 +156,12 @@ Workspaces are useful once the config exposes operations. Add the terminal
 provider and a workspace operation:
 
 ```ts
-const dev = sequence("website")
+export const dev = workflow("dev", {
+  providers: {
+    freestyle: freestyleProvider,
+    terminal: freestyle.terminal(),
+  },
+}).sequence("website")
   // keep the generated setup task and workspace lifecycle
   .workspaceOperation("ssh", {
     title: "SSH",
@@ -166,23 +175,13 @@ const dev = sequence("website")
       });
     },
   });
-
-export default defineConfig({
-  providers: {
-    freestyle: freestyleProvider,
-    terminal: freestyle.terminal(),
-  },
-  workflows: {
-    dev,
-  },
-});
 ```
 
 Run it:
 
 ```sh
-rig apply
-rig create dev
+rig apply --workflow dev
+rig create --workflow dev dev
 rig run dev ssh
 ```
 

@@ -1,6 +1,6 @@
-import { serviceWorkflow } from "./shared/service-workflow.ts";
+import { serviceWorkflow } from "../shared/service-workflow.ts";
 
-export default serviceWorkflow({
+export const api = serviceWorkflow({
   id: "api",
   packageName: "@acme/api",
   sourceDir: "services/api",

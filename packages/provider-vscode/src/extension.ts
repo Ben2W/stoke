@@ -244,6 +244,23 @@ const vscodePrompt = {
     if (!answer) return undefined;
     return answer.label === "Yes";
   },
+  async select(input: {
+    name: string;
+    description?: string;
+    options: Array<{ label: string; value: unknown }>;
+    defaultValue?: unknown;
+  }) {
+    const answer = await vscode.window.showQuickPick(input.options.map((option) => ({
+      label: option.label,
+      value: option.value,
+      picked: option.value === input.defaultValue,
+    })), {
+      title: input.name,
+      placeHolder: input.description,
+      ignoreFocusOut: true,
+    });
+    return answer?.value;
+  },
   async pickWorkspace(input: { name: string; description?: string; workspaces: RuntimeControlWorkspace[] }) {
     return await pickWorkspace(input.description ?? input.name, input.workspaces);
   },

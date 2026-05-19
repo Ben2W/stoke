@@ -1,16 +1,11 @@
 import { RESERVED_WORKFLOW_OPERATION_IDS } from "./types.ts";
 import type {
   EnvResolver,
-  RigkitConfigDefinition,
   JsonObject,
   OutputSchema,
   OutputSchemaValue,
   WorkflowDefinition,
-  WorkflowInputFieldDefinition,
-  WorkflowInputShape,
   WorkflowOperationDefinition,
-  WorkflowOperationInputBuilder,
-  WorkflowOperationInputHelpers,
   WorkflowOperationOptions,
   WorkflowWorkspaceOperationDefinition,
   WorkflowWorkspaceOperationOptions,
@@ -81,26 +76,6 @@ export function sequence<
   return workflow(name, { providers: {} as Providers }).sequence<InputContext>(name);
 }
 
-export function defineConfig<
-  const Providers extends WorkflowProviderMap,
-  const Workflows extends Record<string, WorkflowNodeDefinition<any, any, any>>,
->(options: {
-  providers: Providers;
-  workflows: Workflows;
-}): RigkitConfigDefinition<Providers, Workflows> {
-  validateProviders(options.providers);
-  for (const [name, node] of Object.entries(options.workflows)) {
-    if (!isWorkflowNode(node)) {
-      throw new Error(`Workflow ${name} is not a valid Rigkit workflow node`);
-    }
-  }
-  return {
-    kind: "rigkit.config",
-    providers: options.providers,
-    workflows: options.workflows,
-  };
-}
-
 export function defineProvider<
   const ProviderId extends string,
   const Config extends object,
@@ -124,10 +99,6 @@ export function isWorkflow(value: unknown): value is WorkflowDefinition {
 
 export function isWorkflowNode(value: unknown): value is WorkflowNodeDefinition<any, any, any> {
   return Boolean(value && typeof value === "object" && getKind(value) === "rigkit.workflow-node");
-}
-
-export function isRigkitConfig(value: unknown): value is RigkitConfigDefinition {
-  return Boolean(value && typeof value === "object" && getKind(value) === "rigkit.config");
 }
 
 export function isProviderDefinition(value: unknown): value is WorkflowProviderDefinition {
@@ -272,9 +243,7 @@ function createOperation<Providers extends WorkflowProviderMap, Input extends ob
     id: normalized,
     title: options.title,
     description: options.description,
-    input: typeof options.input === "function"
-      ? options.input(createOperationInputHelpers())
-      : options.input,
+    input: options.input,
     run: options.run,
   };
 }
@@ -298,62 +267,9 @@ function createWorkspaceOperation<
     id: normalized,
     title: options.title,
     description: options.description,
-    input: typeof options.input === "function"
-      ? options.input(createOperationInputHelpers())
-      : options.input,
+    input: options.input,
     run: options.run,
   };
-}
-
-function createOperationInputHelpers(): WorkflowOperationInputHelpers {
-  return {
-    workspaceInput: (options) => createOperationInputBuilder([{
-      kind: "workspace",
-      name: options.name,
-      description: options.description,
-      position: options.position,
-      required: options.required ?? true,
-    }]),
-    string: (options) => ({
-      kind: "string",
-      name: options.name ?? "",
-      description: options.description,
-      position: options.position,
-      required: options.required ?? options.defaultValue === undefined,
-      defaultValue: options.defaultValue,
-    }),
-    boolean: (options) => ({
-      kind: "boolean",
-      name: options.name ?? "",
-      description: options.description,
-      position: options.position,
-      required: options.required ?? false,
-      defaultValue: options.defaultValue,
-    }),
-    number: (options) => ({
-      kind: "number",
-      name: options.name ?? "",
-      description: options.description,
-      position: options.position,
-      required: options.required ?? options.defaultValue === undefined,
-      defaultValue: options.defaultValue,
-    }),
-  };
-}
-
-function createOperationInputBuilder<Input extends object>(
-  fields: readonly WorkflowInputFieldDefinition[],
-): WorkflowOperationInputBuilder<Input> {
-  return {
-    fields,
-    extend(shape: WorkflowInputShape) {
-      const nextFields = Object.entries(shape).map(([name, field]) => ({
-        ...field,
-        name: field.name || name,
-      }));
-      return createOperationInputBuilder([...fields, ...nextFields]);
-    },
-  } as WorkflowOperationInputBuilder<Input>;
 }
 
 function createTask<

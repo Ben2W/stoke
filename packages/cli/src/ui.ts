@@ -91,14 +91,14 @@ function toCell(value: string | Cell): Cell {
 }
 
 export type ColumnsOptions = {
-  // Bold + underline the header row. Default true.
+  // Style the header row as a quiet secondary line. Default true.
   emphasizeHeader?: boolean;
   // Two-space indent in front of each row. Default true.
   indent?: boolean;
 };
 
-// Replacement for the old ASCII table. Aligned columns, bold-underlined header,
-// no dashed separator. Cells may carry their own style.
+// Replacement for the old ASCII table. Aligned columns, dim header so the
+// bold data underneath carries the eye. Cells may carry their own style.
 export function columns(headers: string[], rows: Row[], options: ColumnsOptions = {}): string {
   const indent = options.indent === false ? "" : "  ";
   const emphasizeHeader = options.emphasizeHeader !== false;
@@ -126,7 +126,7 @@ export function columns(headers: string[], rows: Row[], options: ColumnsOptions 
 
   const headerCells = headers.map((text) => ({ text }));
   const lines: string[] = [];
-  lines.push(renderRow(headerCells, emphasizeHeader ? (s) => chalk.bold.underline(s) : undefined));
+  lines.push(renderRow(headerCells, emphasizeHeader ? dim : undefined));
   for (const row of rows) {
     lines.push(renderRow(row.map(toCell)));
   }

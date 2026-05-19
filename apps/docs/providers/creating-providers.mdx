@@ -24,7 +24,7 @@ const app = workflow("api", {
   },
 });
 
-export default app.sequence("api").task("branch-db", async ({ db }) => {
+export const api = app.sequence("api").task("branch-db", async ({ db }) => {
   const branch = await db.createBranch({ name: "api-dev" });
   return { ctx: { database: branch } };
 });

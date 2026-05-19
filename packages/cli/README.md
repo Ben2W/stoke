@@ -5,12 +5,12 @@ Global `rig` CLI.
 ```bash
 npm i -g @rigkit/cli
 rig init
-rig plan
+rig plan --workflow dev
 rig ls
-rig --chdir=examples/smoke plan
+rig --chdir=examples/smoke plan --workflow smoke
 ```
 
-`rig init` asks for a project name, Freestyle API key, and package manager. It creates a project folder containing a workflow-based `rig.config.ts`, `.env`, `.env.example`, `package.json`, and local ignore rules.
+`rig init` asks for a project name, Freestyle API key, and package manager. It creates a project folder containing `rigkit/index.ts`, `.env`, `.env.example`, `package.json`, and local ignore rules.
 
 Interactive terminals use Inquirer prompts and a chalk/log-update run timeline. Set `RIGKIT_RENDER=0` to force the plain text renderer; `--json` and flag-driven flows remain suitable for agents and scripts.
 
@@ -27,11 +27,8 @@ Use global context options before the command to select another project or
 config:
 
 ```bash
-rig --chdir=examples/smoke plan
-rig --chdir=examples/global-fragments --config=api.rig.config.ts apply
+rig --chdir=examples/smoke plan --workflow smoke
+rig --chdir=examples/global-fragments apply --workflow api
 ```
-
-Legacy Terraform-style aliases such as `-chdir=...` and `-config=...` are still
-accepted.
 
 Projects should install matching `@rigkit/sdk` versions locally.

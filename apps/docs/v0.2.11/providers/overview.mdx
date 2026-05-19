@@ -4,7 +4,7 @@ description: "How providers connect Rigkit workflows to VMs, terminals, host too
 noindex: true
 ---
 
-Providers connect `rig.config.ts` to external systems: VMs, terminals, editors,
+Providers connect `rigkit/index.ts` to external systems: VMs, terminals, editors,
 cloud CLIs, local tools, and host capabilities.
 
 Most configs just add providers and call their runtime helpers:
@@ -62,7 +62,7 @@ const app = workflow("website", {
 ```
 
 Rigkit loads `.env` from the selected project directory before loading
-`rig.config.ts`. Resolved provider config is part of the provider fingerprint,
+`rigkit/index.ts`. Resolved provider config is part of the provider fingerprint,
 so changing it can make cached task runs stale.
 
 ## What providers own

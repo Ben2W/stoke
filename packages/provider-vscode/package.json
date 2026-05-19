@@ -13,7 +13,7 @@
     "vscode": "^1.95.0"
   },
   "activationEvents": [
-    "workspaceContains:rig.config.ts",
+    "workspaceContains:rigkit/index.ts",
     "onView:rigkitOperations",
     "onView:rigkitWorkspaces",
     "onCommand:rigkit.refresh",

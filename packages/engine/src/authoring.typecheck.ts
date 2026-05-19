@@ -1,4 +1,5 @@
 import { sequence } from "./authoring.ts";
+import * as z from "zod/v4";
 
 sequence("normal-operation-ids")
   .operation("open" as const, {
@@ -42,6 +43,27 @@ sequence("workspace-operation-ids")
   // @ts-expect-error duplicate workspace operation ids are rejected for literal ids
   .workspaceOperation("open-cmux" as const, {
     run: async () => null,
+  });
+
+sequence("workspace-operation-inputs")
+  .workspace({
+    create: async ({ workspace }) => ({ name: workspace.name }),
+    remove: async () => {},
+  })
+  .workspaceOperation("test" as const, {
+    input: z.object({
+      pattern: z.string().optional(),
+      retries: z.number().default(1),
+    }),
+    run: async ({ input }) => {
+      const pattern: string | undefined = input.pattern;
+      const retries: number = input.retries;
+      void pattern;
+      void retries;
+      // @ts-expect-error missing operation input keys are rejected
+      input.missing;
+      return null;
+    },
   });
 
 sequence("typed-step-invalidation")

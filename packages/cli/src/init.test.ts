@@ -17,7 +17,7 @@ describe("initProject", () => {
     const projectDir = join(parentDir, "platform-api");
     const result = initProject({
       projectDir,
-      configPath: join(projectDir, "rig.config.ts"),
+      configPath: join(projectDir, "rigkit", "index.ts"),
       name: "Platform API",
     });
 
@@ -32,18 +32,18 @@ describe("initProject", () => {
       packageJson: true,
     });
 
-    expect(readFileSync(join(projectDir, "rig.config.ts"), "utf8")).toContain('sequence("platform-api"');
-    expect(readFileSync(join(projectDir, "rig.config.ts"), "utf8")).toContain("defineConfig({");
-    expect(readFileSync(join(projectDir, "rig.config.ts"), "utf8")).toContain("new VmSpec()");
-    expect(readFileSync(join(projectDir, "rig.config.ts"), "utf8")).not.toContain("FREESTYLE_API_KEY");
+    expect(readFileSync(join(projectDir, "rigkit", "index.ts"), "utf8")).toContain('workflow("dev"');
+    expect(readFileSync(join(projectDir, "rigkit", "index.ts"), "utf8")).toContain("export const dev");
+    expect(readFileSync(join(projectDir, "rigkit", "index.ts"), "utf8")).toContain("new VmSpec()");
+    expect(readFileSync(join(projectDir, "rigkit", "index.ts"), "utf8")).not.toContain("FREESTYLE_API_KEY");
     expect(existsSync(join(projectDir, ".env"))).toBe(false);
     expect(existsSync(join(projectDir, ".env.example"))).toBe(false);
     expect(readFileSync(join(projectDir, ".gitignore"), "utf8")).toContain(".env\n.rigkit/\n");
 
     const pkg = JSON.parse(readFileSync(join(projectDir, "package.json"), "utf8"));
     expect(pkg.name).toBe("platform-api");
-    expect(pkg.scripts.plan).toBe("rig plan");
-    expect(pkg.scripts.apply).toBe("rig apply");
+    expect(pkg.scripts.plan).toBe("rig plan --workflow dev");
+    expect(pkg.scripts.apply).toBe("rig apply --workflow dev");
     expect(pkg.devDependencies[PROJECT_PACKAGE_NAME]).toBe(RIGKIT_CLI_VERSION);
     expect(pkg.devDependencies[FREESTYLE_PROVIDER_PACKAGE_NAME]).toBe(RIGKIT_CLI_VERSION);
     expect(pkg.devDependencies[FREESTYLE_SDK_PACKAGE_NAME]).toBe(FREESTYLE_SDK_PACKAGE_VERSION);
@@ -61,7 +61,7 @@ describe("initProject", () => {
 
     const result = initProject({
       projectDir,
-      configPath: join(projectDir, "rig.config.ts"),
+      configPath: join(projectDir, "rigkit", "index.ts"),
       name: "dev",
       apiKey: "new-key",
     });
@@ -74,7 +74,7 @@ describe("initProject", () => {
     const pkg = JSON.parse(readFileSync(join(projectDir, "package.json"), "utf8"));
     expect(pkg.name).toBe("existing");
     expect(pkg.scripts.test).toBe("bun test");
-    expect(pkg.scripts.plan).toBe("rig plan");
+    expect(pkg.scripts.plan).toBe("rig plan --workflow dev");
   });
 });
 

@@ -20,9 +20,9 @@ gcloud auth login
 Run from this directory:
 
 ```bash
-rig plan
-rig apply
-rig create gcloud-workspace
+rig plan --workflow gcloud-on-open
+rig apply --workflow gcloud-on-open
+rig create --workflow gcloud-on-open gcloud-workspace
 rig run gcloud-workspace ssh
 ```
 

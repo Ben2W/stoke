@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect } from "effect";
@@ -19,6 +19,17 @@ import {
 import { createRun, createRunStore } from "./runs.ts";
 import { serveRuntime, serveRuntimeEffect } from "./server.ts";
 import type { RuntimeContext } from "./types.ts";
+
+function rigkitIndexPath(projectDir: string): string {
+  return join(projectDir, "rigkit", "index.ts");
+}
+
+function writeRigkitIndex(projectDir: string, contents: string): string {
+  const configPath = rigkitIndexPath(projectDir);
+  mkdirSync(join(projectDir, "rigkit"), { recursive: true });
+  writeFileSync(configPath, contents);
+  return configPath;
+}
 
 describe("runtime HTTP app", () => {
   test("exposes runtime metadata with protocol headers", async () => {
@@ -117,7 +128,7 @@ describe("runtime HTTP app", () => {
           serveRuntimeEffect({
             projectId: "test-project",
             projectDir: root,
-            configPath: join(root, "rig.config.ts"),
+            configPath: rigkitIndexPath(root),
             handlePath: join(root, "runtime.json"),
             tokenPath: join(root, "runtime.token"),
             token: "test-token",
@@ -151,7 +162,7 @@ describe("runtime HTTP app", () => {
       const server = await serveRuntime({
         projectId: "test-project",
         projectDir: root,
-        configPath: join(root, "rig.config.ts"),
+        configPath: rigkitIndexPath(root),
         handlePath: join(root, "runtime.json"),
         tokenPath: join(root, "runtime.token"),
         token: "test-token",
@@ -171,8 +182,7 @@ describe("runtime HTTP app", () => {
 
   test("loads config before reporting runtime readiness", async () => {
     const root = mkdtempSync(join(tmpdir(), "rigkit-runtime-startup-config-"));
-    const configPath = join(root, "rig.config.ts");
-    writeFileSync(configPath, "throw new Error('startup config failed');\n");
+    const configPath = writeRigkitIndex(root, "throw new Error('startup config failed');\n");
 
     try {
       await expect(serveRuntime({
@@ -340,7 +350,14 @@ describe("runtime HTTP app", () => {
           kind: "workspace-action",
           title: "Open cmux",
           description: "Open a workspace in cmux",
-          inputFields: [],
+          inputFields: [
+            {
+              kind: "string",
+              name: "layout",
+              description: "cmux layout name",
+              required: false,
+            },
+          ],
         },
       ],
     } as any);
@@ -373,6 +390,13 @@ describe("runtime HTTP app", () => {
     expect(createOperation?.source).toBe("core");
     expect(createOperation?.createsWorkspace).toBe(true);
     expect(manifest.workspaceOperations.map((item) => item.id)).toEqual(["remove", "open-cmux"]);
+    expect(cmuxOperation?.cli?.options).toEqual([
+      { name: "layout", flag: "--layout", required: false, type: "string" },
+    ]);
+    expect((cmuxOperation?.inputSchema as any).properties.layout).toMatchObject({
+      type: "string",
+      description: "cmux layout name",
+    });
     expect(sshOperation?.cli?.options?.find((item) => item.name === "print")).toEqual({
       name: "print",
       flag: "--print",
@@ -383,19 +407,12 @@ describe("runtime HTTP app", () => {
 
   test("rejects config operation ids reserved by host commands", async () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-runtime-reserved-operation-"));
-    const configPath = join(projectDir, "rig.config.ts");
-    writeFileSync(
-      configPath,
+    const configPath = writeRigkitIndex(projectDir,
       `
-        import { defineConfig, sequence } from "${import.meta.dir}/../../../engine/src/index.ts";
+        import { sequence } from "${import.meta.dir}/../../../engine/src/index.ts";
 
-        const root = sequence("reserved-test").operation("completion", {
+        export const root = sequence("reserved-test").operation("completion", {
           run: async () => ({ ok: true }),
-        });
-
-        export default defineConfig({
-          providers: {},
-          workflows: { root },
         });
       `,
     );
@@ -410,18 +427,11 @@ describe("runtime HTTP app", () => {
 
   test("negotiates run sessions with hello acknowledgements and heartbeats", async () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-runtime-session-"));
-    const configPath = join(projectDir, "rig.config.ts");
-    writeFileSync(
-      configPath,
+    const configPath = writeRigkitIndex(projectDir,
       `
-        import { defineConfig, sequence } from "${import.meta.dir}/../../../engine/src/index.ts";
+        import { sequence } from "${import.meta.dir}/../../../engine/src/index.ts";
 
-        const root = sequence("session-test").step("noop", async () => ({ ctx: { ok: true } }));
-
-        export default defineConfig({
-          providers: {},
-          workflows: { root },
-        });
+        export const root = sequence("session-test").step("noop", async () => ({ ctx: { ok: true } }));
       `,
     );
 
@@ -448,7 +458,7 @@ describe("runtime HTTP app", () => {
           authorization: `Bearer ${server.token}`,
           "content-type": "application/json",
         },
-        body: JSON.stringify({ operation: "plan", input: {} }),
+        body: JSON.stringify({ operation: "plan", input: { workflow: "session-test" } }),
       }).then((response) => response.json() as Promise<{ sessionUrl: string }>);
 
       const messages = await collectSessionMessages(new URL(started.sessionUrl, server.url), server.token);
@@ -466,13 +476,11 @@ describe("runtime HTTP app", () => {
 
   test("exposes persisted workspace payload as workspace context", async () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-runtime-workspace-ctx-"));
-    const configPath = join(projectDir, "rig.config.ts");
-    writeFileSync(
-      configPath,
+    const configPath = writeRigkitIndex(projectDir,
       `
-        import { defineConfig, sequence } from "${import.meta.dir}/../../../engine/src/index.ts";
+        import { sequence } from "${import.meta.dir}/../../../engine/src/index.ts";
 
-        const root = sequence("workspace-ctx")
+        export const root = sequence("workspace-ctx")
           .step("prepare", async () => ({ ctx: { repoPath: "/workspace/repo" } }))
           .workspace({
             create: async ({ workflow, workspace }) => ({
@@ -482,11 +490,6 @@ describe("runtime HTTP app", () => {
             }),
             remove: async () => {},
           });
-
-        export default defineConfig({
-          providers: {},
-          workflows: { root },
-        });
       `,
     );
 
@@ -508,7 +511,7 @@ describe("runtime HTTP app", () => {
           authorization: `Bearer ${server.token}`,
           "content-type": "application/json",
         },
-        body: JSON.stringify({ operation: "create", input: { name: "demo" } }),
+        body: JSON.stringify({ operation: "create", input: { workflow: "workspace-ctx", name: "demo" } }),
       }).then((response) => response.json() as Promise<{ sessionUrl: string }>);
 
       await collectSessionMessages(new URL(started.sessionUrl, server.url), server.token);
@@ -529,23 +532,16 @@ describe("runtime HTTP app", () => {
 
   test("reports typed operation validation failures on run events", async () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-runtime-validation-"));
-    const configPath = join(projectDir, "rig.config.ts");
-    writeFileSync(
-      configPath,
+    const configPath = writeRigkitIndex(projectDir,
       `
-        import { defineConfig, sequence } from "${import.meta.dir}/../../../engine/src/index.ts";
+        import { sequence } from "${import.meta.dir}/../../../engine/src/index.ts";
 
-        const root = sequence("validation")
+        export const root = sequence("validation")
           .step("prepare", async () => ({ ctx: { ok: true } }))
           .workspace({
             create: async ({ workspace }) => ({ name: workspace.name, vmId: "vm-" + workspace.name }),
             remove: async () => {},
           });
-
-        export default defineConfig({
-          providers: {},
-          workflows: { root },
-        });
       `,
     );
 
@@ -567,7 +563,7 @@ describe("runtime HTTP app", () => {
           authorization: `Bearer ${server.token}`,
           "content-type": "application/json",
         },
-        body: JSON.stringify({ operation: "create", input: {} }),
+        body: JSON.stringify({ operation: "create", input: { workflow: "validation" } }),
       }).then((response) => response.json() as Promise<{ sessionUrl: string }>);
 
       const messages = await collectSessionMessages(
@@ -588,13 +584,8 @@ describe("runtime HTTP app", () => {
 
   test("bridges typed host capability requests over run sessions", async () => {
     const { server, projectDir } = await serveRuntimeFixture("rigkit-runtime-capability-", `
-      const root = sequence("capability-test").operation("open", {
+      export const root = sequence("capability-test").operation("open", {
         run: async ({ local }) => await local.requestCapability("cmux.open", { name: "demo" }),
-      });
-
-      export default defineConfig({
-        providers: {},
-        workflows: { root },
       });
     `);
 
@@ -633,18 +624,13 @@ describe("runtime HTTP app", () => {
 
   test("resolves host capability resource lifetimes from session close reports", async () => {
     const { server, projectDir } = await serveRuntimeFixture("rigkit-runtime-capability-close-", `
-      const root = sequence("capability-close-test").operation("open", {
+      export const root = sequence("capability-close-test").operation("open", {
         run: async ({ local }) => {
           if (!local.requestCapabilitySession) throw new Error("requestCapabilitySession unavailable");
           const session = await local.requestCapabilitySession("cmux.open", { name: "demo" });
           await session.closed;
           return session.result;
         },
-      });
-
-      export default defineConfig({
-        providers: {},
-        workflows: { root },
       });
     `);
 
@@ -681,16 +667,11 @@ describe("runtime HTTP app", () => {
 
   test("keeps host-owned capability runs attached until the host cancels", async () => {
     const { server, projectDir } = await serveRuntimeFixture("rigkit-runtime-capability-attached-", `
-      const root = sequence("capability-attached-test").operation("open", {
+      export const root = sequence("capability-attached-test").operation("open", {
         run: async ({ local }) => {
           await local.requestCapability("cmux.open", { name: "demo" });
           await new Promise(() => {});
         },
-      });
-
-      export default defineConfig({
-        providers: {},
-        workflows: { root },
       });
     `);
 
@@ -727,13 +708,8 @@ describe("runtime HTTP app", () => {
 
   test("turns host response errors into typed host request failures", async () => {
     const { server, projectDir } = await serveRuntimeFixture("rigkit-runtime-capability-error-", `
-      const root = sequence("capability-error-test").operation("cmux-open", {
+      export const root = sequence("capability-error-test").operation("cmux-open", {
         run: async ({ local }) => await local.requestCapability("cmux.open", { name: "demo" }),
-      });
-
-      export default defineConfig({
-        providers: {},
-        workflows: { root },
       });
     `);
 
@@ -767,13 +743,8 @@ describe("runtime HTTP app", () => {
 
   test("turns run.cancel session messages into run failures", async () => {
     const { server, projectDir } = await serveRuntimeFixture("rigkit-runtime-cancel-", `
-      const root = sequence("cancel-test").operation("long-running", {
+      export const root = sequence("cancel-test").operation("long-running", {
         run: async () => await new Promise(() => {}),
-      });
-
-      export default defineConfig({
-        providers: {},
-        workflows: { root },
       });
     `);
 
@@ -801,28 +772,20 @@ describe("runtime HTTP app", () => {
 });
 
 function writeNoopConfig(projectDir: string): void {
-  writeFileSync(
-    join(projectDir, "rig.config.ts"),
+  writeRigkitIndex(projectDir,
     `
-      import { defineConfig, sequence } from "${import.meta.dir}/../../../engine/src/index.ts";
+      import { sequence } from "${import.meta.dir}/../../../engine/src/index.ts";
 
-      const root = sequence("noop").step("ready", async () => ({ ctx: { ready: true } }));
-
-      export default defineConfig({
-        providers: {},
-        workflows: { root },
-      });
+      export const root = sequence("noop").step("ready", async () => ({ ctx: { ready: true } }));
     `,
   );
 }
 
 async function serveRuntimeFixture(prefix: string, configBody: string) {
   const projectDir = mkdtempSync(join(tmpdir(), prefix));
-  const configPath = join(projectDir, "rig.config.ts");
-  writeFileSync(
-    configPath,
+  const configPath = writeRigkitIndex(projectDir,
     `
-      import { defineConfig, sequence } from "${import.meta.dir}/../../../engine/src/index.ts";
+      import { sequence } from "${import.meta.dir}/../../../engine/src/index.ts";
 
       ${configBody}
     `,
@@ -924,7 +887,7 @@ function testContext(): RuntimeContext {
   return {
     projectId: "project-test",
     projectDir: "/tmp/rigkit-project",
-    configPath: "/tmp/rigkit-project/rig.config.ts",
+    configPath: "/tmp/rigkit-project/rigkit/index.ts",
     token: "test-token",
     startedAt: "2026-01-01T00:00:00.000Z",
     getExpiresAt: () => "2026-01-01T00:30:00.000Z",

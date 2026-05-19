@@ -9,7 +9,7 @@ import {
   type SchemaSyncResult,
 } from "./db/index.ts";
 import { coreSchema, type CoreSchema } from "./db/schema/index.ts";
-import { providerState, runtimeMetadata, workflowNodeRuns, workspaces } from "./db/schema/index.ts";
+import { providerState, runtimeMetadata, workflowApplies, workflowNodeRuns, workspaces } from "./db/schema/index.ts";
 import { stableJson } from "./hash.ts";
 import { RIGKIT_ENGINE_VERSION } from "./version.ts";
 
@@ -31,6 +31,14 @@ export type WorkflowNodeRunRecord = {
 
 export type SnapshotRecord = WorkflowNodeRunRecord;
 
+export type WorkflowApplyRecord = {
+  workflow: string;
+  providerFingerprint: string;
+  cachedNodeCount: number;
+  nodeCount: number;
+  appliedAt: string;
+};
+
 export type StateServiceOptions = {
   projectDir: string;
   statePath?: string;
@@ -46,10 +54,14 @@ export interface StateService {
   readonly path: string;
   syncSchema(): Promise<SchemaSyncResult>;
   listWorkspaces(): WorkspaceRecord[];
-  findWorkspace(nameOrResourceId: string): WorkspaceRecord | undefined;
-  getWorkspace(name: string): WorkspaceRecord | undefined;
+  listWorkspacesByName(name: string): WorkspaceRecord[];
+  findWorkspace(nameOrResourceId: string, workflow?: string): WorkspaceRecord | undefined;
+  getWorkspace(name: string, workflow?: string): WorkspaceRecord | undefined;
   saveWorkspace(workspace: WorkspaceRecord): void;
-  deleteWorkspace(name: string): void;
+  deleteWorkspace(name: string, workflow: string): void;
+  listWorkflowApplies(): WorkflowApplyRecord[];
+  getWorkflowApply(workflow: string): WorkflowApplyRecord | undefined;
+  saveWorkflowApply(record: WorkflowApplyRecord): void;
   listNodeRuns(): WorkflowNodeRunRecord[];
   listSnapshots(): SnapshotRecord[];
   findReusableNodeRun(input: {
@@ -98,21 +110,39 @@ export class StateStore implements StateService {
   }
 
   listWorkspaces(): WorkspaceRecord[] {
-    return this.db.select().from(workspaces).orderBy(asc(workspaces.name)).all().map(toWorkspaceRecord);
+    return this.db.select().from(workspaces).orderBy(asc(workspaces.workflow), asc(workspaces.name)).all().map(toWorkspaceRecord);
   }
 
-  findWorkspace(nameOrResourceId: string): WorkspaceRecord | undefined {
-    const row = this.db
+  listWorkspacesByName(name: string): WorkspaceRecord[] {
+    return this.db
       .select()
       .from(workspaces)
-      .where(eq(workspaces.name, nameOrResourceId))
-      .get();
-    return row ? toWorkspaceRecord(row) : undefined;
+      .where(eq(workspaces.name, name))
+      .orderBy(asc(workspaces.workflow))
+      .all()
+      .map(toWorkspaceRecord);
   }
 
-  getWorkspace(name: string): WorkspaceRecord | undefined {
-    const row = this.db.select().from(workspaces).where(eq(workspaces.name, name)).get();
-    return row ? toWorkspaceRecord(row) : undefined;
+  findWorkspace(nameOrResourceId: string, workflow?: string): WorkspaceRecord | undefined {
+    const matches = this.listWorkspaces()
+      .filter((workspace) =>
+        (workspace.name === nameOrResourceId || workspace.id === nameOrResourceId) &&
+        (workflow === undefined || workspace.workflow === workflow)
+      );
+    return matches.length === 1 ? matches[0] : undefined;
+  }
+
+  getWorkspace(name: string, workflow?: string): WorkspaceRecord | undefined {
+    if (workflow !== undefined) {
+      const row = this.db
+        .select()
+        .from(workspaces)
+        .where(and(eq(workspaces.name, name), eq(workspaces.workflow, workflow)))
+        .get();
+      return row ? toWorkspaceRecord(row) : undefined;
+    }
+    const matches = this.listWorkspacesByName(name);
+    return matches.length === 1 ? matches[0] : undefined;
   }
 
   saveWorkspace(workspace: WorkspaceRecord): void {
@@ -120,10 +150,9 @@ export class StateStore implements StateService {
       .insert(workspaces)
       .values(workspace)
       .onConflictDoUpdate({
-        target: workspaces.name,
+        target: [workspaces.workflow, workspaces.name],
         set: {
           id: workspace.id,
-          workflow: workspace.workflow,
           workflowCtx: workspace.workflowCtx,
           updatedAt: workspace.updatedAt,
           ctx: workspace.ctx,
@@ -132,8 +161,38 @@ export class StateStore implements StateService {
       .run();
   }
 
-  deleteWorkspace(name: string): void {
-    this.db.delete(workspaces).where(eq(workspaces.name, name)).run();
+  deleteWorkspace(name: string, workflow: string): void {
+    this.db.delete(workspaces).where(and(eq(workspaces.name, name), eq(workspaces.workflow, workflow))).run();
+  }
+
+  listWorkflowApplies(): WorkflowApplyRecord[] {
+    return this.db
+      .select()
+      .from(workflowApplies)
+      .orderBy(asc(workflowApplies.workflow))
+      .all()
+      .map(toWorkflowApplyRecord);
+  }
+
+  getWorkflowApply(workflow: string): WorkflowApplyRecord | undefined {
+    const row = this.db.select().from(workflowApplies).where(eq(workflowApplies.workflow, workflow)).get();
+    return row ? toWorkflowApplyRecord(row) : undefined;
+  }
+
+  saveWorkflowApply(record: WorkflowApplyRecord): void {
+    this.db
+      .insert(workflowApplies)
+      .values(record)
+      .onConflictDoUpdate({
+        target: workflowApplies.workflow,
+        set: {
+          providerFingerprint: record.providerFingerprint,
+          cachedNodeCount: record.cachedNodeCount,
+          nodeCount: record.nodeCount,
+          appliedAt: record.appliedAt,
+        },
+      })
+      .run();
   }
 
   listNodeRuns(): WorkflowNodeRunRecord[] {
@@ -295,6 +354,16 @@ function toWorkspaceRecord(row: typeof workspaces.$inferSelect): WorkspaceRecord
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     ctx: row.ctx,
+  };
+}
+
+function toWorkflowApplyRecord(row: typeof workflowApplies.$inferSelect): WorkflowApplyRecord {
+  return {
+    workflow: row.workflow,
+    providerFingerprint: row.providerFingerprint,
+    cachedNodeCount: row.cachedNodeCount,
+    nodeCount: row.nodeCount,
+    appliedAt: row.appliedAt,
   };
 }
 

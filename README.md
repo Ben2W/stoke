@@ -2,7 +2,7 @@
 
 Declarative dev environments, in TypeScript.
 
-Rigkit lets you describe a development environment in `rig.config.ts`, run it
+Rigkit lets you describe a development environment in `rigkit/index.ts`, run it
 through the `rig` CLI, and create isolated named workspaces from cached
 provider-owned artifacts. It is built for agent work, remote development, CI
 jobs, and tests where the same environment has to be prepared once and reused
@@ -52,28 +52,28 @@ npm install -g @rigkit/cli
 Create a project:
 
 ```sh
-rig init --name website --package-manager pnpm
+rig init website --package-manager pnpm
 cd website
 ```
 
 Plan and apply the workflow:
 
 ```sh
-rig plan
-rig apply
+rig plan --workflow dev
+rig apply --workflow dev
 ```
 
 Create and manage a workspace:
 
 ```sh
-rig create dev
+rig create --workflow dev dev
 rig ls
 rig rm dev
 ```
 
 The generated config prepares a Node.js 22 Freestyle VM and creates workspaces
 from the cached snapshot. From there, add operations such as SSH, cmux, VS Code,
-or preview URLs in `rig.config.ts`. See the
+or preview URLs in `rigkit/index.ts`. See the
 [Quickstart](https://docs.rigkit.dev/guides/quickstart) and
 [workspace guide](https://docs.rigkit.dev/guides/workspaces) for the full loop.
 
@@ -127,9 +127,9 @@ pnpm build
 Run a local example with the workspace CLI:
 
 ```sh
-pnpm --dir examples/smoke exec rig plan
-pnpm --dir examples/smoke exec rig apply
-pnpm --dir examples/smoke exec rig create smoke-workspace
+pnpm --dir examples/smoke exec rig plan --workflow smoke
+pnpm --dir examples/smoke exec rig apply --workflow smoke
+pnpm --dir examples/smoke exec rig create --workflow smoke smoke-workspace
 ```
 
 The `examples/` directory also includes a shared `.envrc` for direnv users. Once
