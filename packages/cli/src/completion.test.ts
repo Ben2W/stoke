@@ -82,6 +82,45 @@ describe("CLI completion", () => {
     }
   });
 
+  test("suggests conventional double-dash global flags by default", async () => {
+    const items = await completeRig({
+      cwd: process.cwd(),
+      words: ["rig", "--"],
+      currentIndex: 1,
+    });
+
+    expect(items.map((item) => item.value)).toEqual([
+      "--chdir=",
+      "--config=",
+      "--state=",
+      "--json",
+      "--help",
+      "--version",
+    ]);
+  });
+
+  test("completes project directories for --chdir", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "rigkit-completion-dirs-"));
+    mkdirSync(join(cwd, "examples", "global-fragments"), { recursive: true });
+
+    try {
+      const roots = await completeRig({
+        cwd,
+        words: ["rig", "--chdir="],
+        currentIndex: 1,
+      });
+
+      expect(roots).toContainEqual({
+        value: "--chdir=examples/",
+        description: "directory",
+        noSpace: true,
+        group: "Paths",
+      });
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
   test("completes named config files", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "rigkit-completion-configs-"));
     writeFileSync(join(cwd, "api.rig.config.ts"), "export default {}\n");
@@ -183,7 +222,7 @@ describe("CLI completion", () => {
         currentIndex: 1,
       });
 
-      expect(items.map((item) => item.value)).toEqual(["plan", "projects"]);
+      expect(items.map((item) => item.value)).toEqual(["plan", "providers", "projects"]);
     });
   });
 
@@ -219,6 +258,40 @@ describe("CLI completion", () => {
       "--json",
       "--help",
     ]);
+  });
+
+  test("completes provider targets, subcommands, and flags", async () => {
+    const targets = await completeRig({
+      cwd: process.cwd(),
+      words: ["rig", "providers", ""],
+      currentIndex: 2,
+    });
+
+    expect(targets.map((item) => item.value)).toEqual(["freestyle"]);
+
+    const targetFlags = await completeRig({
+      cwd: process.cwd(),
+      words: ["rig", "providers", "--"],
+      currentIndex: 2,
+    });
+
+    expect(targetFlags.map((item) => item.value)).toEqual(["--help"]);
+
+    const subcommands = await completeRig({
+      cwd: process.cwd(),
+      words: ["rig", "providers", "freestyle", ""],
+      currentIndex: 3,
+    });
+
+    expect(subcommands.map((item) => item.value)).toEqual(["clear"]);
+
+    const clearFlags = await completeRig({
+      cwd: process.cwd(),
+      words: ["rig", "providers", "freestyle", "clear", "--"],
+      currentIndex: 4,
+    });
+
+    expect(clearFlags.map((item) => item.value)).toEqual(["--json", "--help"]);
   });
 
   test("completes project operation flags and workflow values", async () => {

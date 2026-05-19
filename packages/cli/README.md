@@ -7,7 +7,7 @@ npm i -g @rigkit/cli
 rig init
 rig plan
 rig ls
-rig -chdir=examples/smoke plan
+rig --chdir=examples/smoke plan
 ```
 
 `rig init` asks for a project name, Freestyle API key, and package manager. It creates a project folder containing a workflow-based `rig.config.ts`, `.env`, `.env.example`, `package.json`, and local ignore rules.
@@ -23,12 +23,15 @@ defined by the project run as `rig run <workspace> <operation>`, for example
 
 `rig ls` lists workspaces for the selected project. `rig ls snapshots` lists cached snapshot runs, and `rig ls config` shows the resolved project paths.
 
-Use Terraform-style global context options before the command to select another
-project or config:
+Use global context options before the command to select another project or
+config:
 
 ```bash
-rig -chdir=examples/smoke plan
-rig -chdir=examples/global-fragments -config=api.rig.config.ts apply
+rig --chdir=examples/smoke plan
+rig --chdir=examples/global-fragments --config=api.rig.config.ts apply
 ```
+
+Legacy Terraform-style aliases such as `-chdir=...` and `-config=...` are still
+accepted.
 
 Projects should install matching `@rigkit/sdk` versions locally.

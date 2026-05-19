@@ -2,10 +2,12 @@ import { Freestyle } from "freestyle";
 import type {
   SshConnection,
   SshOptions,
+  WorkflowProviderCheckResult,
   WorkflowProviderController,
 } from "@rigkit/engine";
 import type { CmuxOpenSshInput } from "@rigkit/provider-cmux";
 import type { FreestyleIdentityId, FreestyleToken } from "./auth.ts";
+import type { FreestyleResolvedTeam } from "./host-auth.ts";
 import { createFreestyleTerminalSession } from "./terminal-session.ts";
 
 export const FREESTYLE_PROVIDER_ID = "freestyle";
@@ -55,6 +57,7 @@ export function createFreestyleWorkflowProvider(input: {
   client: Freestyle;
   identityId: FreestyleIdentityId;
   token: FreestyleToken;
+  team?: FreestyleResolvedTeam;
 }): WorkflowProviderController<FreestyleRuntime> {
   return createFreestyleWorkflowController(input);
 }
@@ -63,11 +66,46 @@ export function createFreestyleWorkflowController(input: {
   client: Freestyle;
   identityId: FreestyleIdentityId;
   token: FreestyleToken;
+  team?: FreestyleResolvedTeam;
 }): WorkflowProviderController<FreestyleRuntime> {
   return {
     providerId: FREESTYLE_PROVIDER_ID,
+    checks() {
+      if (!input.team) return undefined;
+      return {
+        id: "team",
+        label: "Freestyle team",
+        status: "ok",
+        value: formatFreestyleTeam(input.team),
+        detail: input.team.id,
+        fingerprint: `identity:${input.identityId}`,
+        metadata: {
+          teamId: input.team.id,
+          ...(input.team.displayName ? { teamName: input.team.displayName } : {}),
+        },
+      };
+    },
     runtime() {
       return createFreestyleRuntime(input);
+    },
+  };
+}
+
+export function createLazyFreestyleWorkflowController(input: {
+  authenticate(): Promise<{
+    client: Freestyle;
+    identityId: FreestyleIdentityId;
+    token: FreestyleToken;
+    team?: FreestyleResolvedTeam;
+  }>;
+  checks(context: { mode: "plan" | "require" }): Promise<WorkflowProviderCheckResult[]>;
+}): WorkflowProviderController<FreestyleRuntime> {
+  return {
+    providerId: FREESTYLE_PROVIDER_ID,
+    checks: input.checks,
+    async runtime() {
+      const authenticated = await input.authenticate();
+      return createFreestyleRuntime(authenticated);
     },
   };
 }
@@ -139,6 +177,10 @@ function createFreestyleRuntime(input: {
 }
 
 const defaultFreestyleVmUser = "root";
+
+function formatFreestyleTeam(team: FreestyleResolvedTeam): string {
+  return team.displayName ? `${team.displayName} (${team.id})` : team.id;
+}
 
 function freestyleSshConnection(vmId: string, token: FreestyleToken, user: string | undefined): SshConnection {
   const userPart = `+${user ?? defaultFreestyleVmUser}`;

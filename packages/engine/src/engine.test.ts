@@ -11,7 +11,7 @@ import type {
   ProviderRuntimeContext,
   WorkflowProviderController,
 } from "./provider/types.ts";
-import type { DevMachineEvent, ExecResult, JsonValue } from "./types.ts";
+import type { DevMachineEvent, ExecResult, JsonValue, WorkflowProviderCheckResult } from "./types.ts";
 
 describe("DevMachineEngine workflow runtime", () => {
   test("plans, applies graph nodes, reuses graph cache, and forks workspaces", async () => {
@@ -791,6 +791,91 @@ describe("DevMachineEngine workflow runtime", () => {
     expect(leakedHostRow).toBeNull();
   });
 
+  test("includes provider checks in workflow plans", async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-provider-status-"));
+    writeFileSync(
+      join(projectDir, "rig.config.ts"),
+      `
+        import { defineProvider, workflow } from "${import.meta.dir}/index.ts";
+
+        const app = workflow("provider-status", {
+          providers: {
+            test: defineProvider("test", {}),
+          },
+        });
+
+        export default app.task("noop", async () => {});
+      `,
+    );
+
+    const engine = await createDevMachineEngine({
+      projectDir,
+      providerFactory: () => new FakeWorkflowProvider({
+        check: {
+          id: "account",
+          label: "Test account",
+          status: "ok",
+          value: "acct-1",
+          fingerprint: "acct-1",
+          metadata: { accountId: "acct-1" },
+        },
+      }),
+    });
+    await engine.load();
+
+    expect((await engine.plan()).providerChecks).toEqual([{
+      providerId: "test",
+      providerName: "test",
+      id: "account",
+      label: "Test account",
+      status: "ok",
+      value: "acct-1",
+      fingerprint: "acct-1",
+      metadata: { accountId: "acct-1" },
+    }]);
+  });
+
+  test("requires provider checks before applying workflow tasks", async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-provider-check-required-"));
+    writeFileSync(
+      join(projectDir, "rig.config.ts"),
+      `
+        import { defineProvider, workflow } from "${import.meta.dir}/index.ts";
+
+        const app = workflow("provider-check-required", {
+          providers: {
+            test: defineProvider("test", {}),
+          },
+        });
+
+        export default app.task("noop", async () => {});
+      `,
+    );
+
+    const engine = await createDevMachineEngine({
+      projectDir,
+      providerFactory: () => new FakeWorkflowProvider({
+        check: {
+          id: "auth",
+          label: "Test auth",
+          status: "required",
+          value: "login required",
+          message: "Run the provider auth flow.",
+          fingerprint: "missing",
+        },
+      }),
+    });
+    await engine.load();
+
+    expect((await engine.plan()).providerChecks?.[0]).toMatchObject({
+      label: "Test auth",
+      status: "required",
+    });
+    await expect(engine.apply()).rejects.toThrow(
+      "Provider check required: Test auth. Run the provider auth flow.",
+    );
+  });
+
   test("rejects task outputs that are not JSON serializable", async () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-"));
     writeFileSync(
@@ -1146,8 +1231,13 @@ class FakeWorkflowProvider implements WorkflowProviderController<FakeRuntime> {
   constructor(
     private readonly options: {
       terminalCompleted?: Promise<{ finished: true }>;
+      check?: WorkflowProviderCheckResult | WorkflowProviderCheckResult[];
     } = {},
   ) {}
+
+  checks(): WorkflowProviderCheckResult | WorkflowProviderCheckResult[] | undefined {
+    return this.options.check;
+  }
 
   runtime(context: ProviderRuntimeContext): FakeRuntime {
     return {

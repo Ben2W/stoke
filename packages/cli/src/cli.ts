@@ -10,6 +10,8 @@ import {
   type RuntimeClient,
 } from "@rigkit/runtime-client";
 import {
+  createFileProviderHostStorage,
+  defaultProviderHostStorageDir,
   type DevMachineEvent,
   type WorkflowPlan,
   type SnapshotRecord,
@@ -162,6 +164,7 @@ const STATIC_COMMANDS = new Set([
   "run",
   "ls",
   "cache",
+  "providers",
   "projects",
   "doctor",
   "version",
@@ -205,16 +208,18 @@ async function runCli(argv: string[]): Promise<void> {
     .exitOverride()
     .argument("[command]")
     .addOption(new Option("--chdir <dir>", `Switch to a directory containing ${DEFAULT_CONFIG_FILE} before running the command`).hideHelp())
-    .addOption(new Option("--config <file>", "Config file to load, relative to -chdir when set").hideHelp())
+    .addOption(new Option("--config <file>", "Config file to load, relative to --chdir when set").hideHelp())
     .addOption(new Option("--state <file>", "Local runtime state database path").hideHelp())
     .addOption(new Option("--json", "Print machine-readable JSON where supported").hideHelp())
     .addHelpText("after", [
       "",
       "Global Options:",
-      "  -chdir=DIR    Switch to a directory containing rig.config.ts before running the command",
-      "  -config=FILE  Config file to load, relative to -chdir when set",
-      "  -state=FILE   Local runtime state database path",
-      "  -json         Print machine-readable JSON where supported",
+      "  --chdir <dir>     Switch to a directory containing rig.config.ts before running the command",
+      "  --config <file>   Config file to load, relative to --chdir when set",
+      "  --state <file>    Local runtime state database path",
+      "  --json            Print machine-readable JSON where supported",
+      "",
+      "Legacy single-dash global aliases such as -chdir=DIR are still accepted.",
     ].join("\n"))
     .action(async (command?: string) => {
       if (command) program.error(`unknown command '${command}'`);
@@ -358,6 +363,22 @@ async function runCli(argv: string[]): Promise<void> {
         all: Boolean(options.all),
         yes: Boolean(options.yes),
       });
+    });
+
+  const providers = program
+    .command("providers")
+    .description("Manage provider-owned local state");
+
+  const freestyleProvider = providers
+    .command("freestyle")
+    .description("Manage Freestyle provider local state");
+
+  freestyleProvider
+    .command("clear")
+    .description("Clear Freestyle provider local auth and identity state")
+    .option("--json", "Print machine-readable JSON")
+    .action(async (options: { json?: boolean }) => {
+      await runProvidersFreestyleClear(makeInvocation(rootOptions(program), options.json));
     });
 
   program
@@ -574,7 +595,7 @@ function canPrompt(): boolean {
 function resolveInitProjectPaths(invocation: CliInvocation, name: string): { projectDir: string; configPath: string } {
   const options = invocation.global;
   if (options.config) {
-    throw new Error(`rig init does not support -config. Use -chdir to choose the parent directory.`);
+    throw new Error(`rig init does not support --config. Use --chdir to choose the parent directory.`);
   }
 
   const parentDir = resolve(process.cwd(), options.chdir ?? ".");
@@ -964,7 +985,7 @@ async function runDiscoveredProjectOperation(
   if (!options.all && projects.length > 1) {
     throw new Error([
       "Multiple Rigkit projects found.",
-      "Use `rig projects` to list candidates, pass -chdir or -config to select one, or pass --all to run every discovered project.",
+      "Use `rig projects` to list candidates, pass --chdir or --config to select one, or pass --all to run every discovered project.",
       ...projects.map((project) => `- ${project.configPath}`),
     ].join("\n"));
   }
@@ -1082,7 +1103,7 @@ async function runCacheClear(invocation: CliInvocation, options: CacheClearOptio
 
   if (options.global && options.all) {
     if (invocation.global.chdir || invocation.global.config || invocation.global.state) {
-      throw new Error(`rig cache clear --global --all cannot be combined with -chdir, -config, or -state`);
+      throw new Error(`rig cache clear --global --all cannot be combined with --chdir, --config, or --state`);
     }
     const fragmentRoot = join(defaultRigkitHome(), "fragments");
     rmSync(fragmentRoot, { recursive: true, force: true });
@@ -1102,6 +1123,32 @@ async function runCacheClear(invocation: CliInvocation, options: CacheClearOptio
     return;
   }
   console.log(`Cleared ${result.deleted} cache ${result.deleted === 1 ? "entry" : "entries"}.`);
+}
+
+async function runProvidersFreestyleClear(invocation: CliInvocation): Promise<void> {
+  const providerId = "freestyle";
+  const storageRoot = defaultProviderHostStorageDir();
+  const storage = createFileProviderHostStorage({ providerId, rootDir: storageRoot });
+  const keys = storage.entries().map((entry) => entry.key);
+  for (const key of keys) storage.delete(key);
+
+  const result = {
+    ok: true,
+    providerId,
+    deleted: keys.length,
+    storageRoot,
+  };
+
+  if (wantsJson(invocation)) {
+    printJson(result);
+    return;
+  }
+
+  if (keys.length === 0) {
+    console.log("No Freestyle provider local state to clear.");
+    return;
+  }
+  console.log(`Cleared ${keys.length} Freestyle provider ${keys.length === 1 ? "entry" : "entries"}.`);
 }
 
 type CacheInvalidateOptions = {
@@ -1524,6 +1571,7 @@ async function runHelp(invocation: CliInvocation): Promise<void> {
         { name: "run", description: "Run a workspace operation" },
         { name: "ls", description: "List project workspaces" },
         { name: "cache", description: "Inspect and clear Rigkit cache" },
+        { name: "providers", description: "Manage provider-owned local state" },
         { name: "projects", description: "Discover Rigkit projects below the current directory" },
         { name: "doctor", description: "Show Rigkit runtime diagnostics" },
         { name: "version", description: "Show Rigkit CLI version" },
@@ -1535,7 +1583,7 @@ async function runHelp(invocation: CliInvocation): Promise<void> {
   const cmd = (name: string, description: string): string =>
     `  ${ui.bold(name.padEnd(10))}  ${description}`;
   const opt = (flag: string, description: string): string =>
-    `  ${ui.bold(flag.padEnd(12))}  ${description}`;
+    `  ${ui.bold(flag.padEnd(17))}  ${description}`;
 
   console.log([
     `${ui.bold("rig")} ${ui.dim(RIGKIT_CLI_VERSION)}`,
@@ -1553,16 +1601,19 @@ async function runHelp(invocation: CliInvocation): Promise<void> {
     cmd("run",        "Run a workspace operation"),
     cmd("ls",         "List project workspaces"),
     cmd("cache",      "Inspect and clear Rigkit cache"),
+    cmd("providers",  "Manage provider-owned local state"),
     cmd("projects",   "Discover Rigkit projects below the current directory"),
     cmd("doctor",     "Show Rigkit runtime diagnostics"),
     cmd("version",    "Show Rigkit CLI version"),
     cmd("completion", "Generate shell completion script"),
     "",
     ui.dim("Options:"),
-    opt("-chdir=DIR",   "Switch to a directory containing rig.config.ts before running the command"),
-    opt("-config=FILE", "Config file to load, relative to -chdir when set"),
-    opt("-state=FILE",  "Local runtime state database path"),
-    opt("-json",        "Print machine-readable JSON where supported"),
+    opt("--chdir <dir>",   "Switch to a directory containing rig.config.ts before running the command"),
+    opt("--config <file>", "Config file to load, relative to --chdir when set"),
+    opt("--state <file>",  "Local runtime state database path"),
+    opt("--json",          "Print machine-readable JSON where supported"),
+    "",
+    ui.dim("Legacy single-dash global aliases such as -chdir=DIR are still accepted."),
   ].join("\n"));
 }
 
@@ -2116,8 +2167,12 @@ async function promptHostSelect(params: unknown): Promise<string> {
       .filter((item) => item.value)
     : [];
   if (options.length === 0) throw new Error(`Host select prompt has no options`);
-  const defaultValue = stringField(params, "defaultValue") ?? options[0]!.value;
-  if (!canPrompt()) return defaultValue;
+  const configuredDefaultValue = stringField(params, "defaultValue");
+  const defaultValue = configuredDefaultValue ?? options[0]!.value;
+  if (!canPrompt()) {
+    if (configuredDefaultValue !== undefined) return configuredDefaultValue;
+    throw new Error(`Host select prompt requires an interactive terminal: ${message}`);
+  }
   const answers = await inquirer.prompt<{ value: string }>([{
     type: "select",
     name: "value",
@@ -2301,6 +2356,16 @@ function printPlan(plan: WorkflowPlan): void {
   console.log(`${ui.bold(plan.workflow)}  ${ui.dim(`${plan.cachedNodeCount}/${plan.nodeCount} cached`)}`);
   console.log("");
 
+  if (plan.providerChecks?.length) {
+    const rows = plan.providerChecks.map((check) => [
+      { text: check.label || check.providerName, style: ui.dim },
+      { text: check.status, style: providerCheckStatusStyle(check.status) },
+      { text: providerCheckValue(check), style: check.status === "ok" ? ((value: string) => value) : ui.warn },
+    ]);
+    console.log(ui.columns(["provider check", "status", "current"], rows));
+    console.log("");
+  }
+
   const rows = plan.nodes.map((node) => [
     { text: String(node.index + 1), style: ui.dim },
     { text: node.status, style: planStatusStyle(node.status) },
@@ -2308,6 +2373,18 @@ function printPlan(plan: WorkflowPlan): void {
     { text: node.reason ?? "", style: ui.dim },
   ]);
   console.log(ui.columns(["#", "status", "node", "reason"], rows));
+}
+
+function providerCheckValue(check: NonNullable<WorkflowPlan["providerChecks"]>[number]): string {
+  if (check.status === "required" && check.message) return check.message;
+  if (check.detail && check.detail !== check.value && !check.value.includes(check.detail)) {
+    return `${check.value} ${ui.dim(check.detail)}`;
+  }
+  return check.value;
+}
+
+function providerCheckStatusStyle(status: string): (text: string) => string {
+  return status === "ok" ? ui.ok : ui.warn;
 }
 
 function planStatusStyle(status: string): (text: string) => string {

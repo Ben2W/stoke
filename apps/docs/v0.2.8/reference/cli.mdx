@@ -10,28 +10,31 @@ or project-defined operations.
 
 ## Global options
 
-Global options come before the command. Rigkit accepts Terraform-style single
-dash forms for these options:
+Global options come before the command. Use double-dash long flags for
+consistency with command options:
 
 ```sh
-rig -chdir=examples/smoke plan
-rig -config=api.rig.config.ts apply
-rig -state=/tmp/rigkit-state.sqlite plan
-rig -json plan
+rig --chdir=examples/smoke plan
+rig --config=api.rig.config.ts apply
+rig --state=/tmp/rigkit-state.sqlite plan
+rig --json plan
 ```
 
 Options:
 
 | Option | Description |
 | --- | --- |
-| `-chdir=DIR` | Switch to a directory before resolving the config. |
-| `-config=FILE` | Load a specific config file, relative to `-chdir` when set. |
-| `-state=FILE` | Use a specific local runtime state database. |
-| `-json` | Print machine-readable JSON where supported. |
+| `--chdir <dir>` | Switch to a directory before resolving the config. |
+| `--config <file>` | Load a specific config file, relative to `--chdir` when set. |
+| `--state <file>` | Use a specific local runtime state database. |
+| `--json` | Print machine-readable JSON where supported. |
 
 By default Rigkit searches upward from the current directory for
 `rig.config.ts`. Named configs ending in `.rig.config.ts` must be selected with
-`-config`.
+`--config`.
+
+Legacy single-dash global forms such as `-chdir=DIR`, `-config=FILE`,
+`-state=FILE`, and `-json` are still accepted.
 
 ## `rig init`
 
@@ -207,7 +210,7 @@ Discover Rigkit projects below the current or selected directory:
 
 ```sh
 rig projects
-rig -chdir=examples projects
+rig --chdir=examples projects
 rig projects --json
 ```
 

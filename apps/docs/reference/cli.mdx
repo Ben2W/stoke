@@ -45,32 +45,53 @@ rig cache invalidate --all      # mark every task stale
 rig cache clear --local         # delete local cache entries
 ```
 
+## Agents and CI
+
+Agents, CI jobs, and scripts should run Rigkit non-interactively:
+
+```sh
+rig init --name website --package-manager skip --json
+rig plan --json
+rig apply --json
+rig create dev --json
+rig run dev status --json
+rig rm dev --yes --json
+rig cache invalidate --all --yes --json
+```
+
+Use `--json` on commands that support it instead of scraping interactive output.
+Use `--yes` only for commands that ask for confirmation: `rig rm` and
+`rig cache invalidate --all`.
+
 The rest of this page is a reference for every command and option.
 
 ## Global options
 
-Global options come before the command. Rigkit accepts Terraform-style single
-dash forms for these options:
+Global options come before the command. Use double-dash long flags for
+consistency with command options:
 
 ```sh
-rig -chdir=examples/smoke plan
-rig -config=api.rig.config.ts apply
-rig -state=/tmp/rigkit-state.sqlite plan
-rig -json plan
+rig --chdir=examples/smoke plan
+rig --config=api.rig.config.ts apply
+rig --state=/tmp/rigkit-state.sqlite plan
+rig --json plan
 ```
 
 Options:
 
 | Option | Description |
 | --- | --- |
-| `-chdir=DIR` | Switch to a directory before resolving the config. |
-| `-config=FILE` | Load a specific config file, relative to `-chdir` when set. |
-| `-state=FILE` | Use a specific local runtime state database. |
-| `-json` | Print machine-readable JSON where supported. |
+| `--chdir <dir>` | Switch to a directory before resolving the config. |
+| `--config <file>` | Load a specific config file, relative to `--chdir` when set. |
+| `--state <file>` | Use a specific local runtime state database. |
+| `--json` | Print machine-readable JSON where supported. |
 
 By default Rigkit searches upward from the current directory for
 `rig.config.ts`. Named configs ending in `.rig.config.ts` must be selected with
-`-config`.
+`--config`.
+
+Legacy single-dash global forms such as `-chdir=DIR`, `-config=FILE`,
+`-state=FILE`, and `-json` are still accepted.
 
 ## `rig init`
 
@@ -116,8 +137,9 @@ Options:
 | `--discover` | Discover projects below the selected directory. |
 | `--json` | Print JSON. |
 
-`plan` does not run pending tasks. It reports the graph state Rigkit would use
-for `apply`.
+`plan` does not run pending tasks or start provider auth flows. It reports the
+graph state Rigkit would use for `apply`, plus provider checks such as missing
+Freestyle authentication or the currently selected Freestyle team.
 
 ## `rig apply`
 
@@ -159,9 +181,9 @@ The first argument is the workspace name. The second is a
 `.workspaceOperation(...)` id from the config.
 
 Operations such as `ssh`, `open-cmux`, `open-vscode`, and `status` are defined
-in `rig.config.ts`. The names and behavior vary by project — run `rig run dev`
-without an operation to see what your project exposes, or `rig run --help` for
-flag details.
+in `rig.config.ts`. The names and behavior vary by project. After `rig create`,
+the CLI prints available next-step operations in interactive terminals. Use
+completion or `rig run --help` for command syntax.
 
 Project-defined operation inputs become CLI flags when the runtime exposes a
 CLI shape for them. For example, an operation declaring a `port` input becomes
@@ -247,13 +269,28 @@ Options:
 Use invalidation when you want Rigkit to keep the cache records but mark them
 stale. Use clear when you want to delete cache records.
 
+## `rig providers`
+
+Manage provider-owned local state.
+
+Clear Freestyle browser auth, selected team, and provider identity state:
+
+```sh
+rig providers freestyle clear
+rig providers freestyle clear --json
+```
+
+This does not load a project config or delete project `.rigkit` state. Clearing
+provider-owned state changes the provider check fingerprint, so cached workflow
+tasks that depended on that provider are treated as stale.
+
 ## `rig projects`
 
 Discover Rigkit projects below the current or selected directory:
 
 ```sh
 rig projects
-rig -chdir=examples projects
+rig --chdir=examples projects
 rig projects --json
 ```
 
@@ -303,6 +340,7 @@ rig run --help
 | `RIGKIT_RENDER=0` | Force the plain text renderer instead of the interactive timeline. |
 | `RIGKIT_NO_CONSOLE_INTERCEPT=1` | Disable task console interception and write directly to the host terminal. |
 | `FREESTYLE_API_KEY` | Optional Freestyle API key when configs opt into API-key auth. |
+| `FREESTYLE_TEAM_ID` | Select a Freestyle team without prompting during browser auth. |
 
 Project `.env` files are loaded from the selected project directory.
 
@@ -317,5 +355,4 @@ Rigkit exits non-zero when:
 - a package-manager install from `rig init` fails;
 - a selected workspace or operation does not exist.
 
-For automation, prefer `--json` on commands that support it and pass
-non-interactive flags such as `--name`, `--package-manager skip`, and `--yes`.
+For automation, prefer the [Agents and CI](#agents-and-ci) forms above.

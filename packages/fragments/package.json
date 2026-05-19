@@ -1,6 +1,7 @@
 {
   "name": "@rigkit/fragments",
   "version": "0.2.10",
+  "license": "MIT",
   "type": "module",
   "repository": {
     "type": "git",

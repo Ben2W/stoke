@@ -4,18 +4,18 @@ description: "Write typed Rigkit workflows with tasks, sequences, parallel branc
 ---
 
 <Note>
-This guide is for users **writing `rig.config.ts`**. If you only run the `rig`
-CLI against an existing config, you don't need this — see the
-[CLI reference](/reference/cli) instead.
+This page is for config authors. If you only run an existing project, use the
+[CLI reference](/reference/cli).
 </Note>
 
-A Rigkit workflow is a graph of task nodes. Each task runs provider-backed work
-and returns JSON context for the next task. The final context is what workspace
-creation uses.
+A workflow is the setup graph Rigkit can `plan` and `apply`. Tasks run user
+code and return JSON `ctx`. That context flows to the next node, is cached, and
+becomes the input for workspace creation.
 
-## Choose a config shape
+## Config shapes
 
-Use `workflow(...)` when you want provider types to flow through every task:
+Use `workflow(...)` when one workflow owns its provider map and you want provider
+types available as top-level handler properties:
 
 ```ts
 import { workflow } from "@rigkit/sdk";
@@ -24,7 +24,6 @@ import { freestyle } from "@rigkit/provider-freestyle";
 const app = workflow("website", {
   providers: {
     freestyle: freestyle.provider(),
-    terminal: freestyle.terminal(),
   },
 });
 
@@ -44,20 +43,20 @@ export default app
   });
 ```
 
-Use `defineConfig(...)` when one `rig.config.ts` contains multiple workflows or
-when you want to share one provider map across standalone sequences:
+Use `defineConfig(...)` when one file exports multiple workflows or when you
+want to share one provider map across standalone sequences:
 
 ```ts
 import { defineConfig, sequence } from "@rigkit/sdk";
 import { freestyle } from "@rigkit/provider-freestyle";
 
-const api = sequence("api").task("prepare-api", async () => {
-  return { ctx: { packageName: "@acme/api" } };
-});
+const api = sequence("api").task("prepare-api", async () => ({
+  ctx: { packageName: "@acme/api" },
+}));
 
-const web = sequence("web").task("prepare-web", async () => {
-  return { ctx: { packageName: "@acme/web" } };
-});
+const web = sequence("web").task("prepare-web", async () => ({
+  ctx: { packageName: "@acme/web" },
+}));
 
 export default defineConfig({
   providers: {
@@ -70,8 +69,8 @@ export default defineConfig({
 });
 ```
 
-When a config has multiple workflows, pass `--workflow` to core operations when
-the target is ambiguous:
+When a config has multiple workflows, pass `--workflow` when the target is
+ambiguous:
 
 ```sh
 rig plan --workflow api
@@ -79,62 +78,53 @@ rig apply --workflow web
 rig create dev --workflow api
 ```
 
-## Tasks and context
+## Task context
 
-Tasks return `ctx`, a JSON object that becomes the context for the next task.
-Use `step.ctx` to read the incoming context.
+Task output replaces the incoming context. Spread `step.ctx` when you want to
+preserve previous values:
 
 ```ts
 const setup = app
   .sequence("setup")
-  .task("clone", async () => {
-    return {
-      ctx: {
-        repoPath: "/workspace/app",
-      },
-    };
-  })
-  .task("install", async ({ step }) => {
-    console.log(`installing in ${step.ctx.repoPath}`);
-    return {
-      ctx: {
-        ...step.ctx,
-        devPort: 3000,
-      },
-    };
-  });
+  .task("clone", async () => ({
+    ctx: {
+      repoPath: "/workspace/app",
+    },
+  }))
+  .task("install", async ({ step }) => ({
+    ctx: {
+      ...step.ctx,
+      devPort: 3000,
+    },
+  }));
 ```
 
-Task outputs must be JSON-serializable. Return durable references such as
-`snapshotId`, `vmId`, `repoPath`, `branch`, or provider artifact refs. Do not
-return live SDK objects or functions; cached task outputs are persisted and
-loaded again in later processes.
+Task outputs must be JSON-serializable. Return durable values such as
+`snapshotId`, `vmId`, `repoPath`, ports, branch names, and provider artifact
+refs. Do not return live SDK clients, functions, streams, or process handles.
 
-`.task(...)` and `.step(...)` are aliases — they create the same node. Prefer
-`.task(...)` for new configs; the docs use `task` throughout.
+`.task(...)` and `.step(...)` are aliases. Prefer `.task(...)` in new configs.
 
-## Compose sequences
+## Compose nodes
 
 Sequences are reusable nodes. Store them in variables, export them from helper
-files, and add them to larger workflows.
+files, and add them to larger workflows:
 
 ```ts
 const base = app
   .sequence("base")
-  .task("install-tooling", async () => {
-    return { ctx: { snapshotId: "snap_base" } };
-  });
+  .task("install-tooling", async () => ({
+    ctx: { snapshotId: "snap_base" },
+  }));
 
 const repo = app
   .sequence<{ snapshotId: string }>("repo")
-  .task("clone-repo", async ({ step }) => {
-    return {
-      ctx: {
-        ...step.ctx,
-        repoPath: "/workspace/app",
-      },
-    };
-  });
+  .task("clone-repo", async ({ step }) => ({
+    ctx: {
+      ...step.ctx,
+      repoPath: "/workspace/app",
+    },
+  }));
 
 export default app
   .sequence("website")
@@ -142,14 +132,13 @@ export default app
   .add(repo);
 ```
 
-The input and output context types are checked as you compose nodes. If `repo`
-requires `snapshotId`, TypeScript will reject adding it before the node that
-produces `snapshotId`.
+TypeScript checks the context contract. In the example above, `repo` cannot be
+added before a node that produces `snapshotId`.
 
 ## Run branches in parallel
 
-Use `.parallel(...)` when independent setup can start from the same upstream
-context. The joined output is namespaced by branch name.
+Use `.parallel(...)` for independent branches that start from the same incoming
+context. The joined output is namespaced by branch name:
 
 ```ts
 const source = app.sequence<{ snapshotId: string }>("source").task(
@@ -172,31 +161,29 @@ const database = app.sequence<{ snapshotId: string }>("database").task(
   }),
 );
 
-const setup = app
+export default app
   .sequence("setup")
   .task("base", async () => ({ ctx: { snapshotId: "snap_base" } }))
   .parallel({
     source,
     database,
   })
-  .task("join", async ({ step }) => {
-    return {
-      ctx: {
-        snapshotId: step.ctx.source.snapshotId,
-        repoPath: step.ctx.source.repoPath,
-        databaseUrl: step.ctx.database.databaseUrl,
-      },
-    };
-  });
+  .task("join", async ({ step }) => ({
+    ctx: {
+      snapshotId: step.ctx.source.snapshotId,
+      repoPath: step.ctx.source.repoPath,
+      databaseUrl: step.ctx.database.databaseUrl,
+    },
+  }));
 ```
 
-Each branch receives a copy of the same incoming context. Branch output keys
-must not conflict with existing context keys.
+Branch names must not conflict with keys already present in the incoming
+context.
 
 ## Configure reusable nodes
 
-`.configure(...)` attaches JSON config to a node. Task handlers read merged
-config through `config`.
+`.configure(...)` attaches JSON config to a node. Config stacks merge shallowly,
+and handlers read the merged object through `config`:
 
 ```ts
 const serviceSetup = app
@@ -206,27 +193,25 @@ const serviceSetup = app
     sourceDir: "services/api",
     devCommand: "pnpm --filter @acme/api dev",
   })
-  .task("install-service", async ({ config, step }) => {
-    return {
-      ctx: {
-        ...step.ctx,
-        service: {
-          packageName: String(config.packageName),
-          sourceDir: String(config.sourceDir),
-          devCommand: String(config.devCommand),
-        },
+  .task("install-service", async ({ config, step }) => ({
+    ctx: {
+      ...step.ctx,
+      service: {
+        packageName: String(config.packageName),
+        sourceDir: String(config.sourceDir),
+        devCommand: String(config.devCommand),
       },
-    };
-  });
+    },
+  }));
 ```
 
-Config is part of the task cache key and global fragment hash. Changing it
-reruns the affected work.
+Config is part of the cache key and global fragment hash. Changing it reruns the
+affected work.
 
-## Validate task output
+## Validate output
 
-Pass an `output` schema to validate fresh and cached output. The schema can
-expose `parse` or `safeParse`, which works with libraries such as Zod.
+Pass an `output` schema when cached context must keep a stable shape. The schema
+can expose `parse` or `safeParse`, so Zod works:
 
 ```ts
 import * as z from "zod/v4-mini";
@@ -248,27 +233,25 @@ const prepared = app.sequence("prepared").task(
 );
 ```
 
-If fresh output fails validation, the task fails. If cached output fails
-validation, Rigkit treats that cached run as unusable and reruns the task.
+Fresh invalid output fails the task. Cached invalid output is ignored and the
+task reruns.
 
-## Make a task expire
+## Control caching
 
-Use `cacheTTL` when output should expire:
+Use `cacheTTL` when output expires:
 
 ```ts
 .task(
   "check-auth",
   { cacheTTL: "30m" },
-  async ({ step }) => {
-    return { ctx: step.ctx };
-  },
+  async ({ step }) => ({ ctx: step.ctx }),
 )
 ```
 
-`cacheTTL: 0` makes a task uncached. Supported string units are `ms`, `s`, `m`,
-`h`, and `d`.
+Supported string units are `ms`, `s`, `m`, `h`, and `d`. `cacheTTL: 0` makes a
+task run on every apply.
 
-To force cached work to rerun manually, use the cache commands:
+Use cache commands for manual control:
 
 ```sh
 rig cache invalidate install-dependencies
@@ -278,10 +261,9 @@ rig cache clear --local
 
 ## Logs and metadata
 
-Inside task handlers, `console.log`, `console.info`, `console.debug`,
-`console.warn`, and `console.error` are captured and streamed as structured
-Rigkit log events. Provider SDKs that accept a logger should receive
-`console.log` directly:
+Task `console.log`, `console.info`, `console.debug`, `console.warn`, and
+`console.error` are captured by the runtime and streamed to the CLI. Provider
+SDKs that accept a logger should receive `console.log`:
 
 ```ts
 await freestyle.client.vms.create({
@@ -289,8 +271,7 @@ await freestyle.client.vms.create({
 });
 ```
 
-Use `step.metadata(...)` for structured data that should be attached to the
-node run:
+Use `step.metadata(...)` for structured run metadata:
 
 ```ts
 .task("prepare", async ({ step }) => {

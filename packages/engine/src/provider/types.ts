@@ -7,6 +7,7 @@ import type {
   LoadedProviderDefinition,
   LocalWorkspaceRuntime,
   MaybePromise,
+  WorkflowProviderCheckResult,
 } from "../types.ts";
 
 export type VmHandle = {
@@ -73,9 +74,16 @@ export type ProviderRuntimeContext = {
   metadata(metadata: JsonObject): void;
 };
 
+export type ProviderCheckContext = {
+  mode: "plan" | "require";
+  workflow: string;
+  local: LocalWorkspaceRuntime;
+};
+
 export interface WorkflowProviderController<Runtime = unknown> {
   readonly providerId: string;
   runtime(context: ProviderRuntimeContext): MaybePromise<Runtime>;
+  checks?(context: ProviderCheckContext): MaybePromise<WorkflowProviderCheckResult | WorkflowProviderCheckResult[] | undefined>;
   validateArtifact?(ref: JsonValue): MaybePromise<boolean>;
 }
 

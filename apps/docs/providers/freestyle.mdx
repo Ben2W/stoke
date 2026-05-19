@@ -3,9 +3,8 @@ title: "Freestyle provider"
 description: "Use Freestyle VMs, snapshots, SSH options, cmux adapters, and VS Code URLs from Rigkit workflows."
 ---
 
-The Freestyle provider is the primary provider for remote development
-environments in Rigkit. It gives workflow tasks an authenticated Freestyle SDK
-client and helper methods for connecting other tools to Freestyle VMs.
+The Freestyle provider gives Rigkit configs an authenticated Freestyle SDK
+client plus helpers for SSH, cmux, and VS Code.
 
 ## Add the provider
 
@@ -20,15 +19,25 @@ const app = workflow("website", {
 });
 ```
 
-Default auth opens the Freestyle browser login and stores credentials in
-provider-owned host storage, outside the project `.rigkit/state.sqlite` file.
+Default auth opens Freestyle browser login and stores credentials in
+provider-owned host storage, outside project `.rigkit/state.sqlite`.
+If the account belongs to multiple teams, Rigkit prompts for the team and
+reuses that selection on later runs. `rig plan` shows Freestyle provider checks,
+including missing auth or the active team, without starting OAuth.
+
+To clear browser auth, selected team, and provider identity state:
+
+```sh
+rig providers freestyle clear
+```
+
+Clearing this state changes the provider check fingerprint and makes cached
+Freestyle-dependent tasks stale.
 
 For API-key auth:
 
 ```ts
 import { env } from "@rigkit/sdk";
-
-freestyle.provider(env.secret("FREESTYLE_API_KEY"));
 
 freestyle.provider({
   apiKey: env.secret("FREESTYLE_API_KEY"),
@@ -36,7 +45,9 @@ freestyle.provider({
 });
 ```
 
-## Create and snapshot a VM
+`freestyle.provider(env.secret("FREESTYLE_API_KEY"))` is also supported.
+
+## Prepare a snapshot
 
 ```ts
 import { VmSpec } from "@rigkit/provider-freestyle";
@@ -64,39 +75,36 @@ const setup = app.sequence("setup").task("prepare-image", async ({ freestyle }) 
 ```
 
 Pass `logger: console.log` to Freestyle SDK calls that support logging. Rigkit
-intercepts task console output and streams it to the CLI.
+streams task console output to the CLI.
 
-## Create workspaces from a snapshot
+## Create workspace VMs
 
 ```ts
 .workspace({
-  create: async ({ workflow, providers, workspace }) => {
-    const { vmId } = await providers.freestyle.client.vms.create({
+  create: async ({ workflow, freestyle }) => {
+    const { vmId } = await freestyle.client.vms.create({
       snapshotId: workflow.ctx.snapshotId,
       idleTimeoutSeconds: 3600,
       logger: console.log,
     });
 
-    return {
-      vmId,
-      name: workspace.name,
-    };
+    return { vmId };
   },
-  remove: async ({ providers, workspace }) => {
-    await providers.freestyle.client.vms.delete({
+  remove: async ({ freestyle, workspace }) => {
+    await freestyle.client.vms.delete({
       vmId: workspace.ctx.vmId,
     });
   },
 });
 ```
 
-The workspace context stores `vmId`. Operations can use it to open terminals,
-cmux, VS Code, previews, or other tools.
+Return `snapshotId` from setup tasks and `vmId` from workspace creates. Those
+ids are durable JSON values Rigkit can cache and reload.
 
-## SSH options
+## SSH helpers
 
-Use `createSSHOptions(...)` when another provider or host operation needs SSH
-connection details:
+Create SSH options when another provider or host action needs to connect to the
+VM:
 
 ```ts
 const ssh = await providers.freestyle.createSSHOptions({
@@ -105,11 +113,9 @@ const ssh = await providers.freestyle.createSSHOptions({
 ```
 
 The provider grants SSH access for the active Freestyle identity and returns a
-provider-owned token connection. Project code does not need to manage SSH keys.
+provider-owned token connection. Project code does not manage SSH keys.
 
-## cmux adapter
-
-Use the cmux adapter when opening a Freestyle VM in cmux:
+## cmux and VS Code
 
 ```ts
 await providers.cmux.open({
@@ -120,13 +126,8 @@ await providers.cmux.open({
   cwd: workspace.ctx.repoPath,
   terminals: [{ command: "pnpm dev" }],
   url: "http://localhost:3000",
-  focus: true,
 });
 ```
-
-## VS Code URL
-
-Use the VS Code helper to create a Remote SSH URL:
 
 ```ts
 const url = await providers.freestyle.vscode.createUrl({
@@ -137,10 +138,10 @@ const url = await providers.freestyle.vscode.createUrl({
 await local.open(url);
 ```
 
-## Freestyle exports
+## Exports
 
-`@rigkit/provider-freestyle` re-exports Freestyle SDK classes so configs use one
-SDK instance for specs and clients:
+`@rigkit/provider-freestyle` re-exports the Freestyle SDK classes used by
+configs:
 
 ```ts
 import {
@@ -152,12 +153,10 @@ import {
 } from "@rigkit/provider-freestyle";
 ```
 
-## Recommended patterns
+## Patterns
 
-- Create temporary VMs in setup tasks, snapshot them, and delete the temporary
-  VM in `finally`.
-- Return `snapshotId` from setup tasks and `vmId` from workspace creates.
-- Keep VM paths, ports, branch names, and service commands in JSON context.
+- Create temporary VMs in setup tasks, snapshot them, and delete them in
+  `finally`.
+- Store IDs, paths, ports, branch names, and commands in JSON context.
 - Use the terminal provider for interactive auth flows.
-- Use `idleTimeoutSeconds` deliberately so workspace VMs do not live longer
-  than needed.
+- Set `idleTimeoutSeconds` deliberately for both setup and workspace VMs.

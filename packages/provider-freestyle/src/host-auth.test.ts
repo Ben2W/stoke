@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import type {
   JsonValue,
+  ProviderCheckContext,
   ProviderRuntimeContext,
   ProviderStorage,
   ProviderStorageRecord,
@@ -92,8 +93,8 @@ describe("Freestyle provider host auth", () => {
       });
 
       expect(projectStorage.entries()).toEqual([]);
-      expect(hostStorage.entries("identity:")).toHaveLength(1);
-      expect(requests).toHaveLength(2);
+      expect(hostStorage.entries("identity:")).toHaveLength(0);
+      expect(requests).toHaveLength(0);
 
       const runtime = await (controller as WorkflowProviderController<FreestyleRuntime>).runtime(providerContext([]));
 
@@ -174,6 +175,8 @@ describe("Freestyle provider host auth", () => {
         },
       });
 
+      await controller.checks?.(providerCheckContext("require"));
+
       expect(opened).toEqual([
         "https://dash.freestyle.sh/handler/cli-auth-confirm?login_code=login-code",
       ]);
@@ -222,6 +225,147 @@ describe("Freestyle provider host auth", () => {
     }
   });
 
+  test("reports a required browser auth check during plan without starting OAuth", async () => {
+    delete process.env.FREESTYLE_API_KEY;
+    delete process.env.FREESTYLE_TEAM_ID;
+
+    const projectStorage = new MemoryProviderStorage(FREESTYLE_PROVIDER_ID);
+    const hostStorage = new MemoryProviderStorage(FREESTYLE_PROVIDER_ID);
+    const previousFetch = globalThis.fetch;
+    globalThis.fetch = testFetch(async () =>
+      Response.json({ error: "plan should not fetch" }, { status: 500 })
+    );
+
+    try {
+      const controller = await freestyleProviderPlugin.createProvider({
+        provider: {
+          providerId: FREESTYLE_PROVIDER_ID,
+          config: {},
+        },
+        storage: projectStorage,
+        hostStorage,
+        local: { open: async () => {} },
+      });
+
+      expect(await controller.checks?.(providerCheckContext("plan"))).toEqual([{
+        id: "auth",
+        label: "Freestyle auth",
+        status: "required",
+        value: "login required",
+        message: "Run rig apply, rig create, or rig run to authenticate with Freestyle.",
+        fingerprint: "browser:default:auth:missing",
+      }]);
+      expect(hostStorage.entries()).toEqual([]);
+    } finally {
+      globalThis.fetch = previousFetch;
+    }
+  });
+
+  test("prompts for and persists a Freestyle team when browser auth has multiple teams", async () => {
+    delete process.env.FREESTYLE_API_KEY;
+    delete process.env.FREESTYLE_TEAM_ID;
+
+    const projectStorage = new MemoryProviderStorage(FREESTYLE_PROVIDER_ID);
+    const hostStorage = new MemoryProviderStorage(FREESTYLE_PROVIDER_ID);
+    const selectPrompts: unknown[] = [];
+    const proxyRequests: unknown[] = [];
+    const previousFetch = globalThis.fetch;
+    globalThis.fetch = testFetch(async (resource, init) => {
+      const url = resourceUrl(resource);
+      if (url.href === "https://api.stack-auth.com/api/v1/auth/cli") {
+        return Response.json({ polling_code: "poll-code", login_code: "login-code" });
+      }
+      if (url.href === "https://api.stack-auth.com/api/v1/auth/cli/poll") {
+        return Response.json({ status: "completed", refresh_token: "refresh-token" });
+      }
+      if (url.href === "https://api.stack-auth.com/api/v1/auth/sessions/current/refresh") {
+        return Response.json({ access_token: "stack-access-token", refresh_token: "refresh-token" });
+      }
+      if (url.href === "https://dash.freestyle.sh/api/cli/teams") {
+        return Response.json([
+          { id: "team_alpha", displayName: "Alpha" },
+          { id: "team_beta", displayName: "Beta", sandboxAccountId: "sandbox-beta" },
+        ]);
+      }
+      if (url.href === "https://dash.freestyle.sh/api/proxy/request") {
+        const body = JSON.parse(String(init?.body));
+        proxyRequests.push(body);
+        if (body.data.path === "identity/v1/identities") {
+          return Response.json({ id: "identity-browser" });
+        }
+        if (body.data.path === "identity/v1/identities/identity-browser/tokens") {
+          return Response.json({ id: "token-id-browser", token: "ssh-token-browser" });
+        }
+      }
+      return Response.json({ error: "unexpected request", url: url.href }, { status: 500 });
+    });
+
+    try {
+      const controller = await freestyleProviderPlugin.createProvider({
+        provider: {
+          providerId: FREESTYLE_PROVIDER_ID,
+          config: {},
+        },
+        storage: projectStorage,
+        hostStorage,
+        local: {
+          open: async () => {},
+          prompt: {
+            message: async () => {},
+            text: async () => "",
+            confirm: async () => true,
+            select: async (prompt) => {
+              selectPrompts.push(prompt);
+              return "team_beta";
+            },
+          },
+        },
+      });
+      const checks = await controller.checks?.(providerCheckContext("require"));
+
+      expect(selectPrompts).toEqual([{
+        message: "Choose Freestyle team",
+        options: [
+          { value: "team_alpha", label: "Alpha (team_alpha)", description: undefined },
+          { value: "team_beta", label: "Beta (team_beta)", description: "sandbox sandbox-beta" },
+        ],
+      }]);
+      expect(hostStorage.entries("stack-auth:")[0]?.value).toMatchObject({
+        refreshToken: "refresh-token",
+        accessToken: "stack-access-token",
+        defaultTeamId: "team_beta",
+        defaultTeamName: "Beta",
+      });
+      expect(proxyRequests).toEqual([
+        expect.objectContaining({
+          data: expect.objectContaining({
+            teamId: "team_beta",
+            path: "identity/v1/identities",
+          }),
+        }),
+        expect.objectContaining({
+          data: expect.objectContaining({
+            teamId: "team_beta",
+            path: "identity/v1/identities/identity-browser/tokens",
+          }),
+        }),
+      ]);
+      expect(checks).toContainEqual(expect.objectContaining({
+        id: "team",
+        label: "Freestyle team",
+        status: "ok",
+        value: "Beta (team_beta)",
+        detail: "team_beta",
+        metadata: {
+          teamId: "team_beta",
+          teamName: "Beta",
+        },
+      }));
+    } finally {
+      globalThis.fetch = previousFetch;
+    }
+  });
+
   test("ignores ambient FREESTYLE_API_KEY unless API-key auth is configured", async () => {
     process.env.FREESTYLE_API_KEY = "stale-api-key";
     delete process.env.FREESTYLE_TEAM_ID;
@@ -265,7 +409,7 @@ describe("Freestyle provider host auth", () => {
     });
 
     try {
-      await freestyleProviderPlugin.createProvider({
+      const controller = await freestyleProviderPlugin.createProvider({
         provider: {
           providerId: FREESTYLE_PROVIDER_ID,
           config: {},
@@ -278,6 +422,7 @@ describe("Freestyle provider host auth", () => {
           },
         },
       });
+      await controller.checks?.(providerCheckContext("require"));
 
       expect(opened).toEqual([
         "https://dash.freestyle.sh/handler/cli-auth-confirm?login_code=login-code",
@@ -557,6 +702,14 @@ function providerContext(
       ...local,
     },
     metadata: () => {},
+  };
+}
+
+function providerCheckContext(mode: "plan" | "require"): ProviderCheckContext {
+  return {
+    mode,
+    workflow: "workflow",
+    local: providerContext([]).local,
   };
 }
 

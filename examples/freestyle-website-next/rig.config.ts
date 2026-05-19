@@ -1,6 +1,7 @@
 import { cmux } from "@rigkit/provider-cmux";
 import {
   freestyle,
+  VmBaseImage,
   VmSpec,
   type FreestyleSdkVm,
 } from "@rigkit/provider-freestyle";
@@ -14,9 +15,8 @@ const devCommand = `bun run dev -- --host 0.0.0.0 --port ${devPort}`;
 const vmIdleTimeoutSeconds = 600;
 const vmHome = "/root";
 
-const vmSpec = new VmSpec()
-  .runCommands(
-    `
+const vmBaseImage = new VmBaseImage("FROM node:22").runCommands(
+  `
 set -e
 export DEBIAN_FRONTEND=noninteractive
 
@@ -28,8 +28,8 @@ curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /etc
 chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg
 printf 'deb [arch=%s signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main\\n' "$(dpkg --print-architecture)" > /etc/apt/sources.list.d/github-cli.list
 
-curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
-apt-get install -y -qq build-essential ca-certificates curl gh git gnupg nodejs pkg-config python3 unzip xz-utils
+apt-get update -qq
+apt-get install -y -qq build-essential ca-certificates curl gh git gnupg pkg-config python3 unzip xz-utils
 
 corepack enable
 export HOME=/root
@@ -54,11 +54,15 @@ codex --version
 
 rm -rf /var/lib/apt/lists/*
 `,
-  )
+);
+
+const vmSpec = new VmSpec()
+  .baseImage(vmBaseImage)
   .memSizeGb(16)
   .vcpuCount(4)
   .rootfsSizeGb(24)
-  .idleTimeoutSeconds(vmIdleTimeoutSeconds);
+  .idleTimeoutSeconds(vmIdleTimeoutSeconds)
+  .snapshot();
 
 const app = workflow("freestyle-website-next", {
   providers: {

@@ -14,4 +14,4 @@ rig run smoke-workspace ssh --print
 
 During `rig apply`, `rig` opens a local browser terminal for the interactive step. When the terminal work is done, click Finished.
 
-The Freestyle API key is read from the repo root `.env` when commands are run from the root with `-chdir=examples/smoke`, or from this directory's environment when run directly.
+The Freestyle API key is read from the repo root `.env` when commands are run from the root with `--chdir=examples/smoke`, or from this directory's environment when run directly.

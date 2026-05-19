@@ -28,6 +28,7 @@ type CommandName =
   | "run"
   | "ls"
   | "cache"
+  | "providers"
   | "projects"
   | "doctor"
   | "version"
@@ -126,6 +127,7 @@ const GROUP_VALUES = "Values";
 const GROUP_PATHS = "Paths";
 const GROUP_SHELLS = "Shells";
 const GROUP_CACHE = "Cache entries";
+const GROUP_PROVIDERS = "Providers";
 
 const COMMANDS: CompletionItem[] = withGroup(GROUP_COMMANDS, [
   { value: "help", description: "show CLI help" },
@@ -137,6 +139,7 @@ const COMMANDS: CompletionItem[] = withGroup(GROUP_COMMANDS, [
   { value: "run", description: "run a workspace operation" },
   { value: "ls", description: "list project workspaces" },
   { value: "cache", description: "inspect and clear Rigkit cache" },
+  { value: "providers", description: "manage provider-owned local state" },
   { value: "projects", description: "discover Rigkit projects" },
   { value: "doctor", description: "show runtime diagnostics" },
   { value: "version", description: "show CLI version" },
@@ -149,36 +152,42 @@ const JSON_OPTION = option(["--json"], "print JSON");
 const HELP_OPTION = option(["--help"], "show help");
 
 const GLOBAL_OPTIONS: OptionDefinition[] = [
-  option(["-chdir", "--chdir"], "working directory", {
+  option(["--chdir", "-chdir"], "working directory", {
     group: GROUP_GLOBAL,
     takesValue: true,
     valueKind: "directories",
     completions: [
-      { value: "-chdir=", noSpace: true },
       { value: "--chdir=", noSpace: true },
     ],
   }),
-  option(["-config", "--config"], "config file", {
+  option(["--config", "-config"], "config file", {
     group: GROUP_GLOBAL,
     takesValue: true,
     valueKind: "config-files",
     completions: [
-      { value: "-config=", noSpace: true },
       { value: "--config=", noSpace: true },
     ],
   }),
-  option(["-state", "--state"], "state database path", {
+  option(["--state", "-state"], "state database path", {
     group: GROUP_GLOBAL,
     takesValue: true,
     valueKind: "filesystem",
     completions: [
-      { value: "-state=", noSpace: true },
       { value: "--state=", noSpace: true },
     ],
   }),
-  option(["-json", "--json"], "print JSON", { group: GROUP_GLOBAL }),
-  option(["-help", "--help"], "show help", { group: GROUP_GLOBAL }),
-  option(["-version", "--version", "-v"], "show version", { group: GROUP_GLOBAL }),
+  option(["--json", "-json"], "print JSON", {
+    group: GROUP_GLOBAL,
+    completions: [{ value: "--json" }],
+  }),
+  option(["--help", "-help"], "show help", {
+    group: GROUP_GLOBAL,
+    completions: [{ value: "--help" }],
+  }),
+  option(["--version", "-version", "-v"], "show version", {
+    group: GROUP_GLOBAL,
+    completions: [{ value: "--version" }, { value: "-v" }],
+  }),
 ];
 
 const COMMAND_OPTIONS: Record<CommandName, OptionDefinition[]> = {
@@ -224,6 +233,9 @@ const COMMAND_OPTIONS: Record<CommandName, OptionDefinition[]> = {
     HELP_OPTION,
   ],
   cache: [
+    HELP_OPTION,
+  ],
+  providers: [
     HELP_OPTION,
   ],
   projects: [
@@ -292,6 +304,31 @@ const CACHE_SUBCOMMAND_OPTIONS: Record<string, OptionDefinition[]> = {
     JSON_OPTION,
     HELP_OPTION,
   ],
+};
+
+const PROVIDER_TARGETS: CompletionItem[] = withGroup(GROUP_PROVIDERS, [
+  { value: "freestyle", description: "Freestyle provider state" },
+]);
+
+const PROVIDER_SUBCOMMANDS: Record<string, CompletionItem[]> = {
+  freestyle: withGroup(GROUP_SUBCOMMANDS, [
+    { value: "clear", description: "clear Freestyle provider local auth and identity state" },
+  ]),
+};
+
+const PROVIDER_TARGET_OPTIONS: Record<string, OptionDefinition[]> = {
+  freestyle: [
+    HELP_OPTION,
+  ],
+};
+
+const PROVIDER_SUBCOMMAND_OPTIONS: Record<string, Record<string, OptionDefinition[]>> = {
+  freestyle: {
+    clear: [
+      JSON_OPTION,
+      HELP_OPTION,
+    ],
+  },
 };
 
 const COMPLETION_SHELLS: CompletionItem[] = withGroup(GROUP_SHELLS, [
@@ -471,6 +508,14 @@ async function optionsForCommandContext(context: CompletionContext): Promise<Opt
     if (cache.subcommand) return CACHE_SUBCOMMAND_OPTIONS[cache.subcommand] ?? [HELP_OPTION];
   }
 
+  if (context.command === "providers") {
+    const providers = parseProvidersArgs(context);
+    if (providers.provider && providers.subcommand) {
+      return PROVIDER_SUBCOMMAND_OPTIONS[providers.provider]?.[providers.subcommand] ?? [HELP_OPTION];
+    }
+    if (providers.provider) return PROVIDER_TARGET_OPTIONS[providers.provider] ?? [HELP_OPTION];
+  }
+
   return COMMAND_OPTIONS[context.command] ?? [];
 }
 
@@ -553,6 +598,8 @@ async function completeCommand(context: CompletionContext): Promise<CompletionIt
       return completeLsCommand(context);
     case "cache":
       return await completeCacheCommand(context);
+    case "providers":
+      return completeProvidersCommand(context);
     case "completion":
       return completeCompletionCommand(context);
     case "init":
@@ -688,6 +735,24 @@ async function completeCacheCommand(context: CompletionContext): Promise<Complet
   }
 
   return [];
+}
+
+function completeProvidersCommand(context: CompletionContext): CompletionItem[] {
+  const providers = parseProvidersArgs(context);
+  if (!providers.provider) {
+    if (context.current.startsWith("-")) return filterItems(optionItems(COMMAND_OPTIONS.providers), context.current);
+    return filterItems(PROVIDER_TARGETS, context.current);
+  }
+
+  if (!providers.subcommand) {
+    const options = PROVIDER_TARGET_OPTIONS[providers.provider] ?? [HELP_OPTION];
+    const subcommands = PROVIDER_SUBCOMMANDS[providers.provider] ?? [];
+    if (context.current.startsWith("-")) return filterItems(optionItems(options), context.current);
+    return filterItems(subcommands, context.current);
+  }
+
+  const options = PROVIDER_SUBCOMMAND_OPTIONS[providers.provider]?.[providers.subcommand] ?? [HELP_OPTION];
+  return completeOptionsOnlyCommand(context, options);
 }
 
 function completeCompletionCommand(context: CompletionContext): CompletionItem[] {
@@ -858,6 +923,15 @@ function parseCacheArgs(context: CompletionContext): { subcommand?: string; args
   return {
     subcommand: positionals[0],
     args: positionals.slice(1),
+  };
+}
+
+function parseProvidersArgs(context: CompletionContext): { provider?: string; subcommand?: string; args: string[] } {
+  const positionals = positionalsFrom(context.argsBefore, COMMAND_OPTIONS.providers);
+  return {
+    provider: positionals[0],
+    subcommand: positionals[1],
+    args: positionals.slice(2),
   };
 }
 
