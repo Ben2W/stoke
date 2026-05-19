@@ -46,18 +46,24 @@
   "navigation": {
     "versions": [
       {
-        "version": "v0.2.9",
+        "version": "v0.2.10",
         "default": true,
         "tag": "Latest",
         "pages": [
           "introduction",
           {
             "group": "Get started",
-            "pages": ["guides/quickstart", "reference/cli"]
+            "pages": [
+              "guides/quickstart",
+              "reference/cli"
+            ]
           },
           {
             "group": "Concepts",
-            "pages": ["concepts/mental-model", "concepts/cache-and-state"]
+            "pages": [
+              "concepts/mental-model",
+              "concepts/cache-and-state"
+            ]
           },
           {
             "group": "Writing configs",
@@ -79,7 +85,9 @@
           },
           {
             "group": "Extending Rigkit",
-            "pages": ["providers/creating-providers"]
+            "pages": [
+              "providers/creating-providers"
+            ]
           }
         ]
       },
@@ -117,11 +125,59 @@
           },
           {
             "group": "Advanced",
-            "pages": ["canary/advanced/fragments"]
+            "pages": [
+              "canary/advanced/fragments"
+            ]
           },
           {
             "group": "Reference",
-            "pages": ["canary/reference/cli"]
+            "pages": [
+              "canary/reference/cli"
+            ]
+          }
+        ]
+      },
+      {
+        "version": "v0.2.9",
+        "pages": [
+          "v0.2.9/introduction",
+          {
+            "group": "Get started",
+            "pages": [
+              "v0.2.9/guides/quickstart",
+              "v0.2.9/reference/cli"
+            ]
+          },
+          {
+            "group": "Concepts",
+            "pages": [
+              "v0.2.9/concepts/mental-model",
+              "v0.2.9/concepts/cache-and-state"
+            ]
+          },
+          {
+            "group": "Writing configs",
+            "pages": [
+              "v0.2.9/guides/workflows",
+              "v0.2.9/guides/workspaces",
+              "v0.2.9/advanced/fragments"
+            ]
+          },
+          {
+            "group": "Built-in providers",
+            "pages": [
+              "v0.2.9/providers/overview",
+              "v0.2.9/providers/freestyle",
+              "v0.2.9/providers/terminal",
+              "v0.2.9/providers/cmux",
+              "v0.2.9/providers/gcloud"
+            ]
+          },
+          {
+            "group": "Extending Rigkit",
+            "pages": [
+              "v0.2.9/providers/creating-providers"
+            ]
           }
         ]
       },
@@ -158,11 +214,15 @@
           },
           {
             "group": "Advanced",
-            "pages": ["v0.2.8/advanced/fragments"]
+            "pages": [
+              "v0.2.8/advanced/fragments"
+            ]
           },
           {
             "group": "Reference",
-            "pages": ["v0.2.8/reference/cli"]
+            "pages": [
+              "v0.2.8/reference/cli"
+            ]
           }
         ]
       }

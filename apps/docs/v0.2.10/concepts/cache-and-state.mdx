@@ -1,0 +1,312 @@
+---
+title: "Cache and state"
+description: "Where Rigkit stores task outputs, workspace records, fragments, and provider state — and how to invalidate them."
+noindex: true
+---
+
+Rigkit is useful because setup work is durable. Expensive tasks can run once,
+write JSON context to the state database, and be reused by later plans,
+applies, workspace creates, and operations.
+
+```mermaid
+flowchart LR
+  TaskA["Task A"] --> RunA["Cached run A"]
+  RunA --> TaskB["Task B"]
+  TaskB --> RunB["Cached run B"]
+  RunB --> TaskC["Task C"]
+  TaskC --> RunC["Cached run C"]
+
+  Change["Change Task A or provider config"] -. invalidates .-> RunA
+  RunA -. upstream changed .-> RunB
+  RunB -. upstream changed .-> RunC
+```
+
+Rigkit tracks upstream run ids, so a change to one task affects the dependent
+part of the graph without forcing unrelated work to rerun.
+
+## Where state lives
+
+Rigkit separates several kinds of state so that workflow cache, workspace
+records, shared bases, and provider credentials can be cleared and reused
+independently.
+
+```mermaid
+flowchart TD
+  Task["Task output ctx"] --> State["Project .rigkit/state.sqlite"]
+  Workspace["Workspace ctx"] --> State
+  Global["Global fragment task runs"] --> Fragment["~/.rigkit/fragments/&lt;hash&gt;/state.sqlite"]
+  ProviderProject["Provider project records"] --> State
+  ProviderHost["Provider host credentials"] --> HostStorage["Provider host storage"]
+
+  State --> Runtime["Project runtime"]
+  Fragment --> Runtime
+  HostStorage --> Runtime
+```
+
+Each kind is covered below.
+
+## What is cached
+
+Rigkit caches task outputs, not live resources. A task output is the `ctx`
+object returned by the task.
+
+```ts
+.task("prepare", async ({ freestyle }) => {
+  const { vm, vmId } = await freestyle.client.vms.create({
+    logger: console.log,
+  });
+
+  try {
+    const snapshot = await vm.snapshot();
+    return {
+      ctx: {
+        snapshotId: snapshot.snapshotId,
+      },
+    };
+  } finally {
+    await freestyle.client.vms.delete({ vmId });
+  }
+});
+```
+
+The VM object is not cached. The durable `snapshotId` is cached.
+
+## Task context: what to put in it
+
+Task context is durable workflow output. It is persisted and reused by later
+plans, applies, workspace creates, and operations.
+
+Good task context:
+
+- resource ids;
+- snapshot ids;
+- workspace paths;
+- ports;
+- branch names;
+- provider artifact refs shaped like `{ provider, kind, ... }`;
+- non-secret metadata needed by later tasks.
+
+Avoid task context for live clients, functions, streams, short-lived process
+handles, or accidental secrets.
+
+## Cache keys
+
+A cached task run is reusable only when it still matches the current graph.
+Rigkit considers:
+
+- the task path and name;
+- the task handler fingerprint;
+- the merged `.configure(...)` stack;
+- the output schema;
+- upstream cached run ids;
+- the workflow provider fingerprint;
+- the task `cacheTTL`;
+- provider artifact validation, when a provider implements it.
+
+Provider fingerprints include provider ids, resolved provider config, and
+provider plugin identity. Changing provider config can make cached runs
+unusable.
+
+## Local cache
+
+Local cache is stored in the project:
+
+```text
+.rigkit/state.sqlite
+```
+
+It contains local task runs and workspace records for the selected config.
+`.rigkit/` should stay out of source control.
+
+## Global fragments
+
+`.global()` moves a node and its children into a global fragment cache for that
+Rigkit installation. When using the CLI, the default fragment state lives at:
+
+```text
+~/.rigkit/fragments/<fragment-hash>/state.sqlite
+```
+
+Set `RIGKIT_HOME` to move the Rigkit home directory. Hosts that embed the
+engine directly can also provide their own global fragment root.
+
+The fragment hash is based on the fragment graph and provider fingerprint.
+When two workflows use the same global fragment graph with the same provider
+config, they can reuse the same cached setup.
+
+Use global fragments for expensive shared setup, such as:
+
+- base VM images;
+- language toolchains;
+- authenticated CLI initialization that is intentionally shared;
+- warmed package stores.
+
+Be careful with credentials. If a global fragment snapshots authenticated
+state, that is the cache boundary you are choosing.
+
+## Returning to local cache
+
+`.local()` switches a subtree back to local cache after a global fragment.
+
+```ts
+const base = app.sequence("base").global().task("install-tooling", async () => {
+  return { ctx: { snapshotId: "snap_base" } };
+});
+
+const repo = app.sequence<{ snapshotId: string }>("repo").local().task(
+  "clone-repo",
+  async ({ step }) => ({
+    ctx: {
+      ...step.ctx,
+      repoPath: "/workspace/app",
+    },
+  }),
+);
+```
+
+This is useful when the base should be shared but repo-specific work should
+stay in the project cache.
+
+## Expiring task output
+
+Use `cacheTTL` for output that should be considered stale after a duration:
+
+```ts
+.task(
+  "check-auth",
+  { cacheTTL: "30m" },
+  async ({ step }) => {
+    return { ctx: step.ctx };
+  },
+);
+```
+
+Supported string units are `ms`, `s`, `m`, `h`, and `d`. `cacheTTL: 0` makes
+the task run every apply.
+
+## Invalidate a previous task from a later task
+
+Tasks can invalidate earlier task output by name. This is useful for health
+checks that run after repo setup but discover stale shared state.
+
+```ts
+.task("github-auth", async ({ step }) => {
+  return {
+    ctx: {
+      ...step.ctx,
+      authenticated: true,
+    },
+  };
+})
+.task("check-auth", { cacheTTL: 0 }, async ({ step, freestyle }) => {
+  const ok = await checkGitHubAuth(freestyle, step.ctx.snapshotId);
+  if (!ok) {
+    return step.invalidate("github-auth");
+  }
+  return { ctx: step.ctx };
+});
+```
+
+When invalidation happens, Rigkit invalidates the target cached run and the
+current task, then restarts evaluation so the workflow can rebuild from the
+refreshed task.
+
+## Manual cache commands
+
+List cache entries:
+
+```sh
+rig cache ls
+```
+
+Invalidate one task path:
+
+```sh
+rig cache invalidate install-tooling
+```
+
+Invalidate every task in the selected workflow:
+
+```sh
+rig cache invalidate --all
+```
+
+Clear local cache:
+
+```sh
+rig cache clear --local
+```
+
+Clear global fragments reachable from the current workflow:
+
+```sh
+rig cache clear --global
+```
+
+Clear all known global fragments without loading a config:
+
+```sh
+rig cache clear --global --all
+```
+
+## Workspace context
+
+Workspaces are stored separately from task runs in the same project state
+database. Workspace context is returned from `workspace.create` and stored
+until `workspace.remove` runs:
+
+```ts
+return {
+  vmId,
+  repoPath: workflow.ctx.repoPath,
+  devPort: workflow.ctx.devPort,
+};
+```
+
+The stored workspace record includes:
+
+- workspace name;
+- workflow name;
+- final workflow context used to create the workspace;
+- workspace context returned by `workspace.create`;
+- timestamps.
+
+Workspace operations read this context through `workspace.ctx`. Removing a
+workspace calls the configured `remove` hook and then deletes the workspace
+record.
+
+## Provider storage
+
+Custom providers can persist state in two stores, scoped differently:
+
+- **Provider project storage** (`storage`): JSON records tied to the selected
+  project. Use it for provider implementation details, such as resource
+  bookkeeping.
+- **Provider host storage** (`hostStorage`): developer-machine credentials or
+  login state that should outlive a project's cache.
+
+```ts
+storage.set("branch:br_123", {
+  provider: "acme-db",
+  kind: "branch",
+  branchId: "br_123",
+});
+
+const branch = storage.get("branch:br_123");
+```
+
+Freestyle browser login, for example, uses provider-owned host storage. That
+is why deleting `.rigkit/state.sqlite` does not log the user out of Freestyle.
+
+See [Creating providers](/v0.2.10/providers/creating-providers) for the full storage
+API and patterns.
+
+## Storage rules of thumb
+
+- Put workflow outputs in task context.
+- Put workspace resource ids in workspace context.
+- Put provider implementation records in provider project storage.
+- Put developer credentials in provider host storage.
+- Put expensive reusable setup in global fragments only when sharing is
+  intended.
+- Never return a secret in task context unless you are comfortable caching it.
