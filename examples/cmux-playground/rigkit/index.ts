@@ -45,13 +45,22 @@ export const cmuxPlayground = app
     title: "Open",
     description: "Open a cmux workspace",
     run: async ({ providers, workspace }) => {
-      await providers.cmux.open({
-        name: workspace.name,
-        ssh: await providers.freestyle.cmux.createSshOptions({
+      const cmuxWorkspace = await providers.cmux.ssh({
+        ...await providers.freestyle.cmux.createSshOptions({
           vmId: workspace.ctx.vmId,
         }),
-        terminals: [{ command: "echo hello world" }],
+        name: workspace.name,
+      });
+      const terminal = await providers.cmux.newSurface({
+        workspace: cmuxWorkspace.workspaceId,
+        type: "terminal",
         focus: true,
       });
+      await providers.cmux.send({
+        workspace: cmuxWorkspace.workspaceId,
+        surface: terminal.surfaceId,
+        text: "echo hello world\n",
+      });
+      await providers.cmux.selectWorkspace(cmuxWorkspace.workspaceId);
     },
   });

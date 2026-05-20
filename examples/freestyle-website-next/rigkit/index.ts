@@ -11,9 +11,14 @@ const repo = "freestyle-sh/freestyle-website-next";
 const repoUrl = `https://github.com/${repo}.git`;
 const repoPath = "/workspace/freestyle-website-next";
 const devPort = 4321;
-const devCommand = `bun run dev -- --host 0.0.0.0 --port ${devPort}`;
+const devEnvironmentPath =
+  "/usr/local/bin:/root/.local/bin:/opt/bun/bin:/root/.cargo/bin:/usr/bin:/bin:/usr/sbin:/sbin";
+const devCommand = `/usr/local/bin/bun run dev -- --host 0.0.0.0 --port ${devPort}`;
+const devSessionName = "website-dev";
 const vmIdleTimeoutSeconds = 600;
 const vmHome = "/root";
+const shpoolVersion = "0.10.0";
+const shpoolSocketPath = `${vmHome}/.local/run/shpool/${devSessionName}.socket`;
 
 const vmSpec = new VmSpec()
   .baseImage(new VmBaseImage("FROM node:22"))
@@ -47,12 +52,18 @@ codex_pid=$!
 wait "$bun_pid"
 wait "$codex_pid"
 
+curl --proto '=https' --tlsv1.2 -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain 1.85.0
+. /root/.cargo/env
+cargo install shpool --locked --version ${shpoolVersion}
+
 ln -sf /opt/bun/bin/bun /usr/local/bin/bun
+ln -sf /root/.cargo/bin/shpool /usr/local/bin/shpool
 mkdir -p /root/.codex
 printf 'cli_auth_credentials_store = "file"\\n' > /root/.codex/config.toml
 git config --system init.defaultBranch main
 bun --version
 codex --version
+shpool version
 
 rm -rf /var/lib/apt/lists/*
 `,
@@ -70,22 +81,18 @@ const app = workflow("freestyle-website-next", {
 
 const websiteSetup = app
   .sequence("website-setup")
-  .task(
-    "install-dependencies",
-    { version: "agent-cli-tooling-v4" },
-    async ({ freestyle }) => {
-      const { vm, vmId } = await freestyle.client.vms.create({
-        spec: vmSpec,
-        logger: console.log,
-      });
-      try {
-        const snapshot = await vm.snapshot();
-        return { ctx: { snapshotId: snapshot.snapshotId } };
-      } finally {
-        await freestyle.client.vms.delete({ vmId });
-      }
-    },
-  )
+  .task("install-dependencies", async ({ freestyle }) => {
+    const { vm, vmId } = await freestyle.client.vms.create({
+      spec: vmSpec,
+      logger: console.log,
+    });
+    try {
+      const snapshot = await vm.snapshot();
+      return { ctx: { snapshotId: snapshot.snapshotId } };
+    } finally {
+      await freestyle.client.vms.delete({ vmId });
+    }
+  })
   .task(
     "github-auth",
     { version: "github-auth-root-v6" },
@@ -197,6 +204,7 @@ const websiteSetup = app
           repoPath,
           repo,
           devCommand,
+          devSessionName,
           devPort,
         },
       };
@@ -229,7 +237,47 @@ const websiteSetup = app
           ctx: {
             ...step.ctx,
             snapshotId: snapshot.snapshotId,
-            hello: "world" as const,
+          },
+        };
+      } finally {
+        await freestyle.client.vms.delete({ vmId });
+      }
+    },
+  )
+  .task(
+    "run-dev-server",
+    { version: "shpool-dev-server-v2" },
+    async ({ step, freestyle }) => {
+      const created = await freestyle.client.vms.create({
+        snapshotId: step.ctx.snapshotId,
+        idleTimeoutSeconds: vmIdleTimeoutSeconds,
+        logger: console.log,
+      });
+      const { vmId } = created;
+      const { vm } = created;
+      try {
+        console.log("starting website dev server in shpool");
+        const started = await vm.exec({
+          command: startDevServerSessionCommand({
+            repoPath: step.ctx.repoPath,
+            command: step.ctx.devCommand,
+            sessionName: step.ctx.devSessionName,
+          }),
+          timeoutMs: 60 * 1000,
+        });
+        if ((started.statusCode ?? 0) !== 0) {
+          throw new Error(
+            `website dev server session failed to start:\n${started.stdout ?? ""}${started.stderr ?? ""}`.trim(),
+          );
+        }
+
+        await waitForLocalhostHtml(vm, step.ctx.devPort);
+
+        const snapshot = await vm.snapshot();
+        return {
+          ctx: {
+            ...step.ctx,
+            snapshotId: snapshot.snapshotId,
           },
         };
       } finally {
@@ -242,7 +290,7 @@ export const freestyleWebsiteNext = app
   .sequence("website")
   .add(websiteSetup)
   .workspace({
-    create: async ({ workflow, providers, workspace, step }) => {
+    create: async ({ workflow, providers, workspace }) => {
       const created = await providers.freestyle.client.vms.create({
         snapshotId: workflow.ctx.snapshotId,
         idleTimeoutSeconds: vmIdleTimeoutSeconds,
@@ -264,12 +312,15 @@ export const freestyleWebsiteNext = app
             `workspace branch creation failed:\n${result.stdout ?? ""}${result.stderr ?? ""}`.trim(),
           );
         }
+        await waitForLocalhostHtml(vm, workflow.ctx.devPort);
         return {
           vmId,
           repoPath: workflow.ctx.repoPath,
           repo: workflow.ctx.repo,
           branch,
-          devPort,
+          devCommand: workflow.ctx.devCommand,
+          devSessionName: workflow.ctx.devSessionName,
+          devPort: workflow.ctx.devPort,
         };
       } catch (error) {
         await providers.freestyle.client.vms.delete({ vmId });
@@ -284,28 +335,39 @@ export const freestyleWebsiteNext = app
     title: "Open cmux",
     description: "Open the website workspace in cmux",
     run: async ({ providers, workspace }) => {
-      const vm = providers.freestyle.client.vms.ref({
-        vmId: workspace.ctx.vmId,
-      });
-      await providers.cmux.open({
-        name: workspace.name,
-        ssh: await providers.freestyle.cmux.createSshOptions({
+      const cmuxWorkspace = await providers.cmux.ssh({
+        ...(await providers.freestyle.cmux.createSshOptions({
           vmId: workspace.ctx.vmId,
-        }),
-        cwd: workspace.ctx.repoPath,
-        surfaceLayout: "tabs",
-        terminals: [
-          { command: devCommand },
-          { command: "codex", focus: false },
-        ],
-        url: `http://localhost:${devPort}`,
-        focus: true,
-        waitForRemoteReady: {
-          timeoutMs: 90 * 1000,
-          requireProxy: true,
-        },
+        })),
+        name: workspace.name,
       });
-      await waitForLocalhost(vm, devPort);
+      await providers.cmux.newSurface({
+        workspace: cmuxWorkspace.workspaceId,
+        type: "browser",
+        url: `http://localhost:${workspace.ctx.devPort}`,
+        focus: true,
+      });
+      const devTerminal = await providers.cmux.newSurface({
+        workspace: cmuxWorkspace.workspaceId,
+        type: "terminal",
+        focus: false,
+      });
+      await providers.cmux.send({
+        workspace: cmuxWorkspace.workspaceId,
+        surface: devTerminal.surfaceId,
+        text: `${attachDevServerSessionCommand(workspace.ctx.devSessionName)}\n`,
+      });
+      const codexTerminal = await providers.cmux.newSurface({
+        workspace: cmuxWorkspace.workspaceId,
+        type: "terminal",
+        focus: false,
+      });
+      await providers.cmux.send({
+        workspace: cmuxWorkspace.workspaceId,
+        surface: codexTerminal.surfaceId,
+        text: `cd ${shellQuote(workspace.ctx.repoPath)} && codex\n`,
+      });
+      await providers.cmux.selectWorkspace(cmuxWorkspace.workspaceId);
     },
   })
   .workspaceOperation("open-vscode", {
@@ -368,27 +430,82 @@ function configureGitIdentityCommand(): string {
   ].join("\n");
 }
 
-async function waitForLocalhost(
+function startDevServerSessionCommand(options: {
+  repoPath: string;
+  command: string;
+  sessionName: string;
+}): string {
+  const shpoolClientLogPath = "/tmp/shpool-dev-server-client.log";
+  const shpoolDaemonLogPath = `${vmHome}/.local/run/shpool/daemonized-shpool.log`;
+  const shpool = `shpool --socket ${shellQuote(shpoolSocketPath)} --log-file ${shellQuote(shpoolClientLogPath)} -vv`;
+  return [
+    "set -eu",
+    `export HOME=${shellQuote(vmHome)}`,
+    `export PATH=${shellQuote(devEnvironmentPath)}:"$PATH"`,
+    `mkdir -p ${shellQuote(`${vmHome}/.config/shpool`)}`,
+    `printf '%s\\n' ${shellQuote(`initial_path = "${devEnvironmentPath}"`)} > ${shellQuote(`${vmHome}/.config/shpool/config.toml`)}`,
+    "command -v shpool",
+    "shpool version",
+    `cd ${shellQuote(options.repoPath)}`,
+    `rm -f ${shellQuote(shpoolClientLogPath)} ${shellQuote(shpoolDaemonLogPath)}`,
+    `${shpool} kill ${shellQuote(options.sessionName)} >/dev/null 2>&1 || true`,
+    "set +e",
+    `${shpool} attach --background --force --dir ${shellQuote(options.repoPath)} --cmd ${shellQuote(options.command)} ${shellQuote(options.sessionName)}`,
+    "status=$?",
+    "set -e",
+    'if [ "$status" -ne 0 ]; then',
+    '  echo "shpool attach failed with status $status" >&2',
+    `  ${shpool} list >&2 || true`,
+    `  if [ -f ${shellQuote(shpoolClientLogPath)} ]; then`,
+    '    echo "shpool client log:" >&2',
+    `    sed -n '1,240p' ${shellQuote(shpoolClientLogPath)} >&2`,
+    "  fi",
+    `  if [ -f ${shellQuote(shpoolDaemonLogPath)} ]; then`,
+    '    echo "shpool daemon log:" >&2',
+    `    sed -n '1,240p' ${shellQuote(shpoolDaemonLogPath)} >&2`,
+    "  fi",
+    '  exit "$status"',
+    "fi",
+    `${shpool} list`,
+  ].join("\n");
+}
+
+function attachDevServerSessionCommand(sessionName: string): string {
+  return [
+    "set -e",
+    `export HOME=${shellQuote(vmHome)}`,
+    `export PATH=${shellQuote(devEnvironmentPath)}:"$PATH"`,
+    `shpool --socket ${shellQuote(shpoolSocketPath)} list | awk 'NR > 1 {print $1}' | grep -Fxq ${shellQuote(sessionName)}`,
+    `exec shpool --socket ${shellQuote(shpoolSocketPath)} attach -f ${shellQuote(sessionName)}`,
+  ].join("\n");
+}
+
+async function waitForLocalhostHtml(
   vm: Pick<FreestyleSdkVm, "exec">,
   port: number,
 ): Promise<void> {
+  const url = `http://127.0.0.1:${port}/`;
   const result = await vm.exec({
     command: [
       "set -e",
+      "tmp_dir=$(mktemp -d)",
+      "trap 'rm -rf \"$tmp_dir\"' EXIT",
       "for attempt in $(seq 1 120); do",
-      `  if curl -sS -o /dev/null ${shellQuote(`http://127.0.0.1:${port}/`)} >/dev/null 2>&1; then`,
-      "    exit 0",
+      `  if curl -fsS --max-time 5 -o "$tmp_dir/body" ${shellQuote(url)} >/dev/null 2>&1; then`,
+      `    if grep -Eiq '<!doctype html|<html[[:space:]>]' "$tmp_dir/body"; then`,
+      "      exit 0",
+      "    fi",
       "  fi",
       "  sleep 1",
       "done",
-      `curl -v ${shellQuote(`http://127.0.0.1:${port}/`)} || true`,
+      `curl -i -sS --max-time 10 ${shellQuote(url)} | sed -n '1,80p' || true`,
       "exit 1",
     ].join("\n"),
     timeoutMs: 125 * 1000,
   });
   if ((result.statusCode ?? 0) !== 0) {
     throw new Error(
-      `Dev server did not start on localhost:${port}\n${result.stdout}${result.stderr}`.trim(),
+      `Dev server did not return HTML on localhost:${port}\n${result.stdout}${result.stderr}`.trim(),
     );
   }
 }

@@ -5,17 +5,33 @@ import {
 } from "@rigkit/sdk";
 import type { BaseProviderPlugin, WorkflowProviderController } from "@rigkit/engine";
 import {
-  CMUX_OPEN_CAPABILITY_ID,
-  type CmuxOpenInput,
-  type CmuxOpenPaneResult,
-  type CmuxOpenResult,
-  type CmuxOpenSession,
+  CMUX_CALL_CAPABILITY_ID,
+  type CmuxBrowserOpenInput,
+  type CmuxCallInput,
+  type CmuxNewPaneInput,
+  type CmuxNewSurfaceInput,
+  type CmuxPaneResult,
+  type CmuxPortsKickInput,
+  type CmuxRemoteReadyInput,
+  type CmuxSendInput,
+  type CmuxSshInput,
+  type CmuxWorkspaceInput,
+  type CmuxWorkspaceResult,
 } from "./capabilities.ts";
 
 export const CMUX_PROVIDER_ID = "cmux";
 
 export type CmuxRuntime = {
-  open(input: CmuxOpenInput): Promise<CmuxOpenSession>;
+  call(input: CmuxCallInput): Promise<unknown>;
+  newWorkspace(input?: CmuxWorkspaceInput): Promise<CmuxWorkspaceResult>;
+  ssh(input: CmuxSshInput): Promise<CmuxWorkspaceResult>;
+  newPane(input?: CmuxNewPaneInput): Promise<CmuxPaneResult>;
+  newSurface(input?: CmuxNewSurfaceInput): Promise<CmuxPaneResult>;
+  browserOpen(input?: CmuxBrowserOpenInput): Promise<CmuxPaneResult>;
+  send(input: CmuxSendInput): Promise<string>;
+  portsKick(input: CmuxPortsKickInput): Promise<string>;
+  selectWorkspace(workspace: string): Promise<void>;
+  waitForRemoteReady(input: CmuxRemoteReadyInput): Promise<unknown>;
 };
 
 export type CmuxProviderDefinition = WorkflowProviderDefinition<
@@ -45,73 +61,67 @@ export const cmuxProviderPlugin: BaseProviderPlugin = {
 };
 
 function createCmuxRuntime(local: LocalWorkspaceRuntime, nodePath: string): CmuxRuntime {
+  const request = (method: CmuxCallInput["method"], params?: Record<string, unknown>) =>
+    requestCmuxCall(local, { method, ...(params ? { params } : {}) }, { nodePath });
+
   return {
-    open: async (input) => await requestCmuxOpen(local, input, { nodePath }),
+    call: async (input) => await requestCmuxCall(local, input, { nodePath }),
+    newWorkspace: async (input = {}) =>
+      parseCmuxWorkspaceResult(await request("newWorkspace", input)),
+    ssh: async (input) =>
+      parseCmuxWorkspaceResult(await request("ssh", typeof input === "string" ? { destination: input } : input)),
+    newPane: async (input = {}) => parseCmuxPaneResult(await request("newPane", input)),
+    newSurface: async (input = {}) => parseCmuxPaneResult(await request("newSurface", input)),
+    browserOpen: async (input = {}) => parseCmuxPaneResult(await request("browserOpen", input)),
+    send: async (input) => String(await request("send", input)),
+    portsKick: async (input) => String(await request("portsKick", input)),
+    selectWorkspace: async (workspace) => {
+      await request("selectWorkspace", { workspace });
+    },
+    waitForRemoteReady: async (input) => await request("waitForRemoteReady", input),
   };
 }
 
-export async function requestCmuxOpen(
+export async function requestCmuxCall(
   local: LocalWorkspaceRuntime,
-  input: CmuxOpenInput,
+  input: CmuxCallInput,
   options: { nodePath?: string } = {},
-): Promise<CmuxOpenSession> {
-  if (local.requestCapabilitySession) {
-    const session = await local.requestCapabilitySession<CmuxOpenResult>(CMUX_OPEN_CAPABILITY_ID, input, options);
-    return {
-      ...parseCmuxOpenResult(session.result),
-      closed: session.closed,
-    };
-  }
+): Promise<unknown> {
   if (!local.requestCapability) {
-    throw new Error(`Host capability ${CMUX_OPEN_CAPABILITY_ID} is unavailable in this runtime`);
+    throw new Error(`Host capability ${CMUX_CALL_CAPABILITY_ID} is unavailable in this runtime`);
   }
-  const result = parseCmuxOpenResult(
-    await local.requestCapability(CMUX_OPEN_CAPABILITY_ID, input, options),
-  );
-  return {
-    ...result,
-    closed: new Promise<void>(() => {}),
-  };
+  return await local.requestCapability(CMUX_CALL_CAPABILITY_ID, input, options);
 }
 
-export function parseCmuxOpenResult(value: unknown): CmuxOpenResult {
-  if (!isRecord(value)) throw new Error(`cmux.open returned a non-object result`);
-  const sessionId = stringField(value, "sessionId");
-  if (!sessionId) throw new Error(`cmux.open result is missing sessionId`);
-  const workspaceId = stringField(value, "workspaceId") ?? sessionId;
+export function parseCmuxWorkspaceResult(value: unknown): CmuxWorkspaceResult {
+  if (!isRecord(value)) throw new Error(`cmux.call returned a non-object workspace result`);
+  const workspaceId = stringField(value, "workspaceId") ?? stringField(value, "id") ?? stringField(value, "handle");
+  if (!workspaceId) throw new Error(`cmux.call workspace result is missing workspace id`);
   return {
-    sessionId,
+    sessionId: stringField(value, "sessionId") ?? workspaceId,
     workspaceId,
-    ...optionalStringField(value, "workspaceRef"),
-    terminalPanes: arrayField(value, "terminalPanes", parseCmuxOpenPaneResult),
-    ...(value.browserPane !== undefined ? { browserPane: parseCmuxOpenPaneResult(value.browserPane) } : {}),
+    ...(stringField(value, "workspaceRef") ?? stringField(value, "ref")
+      ? { workspaceRef: stringField(value, "workspaceRef") ?? stringField(value, "ref") }
+      : {}),
   };
 }
 
-function parseCmuxOpenPaneResult(value: unknown): CmuxOpenPaneResult {
-  if (!isRecord(value)) throw new Error(`cmux.open returned a non-object pane result`);
+export function parseCmuxPaneResult(value: unknown): CmuxPaneResult {
+  if (!isRecord(value)) throw new Error(`cmux.call returned a non-object pane result`);
   return {
-    ...optionalStringField(value, "paneId"),
-    ...optionalStringField(value, "paneRef"),
-    ...optionalStringField(value, "surfaceId"),
-    ...optionalStringField(value, "surfaceRef"),
+    ...(stringField(value, "paneId") ?? stringField(value, "pane")
+      ? { paneId: stringField(value, "paneId") ?? stringField(value, "pane") }
+      : {}),
+    ...(stringField(value, "paneRef") ?? stringField(value, "paneRef")
+      ? { paneRef: stringField(value, "paneRef") ?? stringField(value, "paneRef") }
+      : {}),
+    ...(stringField(value, "surfaceId") ?? stringField(value, "surface")
+      ? { surfaceId: stringField(value, "surfaceId") ?? stringField(value, "surface") }
+      : {}),
+    ...(stringField(value, "surfaceRef") ?? stringField(value, "surfaceRef")
+      ? { surfaceRef: stringField(value, "surfaceRef") ?? stringField(value, "surfaceRef") }
+      : {}),
   };
-}
-
-function arrayField<Item>(
-  record: Record<string, unknown>,
-  key: string,
-  parseItem: (value: unknown) => Item,
-): Item[] {
-  const value = record[key];
-  if (value === undefined) return [];
-  if (!Array.isArray(value)) throw new Error(`cmux.open result ${key} must be an array`);
-  return value.map(parseItem);
-}
-
-function optionalStringField(record: Record<string, unknown>, key: string): Record<string, string> {
-  const value = stringField(record, key);
-  return value ? { [key]: value } : {};
 }
 
 function stringField(record: Record<string, unknown>, key: string): string | undefined {

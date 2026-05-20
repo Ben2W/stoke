@@ -295,18 +295,23 @@ export const dev = workflow(${workflowName}, {
     title: "Open cmux",
     description: "Open the workspace in cmux",
     run: async ({ providers, workspace }) => {
-      await providers.cmux.open({
-        name: workspace.name,
-        ssh: await providers.freestyle.cmux.createSshOptions({
+      const cmuxWorkspace = await providers.cmux.ssh({
+        ...await providers.freestyle.cmux.createSshOptions({
           vmId: workspace.ctx.vmId,
         }),
-        cwd: workspace.ctx.repoPath,
-        surfaceLayout: "tabs",
-        terminals: [
-          { command: "git status && exec bash -l" },
-        ],
+        name: workspace.name,
+      });
+      const terminal = await providers.cmux.newSurface({
+        workspace: cmuxWorkspace.workspaceId,
+        type: "terminal",
         focus: true,
       });
+      await providers.cmux.send({
+        workspace: cmuxWorkspace.workspaceId,
+        surface: terminal.surfaceId,
+        text: \`cd \${shellQuote(workspace.ctx.repoPath)} && git status && exec bash -l\\n\`,
+      });
+      await providers.cmux.selectWorkspace(cmuxWorkspace.workspaceId);
     },
   })
   .workspaceOperation("open-vscode", {

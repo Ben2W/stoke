@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { isProviderDefinition, isWorkflowNode } from "./authoring.ts";
@@ -295,6 +295,34 @@ function canonicalConfigPath(projectDir: string): string {
   return join(projectDir, "rigkit", "index.ts");
 }
 
+function definitionFingerprintFor(configPath: string): string {
+  const configDir = dirname(configPath);
+  return hash({
+    cache: "definition-source-v1",
+    files: collectDefinitionFiles(configDir).map((file) => ({
+      path: file.slice(configDir.length + 1),
+      source: readFileSync(file, "utf8"),
+    })),
+  });
+}
+
+function collectDefinitionFiles(dir: string): string[] {
+  if (!existsSync(dir)) return [];
+  const files: string[] = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...collectDefinitionFiles(path));
+    } else if (entry.isFile()) {
+      files.push(path);
+    } else if (entry.isSymbolicLink()) {
+      const stat = statSync(path);
+      if (stat.isFile()) files.push(path);
+    }
+  }
+  return files.sort();
+}
+
 // The engine owns the workflow graph, cache, and event emission for one
 // project. The runtime daemon hosts a single long-lived instance per project.
 export class DevMachineEngine {
@@ -315,6 +343,7 @@ export class DevMachineEngine {
   private readonly local: LocalWorkspaceRuntime;
   private readonly handlers = new Set<EventHandler>();
   private workflows = new Map<string, LoadedWorkflow>();
+  private definitionFingerprint = "";
 
   constructor(options: CreateDevMachineEngineOptions = {}) {
     const requestedConfigPath = options.configPath ? resolve(options.configPath) : undefined;
@@ -362,6 +391,8 @@ export class DevMachineEngine {
         `No Rigkit config found at ${this.configPath}. Run "rig init".`,
       );
     }
+
+    this.definitionFingerprint = definitionFingerprintFor(this.configPath);
 
     const moduleUrl = pathToFileURL(this.configPath);
     moduleUrl.searchParams.set("t", `${Date.now()}-${configImportCounter++}`);
@@ -1131,6 +1162,7 @@ export class DevMachineEngine {
       const fragmentHash = globalFragmentHashFor({
         node: input.node,
         providerFingerprint: input.providerFingerprint,
+        definitionFingerprint: this.definitionFingerprint,
       });
       const fragmentState = await this.getGlobalFragmentState({
         hash: fragmentHash,
@@ -1263,13 +1295,15 @@ export class DevMachineEngine {
     const cacheNodePath = [...input.cachePrefix, input.node.name].join(".");
     const upstreamRunIds = [...input.state.upstreamRunIds];
     const nodeKey = hash({
-      cache: "task-v4",
+      cache: "task-v5",
       kind: "task",
       path: cacheNodePath,
       name: input.node.name,
       config: input.configStack,
+      definition: this.definitionFingerprint,
       handler: functionFingerprintFor(input.node.handler),
       output: input.node.options?.output ?? null,
+      version: input.node.options?.version ?? null,
     });
     const planIndex = input.index.value++;
 
@@ -2209,11 +2243,13 @@ function providerPluginFingerprint(plugin: unknown): unknown {
 function globalFragmentHashFor(input: {
   node: WorkflowNodeDefinition<any, any, any>;
   providerFingerprint: string;
+  definitionFingerprint: string;
 }): string {
   return `sha256-${hash({
     cache: "fragment-v1",
     graph: graphFingerprintFor(input.node),
     providerFingerprint: input.providerFingerprint,
+    definitionFingerprint: input.definitionFingerprint,
   })}`;
 }
 
@@ -2228,6 +2264,7 @@ function graphFingerprintFor(node: WorkflowNodeDefinition<any, any, any>): unkno
       handler: functionFingerprintFor(task.handler),
       output: task.options?.output ?? null,
       cacheTTL: task.options?.cacheTTL ?? null,
+      version: task.options?.version ?? null,
     };
   }
 

@@ -2270,7 +2270,7 @@ function hostRequestNeedsTerminal(event: HostRequestEvent): boolean {
 
 function hostCapabilityNeedsTerminal(event: HostCapabilityRequestEvent): boolean {
   switch (event.capability) {
-    case "cmux.open":
+    case "cmux.call":
       return false;
     default:
       return true;

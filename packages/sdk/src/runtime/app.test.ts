@@ -585,7 +585,7 @@ describe("runtime HTTP app", () => {
   test("bridges typed host capability requests over run sessions", async () => {
     const { server, projectDir } = await serveRuntimeFixture("rigkit-runtime-capability-", `
       export const root = sequence("capability-test").operation("open", {
-        run: async ({ local }) => await local.requestCapability("cmux.open", { name: "demo" }),
+        run: async ({ local }) => await local.requestCapability("cmux.call", { name: "demo" }),
       });
     `);
 
@@ -612,7 +612,7 @@ describe("runtime HTTP app", () => {
       const completed = messages.find((message) => message.type === "run.completed");
       expect(request).toMatchObject({
         type: "host.capability.request",
-        capability: "cmux.open",
+        capability: "cmux.call",
         params: { name: "demo" },
       });
       expect(completed?.result).toEqual({ sessionId: "cmux-session-1" });
@@ -627,7 +627,7 @@ describe("runtime HTTP app", () => {
       export const root = sequence("capability-close-test").operation("open", {
         run: async ({ local }) => {
           if (!local.requestCapabilitySession) throw new Error("requestCapabilitySession unavailable");
-          const session = await local.requestCapabilitySession("cmux.open", { name: "demo" });
+          const session = await local.requestCapabilitySession("cmux.call", { name: "demo" });
           await session.closed;
           return session.result;
         },
@@ -669,7 +669,7 @@ describe("runtime HTTP app", () => {
     const { server, projectDir } = await serveRuntimeFixture("rigkit-runtime-capability-attached-", `
       export const root = sequence("capability-attached-test").operation("open", {
         run: async ({ local }) => {
-          await local.requestCapability("cmux.open", { name: "demo" });
+          await local.requestCapability("cmux.call", { name: "demo" });
           await new Promise(() => {});
         },
       });
@@ -697,7 +697,7 @@ describe("runtime HTTP app", () => {
 
       const request = messages.find((message) => message.type === "host.capability.request");
       const failed = messages.find((message) => message.type === "run.failed");
-      expect(request?.capability).toBe("cmux.open");
+      expect(request?.capability).toBe("cmux.call");
       expect(messages.some((message) => message.type === "run.completed")).toBe(false);
       expect(failed?.error?.code).toBe("RUN_CANCELLED");
     } finally {
@@ -708,13 +708,13 @@ describe("runtime HTTP app", () => {
 
   test("turns host response errors into typed host request failures", async () => {
     const { server, projectDir } = await serveRuntimeFixture("rigkit-runtime-capability-error-", `
-      export const root = sequence("capability-error-test").operation("cmux-open", {
-        run: async ({ local }) => await local.requestCapability("cmux.open", { name: "demo" }),
+      export const root = sequence("capability-error-test").operation("cmux-call", {
+        run: async ({ local }) => await local.requestCapability("cmux.call", { name: "demo" }),
       });
     `);
 
     try {
-      const started = await startRun(server, "cmux-open");
+      const started = await startRun(server, "cmux-call");
       const messages = await collectSessionMessages(
         new URL(started.sessionUrl, server.url),
         server.token,
@@ -826,7 +826,7 @@ function helloWithCapability(): Record<string, unknown> {
     transportVersion: 1,
     host: { name: "test", version: "0.0.0" },
     hostMethods: [],
-    hostCapabilities: [{ id: "cmux.open", schemaHash: "sha256:cmux-open-schema" }],
+    hostCapabilities: [{ id: "cmux.call", schemaHash: "sha256:cmux-call-schema" }],
   };
 }
 

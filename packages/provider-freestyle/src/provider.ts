@@ -5,7 +5,7 @@ import type {
   WorkflowProviderCheckResult,
   WorkflowProviderController,
 } from "@rigkit/engine";
-import type { CmuxOpenSshInput } from "@rigkit/provider-cmux";
+import type { CmuxSshInput } from "@rigkit/provider-cmux";
 import type { FreestyleIdentityId, FreestyleToken } from "./auth.ts";
 import type { FreestyleResolvedTeam } from "./host-auth.ts";
 import { createFreestyleTerminalSession } from "./terminal-session.ts";
@@ -19,7 +19,7 @@ export type FreestyleSshInput = SshOptions & {
   vmId: string;
 };
 
-export type FreestyleCmuxSshOptions = Exclude<CmuxOpenSshInput, string>;
+export type FreestyleCmuxSshOptions = Exclude<CmuxSshInput, string>;
 
 export type FreestyleCmuxSshOptionsInput = Omit<
   FreestyleCmuxSshOptions,

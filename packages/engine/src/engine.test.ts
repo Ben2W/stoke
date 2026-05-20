@@ -584,6 +584,100 @@ describe("DevMachineEngine workflow runtime", () => {
     expect(second.listNodeRuns()).toHaveLength(2);
   });
 
+  test("invalidates task cache when closed-over config source changes", async () => {
+    const rootDir = mkdtempSync(join(tmpdir(), "rigkit-closed-over-cache-"));
+    const firstProjectDir = join(rootDir, "one");
+    const secondProjectDir = join(rootDir, "two");
+    const statePath = join(rootDir, ".rigkit", "state.sqlite");
+    mkdirSync(join(rootDir, ".rigkit"));
+    const writeConfig = (projectDir: string, value: string) =>
+      writeRigkitIndex(
+        projectDir,
+        `
+          import { workflow } from "${import.meta.dir}/index.ts";
+
+          const value = "${value}";
+          const app = workflow("closed-over-cache", { providers: {} });
+
+          export const root = app.sequence("root").task("value", async () => {
+            return { ctx: { value } };
+          });
+        `,
+      );
+
+    writeConfig(firstProjectDir, "one");
+    writeConfig(secondProjectDir, "two");
+    const first = await createDevMachineEngine({
+      projectDir: firstProjectDir,
+      statePath,
+    });
+    await first.load();
+    const applied = await first.apply({ workflow: "closed-over-cache" });
+    expect(applied.context.value).toBe("one");
+    expect((await first.plan({ workflow: "closed-over-cache" })).cachedNodeCount).toBe(1);
+
+    const second = await createDevMachineEngine({
+      projectDir: secondProjectDir,
+      statePath,
+    });
+    await second.load();
+    const changed = await second.plan({ workflow: "closed-over-cache" });
+    expect(changed.cachedNodeCount).toBe(0);
+
+    const reapplied = await second.apply({ workflow: "closed-over-cache" });
+    expect(reapplied.context.value).toBe("two");
+  });
+
+  test("invalidates task cache when task version changes", async () => {
+    const rootDir = mkdtempSync(join(tmpdir(), "rigkit-task-version-cache-"));
+    const firstProjectDir = join(rootDir, "one");
+    const secondProjectDir = join(rootDir, "two");
+    const statePath = join(rootDir, ".rigkit", "state.sqlite");
+    mkdirSync(join(rootDir, ".rigkit"));
+    const previous = process.env.RIGKIT_TASK_VERSION;
+    const writeConfig = (projectDir: string) => writeRigkitIndex(projectDir,
+      `
+        import { workflow } from "${import.meta.dir}/index.ts";
+
+        const app = workflow("task-version-cache", { providers: {} });
+
+        export const root = app.sequence("root").task(
+          "value",
+          { version: process.env.RIGKIT_TASK_VERSION },
+          async () => ({ ctx: { value: process.env.RIGKIT_TASK_VERSION } }),
+        );
+      `,
+    );
+    writeConfig(firstProjectDir);
+    writeConfig(secondProjectDir);
+
+    try {
+      process.env.RIGKIT_TASK_VERSION = "one";
+      const first = await createDevMachineEngine({
+        projectDir: firstProjectDir,
+        statePath,
+      });
+      await first.load();
+      const applied = await first.apply({ workflow: "task-version-cache" });
+      expect(applied.context.value).toBe("one");
+      expect((await first.plan({ workflow: "task-version-cache" })).cachedNodeCount).toBe(1);
+
+      process.env.RIGKIT_TASK_VERSION = "two";
+      const second = await createDevMachineEngine({
+        projectDir: secondProjectDir,
+        statePath,
+      });
+      await second.load();
+      const changed = await second.plan({ workflow: "task-version-cache" });
+      expect(changed.cachedNodeCount).toBe(0);
+
+      const reapplied = await second.apply({ workflow: "task-version-cache" });
+      expect(reapplied.context.value).toBe("two");
+    } finally {
+      restoreEnv("RIGKIT_TASK_VERSION", previous);
+    }
+  });
+
   test("stores globally scoped sequence runs in fragment state and busts downstream local cache", async () => {
     const rootDir = mkdtempSync(join(tmpdir(), "rigkit-global-fragment-"));
     const firstProjectDir = join(rootDir, "one");
