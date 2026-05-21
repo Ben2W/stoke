@@ -41,23 +41,20 @@ describe("DevMachineEngine workflow runtime", () => {
       `
         import { defineProvider, workflow, z } from "${import.meta.dir}/index.ts";
 
-        const app = workflow("test", {
-          providers: {
-            test: defineProvider("test", { token: "test-key" }),
-          },
-        });
+        const testProvider = defineProvider("test", { token: "test-key" });
+        const app = workflow("test");
 
-        const base = app.sequence("base").task("first", async ({ step, test }) => {
+        const base = app.sequence("base").addProvider("test", testProvider).task("first", async ({ step, providers }) => {
           console.log("preparing base");
-          const vm = await test.createVm();
+          const vm = await providers.test.createVm();
           await vm.exec("touch /tmp/first", { name: "touch first" });
           if (!(await vm.exists("/tmp/first"))) throw new Error("first was not created");
           return { ctx: { first: true, vm: await vm.snapshotRef() } };
         });
 
-        const left = app.sequence("left").task("second", async ({ step, test }) => {
+        const left = app.sequence("left").addProvider("test", testProvider).task("second", async ({ step, providers }) => {
           if (!step.ctx.first) throw new Error("missing first context");
-          const vm = await test.fromSnapshot(step.ctx.vm);
+          const vm = await providers.test.fromSnapshot(step.ctx.vm);
           await vm.exec("touch /tmp/second", { name: "touch second" });
           return { ctx: { second: true, vm: await vm.snapshotRef() } };
         });
@@ -76,6 +73,7 @@ describe("DevMachineEngine workflow runtime", () => {
             if (step.ctx.right.data !== "right-ready") throw new Error("missing right context");
             return { ctx: { vm: step.ctx.left.vm, summary: step.ctx.right.data } };
           })
+          .addProvider("test", testProvider)
           .workspace({
             create: async ({ providers, workflow, workspace, local }) => {
               if (workflow.ctx.summary !== "right-ready") throw new Error("missing final context");
@@ -199,9 +197,10 @@ describe("DevMachineEngine workflow runtime", () => {
 
         const test = defineProvider("test", { token: "test-key" });
 
-        const app = workflow("create-test", { providers: { test } });
+        const app = workflow("create-test");
 
         export const root = app.sequence("create-test")
+          .addProvider("test", test)
           .step("prepare", async ({ providers }) => {
             const vm = await providers.test.createVm();
             await vm.exec("touch /tmp/template", { name: "prepare template" });
@@ -546,7 +545,7 @@ describe("DevMachineEngine workflow runtime", () => {
         `
           import { workflow } from "${import.meta.dir}/index.ts";
 
-          const app = workflow("handler-cache", { providers: {} });
+          const app = workflow("handler-cache");
 
           export const root = app.sequence("root").task("value", async () => {
             return { ctx: { value: "${value}" } };
@@ -582,6 +581,100 @@ describe("DevMachineEngine workflow runtime", () => {
     const reapplied = await second.apply({ workflow: "handler-cache" });
     expect(reapplied.context.value).toBe("two");
     expect(second.listNodeRuns()).toHaveLength(2);
+  });
+
+  test("invalidates task cache when closed-over config source changes", async () => {
+    const rootDir = mkdtempSync(join(tmpdir(), "rigkit-closed-over-cache-"));
+    const firstProjectDir = join(rootDir, "one");
+    const secondProjectDir = join(rootDir, "two");
+    const statePath = join(rootDir, ".rigkit", "state.sqlite");
+    mkdirSync(join(rootDir, ".rigkit"));
+    const writeConfig = (projectDir: string, value: string) =>
+      writeRigkitIndex(
+        projectDir,
+        `
+          import { workflow } from "${import.meta.dir}/index.ts";
+
+          const value = "${value}";
+          const app = workflow("closed-over-cache");
+
+          export const root = app.sequence("root").task("value", async () => {
+            return { ctx: { value } };
+          });
+        `,
+      );
+
+    writeConfig(firstProjectDir, "one");
+    writeConfig(secondProjectDir, "two");
+    const first = await createDevMachineEngine({
+      projectDir: firstProjectDir,
+      statePath,
+    });
+    await first.load();
+    const applied = await first.apply({ workflow: "closed-over-cache" });
+    expect(applied.context.value).toBe("one");
+    expect((await first.plan({ workflow: "closed-over-cache" })).cachedNodeCount).toBe(1);
+
+    const second = await createDevMachineEngine({
+      projectDir: secondProjectDir,
+      statePath,
+    });
+    await second.load();
+    const changed = await second.plan({ workflow: "closed-over-cache" });
+    expect(changed.cachedNodeCount).toBe(0);
+
+    const reapplied = await second.apply({ workflow: "closed-over-cache" });
+    expect(reapplied.context.value).toBe("two");
+  });
+
+  test("invalidates task cache when task version changes", async () => {
+    const rootDir = mkdtempSync(join(tmpdir(), "rigkit-task-version-cache-"));
+    const firstProjectDir = join(rootDir, "one");
+    const secondProjectDir = join(rootDir, "two");
+    const statePath = join(rootDir, ".rigkit", "state.sqlite");
+    mkdirSync(join(rootDir, ".rigkit"));
+    const previous = process.env.RIGKIT_TASK_VERSION;
+    const writeConfig = (projectDir: string) => writeRigkitIndex(projectDir,
+      `
+        import { workflow } from "${import.meta.dir}/index.ts";
+
+        const app = workflow("task-version-cache");
+
+        export const root = app.sequence("root").task(
+          "value",
+          { version: process.env.RIGKIT_TASK_VERSION },
+          async () => ({ ctx: { value: process.env.RIGKIT_TASK_VERSION } }),
+        );
+      `,
+    );
+    writeConfig(firstProjectDir);
+    writeConfig(secondProjectDir);
+
+    try {
+      process.env.RIGKIT_TASK_VERSION = "one";
+      const first = await createDevMachineEngine({
+        projectDir: firstProjectDir,
+        statePath,
+      });
+      await first.load();
+      const applied = await first.apply({ workflow: "task-version-cache" });
+      expect(applied.context.value).toBe("one");
+      expect((await first.plan({ workflow: "task-version-cache" })).cachedNodeCount).toBe(1);
+
+      process.env.RIGKIT_TASK_VERSION = "two";
+      const second = await createDevMachineEngine({
+        projectDir: secondProjectDir,
+        statePath,
+      });
+      await second.load();
+      const changed = await second.plan({ workflow: "task-version-cache" });
+      expect(changed.cachedNodeCount).toBe(0);
+
+      const reapplied = await second.apply({ workflow: "task-version-cache" });
+      expect(reapplied.context.value).toBe("two");
+    } finally {
+      restoreEnv("RIGKIT_TASK_VERSION", previous);
+    }
   });
 
   test("stores globally scoped sequence runs in fragment state and busts downstream local cache", async () => {
@@ -647,6 +740,76 @@ describe("DevMachineEngine workflow runtime", () => {
     const reapplied = await second.apply({ workflow: "site" });
     expect(reapplied.context.installed).toBe("two");
     expect(readdirSync(fragmentRoot)).toHaveLength(2);
+  });
+
+  test("lists cache entries in workflow plan order", async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-cache-order-"));
+
+    writeRigkitIndex(projectDir,
+      `
+        import { sequence } from "${import.meta.dir}/index.ts";
+
+        const wait = () => new Promise((resolve) => setTimeout(resolve, 5));
+
+        export const ordered = sequence("ordered")
+          .task("first", async () => {
+            await wait();
+            return { ctx: { first: true } };
+          })
+          .task("second", async ({ step }) => {
+            await wait();
+            return { ctx: { ...step.ctx, second: true } };
+          });
+      `,
+    );
+
+    const engine = await createDevMachineEngine({ projectDir });
+    await engine.load();
+    await engine.apply({ workflow: "ordered" });
+
+    const plan = await engine.plan({ workflow: "ordered" });
+    const cache = await engine.listCache({ workflow: "ordered" });
+
+    expect(cache.entries.map((entry) => entry.displayPath)).toEqual(plan.nodes.map((node) => node.path));
+    expect(cache.entries.map((entry) => entry.planIndex)).toEqual([0, 1]);
+    expect(cache.entries.map((entry) => entry.nodeName)).toEqual(["first", "second"]);
+  });
+
+  test("invalidates global cache entries by plan display path", async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-global-cache-invalidate-"));
+    const fragmentRoot = join(projectDir, "fragments");
+
+    writeRigkitIndex(projectDir,
+      `
+        import { sequence } from "${import.meta.dir}/index.ts";
+
+        const deps = sequence("deps")
+          .task("prepare", async () => ({ ctx: { prepared: true } }))
+          .global();
+
+        export const site = sequence("site")
+          .add(deps)
+          .task("install", async ({ step }) => ({ ctx: { installed: step.ctx.prepared } }));
+      `,
+    );
+
+    const engine = await createDevMachineEngine({
+      projectDir,
+      globalFragmentStateLocator: (fragment: { hash: string }) => ({
+        statePath: join(fragmentRoot, fragment.hash, "state.sqlite"),
+      }),
+    });
+    await engine.load();
+    await engine.apply({ workflow: "site" });
+
+    const cache = await engine.listCache({ workflow: "site" });
+    expect(cache.entries.find((entry) => entry.scope === "global")?.displayPath).toBe("deps.prepare");
+
+    const result = await engine.invalidateCache({ workflow: "site", nodePaths: ["deps.prepare"] });
+    expect(result.invalidated).toBe(1);
+
+    const entries = (await engine.listCache({ workflow: "site", includeUnreachable: true })).entries;
+    expect(entries.find((entry) => entry.scope === "global" && entry.nodePath === "deps.prepare")?.invalidated).toBe(true);
   });
 
   test("allows a later local task to invalidate an earlier global fragment task", async () => {
@@ -757,13 +920,11 @@ describe("DevMachineEngine workflow runtime", () => {
       `
         import { defineProvider, workflow } from "${import.meta.dir}/index.ts";
 
-        const app = workflow("provider-storage", {
-          providers: {
-            test: defineProvider("test", {}),
-          },
-        });
+        const app = workflow("provider-storage");
 
-        export const root = app.sequence("root").task("ready", async () => ({ ctx: { ready: true } }));
+        export const root = app.sequence("root")
+          .addProvider("test", defineProvider("test", {}))
+          .task("ready", async () => ({ ctx: { ready: true } }));
       `,
     );
 
@@ -824,13 +985,11 @@ describe("DevMachineEngine workflow runtime", () => {
       `
         import { defineProvider, workflow } from "${import.meta.dir}/index.ts";
 
-        const app = workflow("provider-host-storage", {
-          providers: {
-            test: defineProvider("test", {}),
-          },
-        });
+        const app = workflow("provider-host-storage");
 
-        export const root = app.sequence("root").task("ready", async () => ({ ctx: { ready: true } }));
+        export const root = app.sequence("root")
+          .addProvider("test", defineProvider("test", {}))
+          .task("ready", async () => ({ ctx: { ready: true } }));
       `,
     );
 
@@ -878,13 +1037,11 @@ describe("DevMachineEngine workflow runtime", () => {
       `
         import { defineProvider, workflow } from "${import.meta.dir}/index.ts";
 
-        const app = workflow("provider-status", {
-          providers: {
-            test: defineProvider("test", {}),
-          },
-        });
+        const app = workflow("provider-status");
 
-        export const noop = app.task("noop", async () => {});
+        export const noop = app.sequence("provider-status")
+          .addProvider("test", defineProvider("test", {}))
+          .task("noop", async () => {});
       `,
     );
 
@@ -921,13 +1078,11 @@ describe("DevMachineEngine workflow runtime", () => {
       `
         import { defineProvider, workflow } from "${import.meta.dir}/index.ts";
 
-        const app = workflow("provider-check-required", {
-          providers: {
-            test: defineProvider("test", {}),
-          },
-        });
+        const app = workflow("provider-check-required");
 
-        export const noop = app.task("noop", async () => {});
+        export const noop = app.sequence("provider-check-required")
+          .addProvider("test", defineProvider("test", {}))
+          .task("noop", async () => {});
       `,
     );
 
@@ -959,13 +1114,9 @@ describe("DevMachineEngine workflow runtime", () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-"));
     writeRigkitIndex(projectDir,
       `
-        import { defineProvider, workflow } from "${import.meta.dir}/index.ts";
+        import { workflow } from "${import.meta.dir}/index.ts";
 
-        const app = workflow("test", {
-          providers: {
-            test: defineProvider("test", { token: "test-key" }),
-          },
-        });
+        const app = workflow("test");
 
         export const bad = app.sequence("bad").task("returns-function", async () => {
           return { ctx: { fn: () => "nope" } };
@@ -988,14 +1139,12 @@ describe("DevMachineEngine workflow runtime", () => {
       `
         import { defineProvider, workflow } from "${import.meta.dir}/index.ts";
 
-        const app = workflow("test", {
-          providers: {
-            test: defineProvider("test", { token: "test-key" }),
-          },
-        });
+        const app = workflow("test");
 
-        export const auth = app.sequence("auth").task("login", async ({ test }) => {
-          const result = await test.openTerminal("GitHub auth", "gh auth login");
+        export const auth = app.sequence("auth")
+          .addProvider("test", defineProvider("test", { token: "test-key" }))
+          .task("login", async ({ providers }) => {
+          const result = await providers.test.openTerminal("GitHub auth", "gh auth login");
           return { ctx: { finished: result.finished } };
         });
       `,
@@ -1033,14 +1182,12 @@ describe("DevMachineEngine workflow runtime", () => {
       `
         import { defineProvider, workflow } from "${import.meta.dir}/index.ts";
 
-        const app = workflow("test", {
-          providers: {
-            test: defineProvider("test", { token: "test-key" }),
-          },
-        });
+        const app = workflow("test");
 
-        export const auth = app.sequence("auth").task("login", async ({ test }) => {
-          const result = await test.openTerminal("GitHub auth", "gh auth login");
+        export const auth = app.sequence("auth")
+          .addProvider("test", defineProvider("test", { token: "test-key" }))
+          .task("login", async ({ providers }) => {
+          const result = await providers.test.openTerminal("GitHub auth", "gh auth login");
           return { ctx: { finished: result.finished } };
         });
       `,
@@ -1078,21 +1225,19 @@ describe("DevMachineEngine workflow runtime", () => {
     expect(provider.terminalStopped).toBe(1);
   });
 
-  test("provider config contributes to the workflow cache fingerprint", async () => {
+  test("provider config contributes to the scoped task cache fingerprint", async () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-"));
     const previousToken = process.env.RIGKIT_TEST_PROVIDER_TOKEN;
     writeRigkitIndex(projectDir,
       `
         import { defineProvider, workflow } from "${import.meta.dir}/index.ts";
 
-        const app = workflow("test", {
-          providers: {
-            test: defineProvider("test", { token: () => process.env.RIGKIT_TEST_PROVIDER_TOKEN }),
-          },
-        });
+        const app = workflow("test");
 
-        export const setup = app.sequence("setup").task("touch", async ({ test }) => {
-          const vm = await test.createVm();
+        export const setup = app.sequence("setup")
+          .addProvider("test", defineProvider("test", { token: () => process.env.RIGKIT_TEST_PROVIDER_TOKEN }))
+          .task("touch", async ({ providers }) => {
+          const vm = await providers.test.createVm();
           await vm.exec("touch /tmp/setup", { name: "touch setup" });
           return { ctx: { vm: await vm.snapshotRef() } };
         });
@@ -1126,18 +1271,188 @@ describe("DevMachineEngine workflow runtime", () => {
     }
   });
 
+  test("provider config changes only invalidate tasks after addProvider", async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-scoped-provider-cache-"));
+    const previousToken = process.env.RIGKIT_TEST_PROVIDER_TOKEN;
+    writeRigkitIndex(projectDir,
+      `
+        import { defineProvider, workflow } from "${import.meta.dir}/index.ts";
+
+        const app = workflow("scoped-provider-cache");
+
+        export const setup = app.sequence("setup")
+          .task("pure-before", async () => ({ ctx: { before: true } }))
+          .addProvider("test", defineProvider("test", { token: () => process.env.RIGKIT_TEST_PROVIDER_TOKEN }))
+          .task("uses-provider", async ({ providers, step }) => {
+            const vm = await providers.test.createVm();
+            await vm.exec("touch /tmp/scoped", { name: "touch scoped" });
+            return { ctx: { ...step.ctx, vm: await vm.snapshotRef() } };
+          })
+          .task("after-provider", async ({ step }) => ({ ctx: { ...step.ctx, after: true } }));
+      `,
+    );
+
+    try {
+      const provider = new FakeWorkflowProvider();
+      process.env.RIGKIT_TEST_PROVIDER_TOKEN = "one";
+      const first = await createDevMachineEngine({
+        projectDir,
+        providerFactory: () => provider,
+      });
+      await first.load();
+      await first.apply({ workflow: "scoped-provider-cache" });
+      expect((await first.plan({ workflow: "scoped-provider-cache" })).cachedNodeCount).toBe(3);
+
+      process.env.RIGKIT_TEST_PROVIDER_TOKEN = "two";
+      const second = await createDevMachineEngine({
+        projectDir,
+        providerFactory: () => provider,
+      });
+      await second.load();
+      const changed = await second.plan({ workflow: "scoped-provider-cache" });
+      expect(changed.nodes.map((node) => node.status)).toEqual(["cached", "pending", "pending"]);
+      expect(changed.cachedNodeCount).toBe(1);
+    } finally {
+      restoreEnv("RIGKIT_TEST_PROVIDER_TOKEN", previousToken);
+    }
+  });
+
+  test("child provider scopes can override parent provider definitions", async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-provider-override-"));
+    writeRigkitIndex(projectDir,
+      `
+        import { defineProvider, workflow } from "${import.meta.dir}/index.ts";
+
+        const app = workflow("provider-override");
+        const rootProvider = defineProvider("test", { token: "root" });
+        const fragmentProvider = defineProvider("test", { token: "fragment" });
+
+        const fragment = app.sequence("fragment")
+          .addProvider("test", fragmentProvider)
+          .task("fragment-token", async ({ providers, step }) => ({
+            ctx: { ...step.ctx, fragmentToken: providers.test.token },
+          }));
+
+        export const setup = app.sequence("setup")
+          .addProvider("test", rootProvider)
+          .task("root-token", async ({ providers }) => ({
+            ctx: { rootToken: providers.test.token },
+          }))
+          .add(fragment)
+          .task("after-fragment", async ({ providers, step }) => ({
+            ctx: { ...step.ctx, afterToken: providers.test.token },
+          }));
+      `,
+    );
+
+    const engine = await createDevMachineEngine({
+      projectDir,
+      providerFactory: ({ provider }) => ({
+        providerId: provider.providerId,
+        runtime: () => ({ token: String(provider.config.token) }),
+      }),
+    });
+
+    await engine.load();
+    const applied = await engine.apply({ workflow: "provider-override" });
+
+    expect(applied.context).toEqual({
+      rootToken: "root",
+      fragmentToken: "fragment",
+      afterToken: "root",
+    });
+  });
+
+  test("generic fragments can consume providers from the parent chain", async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-parent-provider-fragment-"));
+    writeRigkitIndex(projectDir,
+      `
+        import { defineProvider, sequence, workflow } from "${import.meta.dir}/index.ts";
+
+        const genericFragment = sequence("generic-fragment")
+          .task("read-provider", async ({ providers }) => ({
+            ctx: { token: providers.test.token },
+          }));
+
+        const app = workflow("parent-provider-fragment");
+        const testProvider = defineProvider("test", { token: "parent" });
+
+        export const setup = app.sequence("setup")
+          .addProvider("test", testProvider)
+          .add(genericFragment);
+      `,
+    );
+
+    const engine = await createDevMachineEngine({
+      projectDir,
+      providerFactory: ({ provider }) => ({
+        providerId: provider.providerId,
+        runtime: () => ({ token: String(provider.config.token) }),
+      }),
+    });
+
+    await engine.load();
+    const applied = await engine.apply({ workflow: "parent-provider-fragment" });
+
+    expect(applied.context).toEqual({ token: "parent" });
+  });
+
+  test("providers added only for workspace operations do not affect setup cache", async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-operation-provider-cache-"));
+    const previousToken = process.env.RIGKIT_TEST_PROVIDER_TOKEN;
+    writeRigkitIndex(projectDir,
+      `
+        import { defineProvider, workflow } from "${import.meta.dir}/index.ts";
+
+        const app = workflow("operation-provider-cache");
+
+        export const setup = app.sequence("setup")
+          .task("ready", async () => ({ ctx: { ready: true } }))
+          .workspace({
+            create: async ({ workspace }) => ({ name: workspace.name }),
+            remove: async () => {},
+          })
+          .addProvider("test", defineProvider("test", { token: () => process.env.RIGKIT_TEST_PROVIDER_TOKEN }))
+          .workspaceOperation("touch-provider", {
+            run: async ({ providers }) => {
+              const vm = await providers.test.createVm();
+              return { vmId: vm.vmId };
+            },
+          });
+      `,
+    );
+
+    try {
+      const provider = new FakeWorkflowProvider();
+      process.env.RIGKIT_TEST_PROVIDER_TOKEN = "one";
+      const first = await createDevMachineEngine({
+        projectDir,
+        providerFactory: () => provider,
+      });
+      await first.load();
+      await first.apply({ workflow: "operation-provider-cache" });
+      expect((await first.plan({ workflow: "operation-provider-cache" })).cachedNodeCount).toBe(1);
+
+      process.env.RIGKIT_TEST_PROVIDER_TOKEN = "two";
+      const second = await createDevMachineEngine({
+        projectDir,
+        providerFactory: () => provider,
+      });
+      await second.load();
+      expect((await second.plan({ workflow: "operation-provider-cache" })).cachedNodeCount).toBe(1);
+    } finally {
+      restoreEnv("RIGKIT_TEST_PROVIDER_TOKEN", previousToken);
+    }
+  });
+
   test("treats cached output schema failures as cache misses", async () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-"));
     const previousMode = process.env.RIGKIT_SCHEMA_MODE;
     writeRigkitIndex(projectDir,
       `
-        import { defineProvider, workflow } from "${import.meta.dir}/index.ts";
+        import { workflow } from "${import.meta.dir}/index.ts";
 
-        const app = workflow("test", {
-          providers: {
-            test: defineProvider("test", { token: "test-key" }),
-          },
-        });
+        const app = workflow("test");
 
         const schema = {
           parse(value) {

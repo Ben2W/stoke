@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { isProviderDefinition, isWorkflowNode } from "./authoring.ts";
@@ -48,6 +48,7 @@ import type {
   WorkflowPlan,
   WorkflowPlanNode,
   WorkflowProviderMap,
+  WorkflowProviderDefinition,
   WorkflowProviderCheck,
   WorkflowProviderCheckResult,
   WorkflowStepInvalidation,
@@ -115,6 +116,8 @@ export type EngineCacheEntry = {
   scope: EngineCacheScope;
   workflow: string;
   nodePath: string;
+  displayPath?: string;
+  planIndex?: number;
   nodeName: string;
   nodeKind: string;
   runId: string;
@@ -203,6 +206,8 @@ export class EngineOperationNotFoundError extends Error {
 }
 
 type ProviderControllers = Record<string, WorkflowProviderController>;
+type LoadedProviderScope = Record<string, LoadedProviderDefinition>;
+type ProviderControllerCache = Map<string, WorkflowProviderController>;
 
 type EvaluationMode = "plan" | "apply";
 
@@ -228,6 +233,12 @@ type EvaluationCacheTarget = {
   fragmentHash?: string;
 };
 
+type CacheInvalidateTarget = {
+  scope: WorkflowCacheScope;
+  nodePath: string;
+  fragmentHash?: string;
+};
+
 type EvaluationResult = EvaluationState & {
   planNodes: WorkflowPlanNode[];
 };
@@ -235,12 +246,12 @@ type EvaluationResult = EvaluationState & {
 type EvaluateNodeInput = {
   workflow: LoadedWorkflow;
   node: WorkflowNodeDefinition<any, any, any>;
-  providers: ProviderControllers;
-  providerFingerprint: string;
   mode: EvaluationMode;
   cache: EvaluationCacheTarget;
   configStack: JsonObject[];
   state: EvaluationState;
+  providerControllerCache: ProviderControllerCache;
+  providerChecks: Map<string, WorkflowProviderCheck>;
   prefix: string[];
   cachePrefix: string[];
   root: boolean;
@@ -295,6 +306,34 @@ function canonicalConfigPath(projectDir: string): string {
   return join(projectDir, "rigkit", "index.ts");
 }
 
+function definitionFingerprintFor(configPath: string): string {
+  const configDir = dirname(configPath);
+  return hash({
+    cache: "definition-source-v1",
+    files: collectDefinitionFiles(configDir).map((file) => ({
+      path: file.slice(configDir.length + 1),
+      source: readFileSync(file, "utf8"),
+    })),
+  });
+}
+
+function collectDefinitionFiles(dir: string): string[] {
+  if (!existsSync(dir)) return [];
+  const files: string[] = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...collectDefinitionFiles(path));
+    } else if (entry.isFile()) {
+      files.push(path);
+    } else if (entry.isSymbolicLink()) {
+      const stat = statSync(path);
+      if (stat.isFile()) files.push(path);
+    }
+  }
+  return files.sort();
+}
+
 // The engine owns the workflow graph, cache, and event emission for one
 // project. The runtime daemon hosts a single long-lived instance per project.
 export class DevMachineEngine {
@@ -315,6 +354,7 @@ export class DevMachineEngine {
   private readonly local: LocalWorkspaceRuntime;
   private readonly handlers = new Set<EventHandler>();
   private workflows = new Map<string, LoadedWorkflow>();
+  private definitionFingerprint = "";
 
   constructor(options: CreateDevMachineEngineOptions = {}) {
     const requestedConfigPath = options.configPath ? resolve(options.configPath) : undefined;
@@ -363,6 +403,8 @@ export class DevMachineEngine {
       );
     }
 
+    this.definitionFingerprint = definitionFingerprintFor(this.configPath);
+
     const moduleUrl = pathToFileURL(this.configPath);
     moduleUrl.searchParams.set("t", `${Date.now()}-${configImportCounter++}`);
     const mod = await import(moduleUrl.href);
@@ -373,7 +415,7 @@ export class DevMachineEngine {
     }
     this.providers = mergeProviderPlugins([
       ...this.providers,
-      ...roots.flatMap((root) => Object.values(root.workflow.providers as WorkflowProviderMap))
+      ...roots.flatMap((root) => collectProviderDefinitions(root))
         .map((provider) => provider.plugin)
         .filter(isBaseProviderPlugin),
     ]);
@@ -508,7 +550,7 @@ export class DevMachineEngine {
               message: `Workspace ${workspace.name} belongs to workflow ${workspace.workflow}, not ${workflow.name}`,
             });
           }
-          const providers = await this.createProviders(workflow);
+          const providers = await this.createProviders(operation.providerScope);
           return await this.runConfigWorkspaceOperation({
             workflow,
             providers,
@@ -694,15 +736,12 @@ export class DevMachineEngine {
           this.listCache({ workflow: workflow.name, includeUnreachable: input.includeUnreachable })
         ),
       )).flatMap((cache) => cache.entries);
-      entries.sort((left, right) => right.createdAt.localeCompare(left.createdAt));
       return { entries };
     }
 
     const workflow = this.getWorkflow(input.workflow ?? input.machine);
-    const providers = await this.createProviders(workflow);
     const evaluated = await this.evaluate({
       workflow,
-      providers,
       mode: "plan",
     });
 
@@ -712,13 +751,18 @@ export class DevMachineEngine {
     for (const node of evaluated.plan.nodes) {
       if (node.status === "cached" && node.runId) reachableRunIds.add(node.runId);
     }
+    const reachableNodesByRunId = new Map(
+      evaluated.plan.nodes
+        .filter((node): node is WorkflowPlanNode & { runId: string } => node.status === "cached" && !!node.runId)
+        .map((node) => [node.runId, node]),
+    );
 
     if (input.includeUnreachable) {
       const entries: EngineCacheEntry[] = [
         ...this.getStateService()
           .listNodeRuns()
           .filter((run) => run.workflow === workflow.name)
-          .map((run) => cacheEntryForRun(run, "local")),
+          .map((run) => cacheEntryForRun(run, "local", undefined, undefined, reachableNodesByRunId.get(run.id))),
       ];
       for (const fragmentHash of evaluated.fragments) {
         const fragment = this.globalFragmentStates.get(fragmentHash);
@@ -726,10 +770,12 @@ export class DevMachineEngine {
         entries.push(
           ...fragment.state
             .listNodeRuns()
-            .map((run) => cacheEntryForRun(run, "global", fragmentHash, workflow.name)),
+            .map((run) =>
+              cacheEntryForRun(run, "global", fragmentHash, workflow.name, reachableNodesByRunId.get(run.id))
+            ),
         );
       }
-      entries.sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+      entries.sort(compareCacheEntries);
       return { entries };
     }
 
@@ -748,7 +794,7 @@ export class DevMachineEngine {
 
     const entries: EngineCacheEntry[] = localRuns
       .filter((run) => reachableRunIds.has(run.id))
-      .map((run) => cacheEntryForRun(run, "local"));
+      .map((run) => cacheEntryForRun(run, "local", undefined, undefined, reachableNodesByRunId.get(run.id)));
 
     for (const fragmentHash of evaluated.fragments) {
       const fragment = this.globalFragmentStates.get(fragmentHash);
@@ -757,11 +803,13 @@ export class DevMachineEngine {
         ...fragment.state
           .listNodeRuns()
           .filter((run) => reachableRunIds.has(run.id))
-          .map((run) => cacheEntryForRun(run, "global", fragmentHash, workflow.name)),
+          .map((run) =>
+            cacheEntryForRun(run, "global", fragmentHash, workflow.name, reachableNodesByRunId.get(run.id))
+          ),
       );
     }
 
-    entries.sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+    entries.sort(compareCacheEntries);
     return { entries };
   }
 
@@ -771,16 +819,13 @@ export class DevMachineEngine {
     nodePaths?: readonly string[];
   } = {}): Promise<{ invalidated: number }> {
     const workflow = this.getWorkflow(input.workflow ?? input.machine);
-    const state = this.getStateService();
+    const cache = await this.listCache({ workflow: workflow.name });
+    const entries = cache.entries.filter((entry) => !entry.invalidated);
     // If no explicit paths, invalidate every cached node for this workflow.
-    const paths = input.nodePaths && input.nodePaths.length > 0
-      ? [...input.nodePaths]
-      : [...new Set(state.listNodeRuns()
-          .filter((run) => run.workflow === workflow.name && !run.invalidated)
-          .map((run) => run.nodePath))];
-    if (paths.length === 0) return { invalidated: 0 };
-    const ids = state.invalidateNodeRuns({ workflow: workflow.name, nodePaths: paths });
-    return { invalidated: ids.length };
+    const targets = input.nodePaths && input.nodePaths.length > 0
+      ? resolveCacheInvalidateTargets(input.nodePaths, entries)
+      : entries.map(cacheInvalidateTargetForEntry);
+    return { invalidated: this.invalidateCacheTargets(targets, workflow.name) };
   }
 
   async clearCache(input: {
@@ -790,10 +835,8 @@ export class DevMachineEngine {
   } = {}): Promise<EngineCacheClearResult> {
     const scope = input.scope ?? "all";
     const workflow = this.getWorkflow(input.workflow ?? input.machine);
-    const providers = await this.createProviders(workflow);
     const evaluated = await this.evaluate({
       workflow,
-      providers,
       mode: "plan",
     });
 
@@ -833,8 +876,8 @@ export class DevMachineEngine {
 
   async runOperation(input: { operation: string; workflow?: string; input?: unknown }): Promise<unknown> {
     const { workflow, operation } = this.getWorkflowOperation(input.operation, input.workflow);
-    const providers = await this.createProviders(workflow);
-    await this.requireProviderChecks(workflow, providers);
+    const providers = await this.createProviders(operation.providerScope);
+    await this.requireProviderChecks(workflow.name, providers);
     const metadata: JsonObject = {};
     const runtime = await this.createTaskRuntime({
       workflow,
@@ -845,7 +888,6 @@ export class DevMachineEngine {
     const operationInput = this.resolveOperationInput(workflow, operation, input.input ?? {});
     const operationNodePath = `operation.${operation.id}`;
     const result = await this.withStepConsole(operationNodePath, () => operation.run({
-      ...runtime,
       input: Object.freeze(operationInput),
       providers: runtime,
       local: this.local,
@@ -880,7 +922,7 @@ export class DevMachineEngine {
 
     const operation = workflow.workspaceOperations.find((item) => item.id === input.operation);
     if (!operation) throw new EngineOperationNotFoundError(`${workspace.name}/${input.operation}`);
-    const providers = await this.createProviders(workflow);
+    const providers = await this.createProviders(operation.providerScope);
     return await this.runConfigWorkspaceOperation({
       workflow,
       providers,
@@ -892,10 +934,8 @@ export class DevMachineEngine {
 
   async plan(input: { workflow?: string; machine?: string } = {}): Promise<WorkflowPlan> {
     const workflow = this.getWorkflow(input.workflow ?? input.machine);
-    const providers = await this.createProviders(workflow);
     const result = await this.evaluate({
       workflow,
-      providers,
       mode: "plan",
     });
 
@@ -916,7 +956,6 @@ export class DevMachineEngine {
     plan: WorkflowPlan;
   }> {
     const workflow = this.getWorkflow(input.workflow ?? input.machine);
-    const providers = await this.createProviders(workflow);
     const startedAt = Date.now();
     this.emit({ type: "workflow.apply.started", workflow: workflow.name });
     let result: { context: Record<string, JsonValue>; plan: WorkflowPlan } | undefined;
@@ -925,7 +964,6 @@ export class DevMachineEngine {
       try {
         result = await this.evaluate({
           workflow,
-          providers,
           mode: "apply",
         });
         break;
@@ -974,11 +1012,11 @@ export class DevMachineEngine {
     }
 
     const applied = await this.apply({ workflow: workflow.name });
-    const providers = await this.createProviders(workflow);
-    await this.requireProviderChecks(workflow, providers);
     if (!workflow.workspace) {
       throw new Error(`Workflow ${workflow.name} does not define a workspace`);
     }
+    const providers = await this.createProviders(workflow.workspace.providerScope);
+    await this.requireProviderChecks(workflow.name, providers);
 
     const now = new Date().toISOString();
     const workspace: WorkspaceRecord = {
@@ -1032,8 +1070,8 @@ export class DevMachineEngine {
     if (!workflow.workspace) {
       throw new Error(`Workflow ${workflow.name} does not define a workspace`);
     }
-    const providers = await this.createProviders(workflow);
-    await this.requireProviderChecks(workflow, providers);
+    const providers = await this.createProviders(workflow.workspace.providerScope);
+    await this.requireProviderChecks(workflow.name, providers);
     const metadata: JsonObject = {};
     const runtime = await this.createTaskRuntime({
       workflow,
@@ -1048,7 +1086,6 @@ export class DevMachineEngine {
     const workspaceDef = workflow.workspace;
     this.emit({ type: "workspace.remove.started", workspaceName: workspace.name });
     await this.withStepConsole(removeNodePath, () => workspaceDef.remove({
-      ...runtime,
       workflow: {
         name: workflow.name,
         ctx: Object.freeze({ ...workspace.workflowCtx }),
@@ -1066,14 +1103,11 @@ export class DevMachineEngine {
 
   private async evaluate(input: {
     workflow: LoadedWorkflow;
-    providers: ProviderControllers;
     mode: EvaluationMode;
   }): Promise<{ context: Record<string, JsonValue>; plan: WorkflowPlan; fragments: Set<string> }> {
-    const providerChecks = await this.collectProviderChecks(input.workflow, input.providers, {
-      mode: input.mode === "plan" ? "plan" : "require",
-    });
-    const providerFingerprint = providerFingerprintFor(input.workflow, providerChecks);
     const planNodes: WorkflowPlanNode[] = [];
+    const providerChecks = new Map<string, WorkflowProviderCheck>();
+    const providerControllerCache: ProviderControllerCache = new Map();
     const previousEvaluationFragmentHashes = this.evaluationFragmentHashes;
     const fragments = new Set<string>();
     this.evaluationFragmentHashes = fragments;
@@ -1081,8 +1115,6 @@ export class DevMachineEngine {
     try {
       result = await this.evaluateNode({
         workflow: input.workflow,
-        providers: input.providers,
-        providerFingerprint,
         mode: input.mode,
         node: input.workflow.root,
         cache: {
@@ -1098,6 +1130,8 @@ export class DevMachineEngine {
           previousTasks: [],
           known: true,
         },
+        providerControllerCache,
+        providerChecks,
         prefix: [],
         cachePrefix: [],
         root: true,
@@ -1108,10 +1142,12 @@ export class DevMachineEngine {
       this.evaluationFragmentHashes = previousEvaluationFragmentHashes;
     }
     const cachedNodeCount = planNodes.filter((node) => node.status === "cached").length;
+    const providerCheckList = [...providerChecks.values()];
+    const providerFingerprint = providerPlanFingerprintFor(providerCheckList);
     const plan: WorkflowPlan = {
       workflow: input.workflow.name,
       providerFingerprint,
-      ...(providerChecks.length > 0 ? { providerChecks } : {}),
+      ...(providerCheckList.length > 0 ? { providerChecks: providerCheckList } : {}),
       cachedNodeCount,
       nodeCount: planNodes.length,
       nodes: planNodes,
@@ -1130,7 +1166,7 @@ export class DevMachineEngine {
       const nodePath = nodeDisplayPath(input.node, input.prefix, input.root, input.suppressSequenceName);
       const fragmentHash = globalFragmentHashFor({
         node: input.node,
-        providerFingerprint: input.providerFingerprint,
+        definitionFingerprint: this.definitionFingerprint,
       });
       const fragmentState = await this.getGlobalFragmentState({
         hash: fragmentHash,
@@ -1263,13 +1299,15 @@ export class DevMachineEngine {
     const cacheNodePath = [...input.cachePrefix, input.node.name].join(".");
     const upstreamRunIds = [...input.state.upstreamRunIds];
     const nodeKey = hash({
-      cache: "task-v4",
+      cache: "task-v5",
       kind: "task",
       path: cacheNodePath,
       name: input.node.name,
       config: input.configStack,
+      definition: this.definitionFingerprint,
       handler: functionFingerprintFor(input.node.handler),
       output: input.node.options?.output ?? null,
+      version: input.node.options?.version ?? null,
     });
     const planIndex = input.index.value++;
 
@@ -1292,15 +1330,25 @@ export class DevMachineEngine {
       };
     }
 
+    const providerScope = providerScopeOf(input.node);
+    const providers = await this.createProviders(providerScope, input.providerControllerCache);
+    const checks = await this.collectProviderChecks(input.workflow.name, providers, {
+      mode: input.mode === "plan" ? "plan" : "require",
+    });
+    for (const check of checks) {
+      input.providerChecks.set(providerCheckKey(check), check);
+    }
+    const providerFingerprint = providerFingerprintFor(providerScope, checks);
+
     const cached = await this.findReusableTaskRun({
       state: input.cache.state,
       workflow: input.cache.workflow,
       nodePath: cacheNodePath,
       displayNodePath: nodePath,
       nodeKey,
-      providerFingerprint: input.providerFingerprint,
+      providerFingerprint,
       upstreamRunIds,
-      providers: input.providers,
+      providers,
       outputSchema: input.node.options?.output,
       cacheTTL: input.node.options?.cacheTTL,
     });
@@ -1356,7 +1404,7 @@ export class DevMachineEngine {
     const metadata: JsonObject = {};
     const runtime = await this.createTaskRuntime({
       workflow: input.workflow,
-      providers: input.providers,
+      providers,
       nodePath,
       metadata,
     });
@@ -1369,7 +1417,6 @@ export class DevMachineEngine {
       input.state.previousTasks,
     );
     const result = await this.withStepConsole(nodePath, () => input.node.handler({
-      ...runtime,
       providers: runtime,
       step,
       config,
@@ -1414,7 +1461,7 @@ export class DevMachineEngine {
       nodeName: input.node.name,
       nodeKind: input.node.nodeKind,
       nodeKey,
-      providerFingerprint: input.providerFingerprint,
+      providerFingerprint,
       upstreamRunIds,
       output,
       artifacts,
@@ -1569,7 +1616,6 @@ export class DevMachineEngine {
     const workspaceDef = input.workflow.workspace;
     try {
       const data = await this.withStepConsole(createNodePath, () => workspaceDef.create({
-        ...providers,
         workflow: {
           name: input.workflow.name,
           ctx: Object.freeze({ ...input.context }),
@@ -1599,7 +1645,7 @@ export class DevMachineEngine {
     operation: WorkflowWorkspaceOperationDefinition<any, any, any, any>;
     rawInput: unknown;
   }): Promise<unknown> {
-    await this.requireProviderChecks(input.workflow, input.providers);
+    await this.requireProviderChecks(input.workflow.name, input.providers);
     const metadata: JsonObject = {};
     const providers = await this.createTaskRuntime({
       workflow: input.workflow,
@@ -1618,7 +1664,6 @@ export class DevMachineEngine {
       operationId: input.operation.id,
     });
     const result = await this.withStepConsole(workspaceOperationNodePath, () => input.operation.run({
-      ...providers,
       workflow: {
         name: input.workflow.name,
         ctx: Object.freeze({ ...input.workspace.workflowCtx }),
@@ -1909,15 +1954,60 @@ export class DevMachineEngine {
     );
   }
 
-  private async createProviders(workflow: LoadedWorkflow): Promise<ProviderControllers> {
+  private invalidateCacheTargets(targets: CacheInvalidateTarget[], localWorkflow: string): number {
+    const grouped = new Map<string, {
+      state: StateService;
+      workflow: string;
+      nodePaths: Set<string>;
+    }>();
+    for (const target of targets) {
+      const state = target.scope === "global"
+        ? target.fragmentHash
+          ? this.globalFragmentStates.get(target.fragmentHash)?.state
+          : undefined
+        : this.getStateService();
+      if (!state) continue;
+
+      const workflow = target.scope === "global" && target.fragmentHash
+        ? `fragment:${target.fragmentHash}`
+        : localWorkflow;
+      const key = `${state.path}\0${workflow}`;
+      const existing = grouped.get(key);
+      if (existing) {
+        existing.nodePaths.add(target.nodePath);
+      } else {
+        grouped.set(key, { state, workflow, nodePaths: new Set([target.nodePath]) });
+      }
+    }
+
+    let invalidated = 0;
+    for (const group of grouped.values()) {
+      invalidated += group.state.invalidateNodeRuns({
+        workflow: group.workflow,
+        nodePaths: [...group.nodePaths],
+      }).length;
+    }
+    return invalidated;
+  }
+
+  private async createProviders(
+    providerScope: LoadedProviderScope | undefined,
+    cache: ProviderControllerCache = new Map(),
+  ): Promise<ProviderControllers> {
+    const scope = providerScope ?? {};
     const entries = await Promise.all(
-      Object.entries(workflow.providers).map(async ([name, provider]) => {
-        const controller = await this.providerFactory({
-          provider,
-          storage: this.getStateService().providerStorage(provider.providerId),
-          hostStorage: this.getProviderHostStorage(provider.providerId),
-          local: this.local,
-        });
+      Object.entries(scope).map(async ([name, provider]) => {
+        const key = providerControllerCacheKey(name, provider);
+        let controller = cache.get(key);
+        if (!controller) {
+          controller = await this.providerFactory({
+            provider,
+            storage: this.getStateService().providerStorage(provider.providerId),
+            hostStorage: this.getProviderHostStorage(provider.providerId),
+            local: this.local,
+          });
+          cache.set(key, controller);
+        }
         return [name, controller] as const;
       }),
     );
@@ -1925,7 +2015,7 @@ export class DevMachineEngine {
   }
 
   private async collectProviderChecks(
-    workflow: LoadedWorkflow,
+    workflow: string,
     providers: ProviderControllers,
     input: { mode: "plan" | "require" },
   ): Promise<WorkflowProviderCheck[]> {
@@ -1933,7 +2023,7 @@ export class DevMachineEngine {
       Object.entries(providers).map(async ([providerName, controller]) => {
         const result = await controller.checks?.({
           mode: input.mode,
-          workflow: workflow.name,
+          workflow,
           local: this.local,
         });
         return normalizeProviderChecks(result).map((check) => ({
@@ -1962,7 +2052,7 @@ export class DevMachineEngine {
     return flatChecks;
   }
 
-  private async requireProviderChecks(workflow: LoadedWorkflow, providers: ProviderControllers): Promise<void> {
+  private async requireProviderChecks(workflow: string, providers: ProviderControllers): Promise<void> {
     await this.collectProviderChecks(workflow, providers, { mode: "require" });
   }
 
@@ -1990,21 +2080,16 @@ export class DevMachineEngine {
   }
 
   private async resolveWorkflow(root: WorkflowNodeDefinition<any, any, any>): Promise<LoadedWorkflow> {
-    const providers: Record<string, LoadedProviderDefinition> = {};
-    for (const [name, definition] of Object.entries(root.workflow.providers)) {
-      if (!isProviderDefinition(definition)) {
-        throw new Error(`Workflow ${root.workflow.name} provider ${name} is invalid`);
-      }
-      providers[name] = await resolveProviderDefinition(definition);
-    }
+    const resolvedRoot = await resolveWorkflowNode(root);
+    const providers = collectLoadedProviderSummary(resolvedRoot);
 
     return {
       name: root.workflow.name,
       providers,
-      root,
-      workspace: root.workspaceDefinition,
-      operations: root.operations ?? [],
-      workspaceOperations: root.workspaceOperations ?? [],
+      root: resolvedRoot,
+      workspace: resolvedRoot.workspaceDefinition,
+      operations: resolvedRoot.operations ?? [],
+      workspaceOperations: resolvedRoot.workspaceOperations ?? [],
     };
   }
 
@@ -2053,13 +2138,134 @@ function assertValidWorkspaceName(value: string): void {
 }
 
 async function resolveProviderDefinition(
-  definition: WorkflowDefinition<any, any>["providers"][string],
+  definition: WorkflowProviderDefinition,
 ): Promise<LoadedProviderDefinition> {
   return {
     providerId: definition.providerId,
     config: await resolveConfigObject(definition.config),
     plugin: definition.plugin,
   };
+}
+
+async function resolveProviderScope(scope: WorkflowProviderMap | undefined): Promise<LoadedProviderScope> {
+  const providers: LoadedProviderScope = {};
+  for (const [name, definition] of Object.entries(scope ?? {})) {
+    if (!isProviderDefinition(definition)) {
+      throw new Error(`Provider ${name} is not a valid Rigkit provider`);
+    }
+    providers[name] = await resolveProviderDefinition(definition);
+  }
+  return providers;
+}
+
+async function resolveWorkflowNode(
+  node: WorkflowNodeDefinition<any, any, any>,
+): Promise<WorkflowNodeDefinition<any, any, any>> {
+  const providerScope = await resolveProviderScope(node.providerScope as WorkflowProviderMap | undefined);
+  const workspaceDefinition = node.workspaceDefinition
+    ? {
+      ...node.workspaceDefinition,
+      providerScope: await resolveProviderScope(
+        node.workspaceDefinition.providerScope as WorkflowProviderMap | undefined,
+      ),
+    }
+    : undefined;
+  const operations = await Promise.all((node.operations ?? []).map(async (operation) => ({
+    ...operation,
+    providerScope: await resolveProviderScope(operation.providerScope as WorkflowProviderMap | undefined),
+  })));
+  const workspaceOperations = await Promise.all((node.workspaceOperations ?? []).map(async (operation) => ({
+    ...operation,
+    providerScope: await resolveProviderScope(operation.providerScope as WorkflowProviderMap | undefined),
+  })));
+
+  if (node.nodeKind === "parallel") {
+    return {
+      ...node,
+      providerScope,
+      ...(workspaceDefinition ? { workspaceDefinition } : {}),
+      operations,
+      workspaceOperations,
+      branches: Object.fromEntries(
+        await Promise.all(
+          Object.entries(parallelBranches(node)).map(async ([name, branch]) => [
+            name,
+            await resolveWorkflowNode(branch),
+          ] as const),
+        ),
+      ),
+    } as WorkflowNodeDefinition<any, any, any>;
+  }
+
+  if (node.nodeKind === "sequence") {
+    return {
+      ...node,
+      providerScope,
+      ...(workspaceDefinition ? { workspaceDefinition } : {}),
+      operations,
+      workspaceOperations,
+      children: await Promise.all(sequenceChildren(node).map((child) => resolveWorkflowNode(child))),
+    } as WorkflowNodeDefinition<any, any, any>;
+  }
+
+  return {
+    ...node,
+    providerScope,
+    ...(workspaceDefinition ? { workspaceDefinition } : {}),
+    operations,
+    workspaceOperations,
+  };
+}
+
+function collectProviderDefinitions(root: WorkflowNodeDefinition<any, any, any>): WorkflowProviderDefinition[] {
+  const providers: WorkflowProviderDefinition[] = [];
+  visit(root);
+  return providers;
+
+  function collect(scope: unknown): void {
+    if (!scope || typeof scope !== "object") return;
+    for (const provider of Object.values(scope as Record<string, unknown>)) {
+      if (isProviderDefinition(provider)) providers.push(provider);
+    }
+  }
+
+  function visit(node: WorkflowNodeDefinition<any, any, any>): void {
+    collect(node.providerScope);
+    collect(node.workspaceDefinition?.providerScope);
+    for (const operation of node.operations ?? []) collect(operation.providerScope);
+    for (const operation of node.workspaceOperations ?? []) collect(operation.providerScope);
+    if (node.nodeKind === "sequence") {
+      for (const child of sequenceChildren(node)) visit(child);
+    } else if (node.nodeKind === "parallel") {
+      for (const branch of Object.values(parallelBranches(node))) visit(branch);
+    }
+  }
+}
+
+function collectLoadedProviderSummary(root: WorkflowNodeDefinition<any, any, any>): LoadedProviderScope {
+  const providers: LoadedProviderScope = {};
+  visit(root);
+  return providers;
+
+  function collect(scope: LoadedProviderScope | undefined): void {
+    for (const [name, provider] of Object.entries(scope ?? {})) {
+      providers[name] = provider;
+    }
+  }
+
+  function visit(node: WorkflowNodeDefinition<any, any, any>): void {
+    collect(providerScopeOf(node));
+    collect(node.workspaceDefinition?.providerScope as LoadedProviderScope | undefined);
+    for (const operation of node.operations ?? []) collect(operation.providerScope as LoadedProviderScope | undefined);
+    for (const operation of node.workspaceOperations ?? []) {
+      collect(operation.providerScope as LoadedProviderScope | undefined);
+    }
+    if (node.nodeKind === "sequence") {
+      for (const child of sequenceChildren(node)) visit(child);
+    } else if (node.nodeKind === "parallel") {
+      for (const branch of Object.values(parallelBranches(node))) visit(branch);
+    }
+  }
 }
 
 async function resolveConfigObject(value: unknown): Promise<Record<string, unknown>> {
@@ -2175,11 +2381,11 @@ function collectNodePaths(root: WorkflowNodeDefinition<any, any, any>): string[]
   }
 }
 
-function providerFingerprintFor(workflow: LoadedWorkflow, providerChecks: WorkflowProviderCheck[]): string {
+function providerFingerprintFor(providerScope: LoadedProviderScope, providerChecks: WorkflowProviderCheck[]): string {
   return hash({
-    cache: "provider-v3",
+    cache: "provider-v4",
     providers: Object.fromEntries(
-      Object.entries(workflow.providers).map(([name, provider]) => [
+      Object.entries(providerScope).map(([name, provider]) => [
         name,
         {
           providerId: provider.providerId,
@@ -2198,6 +2404,19 @@ function providerFingerprintFor(workflow: LoadedWorkflow, providerChecks: Workfl
   });
 }
 
+function providerPlanFingerprintFor(providerChecks: WorkflowProviderCheck[]): string {
+  return hash({
+    cache: "provider-plan-v1",
+    checks: providerChecks.map((check) => ({
+      providerName: check.providerName,
+      providerId: check.providerId,
+      id: check.id,
+      status: check.status,
+      fingerprint: check.fingerprint ?? check.value,
+    })),
+  });
+}
+
 function providerPluginFingerprint(plugin: unknown): unknown {
   if (!isBaseProviderPlugin(plugin)) return null;
   return {
@@ -2206,14 +2425,32 @@ function providerPluginFingerprint(plugin: unknown): unknown {
   };
 }
 
+function providerScopeOf(node: WorkflowNodeDefinition<any, any, any>): LoadedProviderScope {
+  return (node.providerScope ?? {}) as LoadedProviderScope;
+}
+
+function providerCheckKey(check: WorkflowProviderCheck): string {
+  return `${check.providerName}\0${check.providerId}\0${check.id}`;
+}
+
+function providerControllerCacheKey(name: string, provider: LoadedProviderDefinition): string {
+  return hash({
+    cache: "provider-controller-v1",
+    name,
+    providerId: provider.providerId,
+    config: provider.config,
+    plugin: providerPluginFingerprint(provider.plugin),
+  });
+}
+
 function globalFragmentHashFor(input: {
   node: WorkflowNodeDefinition<any, any, any>;
-  providerFingerprint: string;
+  definitionFingerprint: string;
 }): string {
   return `sha256-${hash({
     cache: "fragment-v1",
     graph: graphFingerprintFor(input.node),
-    providerFingerprint: input.providerFingerprint,
+    definitionFingerprint: input.definitionFingerprint,
   })}`;
 }
 
@@ -2228,6 +2465,7 @@ function graphFingerprintFor(node: WorkflowNodeDefinition<any, any, any>): unkno
       handler: functionFingerprintFor(task.handler),
       output: task.options?.output ?? null,
       cacheTTL: task.options?.cacheTTL ?? null,
+      version: task.options?.version ?? null,
     };
   }
 
@@ -2270,11 +2508,13 @@ function cacheEntryForRun(
   scope: WorkflowCacheScope,
   fragmentHash?: string,
   workflow?: string,
+  planNode?: WorkflowPlanNode,
 ): EngineCacheEntry {
   return {
     scope,
     workflow: workflow ?? run.workflow,
     nodePath: run.nodePath,
+    ...(planNode ? { displayPath: planNode.path, planIndex: planNode.index } : {}),
     nodeName: run.nodeName,
     nodeKind: run.nodeKind,
     runId: run.id,
@@ -2282,6 +2522,61 @@ function cacheEntryForRun(
     createdAt: run.createdAt,
     ...(fragmentHash ? { fragmentHash } : {}),
   };
+}
+
+function compareCacheEntries(left: EngineCacheEntry, right: EngineCacheEntry): number {
+  const leftIndex = left.planIndex ?? Number.POSITIVE_INFINITY;
+  const rightIndex = right.planIndex ?? Number.POSITIVE_INFINITY;
+  if (leftIndex !== rightIndex) return leftIndex - rightIndex;
+  if (left.nodePath !== right.nodePath) return left.nodePath.localeCompare(right.nodePath);
+  return right.createdAt.localeCompare(left.createdAt);
+}
+
+function resolveCacheInvalidateTargets(
+  targets: readonly string[],
+  entries: readonly EngineCacheEntry[],
+): CacheInvalidateTarget[] {
+  const resolved: CacheInvalidateTarget[] = [];
+  for (const target of targets) {
+    const exactMatches = entries.filter((entry) =>
+      entry.nodePath === target || entry.displayPath === target
+    );
+    const matches = exactMatches.length > 0
+      ? exactMatches
+      : entries.filter((entry) => entry.nodeName === target);
+    if (matches.length === 0) {
+      resolved.push({ scope: "local", nodePath: target });
+      continue;
+    }
+
+    const invalidateTargets = uniqueCacheInvalidateTargets(matches.map(cacheInvalidateTargetForEntry));
+    if (invalidateTargets.length > 1) {
+      const labels = [...new Set(matches.map((entry) => entry.displayPath ?? entry.nodePath))].join(", ");
+      throw new Error(`Task ${target} matches multiple cached tasks: ${labels}`);
+    }
+    resolved.push(invalidateTargets[0]!);
+  }
+  return uniqueCacheInvalidateTargets(resolved);
+}
+
+function cacheInvalidateTargetForEntry(entry: EngineCacheEntry): CacheInvalidateTarget {
+  return {
+    scope: entry.scope,
+    nodePath: entry.nodePath,
+    ...(entry.scope === "global" && entry.fragmentHash ? { fragmentHash: entry.fragmentHash } : {}),
+  };
+}
+
+function uniqueCacheInvalidateTargets(targets: readonly CacheInvalidateTarget[]): CacheInvalidateTarget[] {
+  const seen = new Set<string>();
+  const unique: CacheInvalidateTarget[] = [];
+  for (const target of targets) {
+    const key = `${target.scope}\0${target.fragmentHash ?? ""}\0${target.nodePath}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(target);
+  }
+  return unique;
 }
 
 function mergeConfigStack(configStack: readonly JsonObject[]): JsonObject {

@@ -107,6 +107,8 @@ export const RuntimeControlCacheEntryEffectSchema = Schema.Struct({
   scope: Schema.Literal("local", "global"),
   workflow: Schema.String,
   nodePath: Schema.String,
+  displayPath: Schema.optional(Schema.String),
+  planIndex: Schema.optional(Schema.Number),
   nodeName: Schema.String,
   nodeKind: Schema.String,
   runId: Schema.String,

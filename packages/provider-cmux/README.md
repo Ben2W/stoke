@@ -1,67 +1,52 @@
 # @rigkit/provider-cmux
 
-Small SDK and Rigkit provider facade for opening workspaces in local `cmux`.
+Small SDK and Rigkit provider facade for driving local `cmux`.
 
 ```ts
 import { createCmuxClient } from "@rigkit/provider-cmux";
 
 const cmux = createCmuxClient();
 
-await cmux.newWorkspace({
+const workspace = await cmux.newWorkspace({
   name: "playground",
-  command: "echo hello world",
+  focus: true,
+});
+await cmux.newSurface({
+  workspace: workspace.id ?? workspace.handle,
+  type: "terminal",
   focus: true,
 });
 ```
 
-Commands are printed to stderr before execution:
-
-```text
-$ cmux new-workspace --name playground --command 'echo hello world' --focus true
-```
-
-`cmux new-workspace` and `cmux ssh` are socket commands. With cmux's default socket control mode (`cmuxOnly`), run rigkit from a terminal inside cmux so cmux sets `CMUX_SOCKET_PATH` and accepts the process.
-
-If you intentionally enable external socket control in cmux, opt in explicitly:
+Workflow operations use raw cmux actions through the provider facade:
 
 ```ts
-const cmux = createCmuxClient({ allowExternalAutomation: true });
+const workspace = await providers.cmux.ssh({
+  destination: "root@devbox.example.com",
+  name: "site",
+});
+
+await providers.cmux.newSurface({
+  workspace: workspace.workspaceId,
+  type: "browser",
+  url: "http://localhost:3000",
+  focus: true,
+});
+
+const terminal = await providers.cmux.newSurface({
+  workspace: workspace.workspaceId,
+  type: "terminal",
+  focus: false,
+});
+
+await providers.cmux.send({
+  workspace: workspace.workspaceId,
+  surface: terminal.surfaceId,
+  text: "pnpm dev\n",
+});
+
+await providers.cmux.selectWorkspace(workspace.workspaceId);
 ```
 
-With `allowExternalAutomation`, the SDK can run `open -a cmux` and retry a workspace command while cmux starts.
-
-Config-defined operations can request the typed `cmux.open` host capability through the provider facade:
-
-```ts
-import { workflow } from "@rigkit/sdk";
-import { cmux } from "@rigkit/provider-cmux";
-
-export default workflow("site", {
-  providers: {
-    cmux: cmux.provider(),
-  },
-})
-  .sequence("site")
-  .operation("open", {
-    run: async ({ providers }) => {
-      await providers.cmux.open({
-        name: "site",
-        ssh: {
-          host: "devbox.example.com",
-          username: "root",
-          sshOptions: ["ServerAliveInterval=15"],
-        },
-        cwd: "/workspace/site",
-        surfaceLayout: "tabs",
-        terminals: [{ command: "pnpm dev" }],
-        url: "http://localhost:3000",
-      });
-    },
-  });
-```
-
-Set `surfaceLayout: "tabs"` to open terminals and the optional browser URL as
-tabs in the same cmux pane. Omit it, or set `"splits"`, to keep the default
-split-pane behavior.
-
-Local hosts can import `@rigkit/provider-cmux/host` to register the trusted `cmux.open` handler. The Rigkit CLI registers this handler automatically.
+Local hosts can import `@rigkit/provider-cmux/host` to register the trusted
+`cmux.call` handler. The Rigkit CLI registers this handler automatically.

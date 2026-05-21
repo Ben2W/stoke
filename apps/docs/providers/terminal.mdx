@@ -14,12 +14,13 @@ drop a user into a shell.
 import { workflow } from "@rigkit/sdk";
 import { freestyle } from "@rigkit/provider-freestyle";
 
-const app = workflow("website", {
-  providers: {
-    freestyle: freestyle.provider(),
-    terminal: freestyle.terminal(),
-  },
-});
+const app = workflow("website");
+const freestyleProvider = freestyle.provider();
+
+export const website = app
+  .sequence("website")
+  .addProvider("freestyle", freestyleProvider)
+  .addProvider("terminal", freestyle.terminal());
 ```
 
 The terminal provider is separate from `freestyle.provider()` so configs can
@@ -28,15 +29,15 @@ use Freestyle VMs without enabling interactive terminal sessions.
 ## Open an interactive setup session
 
 ```ts
-.task("github-auth", async ({ freestyle, terminal, step }) => {
-  const { vm, vmId } = await freestyle.client.vms.create({
+.task("github-auth", async ({ providers, step }) => {
+  const { vm, vmId } = await providers.freestyle.client.vms.create({
     snapshotId: step.ctx.snapshotId,
     logger: console.log,
   });
 
   try {
-    await terminal.open("Log in to GitHub", {
-      ssh: await freestyle.createSSHOptions({ vmId }),
+    await providers.terminal.open("Log in to GitHub", {
+      ssh: await providers.freestyle.createSSHOptions({ vmId }),
       command: "gh auth login --hostname github.com --git-protocol https --web",
       keepOpenAfterCommand: true,
       instructions: "Complete login, then type exit.",
@@ -45,7 +46,7 @@ use Freestyle VMs without enabling interactive terminal sessions.
     const snapshot = await vm.snapshot();
     return { ctx: { ...step.ctx, snapshotId: snapshot.snapshotId } };
   } finally {
-    await freestyle.client.vms.delete({ vmId });
+    await providers.freestyle.client.vms.delete({ vmId });
   }
 });
 ```

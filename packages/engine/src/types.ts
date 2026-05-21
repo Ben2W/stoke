@@ -168,6 +168,12 @@ export type ProviderRuntimeMap<Providers extends WorkflowProviderMap> = {
   readonly [Key in keyof Providers]: ProviderRuntimeOf<Providers[Key]>;
 };
 
+export type MergeProviderMap<
+  Providers extends WorkflowProviderMap,
+  Name extends string,
+  Provider extends WorkflowProviderDefinition<string, any, any>,
+> = Simplify<Omit<Providers, Name> & { readonly [Key in Name]: Provider }>;
+
 export type WorkflowRuntimeHelpers = {
   readonly workflow: string;
   readonly nodePath: string;
@@ -199,7 +205,7 @@ export type WorkflowTaskRuntime<
   Context extends JsonObject,
   PreviousTaskIds extends string = string,
   Config extends JsonObject = JsonObject,
-> = ProviderRuntimeMap<Providers> & {
+> = {
   readonly providers: ProviderRuntimeMap<Providers>;
   readonly step: WorkflowStepRuntime<Context, PreviousTaskIds>;
   readonly config: Readonly<Config>;
@@ -243,7 +249,7 @@ export type WorkflowOperationInputSchema<Input extends object = object> = {
 export type WorkflowOperationRuntime<
   Providers extends WorkflowProviderMap,
   Input extends object,
-> = ProviderRuntimeMap<Providers> & {
+> = {
   readonly input: Readonly<Input>;
   readonly providers: ProviderRuntimeMap<Providers>;
   readonly local: LocalWorkspaceRuntime;
@@ -280,7 +286,7 @@ export type WorkspaceRuntimeRecord<Context extends object = JsonObject> = {
 export type WorkflowWorkspaceCreateRuntime<
   Providers extends WorkflowProviderMap,
   Context extends JsonObject,
-> = ProviderRuntimeMap<Providers> & {
+> = {
   readonly workflow: WorkflowRuntimeContext<Context>;
   readonly workspace: WorkspaceCreateRuntimeRecord;
   readonly providers: ProviderRuntimeMap<Providers>;
@@ -298,7 +304,7 @@ export type WorkflowWorkspaceRemoveRuntime<
   Providers extends WorkflowProviderMap,
   Context extends JsonObject,
   Data extends JsonObject,
-> = ProviderRuntimeMap<Providers> & {
+> = {
   readonly workflow: WorkflowRuntimeContext<Context>;
   readonly workspace: WorkspaceRuntimeRecord<ReadonlyWorkspaceContext<Data>>;
   readonly providers: ProviderRuntimeMap<Providers>;
@@ -317,7 +323,7 @@ export type WorkflowWorkspaceOperationRuntime<
   Context extends JsonObject,
   Data extends object,
   Input extends object,
-> = ProviderRuntimeMap<Providers> & {
+> = {
   readonly workflow: WorkflowRuntimeContext<Context>;
   readonly input: Readonly<Input>;
   readonly workspace: WorkspaceRuntimeRecord<Data>;
@@ -353,6 +359,7 @@ export type WorkflowOperationDefinition<
   readonly description?: string;
   readonly input?: WorkflowOperationInputSchema<Input>;
   readonly run: WorkflowOperationHandler<Providers, Input>;
+  readonly providerScope?: Providers;
 };
 
 export type WorkflowWorkspaceOperationOptions<
@@ -378,6 +385,7 @@ export type WorkflowWorkspaceOperationDefinition<
   readonly description?: string;
   readonly input?: WorkflowOperationInputSchema<Input>;
   readonly run: WorkflowWorkspaceOperationHandler<Providers, Context, Data, Input>;
+  readonly providerScope?: Providers;
 };
 
 export type OutputSchema<Output extends JsonObject = JsonObject> =
@@ -474,6 +482,7 @@ export type WorkflowNodeDefinition<
   readonly workflow: WorkflowDefinition<string, Providers>;
   readonly cacheScope?: WorkflowCacheScope;
   readonly config?: JsonObject;
+  readonly providerScope?: Providers;
   readonly workspaceDefinition?: WorkflowWorkspaceDefinition<Providers, OutputContext>;
   readonly operations?: readonly WorkflowOperationDefinition<Providers, any>[];
   readonly workspaceOperations?: readonly WorkflowWorkspaceOperationDefinition<Providers, OutputContext, any, any>[];
@@ -510,7 +519,24 @@ export type WorkflowSequenceBuilder<
   Config extends JsonObject = {},
 > = WorkflowNodeDefinition<Providers, InputContext, OutputContext> & {
   readonly nodeKind: "sequence";
-  readonly children: readonly WorkflowNodeDefinition<Providers, any, any>[];
+  readonly children: readonly WorkflowNodeDefinition<any, any, any>[];
+
+  addProvider<
+    const Name extends string,
+    Provider extends WorkflowProviderDefinition<string, any, any>,
+  >(
+    name: Name,
+    provider: Provider,
+  ): WorkflowSequenceBuilder<
+    MergeProviderMap<Providers, Name, Provider>,
+    InputContext,
+    OutputContext,
+    WorkspaceData,
+    OperationIds,
+    WorkspaceOperationIds,
+    PreviousTaskIds,
+    Config
+  >;
 
   task<const Id extends string, Result extends WorkflowTaskResult>(
     name: Id & WorkflowTaskIdConstraint<Id, PreviousTaskIds>,
@@ -578,7 +604,7 @@ export type WorkflowSequenceBuilder<
     Config
   >;
 
-  add<Node extends WorkflowNodeDefinition<Providers, any, any>>(
+  add<Node extends WorkflowNodeDefinition<any, any, any>>(
     node: OutputContext extends WorkflowNodeInput<Node> ? Node : never,
   ): WorkflowSequenceBuilder<
     Providers,
@@ -591,7 +617,7 @@ export type WorkflowSequenceBuilder<
     Config
   >;
 
-  parallel<const Branches extends Record<string, WorkflowNodeDefinition<Providers, any, any>>>(
+  parallel<const Branches extends Record<string, WorkflowNodeDefinition<any, any, any>>>(
     branches: {
       readonly [Key in keyof Branches]: OutputContext extends WorkflowNodeInput<Branches[Key]>
         ? Branches[Key]
@@ -768,6 +794,7 @@ export type WorkflowWorkspaceDefinition<
 > = {
   create: WorkflowWorkspaceCreateHandler<Providers, Context, Data>;
   remove: WorkflowWorkspaceRemoveHandler<Providers, Context, Data>;
+  readonly providerScope?: Providers;
 };
 
 export type LoadedWorkflow = {

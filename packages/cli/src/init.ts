@@ -1,16 +1,23 @@
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
 import { DEFAULT_CONFIG_PATH } from "./project.ts";
+import { RIGKIT_CLI_VERSION } from "./version.ts";
 
 export type InitProjectInput = {
   projectDir: string;
 };
 
 export type InitProjectResult = {
+  name: string;
   projectDir: string;
   configPath: string;
+  packageJsonPath: string;
   created: {
     config: boolean;
+    packageJson: boolean;
+  };
+  updated: {
+    packageJson: boolean;
   };
 };
 
@@ -24,14 +31,128 @@ export function initProject(input: InitProjectInput): InitProjectResult {
   }
 
   writeFileSync(configPath, starterConfig());
+  const packageJson = ensureProjectPackageJson(input.projectDir);
 
   return {
+    name: packageJson.name,
     projectDir: input.projectDir,
     configPath,
+    packageJsonPath: packageJson.path,
     created: {
       config: true,
+      packageJson: packageJson.created,
+    },
+    updated: {
+      packageJson: packageJson.updated,
     },
   };
+}
+
+function ensureProjectPackageJson(projectDir: string): {
+  name: string;
+  path: string;
+  created: boolean;
+  updated: boolean;
+} {
+  const path = join(projectDir, "package.json");
+  const created = !existsSync(path);
+  const pkg = created
+    ? {
+        name: defaultPackageName(projectDir),
+        private: true,
+        type: "module",
+      }
+    : JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
+  const name = typeof pkg.name === "string" && pkg.name.trim()
+    ? pkg.name.trim()
+    : defaultPackageName(projectDir);
+
+  let changed = false;
+  if (pkg.name !== name) {
+    pkg.name = name;
+    changed = true;
+  }
+  if (pkg.private !== true) {
+    pkg.private = true;
+    changed = true;
+  }
+  if (pkg.type !== "module") {
+    pkg.type = "module";
+    changed = true;
+  }
+
+  const scripts = isRecord(pkg.scripts) ? pkg.scripts : {};
+  for (const [key, value] of Object.entries({
+    apply: "rig apply",
+    plan: "rig plan",
+  })) {
+    if (scripts[key] !== value) {
+      scripts[key] = value;
+      changed = true;
+    }
+  }
+  pkg.scripts = sortObject(scripts);
+
+  for (const [name, version] of Object.entries(rigkitDevDependencies())) {
+    changed = upsertProjectDependency(pkg, name, version) || changed;
+  }
+
+  if (created || changed) {
+    writeFileSync(path, `${JSON.stringify(pkg, null, 2)}\n`);
+  }
+
+  return {
+    name,
+    path,
+    created,
+    updated: !created && changed,
+  };
+}
+
+function upsertProjectDependency(pkg: Record<string, unknown>, name: string, version: string): boolean {
+  const dependencies = isRecord(pkg.dependencies) ? pkg.dependencies : undefined;
+  if (dependencies && Object.prototype.hasOwnProperty.call(dependencies, name)) {
+    if (dependencies[name] === version) return false;
+    dependencies[name] = version;
+    pkg.dependencies = sortObject(dependencies);
+    return true;
+  }
+
+  const devDependencies = isRecord(pkg.devDependencies) ? pkg.devDependencies : {};
+  if (devDependencies[name] === version) return false;
+  devDependencies[name] = version;
+  pkg.devDependencies = sortObject(devDependencies);
+  return true;
+}
+
+function rigkitDevDependencies(): Record<string, string> {
+  return {
+    "@rigkit/provider-cmux": RIGKIT_CLI_VERSION,
+    "@rigkit/provider-freestyle": RIGKIT_CLI_VERSION,
+    "@rigkit/sdk": RIGKIT_CLI_VERSION,
+  };
+}
+
+function defaultPackageName(projectDir: string): string {
+  const name = basename(projectDir) || "rigkit-project";
+  return normalizePackageName(name);
+}
+
+function normalizePackageName(value: string): string {
+  const name = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, "-")
+    .replace(/^[._-]+|[._-]+$/g, "");
+  return name || "rigkit-project";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function sortObject<T>(value: Record<string, T>): Record<string, T> {
+  return Object.fromEntries(Object.entries(value).sort(([left], [right]) => left.localeCompare(right)));
 }
 
 export function starterConfig(): string {
@@ -71,14 +192,12 @@ rm -rf /var/lib/apt/lists/*
   .idleTimeoutSeconds(vmIdleTimeoutSeconds);
 
 const freestyleProvider = freestyle.provider();
+const terminalProvider = freestyle.terminal();
 
-export const dev = workflow(${workflowName}, {
-  providers: {
-    freestyle: freestyleProvider,
-    terminal: freestyle.terminal(),
-    cmux: cmux.provider(),
-  },
-})
+export const dev = workflow(${workflowName})
+  .sequence("dev")
+  .addProvider("freestyle", freestyleProvider)
+  .addProvider("terminal", terminalProvider)
   .step("create-base-vm", async ({ providers }) => {
     console.log("creating base vm");
     const { vm, vmId } = await providers.freestyle.client.vms.create({
@@ -170,22 +289,28 @@ export const dev = workflow(${workflowName}, {
       await providers.freestyle.client.vms.delete({ vmId: workspace.ctx.vmId });
     },
   })
+  .addProvider("cmux", cmux.provider())
   .workspaceOperation("open-cmux", {
     title: "Open cmux",
     description: "Open the workspace in cmux",
     run: async ({ providers, workspace }) => {
-      await providers.cmux.open({
-        name: workspace.name,
-        ssh: await providers.freestyle.cmux.createSshOptions({
+      const cmuxWorkspace = await providers.cmux.ssh({
+        ...await providers.freestyle.cmux.createSshOptions({
           vmId: workspace.ctx.vmId,
         }),
-        cwd: workspace.ctx.repoPath,
-        surfaceLayout: "tabs",
-        terminals: [
-          { command: "git status && exec bash -l" },
-        ],
+        name: workspace.name,
+      });
+      const terminal = await providers.cmux.newSurface({
+        workspace: cmuxWorkspace.workspaceId,
+        type: "terminal",
         focus: true,
       });
+      await providers.cmux.send({
+        workspace: cmuxWorkspace.workspaceId,
+        surface: terminal.surfaceId,
+        text: \`cd \${shellQuote(workspace.ctx.repoPath)} && git status && exec bash -l\\n\`,
+      });
+      await providers.cmux.selectWorkspace(cmuxWorkspace.workspaceId);
     },
   })
   .workspaceOperation("open-vscode", {

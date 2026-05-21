@@ -18,7 +18,7 @@ import {
   type CmuxRpcResult,
   type CmuxRuntime,
 } from "./index.ts";
-import { openCmux, type CmuxOpenClient } from "./host.ts";
+import { callCmux, type CmuxCallClient } from "./host.ts";
 
 describe("cmux sdk", () => {
   test("parses workspace refs from cmux text output", () => {
@@ -439,52 +439,53 @@ describe("cmux sdk", () => {
     expect(() => cmux.run(["bad"])).toThrow(CmuxCommandError);
   });
 
-  test("handles cmux.open host capability for an ssh workspace with tabs", async () => {
+  test("handles raw cmux.call host capability requests", async () => {
     const calls: Array<{ method: string; params: unknown }> = [];
     const logs: string[] = [];
     const client = fakeOpenClient(calls);
 
-    const result = await openCmux({
-      name: "website",
-      ssh: {
+    const workspace = await callCmux({
+      method: "ssh",
+      params: {
         kind: "ssh",
         destination: "vm_123,token_123@vm-ssh.freestyle.sh",
+        name: "website",
         sshOptions: ["ServerAliveInterval=15"],
       },
-      cwd: "/workspace/site",
-      surfaceLayout: "tabs",
-      terminals: [
-        { command: "pnpm dev" },
-        { command: "codex", focus: false },
-      ],
-      url: "http://localhost:4321",
-    }, { client, logger: (message) => logs.push(message) });
-
-    expect(result).toEqual({
-      sessionId: "workspace-1",
-      workspaceId: "workspace-1",
-      workspaceRef: "workspace:1",
-      terminalPanes: [
-        {
-          paneId: "pane-1",
-          paneRef: "pane:1",
-          surfaceId: "surface-1",
-          surfaceRef: "surface:1",
-        },
-        {
-          paneId: "pane-2",
-          paneRef: "pane:2",
-          surfaceId: "surface-2",
-          surfaceRef: "surface:2",
-        },
-      ],
-      browserPane: {
-        paneId: "pane-3",
-        paneRef: "pane:3",
-        surfaceId: "surface-3",
-        surfaceRef: "surface:3",
+    }, { client, logger: (message: string) => logs.push(message) });
+    const browser = await callCmux({
+      method: "newSurface",
+      params: {
+        workspace: "workspace-1",
+        type: "browser",
+        url: "http://localhost:4321",
+        focus: true,
       },
-    });
+    }, { client, logger: (message: string) => logs.push(message) });
+    const terminal = await callCmux({
+      method: "newSurface",
+      params: {
+        workspace: "workspace-1",
+        type: "terminal",
+        focus: false,
+      },
+    }, { client, logger: (message: string) => logs.push(message) });
+    await callCmux({
+      method: "send",
+      params: {
+        workspace: "workspace-1",
+        surface: "surface-2",
+        text: "pnpm dev\n",
+      },
+    }, { client, logger: (message: string) => logs.push(message) });
+    await callCmux({
+      method: "selectWorkspace",
+      params: { workspace: "workspace-1" },
+    }, { client, logger: (message: string) => logs.push(message) });
+
+    expect(workspace).toEqual({ handle: "workspace-1", id: "workspace-1", ref: "workspace:1" });
+    expect(browser).toMatchObject({ surface: "surface-1" });
+    expect(terminal).toMatchObject({ surface: "surface-2" });
     expect(calls).toEqual([
       {
         method: "ssh",
@@ -498,16 +499,9 @@ describe("cmux sdk", () => {
         method: "newSurface",
         params: {
           workspace: "workspace-1",
-          type: "terminal",
+          type: "browser",
+          url: "http://localhost:4321",
           focus: true,
-        },
-      },
-      {
-        method: "send",
-        params: {
-          workspace: "workspace-1",
-          surface: "surface-1",
-          text: "cd /workspace/site && pnpm dev\n",
         },
       },
       {
@@ -523,39 +517,7 @@ describe("cmux sdk", () => {
         params: {
           workspace: "workspace-1",
           surface: "surface-2",
-          text: "cd /workspace/site && codex\n",
-        },
-      },
-      {
-        method: "waitForRemoteReady",
-        params: {
-          workspace: "workspace-1",
-          options: {},
-        },
-      },
-      {
-        method: "portsKick",
-        params: {
-          workspace: "workspace-1",
-          surface: "surface-1",
-          reason: "command",
-        },
-      },
-      {
-        method: "portsKick",
-        params: {
-          workspace: "workspace-1",
-          surface: "surface-2",
-          reason: "command",
-        },
-      },
-      {
-        method: "newSurface",
-        params: {
-          workspace: "workspace-1",
-          type: "browser",
-          url: "http://localhost:4321",
-          focus: true,
+          text: "pnpm dev\n",
         },
       },
       {
@@ -563,17 +525,12 @@ describe("cmux sdk", () => {
         params: "workspace-1",
       },
     ]);
-    expect(calls[0]?.params).not.toHaveProperty("terminalStartupCommand");
     expect(logs).toEqual([
-      "cmux: opening website",
-      "cmux: connecting remote workspace",
-      "cmux: starting terminal in /workspace/site",
-      "cmux: starting terminal in /workspace/site",
-      "cmux: waiting for remote ports",
-      "cmux: refreshing remote ports",
-      "cmux: opening http://localhost:4321",
-      "cmux: focusing workspace",
-      "cmux: ready website",
+      "cmux: ssh",
+      "cmux: newSurface",
+      "cmux: newSurface",
+      "cmux: send",
+      "cmux: selectWorkspace",
     ]);
   });
 
@@ -581,11 +538,12 @@ describe("cmux sdk", () => {
     const calls: Array<{ method: string; params: unknown }> = [];
     const client = fakeOpenClient(calls);
 
-    await openCmux({
-      name: "website",
-      ssh: {
+    await callCmux({
+      method: "ssh",
+      params: {
         kind: "ssh",
         destination: "vm_123,token_123@vm-ssh.freestyle.sh",
+        name: "website",
         terminalStartupCommand: "ssh -tt vm_123:token_123@vm-ssh.freestyle.sh",
       },
     }, { client });
@@ -600,7 +558,7 @@ describe("cmux sdk", () => {
     });
   });
 
-  test("exposes a provider facade that requests cmux.open from the local host", async () => {
+  test("exposes a provider facade that requests raw cmux calls from the local host", async () => {
     const definition = cmux.provider();
     expect(definition.providerId).toBe("cmux");
     expect(definition.plugin).toBe(cmuxProviderPlugin);
@@ -624,77 +582,72 @@ describe("cmux sdk", () => {
         open: async () => {},
         requestCapability: async <Result,>(capability: string, params: unknown, options: unknown) => {
           requests.push({ capability, params, options });
+          const method = (params as { method?: string }).method;
+          if (method === "newSurface") {
+            return { surface: "surface-1", pane: "pane-1" } as Result;
+          }
+          if (method === "send") return "OK" as Result;
           return { sessionId: "workspace-1", workspaceId: "workspace-1" } as Result;
         },
       },
     }) as CmuxRuntime;
 
-    const session = await runtime.open({ name: "workspace" });
+    const workspace = await runtime.ssh({
+      destination: "vm_123,token_123@vm-ssh.freestyle.sh",
+      name: "workspace",
+    });
+    const terminal = await runtime.newSurface({
+      workspace: workspace.workspaceId,
+      type: "terminal",
+      focus: true,
+    });
+    await runtime.send({
+      workspace: workspace.workspaceId,
+      surface: terminal.surfaceId,
+      text: "git status\n",
+    });
 
     expect(requests).toEqual([
       {
-        capability: "cmux.open",
-        params: { name: "workspace" },
+        capability: "cmux.call",
+        params: {
+          method: "ssh",
+          params: {
+            destination: "vm_123,token_123@vm-ssh.freestyle.sh",
+            name: "workspace",
+          },
+        },
+        options: { nodePath: "operation.open" },
+      },
+      {
+        capability: "cmux.call",
+        params: {
+          method: "newSurface",
+          params: {
+            workspace: "workspace-1",
+            type: "terminal",
+            focus: true,
+          },
+        },
+        options: { nodePath: "operation.open" },
+      },
+      {
+        capability: "cmux.call",
+        params: {
+          method: "send",
+          params: {
+            workspace: "workspace-1",
+            surface: "surface-1",
+            text: "git status\n",
+          },
+        },
         options: { nodePath: "operation.open" },
       },
     ]);
-    expect(session.sessionId).toBe("workspace-1");
-
-    let closed = false;
-    void session.closed.then(() => {
-      closed = true;
-    });
-    await Bun.sleep(5);
-    expect(closed).toBe(false);
-  });
-
-  test("uses host capability close reporting when the runtime provides it", async () => {
-    const controller = await cmuxProviderPlugin.createProvider({
-      provider: { providerId: "cmux", config: {} },
-      storage: memoryProviderStorage("cmux"),
-      hostStorage: memoryProviderStorage("cmux"),
-      local: { open: async () => {} },
-    });
-    let resolveClosed!: () => void;
-    const runtime = await controller.runtime({
-      workflow: "test",
-      nodePath: "operation.open",
-      emit: () => {},
-      interaction: {
-        present: async <Result,>() => undefined as Result,
-      },
-      metadata: () => {},
-      local: {
-        open: async () => {},
-        requestCapabilitySession: async <Result,>(capability: string, params: unknown, options: unknown) => {
-          expect(capability).toBe("cmux.open");
-          expect(params).toEqual({ name: "workspace" });
-          expect(options).toEqual({ nodePath: "operation.open" });
-          return {
-            result: { sessionId: "workspace-1", workspaceId: "workspace-1" } as Result,
-            closed: new Promise<void>((resolve) => {
-              resolveClosed = resolve;
-            }),
-          };
-        },
-      },
-    }) as CmuxRuntime;
-
-    const session = await runtime.open({ name: "workspace" });
-    let closed = false;
-    void session.closed.then(() => {
-      closed = true;
-    });
-
-    await Bun.sleep(5);
-    expect(closed).toBe(false);
-    resolveClosed();
-    await session.closed;
-    expect(closed).toBe(true);
   });
 });
 
-function fakeOpenClient(calls: Array<{ method: string; params: unknown }>): CmuxOpenClient {
+function fakeOpenClient(calls: Array<{ method: string; params: unknown }>): CmuxCallClient {
   let terminalPaneIndex = 0;
   return {
     async newWorkspace(params) {

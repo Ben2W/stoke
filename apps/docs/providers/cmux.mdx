@@ -14,15 +14,19 @@ import { cmux } from "@rigkit/provider-cmux";
 import { freestyle } from "@rigkit/provider-freestyle";
 import { workflow } from "@rigkit/sdk";
 
-const app = workflow("website", {
-  providers: {
-    freestyle: freestyle.provider(),
-    cmux: cmux.provider(),
-  },
-});
+const app = workflow("website");
+const freestyleProvider = freestyle.provider();
+
+export const website = app
+  .sequence("website")
+  .addProvider("freestyle", freestyleProvider)
+  .add(setup)
+  .workspace({ create, remove })
+  .addProvider("cmux", cmux.provider());
 ```
 
-The Rigkit CLI registers the trusted `cmux.open` host capability automatically.
+Add `cmux.provider()` before the workspace operation that opens cmux. The Rigkit
+CLI registers the trusted `cmux.open` host capability automatically.
 
 ## Open a workspace
 

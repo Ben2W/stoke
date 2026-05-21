@@ -14,23 +14,22 @@ becomes the input for workspace creation.
 
 ## Config shapes
 
-Use `workflow(...)` when one workflow owns its provider map and you want provider
-types available as top-level handler properties:
+Use `workflow(...)` to create a typed workflow builder. Add providers where
+they become available with `.addProvider(...)`; downstream tasks, workspace
+hooks, and operations access them through `providers`.
 
 ```ts
 import { workflow } from "@rigkit/sdk";
 import { freestyle } from "@rigkit/provider-freestyle";
 
-const app = workflow("website", {
-  providers: {
-    freestyle: freestyle.provider(),
-  },
-});
+const app = workflow("website");
+const freestyleProvider = freestyle.provider();
 
 export const website = app
   .sequence("website")
-  .task("prepare", async ({ freestyle }) => {
-    const { vm, vmId } = await freestyle.client.vms.create({
+  .addProvider("freestyle", freestyleProvider)
+  .task("prepare", async ({ providers }) => {
+    const { vm, vmId } = await providers.freestyle.client.vms.create({
       logger: console.log,
     });
 
@@ -38,31 +37,53 @@ export const website = app
       const snapshot = await vm.snapshot();
       return { ctx: { snapshotId: snapshot.snapshotId } };
     } finally {
-      await freestyle.client.vms.delete({ vmId });
+      await providers.freestyle.client.vms.delete({ vmId });
     }
   });
 ```
 
 Export multiple workflow nodes when one `rigkit/index.ts` owns more than one
-setup graph. Shared providers live on the `workflow(...)` builder:
+setup graph. Reuse the same provider definition value at each point where it
+should enter a sequence:
 
 ```ts
 import { workflow } from "@rigkit/sdk";
 import { freestyle } from "@rigkit/provider-freestyle";
 
-const services = workflow("services", {
-  providers: {
-    freestyle: freestyle.provider(),
-  },
-});
+const services = workflow("services");
+const freestyleProvider = freestyle.provider();
 
-export const api = services.sequence("api").task("prepare-api", async () => ({
-  ctx: { packageName: "@acme/api" },
-}));
+export const api = services
+  .sequence("api")
+  .addProvider("freestyle", freestyleProvider)
+  .task("prepare-api", async ({ providers }) => {
+    const { vm, vmId } = await providers.freestyle.client.vms.create({
+      logger: console.log,
+    });
+    await providers.freestyle.client.vms.delete({ vmId });
+    return { ctx: { packageName: "@acme/api" } };
+  });
 
-export const web = services.sequence("web").task("prepare-web", async () => ({
-  ctx: { packageName: "@acme/web" },
-}));
+export const web = services
+  .sequence("web")
+  .task("prepare-web", async () => ({
+    ctx: { packageName: "@acme/web" },
+  }));
+```
+
+Provider scope is lexical. A task only sees providers added before that task in
+the chain. Adding or changing a provider invalidates cache for the tasks,
+workspace hooks, and operations that have that provider in scope, not unrelated
+earlier work. This is useful for operation-only providers such as cmux:
+
+```ts
+export const website = app
+  .sequence("website")
+  .addProvider("freestyle", freestyleProvider)
+  .add(websiteSetup)
+  .workspace({ create, remove })
+  .addProvider("cmux", cmux.provider())
+  .workspaceOperation("open-cmux", openCmux);
 ```
 
 The default interactive path can omit `--workflow`; Rigkit prompts when a

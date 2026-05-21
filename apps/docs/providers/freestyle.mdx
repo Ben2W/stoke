@@ -12,11 +12,12 @@ client plus helpers for SSH, cmux, and VS Code.
 import { workflow } from "@rigkit/sdk";
 import { freestyle } from "@rigkit/provider-freestyle";
 
-const app = workflow("website", {
-  providers: {
-    freestyle: freestyle.provider(),
-  },
-});
+const app = workflow("website");
+const freestyleProvider = freestyle.provider();
+
+export const website = app
+  .sequence("website")
+  .addProvider("freestyle", freestyleProvider);
 ```
 
 Default auth opens Freestyle browser login and stores credentials in
@@ -59,19 +60,22 @@ const vmSpec = new VmSpec()
   .rootfsSizeGb(24)
   .idleTimeoutSeconds(3600);
 
-const setup = app.sequence("setup").task("prepare-image", async ({ freestyle }) => {
-  const { vm, vmId } = await freestyle.client.vms.create({
-    spec: vmSpec,
-    logger: console.log,
-  });
+const setup = app
+  .sequence("setup")
+  .addProvider("freestyle", freestyleProvider)
+  .task("prepare-image", async ({ providers }) => {
+    const { vm, vmId } = await providers.freestyle.client.vms.create({
+      spec: vmSpec,
+      logger: console.log,
+    });
 
-  try {
-    const snapshot = await vm.snapshot();
-    return { ctx: { snapshotId: snapshot.snapshotId } };
-  } finally {
-    await freestyle.client.vms.delete({ vmId });
-  }
-});
+    try {
+      const snapshot = await vm.snapshot();
+      return { ctx: { snapshotId: snapshot.snapshotId } };
+    } finally {
+      await providers.freestyle.client.vms.delete({ vmId });
+    }
+  });
 ```
 
 Pass `logger: console.log` to Freestyle SDK calls that support logging. Rigkit
@@ -81,8 +85,8 @@ streams task console output to the CLI.
 
 ```ts
 .workspace({
-  create: async ({ workflow, freestyle }) => {
-    const { vmId } = await freestyle.client.vms.create({
+  create: async ({ workflow, providers }) => {
+    const { vmId } = await providers.freestyle.client.vms.create({
       snapshotId: workflow.ctx.snapshotId,
       idleTimeoutSeconds: 3600,
       logger: console.log,
@@ -90,8 +94,8 @@ streams task console output to the CLI.
 
     return { vmId };
   },
-  remove: async ({ freestyle, workspace }) => {
-    await freestyle.client.vms.delete({
+  remove: async ({ providers, workspace }) => {
+    await providers.freestyle.client.vms.delete({
       vmId: workspace.ctx.vmId,
     });
   },

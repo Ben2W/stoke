@@ -96,9 +96,9 @@ export default sequence("api")
   }));
 ```
 
-Global fragment cache is keyed by the fragment graph and provider fingerprint.
-That means a config change, provider config change, or fragment code change
-creates a different global fragment cache.
+Global fragment cache is keyed by the fragment graph and Rigkit definition
+fingerprint. Provider config changes do not move the fragment state path; they
+invalidate cached tasks inside the fragment where that provider is in scope.
 
 Use `.global()` for shared bases. Use `.local()` when a subtree should return
 to project-local cache.
@@ -207,11 +207,15 @@ import {
   withFreestyleCompanyBase,
   type FreestyleCompanyBaseFragmentContext,
 } from "@rigkit/fragments";
+import { freestyle } from "@rigkit/provider-freestyle";
+
+const freestyleProvider = freestyle.provider();
 
 const projectSetup = app
   .sequence<FreestyleCompanyBaseFragmentContext>("project-setup")
-  .task("prepare-project-image", async ({ freestyle, step }) => {
-    const { vm, vmId } = await freestyle.client.vms.create({
+  .addProvider("freestyle", freestyleProvider)
+  .task("prepare-project-image", async ({ providers, step }) => {
+    const { vm, vmId } = await providers.freestyle.client.vms.create({
       snapshotId: step.ctx.snapshotId,
       idleTimeoutSeconds: step.ctx.freestyleCompanyBase.idleTimeoutSeconds,
       logger: console.log,
@@ -230,7 +234,7 @@ const projectSetup = app
         },
       };
     } finally {
-      await freestyle.client.vms.delete({ vmId });
+      await providers.freestyle.client.vms.delete({ vmId });
     }
   });
 

@@ -15,13 +15,14 @@ authenticated, and the workspace should behave the same way.
 import { copyGcloudConfig } from "@rigkit/provider-gcloud-cli";
 import { workflow } from "@rigkit/sdk";
 
-const app = workflow("gcloud-example", {
-  providers: {
-    gcloudConfig: copyGcloudConfig.provider({
-      requireAuth: true,
-    }),
-  },
+const app = workflow("gcloud-example");
+const gcloudConfigProvider = copyGcloudConfig.provider({
+  requireAuth: true,
 });
+
+export const gcloudExample = app
+  .sequence("gcloud-example")
+  .addProvider("gcloudConfig", gcloudConfigProvider);
 ```
 
 With `requireAuth: true`, provider startup checks:

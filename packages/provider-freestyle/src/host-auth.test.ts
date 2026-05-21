@@ -5,6 +5,7 @@ import type {
   ProviderRuntimeContext,
   ProviderStorage,
   ProviderStorageRecord,
+  WorkflowProviderCheckResult,
   WorkflowProviderController,
   WorkflowEvent,
 } from "@rigkit/engine";
@@ -120,6 +121,27 @@ describe("Freestyle provider host auth", () => {
           rigkitVersion: RIGKIT_PROVIDER_FREESTYLE_VERSION,
         },
       ]);
+
+      const nextController = await freestyleProviderPlugin.createProvider({
+        provider: {
+          providerId: FREESTYLE_PROVIDER_ID,
+          config: {
+            apiKey: "object-api-key",
+          },
+        },
+        storage: projectStorage,
+        hostStorage,
+        local: { open: async () => {} },
+      });
+      const requireChecks = providerCheckList(await nextController.checks?.(providerCheckContext("require")));
+      const planChecks = providerCheckList(await nextController.checks?.(providerCheckContext("plan")));
+      expect(planChecks[0]).toMatchObject({
+        id: "auth",
+        status: "ok",
+        fingerprint: "identity:identity-api-key",
+      });
+      expect(planChecks[0]?.fingerprint).toBe(requireChecks[0]?.fingerprint);
+      expect(requests).toHaveLength(2);
     } finally {
       globalThis.fetch = previousFetch;
     }
@@ -220,6 +242,31 @@ describe("Freestyle provider host auth", () => {
           },
         },
       ]);
+
+      const nextController = await freestyleProviderPlugin.createProvider({
+        provider: {
+          providerId: FREESTYLE_PROVIDER_ID,
+          config: {
+            teamId: "team_123",
+          },
+        },
+        storage: projectStorage,
+        hostStorage,
+        local: {
+          open: async (target) => {
+            opened.push(target);
+          },
+        },
+      });
+      const requireChecks = providerCheckList(await nextController.checks?.(providerCheckContext("require")));
+      const planChecks = providerCheckList(await nextController.checks?.(providerCheckContext("plan")));
+      expect(planChecks[0]).toMatchObject({
+        id: "team",
+        status: "ok",
+        fingerprint: "identity:identity-browser",
+      });
+      expect(planChecks[0]?.fingerprint).toBe(requireChecks[0]?.fingerprint);
+      expect(proxyRequests).toHaveLength(2);
     } finally {
       globalThis.fetch = previousFetch;
     }
@@ -711,6 +758,13 @@ function providerCheckContext(mode: "plan" | "require"): ProviderCheckContext {
     workflow: "workflow",
     local: providerContext([]).local,
   };
+}
+
+function providerCheckList(
+  result: WorkflowProviderCheckResult | WorkflowProviderCheckResult[] | undefined,
+): WorkflowProviderCheckResult[] {
+  if (!result) return [];
+  return Array.isArray(result) ? result : [result];
 }
 
 function testFetch(

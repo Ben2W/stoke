@@ -21,19 +21,17 @@ const vmSpec = new VmSpec()
   .vcpuCount(4)
   .idleTimeoutSeconds(vmIdleTimeoutSeconds);
 
-const app = workflow("gcloud-on-open", {
-  providers: {
-    freestyle: freestyle.provider(),
-    gcloudConfig: copyGcloudConfig.provider({
-      requireAuth: true,
-    }),
-  },
+const app = workflow("gcloud-on-open");
+const freestyleProvider = freestyle.provider();
+const gcloudConfigProvider = copyGcloudConfig.provider({
+  requireAuth: true,
 });
 
 const baseVm = app
   .sequence("base-vm")
-  .task("create", async ({ freestyle, step }) => {
-    const { vm, vmId } = await freestyle.client.vms.create({
+  .addProvider("freestyle", freestyleProvider)
+  .task("create", async ({ providers }) => {
+    const { vm, vmId } = await providers.freestyle.client.vms.create({
       spec: vmSpec,
       logger: console.log,
     });
@@ -41,11 +39,11 @@ const baseVm = app
       const snapshot = await vm.snapshot();
       return { ctx: { snapshotId: snapshot.snapshotId } };
     } finally {
-      await freestyle.client.vms.delete({ vmId });
+      await providers.freestyle.client.vms.delete({ vmId });
     }
   })
-  .task("install-gcloud-cli", async ({ step, freestyle }) => {
-    const { vm, vmId } = await freestyle.client.vms.create({
+  .task("install-gcloud-cli", async ({ step, providers }) => {
+    const { vm, vmId } = await providers.freestyle.client.vms.create({
       snapshotId: step.ctx.snapshotId,
       idleTimeoutSeconds: vmIdleTimeoutSeconds,
       logger: console.log,
@@ -62,7 +60,7 @@ const baseVm = app
       const snapshot = await vm.snapshot();
       return { ctx: { snapshotId: snapshot.snapshotId } };
     } finally {
-      await freestyle.client.vms.delete({ vmId });
+      await providers.freestyle.client.vms.delete({ vmId });
     }
   });
 
@@ -78,6 +76,8 @@ export const gcloudOnOpen = app
       },
     };
   })
+  .addProvider("freestyle", freestyleProvider)
+  .addProvider("gcloudConfig", gcloudConfigProvider)
   .workspace({
     create: async ({ workflow, providers, step }) => {
       const gcloudConfigFiles = await providers.gcloudConfig.configFiles();

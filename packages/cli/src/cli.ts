@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
-import { rmSync } from "node:fs";
-import { join, relative, resolve } from "node:path";
+import { existsSync, rmSync } from "node:fs";
+import { dirname, join, relative, resolve } from "node:path";
 import { Command, CommanderError, Option } from "commander";
 import inquirer from "inquirer";
 import * as ui from "./ui.ts";
@@ -53,6 +53,11 @@ type CliInvocation = {
   json: boolean;
 };
 
+type InitOptions = {
+  install: boolean;
+  packageManager?: PackageManager;
+};
+
 type CompletionOptions = {
   shell?: CompletionShell;
   index?: string;
@@ -76,6 +81,15 @@ type CacheClearOptions = {
   local: boolean;
   global: boolean;
   all: boolean;
+};
+
+type PackageManager = "bun" | "pnpm" | "npm" | "skip";
+
+type InitInstallResult = {
+  packageManager: PackageManager;
+  command?: string;
+  skipped: boolean;
+  reason?: "json" | "no-install" | "non-interactive";
 };
 
 type EngineProjectInfo = {
@@ -204,9 +218,15 @@ async function runCli(argv: string[]): Promise<void> {
 
   program
     .command("init")
-    .description("Create rigkit/index.ts in the current directory")
-    .action(async () => {
-      await runInit(makeInvocation(rootOptions(program)));
+    .description("Initialize a Rigkit project")
+    .option("--package-manager <packageManager>", "Install with bun, pnpm, npm, or skip")
+    .option("--no-install", "Write files without installing dependencies")
+    .option("--json", "Print machine-readable JSON")
+    .action(async (options: { packageManager?: string; install?: boolean; json?: boolean }) => {
+      await runInit(makeInvocation(rootOptions(program), options.json), {
+        install: options.install !== false,
+        packageManager: parsePackageManagerOption(options.packageManager),
+      });
     });
 
   for (const operation of ["plan", "apply"] as const) {
@@ -311,14 +331,16 @@ async function runCli(argv: string[]): Promise<void> {
     });
 
   cache
-    .command("invalidate [step]")
+    .command("invalidate [task]")
     .description("Invalidate cached task outputs so they re-run on next plan/apply")
+    .option("--workflow <workflow>", "Workflow name")
     .option("--all", "Invalidate every cached task in this project's workflow")
     .option("-y, --yes", "Skip confirmation when invalidating --all")
     .option("--json", "Print machine-readable JSON")
-    .action(async (step: string | undefined, options: { all?: boolean; yes?: boolean; json?: boolean }) => {
+    .action(async (task: string | undefined, options: { workflow?: string; all?: boolean; yes?: boolean; json?: boolean }) => {
       await runCacheInvalidate(makeInvocation(rootOptions(program), options.json), {
-        step,
+        task,
+        workflow: options.workflow,
         all: Boolean(options.all),
         yes: Boolean(options.yes),
       });
@@ -475,7 +497,11 @@ function handleCliError(error: unknown): void {
   process.exitCode = 1;
 }
 
-async function runInit(invocation: CliInvocation): Promise<void> {
+async function runInit(invocation: CliInvocation, options: InitOptions): Promise<void> {
+  if (wantsJson(invocation) && options.packageManager && options.packageManager !== "skip") {
+    throw new Error(`rig init --json only supports --package-manager skip`);
+  }
+
   if (!wantsJson(invocation)) {
     console.log(`${ui.bold("rig")} ${ui.dim("· initialize")}`);
     console.log("");
@@ -484,17 +510,49 @@ async function runInit(invocation: CliInvocation): Promise<void> {
   const result = initProject({
     projectDir: resolve(process.cwd(), invocation.global.chdir ?? "."),
   });
+  const packageManager = await resolveInitPackageManager(invocation, options, result.projectDir);
+  const install = await runPackageManagerInstall(result.projectDir, packageManager, wantsJson(invocation));
 
   if (wantsJson(invocation)) {
-    printJson(result);
+    printJson({ ...result, install });
     return;
   }
 
-  printInitResult(result);
+  printInitResult(result, install);
 }
 
 function canPrompt(): boolean {
   return Boolean(process.stdin.isTTY && process.stdout.isTTY);
+}
+
+async function resolveInitPackageManager(
+  invocation: CliInvocation,
+  options: InitOptions,
+  projectDir: string,
+): Promise<PackageManager> {
+  if (!options.install) return "skip";
+  if (wantsJson(invocation)) {
+    return "skip";
+  }
+  if (options.packageManager) return options.packageManager;
+  if (!canPrompt()) return "skip";
+  return promptPackageManager(detectPackageManager(projectDir));
+}
+
+async function promptPackageManager(defaultValue: PackageManager): Promise<PackageManager> {
+  const answers = await inquirer.prompt<{ packageManager: PackageManager }>([{
+    type: "list",
+    name: "packageManager",
+    message: "Install dependencies with:",
+    default: defaultValue,
+    choices: [
+      { name: "bun", value: "bun" },
+      { name: "pnpm", value: "pnpm" },
+      { name: "npm", value: "npm" },
+      { name: "Skip for now", value: "skip" },
+    ],
+  }]);
+  return answers.packageManager;
 }
 
 async function promptWorkspaceName(defaultValue: string): Promise<string> {
@@ -534,11 +592,47 @@ async function defaultWorkspaceName(runtime: RuntimeClient): Promise<string> {
   return generateWorkspaceName(existingNames);
 }
 
-function printInitResult(result: InitProjectResult): void {
-  console.log(`${ui.ok(ui.sym.ok)} ${ui.bold("rigkit")} ${ui.dim("ready")}`);
+async function runPackageManagerInstall(
+  projectDir: string,
+  packageManager: PackageManager,
+  jsonMode: boolean,
+): Promise<InitInstallResult> {
+  if (packageManager === "skip") {
+    return {
+      packageManager,
+      skipped: true,
+      reason: jsonMode ? "json" : canPrompt() ? "no-install" : "non-interactive",
+    };
+  }
+
+  const command = packageManagerInstallCommand(packageManager);
+  if (!jsonMode) {
+    process.stderr.write(`${ui.accent(ui.sym.active)} ${ui.dim(`$ ${command.join(" ")}`)}\n`);
+  }
+
+  const proc = Bun.spawn(command, {
+    cwd: projectDir,
+    stdin: "inherit",
+    stdout: jsonMode ? "pipe" : "inherit",
+    stderr: jsonMode ? "pipe" : "inherit",
+  });
+  const exitCode = await proc.exited;
+  if (exitCode !== 0) {
+    throw new Error(`${command.join(" ")} failed with exit code ${exitCode}`);
+  }
+
+  return { packageManager, command: command.join(" "), skipped: false };
+}
+
+function printInitResult(result: InitProjectResult, install: InitInstallResult): void {
+  console.log(`${ui.ok(ui.sym.ok)} ${ui.bold(result.name)} ${ui.dim("ready")}`);
   console.log("");
 
   console.log(ui.fileStatus(initStatus(result.created.config, false), shortPath(result.configPath)));
+  console.log(ui.fileStatus(initStatus(result.created.packageJson, result.updated.packageJson), shortPath(result.packageJsonPath)));
+  if (!install.skipped && install.command) {
+    console.log(ui.fileStatus("created", install.command));
+  }
 
   console.log("");
   console.log(ui.bold("Next"));
@@ -546,7 +640,44 @@ function printInitResult(result: InitProjectResult): void {
   if (projectDir !== ".") {
     console.log(ui.hint(`cd ${projectDir}`));
   }
+  if (install.skipped) {
+    console.log(ui.hint(detectInstallCommand(result.packageJsonPath)));
+  }
   console.log(ui.hint("rig plan"));
+}
+
+function parsePackageManagerOption(value: string | undefined): PackageManager | undefined {
+  if (value === undefined) return undefined;
+  if (isPackageManager(value)) return value;
+  throw new Error(`Unsupported package manager "${value}". Use bun, pnpm, npm, or skip.`);
+}
+
+function isPackageManager(value: string): value is PackageManager {
+  return value === "bun" || value === "pnpm" || value === "npm" || value === "skip";
+}
+
+function detectPackageManager(projectDir: string): PackageManager {
+  if (existsSync(join(projectDir, "bun.lock")) || existsSync(join(projectDir, "bun.lockb"))) return "bun";
+  if (existsSync(join(projectDir, "pnpm-lock.yaml"))) return "pnpm";
+  if (existsSync(join(projectDir, "package-lock.json"))) return "npm";
+  return "npm";
+}
+
+function detectInstallCommand(packageJsonPath: string): string {
+  const projectDir = dirname(packageJsonPath);
+  const packageManager = detectPackageManager(projectDir);
+  return `${packageManager} install`;
+}
+
+function packageManagerInstallCommand(packageManager: Exclude<PackageManager, "skip">): string[] {
+  switch (packageManager) {
+    case "bun":
+      return ["bun", "install"];
+    case "pnpm":
+      return ["pnpm", "install"];
+    case "npm":
+      return ["npm", "install"];
+  }
 }
 
 function initStatus(created: boolean, updated: boolean): ui.FileStatus {
@@ -992,21 +1123,22 @@ async function runProvidersFreestyleClear(invocation: CliInvocation): Promise<vo
 }
 
 type CacheInvalidateOptions = {
-  step?: string;
+  task?: string;
+  workflow?: string;
   all: boolean;
   yes: boolean;
 };
 
 async function runCacheInvalidate(invocation: CliInvocation, options: CacheInvalidateOptions): Promise<void> {
-  if (options.step && options.all) {
-    throw new Error(`rig cache invalidate accepts either a step or --all, not both`);
+  if (options.task && options.all) {
+    throw new Error(`rig cache invalidate accepts either a task or --all, not both`);
   }
 
   const runtime = await loadRuntime(invocation);
   let targets: string[] = [];
 
-  if (options.step) {
-    targets = [options.step];
+  if (options.task) {
+    targets = [options.task];
   } else if (options.all) {
     if (!options.yes && !wantsJson(invocation) && canPrompt()) {
       const confirmed = await promptHostConfirm({
@@ -1022,8 +1154,12 @@ async function runCacheInvalidate(invocation: CliInvocation, options: CacheInval
     // Interactive: multi-select among currently-valid cache entries.
     const cache = await runtime.control.cache();
     const candidates = cache.entries
-      .filter((entry) => !entry.invalidated && entry.scope === "local")
-      .map((entry) => ({ path: entry.nodePath || entry.nodeName, workflow: entry.workflow }));
+      .filter((entry) => !entry.invalidated)
+      .map((entry) => ({
+        path: entry.displayPath || entry.nodePath || entry.nodeName,
+        workflow: entry.workflow,
+        scope: entry.scope,
+      }));
     if (candidates.length === 0) {
       if (wantsJson(invocation)) {
         printJson({ ok: true, invalidated: 0 });
@@ -1033,14 +1169,17 @@ async function runCacheInvalidate(invocation: CliInvocation, options: CacheInval
       return;
     }
     if (wantsJson(invocation) || !canPrompt()) {
-      throw new Error(`rig cache invalidate needs a step name or --all when not running in an interactive terminal`);
+      throw new Error(`rig cache invalidate needs a task name or --all when not running in an interactive terminal`);
     }
     const picked = await promptCacheInvalidateSelection(candidates);
     if (picked.length === 0) throw new Error("Nothing selected");
     targets = picked;
   }
 
-  const result = await runtime.control.invalidateCache({ nodePaths: targets });
+  const result = await invalidateRuntimeCacheTargets(runtime, {
+    workflow: options.workflow,
+    nodePaths: targets,
+  });
   if (wantsJson(invocation)) {
     printJson(result);
     return;
@@ -1055,7 +1194,7 @@ async function runCacheInvalidate(invocation: CliInvocation, options: CacheInval
 }
 
 async function promptCacheInvalidateSelection(
-  candidates: Array<{ path: string; workflow: string }>,
+  candidates: Array<{ path: string; workflow: string; scope: "local" | "global" }>,
 ): Promise<string[]> {
   const answers = await inquirer.prompt<{ paths: string[] }>([{
     type: "checkbox",
@@ -1064,10 +1203,63 @@ async function promptCacheInvalidateSelection(
     choices: candidates.map((c) => ({
       name: c.path,
       value: c.path,
-      description: c.workflow ? `workflow ${c.workflow}` : undefined,
+      description: c.workflow ? `${c.scope} cache, workflow ${c.workflow}` : `${c.scope} cache`,
     })),
   }]);
   return answers.paths;
+}
+
+async function invalidateRuntimeCacheTargets(
+  runtime: RuntimeClient,
+  input: { workflow?: string; nodePaths: string[] },
+): Promise<{ ok: boolean; invalidated: number }> {
+  if (input.workflow) {
+    return await runtime.control.invalidateCache({
+      workflow: input.workflow,
+      nodePaths: input.nodePaths,
+    });
+  }
+
+  const cache = await runtime.control.cache();
+  const entries = cache.entries.filter((entry) => !entry.invalidated);
+  if (input.nodePaths.length === 0) {
+    const workflows = [...new Set(entries.map((entry) => entry.workflow))];
+    const results = await Promise.all(
+      workflows.map((workflow) => runtime.control.invalidateCache({ workflow, nodePaths: [] })),
+    );
+    return {
+      ok: true,
+      invalidated: results.reduce((total, result) => total + result.invalidated, 0),
+    };
+  }
+
+  const grouped = new Map<string, string[]>();
+  const fallbackWorkflows = [...new Set(entries.map((entry) => entry.workflow))];
+  for (const target of input.nodePaths) {
+    const matches = entries.filter((entry) =>
+      entry.nodePath === target ||
+      entry.displayPath === target ||
+      entry.nodeName === target
+    );
+    const workflows = matches.length > 0
+      ? [...new Set(matches.map((entry) => entry.workflow))]
+      : fallbackWorkflows;
+    if (workflows.length !== 1) {
+      throw new Error(`Pass --workflow to choose a workflow`);
+    }
+    const workflow = workflows[0]!;
+    grouped.set(workflow, [...(grouped.get(workflow) ?? []), target]);
+  }
+
+  const results = await Promise.all(
+    [...grouped].map(([workflow, nodePaths]) =>
+      runtime.control.invalidateCache({ workflow, nodePaths })
+    ),
+  );
+  return {
+    ok: true,
+    invalidated: results.reduce((total, result) => total + result.invalidated, 0),
+  };
 }
 
 async function executeRuntimeOperation(
@@ -2141,7 +2333,7 @@ function hostRequestNeedsTerminal(event: HostRequestEvent): boolean {
 
 function hostCapabilityNeedsTerminal(event: HostCapabilityRequestEvent): boolean {
   switch (event.capability) {
-    case "cmux.open":
+    case "cmux.call":
       return false;
     default:
       return true;
@@ -2714,6 +2906,8 @@ function printCacheEntries(entries: ReadonlyArray<{
   scope: "local" | "global";
   workflow: string;
   nodePath: string;
+  displayPath?: string;
+  planIndex?: number;
   nodeName: string;
   createdAt: string;
   invalidated: boolean;
@@ -2725,17 +2919,18 @@ function printCacheEntries(entries: ReadonlyArray<{
   }
 
   const rows = entries.map((entry) => [
+    { text: entry.planIndex === undefined ? "" : String(entry.planIndex + 1), style: ui.dim },
+    {
+      text: entry.invalidated ? "invalidated" : "cached",
+      style: entry.invalidated ? ui.warn : ui.dim,
+    },
+    { text: entry.displayPath || entry.nodePath || entry.nodeName, style: ui.bold },
     { text: entry.scope, style: ui.dim },
     { text: entry.workflow },
-    { text: entry.nodePath || entry.nodeName, style: ui.bold },
-    {
-      text: entry.invalidated ? "invalidated" : "valid",
-      style: entry.invalidated ? ui.warn : ui.ok,
-    },
     { text: entry.fragmentHash ? entry.fragmentHash.slice(0, 19) : "", style: ui.dim },
     { text: formatCreatedTimestamp(entry.createdAt), style: ui.dim },
   ]);
-  console.log(ui.columns(["scope", "workflow", "node", "status", "fragment", "created"], rows));
+  console.log(ui.columns(["#", "status", "node", "scope", "workflow", "fragment", "created"], rows));
 }
 
 function printConfig(info: EngineProjectInfo): void {

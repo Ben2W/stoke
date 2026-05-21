@@ -190,14 +190,25 @@ describe("CLI entrypoint", () => {
       expect(result.exitCode).toBe(0);
       expect(result.stderr).toBe("");
       expect(JSON.parse(result.stdout)).toEqual({
+        name: projectDir.split("/").at(-1)?.toLowerCase(),
         projectDir,
         configPath: join(projectDir, "rigkit", "index.ts"),
+        packageJsonPath: join(projectDir, "package.json"),
         created: {
           config: true,
+          packageJson: true,
+        },
+        updated: {
+          packageJson: false,
+        },
+        install: {
+          packageManager: "skip",
+          skipped: true,
+          reason: "json",
         },
       });
       expect(existsSync(join(projectDir, "rigkit", "index.ts"))).toBe(true);
-      expect(existsSync(join(projectDir, "package.json"))).toBe(false);
+      expect(existsSync(join(projectDir, "package.json"))).toBe(true);
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }
@@ -213,6 +224,22 @@ describe("CLI entrypoint", () => {
       expect(result.stdout).toBe("");
       expect(result.stderr).toContain("too many arguments");
       expect(existsSync(join(cwd, "rigkit", "index.ts"))).toBe(false);
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects package manager installs in JSON init before writing files", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "rigkit-cli-init-json-install-"));
+
+    try {
+      const result = await runCli(["init", "--json", "--package-manager", "npm"], { cwd });
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toContain("rig init --json only supports --package-manager skip");
+      expect(existsSync(join(cwd, "rigkit", "index.ts"))).toBe(false);
+      expect(existsSync(join(cwd, "package.json"))).toBe(false);
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }
@@ -309,6 +336,33 @@ describe("CLI entrypoint", () => {
       expect(result.exitCode).toBe(0);
       expect(result.stderr).toBe("");
       expect(JSON.parse(result.stdout)).toEqual({ ok: true, invalidated: 0 });
+    });
+  });
+
+  test("infers workflow when invalidating a unique cache task", async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-cli-cache-invalidate-workflow-"));
+
+    await withWorkspaceRuntime({ projectDir, requireCacheInvalidateWorkflow: true }, async ({ env }) => {
+      const result = await runCli([`--chdir=${projectDir}`, "cache", "invalidate", "ready", "--json"], { env });
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stderr).toBe("");
+      expect(JSON.parse(result.stdout)).toEqual({ ok: true, invalidated: 1 });
+    });
+  });
+
+  test("lists cache entries with plan-style task status", async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-cli-cache-list-"));
+
+    await withWorkspaceRuntime({ projectDir }, async ({ env }) => {
+      const result = await runCli([`--chdir=${projectDir}`, "cache", "ls"], { env });
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stderr).toBe("");
+      expect(result.stdout).toContain("status");
+      expect(result.stdout).toContain("cached");
+      expect(result.stdout).toContain("ready");
+      expect(result.stdout).not.toContain("valid");
     });
   });
 
@@ -537,6 +591,7 @@ async function withWorkspaceRuntime(
   input: {
     projectDir: string;
     cacheInvalidated?: number;
+    requireCacheInvalidateWorkflow?: boolean;
     duplicateWorkspaceName?: boolean;
     engineVersion?: string;
     runtimeVersion?: string;
@@ -632,7 +687,27 @@ async function withWorkspaceRuntime(
         });
       }
       if (pathname === "/cache/invalidate") {
+        const body = await request.json() as { workflow?: string };
+        if (input.requireCacheInvalidateWorkflow && body.workflow !== "smoke") {
+          return runtimeJson({ error: { message: "Pass --workflow to choose a workflow" } }, { status: 400 });
+        }
         return runtimeJson({ ok: true, invalidated: input.cacheInvalidated ?? 1 });
+      }
+      if (pathname === "/cache") {
+        return runtimeJson({
+          entries: [{
+            scope: "local",
+            workflow: "smoke",
+            nodePath: "ready",
+            displayPath: "ready",
+            planIndex: 0,
+            nodeName: "ready",
+            nodeKind: "task",
+            runId: "run-ready",
+            invalidated: false,
+            createdAt: now,
+          }],
+        });
       }
       if (pathname === "/operations") {
         return runtimeJson({

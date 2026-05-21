@@ -796,7 +796,8 @@ function providerIdentityFingerprint(
   identityKey: string,
   identity: { identityId: string } | undefined,
 ): string {
-  return `${identityKey}:${identity?.identityId ?? "missing-identity"}`;
+  if (identity) return `identity:${identity.identityId}`;
+  return `${identityKey}:missing-identity`;
 }
 
 async function listTeams(config: StackAuthConfig, accessToken: string, fetchFn: typeof fetch): Promise<FreestyleTeam[]> {

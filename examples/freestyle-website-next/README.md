@@ -4,15 +4,16 @@ This example builds a Freestyle-backed workflow for `freestyle-sh/freestyle-webs
 
 The workflow:
 
-- installs Git, GitHub CLI, Bun, and build tools
+- installs Git, GitHub CLI, Bun, shpool, and build tools
 - installs Codex CLI
 - runs the GitHub login flow in a browser terminal
 - configures Git commit author identity from the authenticated GitHub account
 - clones `https://github.com/freestyle-sh/freestyle-website-next`
 - runs `bun install`
 - initializes Codex CLI from inside the cloned repo so its workspace trust and login prompts apply to the project folder
+- starts the website dev server inside a named shpool session, waits for localhost to return HTML, and snapshots the warm VM
 - passes Freestyle VM snapshot refs through JSON workflow context
-- opens the created workspace in cmux with localhost and Codex in separate tabs
+- opens the created workspace in cmux with localhost, Codex, and a tab attached to the running shpool dev-server session
 - opens the created workspace in VS Code from the `open-vscode` workspace operation
 
 Run from this directory:

@@ -16,8 +16,8 @@ Rigkit caches task outputs, not live resources. A task output is the `ctx`
 object returned by the task.
 
 ```ts
-.task("prepare", async ({ freestyle }) => {
-  const { vm, vmId } = await freestyle.client.vms.create({
+.task("prepare", async ({ providers }) => {
+  const { vm, vmId } = await providers.freestyle.client.vms.create({
     logger: console.log,
   });
 
@@ -29,7 +29,7 @@ object returned by the task.
       },
     };
   } finally {
-    await freestyle.client.vms.delete({ vmId });
+    await providers.freestyle.client.vms.delete({ vmId });
   }
 });
 ```
@@ -64,13 +64,18 @@ Rigkit considers:
 - the merged `.configure(...)` stack;
 - the output schema;
 - upstream cached run ids;
-- the workflow provider fingerprint;
+- the scoped provider fingerprint for providers added before the task;
 - the task `cacheTTL`;
 - provider artifact validation, when a provider implements it.
 
 Provider fingerprints include provider ids, resolved provider config, and
-provider plugin identity. Changing provider config can make cached runs
-unusable.
+provider plugin identity. Changing provider config makes cached runs unusable
+only where that provider is in scope.
+
+Rigkit still fingerprints `rigkit/` definition source so closed-over task values
+stay cache-safe. Ordinary source edits can invalidate more broadly; resolved
+provider config and provider implementation changes are scoped by
+`.addProvider(...)`.
 
 ## Local cache
 
@@ -95,9 +100,10 @@ Rigkit installation. When using the CLI, the default fragment state lives at:
 Set `RIGKIT_HOME` to move the Rigkit home directory. Hosts that embed the
 engine directly can also provide their own global fragment root.
 
-The fragment hash is based on the fragment graph and provider fingerprint.
-When two workflows use the same global fragment graph with the same provider
-config, they can reuse the same cached setup.
+The fragment hash is based on the fragment graph and Rigkit definition
+fingerprint. Provider changes do not move the fragment state path; they make
+cached task runs inside that fragment stale where the changed provider is in
+scope.
 
 Use global fragments for expensive shared setup, such as:
 
@@ -162,16 +168,16 @@ But the `gcloud` cli expires after a day, so every day you might need to reauthe
 ```ts
 .task(
   "setup-gcloud",
-  async ({ freestyle, terminal }) => {
-    const { vm, vmId } = await freestyle.client.vms.create({
+  async ({ providers }) => {
+    const { vm, vmId } = await providers.freestyle.client.vms.create({
       logger: console.log,
     });
 
     try {
       await vm.exec("curl https://sdk.cloud.google.com | bash");
 
-      await terminal.open("Authenticate with gcloud", {
-        ssh: await freestyle.createSSHOptions({ vmId }),
+      await providers.terminal.open("Authenticate with gcloud", {
+        ssh: await providers.freestyle.createSSHOptions({ vmId }),
         command: "gcloud auth login",
         keepOpenAfterCommand: true,
         instructions:
@@ -187,7 +193,7 @@ But the `gcloud` cli expires after a day, so every day you might need to reauthe
         },
       };
     } finally {
-      await freestyle.client.vms.delete({ vmId });
+      await providers.freestyle.client.vms.delete({ vmId });
     }
   },
 );
@@ -199,8 +205,8 @@ Then check credentials daily and reauthenticate if needed:
 .task(
   "refresh-gcloud-auth",
   { cacheTTL: "24h" },
-  async ({ step, freestyle, terminal }) => {
-    const { vm, vmId } = await freestyle.client.vms.create({
+  async ({ step, providers }) => {
+    const { vm, vmId } = await providers.freestyle.client.vms.create({
       snapshotId: step.ctx.snapshotId,
       logger: console.log,
     });
@@ -210,8 +216,8 @@ Then check credentials daily and reauthenticate if needed:
       const authStatus = await vm.exec("gcloud auth application-default print-access-token");
       if (!authStatus.ok) {
         // Credentials expired, reauthenticate
-        await terminal.open("Refresh gcloud authentication", {
-          ssh: await freestyle.createSSHOptions({ vmId }),
+        await providers.terminal.open("Refresh gcloud authentication", {
+          ssh: await providers.freestyle.createSSHOptions({ vmId }),
           command: "gcloud auth login",
           keepOpenAfterCommand: true,
           instructions:
@@ -221,7 +227,7 @@ Then check credentials daily and reauthenticate if needed:
 
       return { ctx: step.ctx };
     } finally {
-      await freestyle.client.vms.delete({ vmId });
+      await providers.freestyle.client.vms.delete({ vmId });
     }
   },
 );
@@ -241,8 +247,8 @@ checks that run after repo setup but discover stale shared state.
     },
   };
 })
-.task("check-auth", { cacheTTL: 0 }, async ({ step, freestyle }) => {
-  const ok = await checkGitHubAuth(freestyle, step.ctx.snapshotId);
+.task("check-auth", { cacheTTL: 0 }, async ({ step, providers }) => {
+  const ok = await checkGitHubAuth(providers.freestyle, step.ctx.snapshotId);
   if (!ok) {
     return step.invalidate("github-auth");
   }
@@ -270,8 +276,8 @@ Create a setup task:
 .task(
   "clone-and-install",
   { cacheTTL: "30d" },
-  async ({ freestyle }) => {
-    const { vm, vmId } = await freestyle.client.vms.create({
+  async ({ providers }) => {
+    const { vm, vmId } = await providers.freestyle.client.vms.create({
       logger: console.log,
     });
 
@@ -286,7 +292,7 @@ Create a setup task:
         },
       };
     } finally {
-      await freestyle.client.vms.delete({ vmId });
+      await providers.freestyle.client.vms.delete({ vmId });
     }
   },
 );
@@ -299,8 +305,8 @@ repo or dependencies are stale:
 .task(
   "refresh-repo",
   { cacheTTL: "1d" },
-  async ({ step, freestyle }) => {
-    const { vm, vmId } = await freestyle.client.vms.create({
+  async ({ step, providers }) => {
+    const { vm, vmId } = await providers.freestyle.client.vms.create({
       snapshotId: step.ctx.snapshotId,
       logger: console.log,
     });
@@ -316,7 +322,7 @@ repo or dependencies are stale:
 
       return { ctx: step.ctx };
     } finally {
-      await freestyle.client.vms.delete({ vmId });
+      await providers.freestyle.client.vms.delete({ vmId });
     }
   },
 );
