@@ -8,12 +8,9 @@ import { Snapshot } from "freestyle";
 
 const projectPath = "/workspace/company-project";
 
-const app = workflow("base-freestyle-fragment-example", {
-  providers: {
-    freestyle: freestyle.provider(),
-    terminal: freestyle.terminal(),
-  },
-});
+const app = workflow("base-freestyle-fragment-example");
+const freestyleProvider = freestyle.provider();
+const terminalProvider = freestyle.terminal();
 
 const companyBaseOptions = {
   github: envBoolean("RIGKIT_BASE_GITHUB", true),
@@ -29,8 +26,9 @@ const companyBaseOptions = {
 
 const projectSetup = app
   .sequence<FreestyleCompanyBaseFragmentContext>("company-project-setup")
-  .task("prepare-project-image", async ({ freestyle, step }) => {
-    const created = await freestyle.client.vms.create({
+  .addProvider("freestyle", freestyleProvider)
+  .task("prepare-project-image", async ({ providers, step }) => {
+    const created = await providers.freestyle.client.vms.create({
       snapshotId: step.ctx.snapshotId,
       idleTimeoutSeconds: step.ctx.freestyleCompanyBase.idleTimeoutSeconds,
       logger: console.log,
@@ -80,7 +78,7 @@ const projectSetup = app
         },
       };
     } finally {
-      await freestyle.client.vms.delete({ vmId });
+      await providers.freestyle.client.vms.delete({ vmId });
     }
   })
   .task("marker", async ({ step }) => {
@@ -95,6 +93,8 @@ const projectSetup = app
 export const baseFreestyleFragmentExample = app
   .sequence("company-project")
   .add(withFreestyleCompanyBase(projectSetup, companyBaseOptions))
+  .addProvider("freestyle", freestyleProvider)
+  .addProvider("terminal", terminalProvider)
   .workspace({
     create: async ({ workflow, providers, workspace }) => {
       const created = await providers.freestyle.client.vms.create({

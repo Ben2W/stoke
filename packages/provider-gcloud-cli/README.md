@@ -12,13 +12,14 @@ import {
   gcloudCopiedConfigReadyCommand,
 } from "@rigkit/provider-gcloud-cli";
 
-const app = workflow("example", {
-  providers: {
-    gcloudConfig: copyGcloudConfig.provider({
-      requireAuth: true,
-    }),
-  },
+const app = workflow("example");
+const gcloudConfigProvider = copyGcloudConfig.provider({
+  requireAuth: true,
 });
+
+export const example = app
+  .sequence("example")
+  .addProvider("gcloudConfig", gcloudConfigProvider);
 
 // Inside a workspace operation:
 const gcloudConfigFiles = await providers.gcloudConfig.configFiles();

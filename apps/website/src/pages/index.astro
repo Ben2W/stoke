@@ -20,14 +20,14 @@ const devPort = 3000;
 const vmSpec = new VmSpec()
   .idleTimeoutSeconds(3600);
 
-const app = workflow("playground", {
-  providers: { freestyle: freestyle.provider() },
-});
+const app = workflow("playground");
+const freestyleProvider = freestyle.provider();
 
 export default app
   .sequence("playground")
-  .task("clone-and-install", async ({ freestyle }) => {
-    const { vm } = await freestyle.client.vms.create({
+  .addProvider("freestyle", freestyleProvider)
+  .task("clone-and-install", async ({ providers }) => {
+    const { vm } = await providers.freestyle.client.vms.create({
       spec: vmSpec,
       logger: console.log,
     });
@@ -80,13 +80,13 @@ const rawSnippets: RawSnippet[] = [
     interactive: true,
     blurb:
       "Need a human in the loop? Open an interactive SSH terminal in the user's local environment. rig apply pauses until they finish — then snapshots the authenticated state so the next run is one-shot.",
-    code: `.task("github-auth", async ({ step, freestyle, terminal }) => {
-  const { vm, vmId } = await freestyle.client.vms.create({
+    code: `.task("github-auth", async ({ step, providers }) => {
+  const { vm, vmId } = await providers.freestyle.client.vms.create({
     snapshotId: step.ctx.snapshotId,
   });
 
-  await terminal.open("Log in to GitHub", {
-    ssh: await freestyle.createSSHOptions({ vmId }),
+  await providers.terminal.open("Log in to GitHub", {
+    ssh: await providers.freestyle.createSSHOptions({ vmId }),
     command: "gh auth login --hostname github.com --web",
     keepOpenAfterCommand: true,
     instructions: "Complete the GitHub login in this terminal.",

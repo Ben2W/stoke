@@ -110,6 +110,8 @@ type RuntimeCacheCompletionEntry = {
   scope: "local" | "global";
   workflow: string;
   nodePath: string;
+  displayPath?: string;
+  planIndex?: number;
   nodeName: string;
   invalidated: boolean;
   createdAt: string;
@@ -285,6 +287,7 @@ const CACHE_SUBCOMMAND_OPTIONS: Record<string, OptionDefinition[]> = {
     HELP_OPTION,
   ],
   invalidate: [
+    option(["--workflow"], "workflow name", { takesValue: true }),
     option(["--all"], "invalidate every cached task"),
     option(["-y", "--yes"], "skip confirmation"),
     JSON_OPTION,
@@ -708,10 +711,11 @@ async function completeCacheCommand(context: CompletionContext): Promise<Complet
     return completeOptionsOnlyCommand(context, options);
   }
 
-  const stepArgs = positionalsFrom(cache.args, options);
-  if (stepArgs.length === 0) {
+  const taskArgs = positionalsFrom(cache.args, options);
+  if (taskArgs.length === 0) {
+    const requestedWorkflow = workflowOptionValue(cache.args, options);
     return completeMixed({
-      primary: await safeCacheInvalidateTargets(resolveProjectDir(context.words, context.cwd)),
+      primary: await safeCacheInvalidateTargets(resolveProjectDir(context.words, context.cwd), requestedWorkflow),
       options,
       current: context.current,
     });
@@ -935,10 +939,11 @@ function workflowOptionValue(tokens: string[], options: OptionDefinition[]): str
 }
 
 function parseCacheArgs(context: CompletionContext): { subcommand?: string; args: string[] } {
-  const positionals = positionalsFrom(context.argsBefore, COMMAND_OPTIONS.cache);
+  const positionals = positionalTokensFrom(context.argsBefore, COMMAND_OPTIONS.cache);
+  const subcommand = positionals[0];
   return {
-    subcommand: positionals[0],
-    args: positionals.slice(1),
+    subcommand: subcommand?.value,
+    args: subcommand ? context.argsBefore.slice(subcommand.index + 1) : [],
   };
 }
 
@@ -1286,15 +1291,18 @@ async function safeWorkflowForWorkspace(
 
 async function safeCacheInvalidateTargets(
   paths: { projectDir: string; configPath: string },
+  workflow?: string,
 ): Promise<CompletionItem[]> {
   try {
     const runtime = await getOrStartRuntime(paths);
     const cache = await runtime.control.cache() as unknown as { entries: readonly RuntimeCacheCompletionEntry[] };
     return dedupeItems(cache.entries
-      .filter((entry) => entry.scope === "local" && !entry.invalidated)
+      .filter((entry) => !entry.invalidated && (!workflow || entry.workflow === workflow))
       .map((entry) => ({
-        value: entry.nodePath || entry.nodeName,
-        description: entry.workflow ? `workflow ${entry.workflow}` : "cached task",
+        value: entry.displayPath || entry.nodePath || entry.nodeName,
+        description: entry.workflow
+          ? `${entry.scope} cache, workflow ${entry.workflow}`
+          : `${entry.scope} cache`,
         group: GROUP_CACHE,
       })));
   } catch {

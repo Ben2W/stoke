@@ -29,7 +29,7 @@ rebuilding setup instructions by hand.
 A workflow is the top-level unit Rigkit can plan and apply. It has:
 
 - A name.
-- A provider map.
+- Provider scopes introduced with `.addProvider(...)`.
 - A root node, usually a `sequence`.
 - Optional workspace lifecycle hooks.
 - Optional workflow and workspace operations.
@@ -37,13 +37,12 @@ A workflow is the top-level unit Rigkit can plan and apply. It has:
 Most projects have one workflow:
 
 ```ts
-const app = workflow("website", {
-  providers: {
-    freestyle: freestyle.provider(),
-  },
-});
+const app = workflow("website");
+const freestyleProvider = freestyle.provider();
 
-export const website = app.sequence("website");
+export const website = app
+  .sequence("website")
+  .addProvider("freestyle", freestyleProvider);
 ```
 
 Larger repos can export multiple named workflow nodes from `rigkit/index.ts`.
@@ -138,7 +137,9 @@ Examples:
 - A custom provider might create database branches, allocate test accounts, or
   talk to an internal platform.
 
-Provider config is part of the provider fingerprint used by the cache.
+Provider config is part of the scoped provider fingerprint used by the cache.
+Changing a provider only affects tasks, workspace hooks, and operations that
+have that provider in scope.
 
 ## Workspace
 
@@ -178,8 +179,8 @@ as `plan`, `apply`, `create`, `run`, and `help` are reserved.
 
 Rigkit caches task output. A cached task can be reused when the engine finds a
 matching node run for the current task path, task function, config stack,
-provider fingerprint, output schema, upstream run ids, cache TTL, and artifact
-validity.
+scoped provider fingerprint, output schema, upstream run ids, cache TTL, and
+artifact validity.
 
 The practical result:
 

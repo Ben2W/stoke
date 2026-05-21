@@ -339,6 +339,33 @@ describe("CLI entrypoint", () => {
     });
   });
 
+  test("infers workflow when invalidating a unique cache task", async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-cli-cache-invalidate-workflow-"));
+
+    await withWorkspaceRuntime({ projectDir, requireCacheInvalidateWorkflow: true }, async ({ env }) => {
+      const result = await runCli([`--chdir=${projectDir}`, "cache", "invalidate", "ready", "--json"], { env });
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stderr).toBe("");
+      expect(JSON.parse(result.stdout)).toEqual({ ok: true, invalidated: 1 });
+    });
+  });
+
+  test("lists cache entries with plan-style task status", async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-cli-cache-list-"));
+
+    await withWorkspaceRuntime({ projectDir }, async ({ env }) => {
+      const result = await runCli([`--chdir=${projectDir}`, "cache", "ls"], { env });
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stderr).toBe("");
+      expect(result.stdout).toContain("status");
+      expect(result.stdout).toContain("cached");
+      expect(result.stdout).toContain("ready");
+      expect(result.stdout).not.toContain("valid");
+    });
+  });
+
   test("lists workspaces from the project runtime", async () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-cli-ls-"));
 
@@ -564,6 +591,7 @@ async function withWorkspaceRuntime(
   input: {
     projectDir: string;
     cacheInvalidated?: number;
+    requireCacheInvalidateWorkflow?: boolean;
     duplicateWorkspaceName?: boolean;
     engineVersion?: string;
     runtimeVersion?: string;
@@ -659,7 +687,27 @@ async function withWorkspaceRuntime(
         });
       }
       if (pathname === "/cache/invalidate") {
+        const body = await request.json() as { workflow?: string };
+        if (input.requireCacheInvalidateWorkflow && body.workflow !== "smoke") {
+          return runtimeJson({ error: { message: "Pass --workflow to choose a workflow" } }, { status: 400 });
+        }
         return runtimeJson({ ok: true, invalidated: input.cacheInvalidated ?? 1 });
+      }
+      if (pathname === "/cache") {
+        return runtimeJson({
+          entries: [{
+            scope: "local",
+            workflow: "smoke",
+            nodePath: "ready",
+            displayPath: "ready",
+            planIndex: 0,
+            nodeName: "ready",
+            nodeKind: "task",
+            runId: "run-ready",
+            invalidated: false,
+            createdAt: now,
+          }],
+        });
       }
       if (pathname === "/operations") {
         return runtimeJson({

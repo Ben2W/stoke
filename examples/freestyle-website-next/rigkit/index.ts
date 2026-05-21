@@ -71,18 +71,16 @@ rm -rf /var/lib/apt/lists/*
   .idleTimeoutSeconds(vmIdleTimeoutSeconds)
   .snapshot();
 
-const app = workflow("freestyle-website-next", {
-  providers: {
-    freestyle: freestyle.provider(),
-    terminal: freestyle.terminal(),
-    cmux: cmux.provider(),
-  },
-});
+const app = workflow("freestyle-website-next");
+const freestyleProvider = freestyle.provider();
+const terminalProvider = freestyle.terminal();
 
 const websiteSetup = app
   .sequence("website-setup")
-  .task("install-dependencies", async ({ freestyle }) => {
-    const { vm, vmId } = await freestyle.client.vms.create({
+  .addProvider("freestyle", freestyleProvider)
+  .addProvider("terminal", terminalProvider)
+  .task("install-dependencies", async ({ providers }) => {
+    const { vm, vmId } = await providers.freestyle.client.vms.create({
       spec: vmSpec,
       logger: console.log,
     });
@@ -90,14 +88,15 @@ const websiteSetup = app
       const snapshot = await vm.snapshot();
       return { ctx: { snapshotId: snapshot.snapshotId } };
     } finally {
-      await freestyle.client.vms.delete({ vmId });
+      await providers.freestyle.client.vms.delete({ vmId });
     }
   })
+  .configure({ snapshotId: { scope: "workflow" } })
   .task(
     "github-auth",
     { version: "github-auth-root-v6" },
-    async ({ step, freestyle, terminal }) => {
-      const created = await freestyle.client.vms.create({
+    async ({ step, providers }) => {
+      const created = await providers.freestyle.client.vms.create({
         snapshotId: step.ctx.snapshotId,
         idleTimeoutSeconds: vmIdleTimeoutSeconds,
         logger: console.log,
@@ -109,8 +108,8 @@ const websiteSetup = app
           withVmHome("gh auth status -h github.com >/dev/null 2>&1"),
         );
         if ((authenticated.statusCode ?? 0) !== 0) {
-          await terminal.open("Log in to GitHub", {
-            ssh: await freestyle.createSSHOptions({ vmId }),
+          await providers.terminal.open("Log in to GitHub", {
+            ssh: await providers.freestyle.createSSHOptions({ vmId }),
             command:
               "gh auth login --hostname github.com --git-protocol https --web",
             keepOpenAfterCommand: true,
@@ -145,12 +144,12 @@ const websiteSetup = app
         const snapshot = await vm.snapshot();
         return { ctx: { snapshotId: snapshot.snapshotId } };
       } finally {
-        await freestyle.client.vms.delete({ vmId });
+        await providers.freestyle.client.vms.delete({ vmId });
       }
     },
   )
-  .task("clone-and-install", async ({ step, freestyle }) => {
-    const created = await freestyle.client.vms.create({
+  .task("clone-and-install", async ({ step, providers }) => {
+    const created = await providers.freestyle.client.vms.create({
       snapshotId: step.ctx.snapshotId,
       idleTimeoutSeconds: vmIdleTimeoutSeconds,
       logger: console.log,
@@ -209,14 +208,14 @@ const websiteSetup = app
         },
       };
     } finally {
-      await freestyle.client.vms.delete({ vmId });
+      await providers.freestyle.client.vms.delete({ vmId });
     }
   })
   .task(
     "initialize-codex-cli",
     { version: "codex-cli-initialization-v1" },
-    async ({ step, freestyle, terminal }) => {
-      const created = await freestyle.client.vms.create({
+    async ({ step, providers }) => {
+      const created = await providers.freestyle.client.vms.create({
         snapshotId: step.ctx.snapshotId,
         idleTimeoutSeconds: vmIdleTimeoutSeconds,
         logger: console.log,
@@ -224,8 +223,8 @@ const websiteSetup = app
       const { vmId } = created;
       const { vm } = created;
       try {
-        await terminal.open("Initialize Codex CLI", {
-          ssh: await freestyle.createSSHOptions({ vmId }),
+        await providers.terminal.open("Initialize Codex CLI", {
+          ssh: await providers.freestyle.createSSHOptions({ vmId }),
           command: agentCliInitCommand("codex"),
           keepOpenAfterCommand: true,
           instructions:
@@ -240,15 +239,15 @@ const websiteSetup = app
           },
         };
       } finally {
-        await freestyle.client.vms.delete({ vmId });
+        await providers.freestyle.client.vms.delete({ vmId });
       }
     },
   )
   .task(
     "run-dev-server",
     { version: "shpool-dev-server-v2" },
-    async ({ step, freestyle }) => {
-      const created = await freestyle.client.vms.create({
+    async ({ step, providers }) => {
+      const created = await providers.freestyle.client.vms.create({
         snapshotId: step.ctx.snapshotId,
         idleTimeoutSeconds: vmIdleTimeoutSeconds,
         logger: console.log,
@@ -281,7 +280,7 @@ const websiteSetup = app
           },
         };
       } finally {
-        await freestyle.client.vms.delete({ vmId });
+        await providers.freestyle.client.vms.delete({ vmId });
       }
     },
   );
@@ -289,6 +288,8 @@ const websiteSetup = app
 export const freestyleWebsiteNext = app
   .sequence("website")
   .add(websiteSetup)
+  .addProvider("freestyle", freestyleProvider)
+  .addProvider("terminal", terminalProvider)
   .workspace({
     create: async ({ workflow, providers, workspace }) => {
       const created = await providers.freestyle.client.vms.create({
@@ -331,6 +332,7 @@ export const freestyleWebsiteNext = app
       await providers.freestyle.client.vms.delete({ vmId: workspace.ctx.vmId });
     },
   })
+  .addProvider("cmux", cmux.provider())
   .workspaceOperation("open-cmux", {
     title: "Open cmux",
     description: "Open the website workspace in cmux",

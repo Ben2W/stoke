@@ -13,6 +13,9 @@ create a named workspace. `rig run <name> <operation>` runs project code
 against that workspace. Use `--workflow <workflow>` when selecting a specific
 workflow in a multi-workflow project or running non-interactively.
 
+Providers are lexical. Add `.addProvider(...)` before the workspace hooks or
+operations that use those providers.
+
 ## Workspace lifecycle
 
 Add `.workspace({ create, remove })` to make a workflow workspace-capable:
@@ -20,6 +23,7 @@ Add `.workspace({ create, remove })` to make a workflow workspace-capable:
 ```ts
 export const website = app
   .sequence("website")
+  .addProvider("freestyle", freestyleProvider)
   .add(websiteSetup)
   .workspace({
     create: async ({ workflow, providers, workspace }) => {

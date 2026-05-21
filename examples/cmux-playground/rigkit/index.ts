@@ -2,19 +2,16 @@ import { cmux } from "@rigkit/provider-cmux";
 import { freestyle, VmBaseImage } from "@rigkit/provider-freestyle";
 import { workflow } from "@rigkit/sdk";
 
-const app = workflow("cmux-playground", {
-  providers: {
-    freestyle: freestyle.provider({
-      apiKey: process.env.FREESTYLE_API_KEY,
-    }),
-    cmux: cmux.provider(),
-  },
+const app = workflow("cmux-playground");
+const freestyleProvider = freestyle.provider({
+  apiKey: process.env.FREESTYLE_API_KEY,
 });
 
 export const cmuxPlayground = app
   .sequence("cmux-playground")
-  .task("create-snapshot", async ({ freestyle, step }) => {
-    const { vm, vmId } = await freestyle.client.vms.create({
+  .addProvider("freestyle", freestyleProvider)
+  .task("create-snapshot", async ({ providers }) => {
+    const { vm, vmId } = await providers.freestyle.client.vms.create({
       idleTimeoutSeconds: 3600,
       logger: console.log,
     });
@@ -23,7 +20,7 @@ export const cmuxPlayground = app
       const snapshot = await vm.snapshot();
       return { ctx: { snapshotId: snapshot.snapshotId } };
     } finally {
-      await freestyle.client.vms.delete({ vmId });
+      await providers.freestyle.client.vms.delete({ vmId });
     }
   })
   .workspace({
@@ -41,6 +38,7 @@ export const cmuxPlayground = app
       await providers.freestyle.client.vms.delete({ vmId: workspace.ctx.vmId });
     },
   })
+  .addProvider("cmux", cmux.provider())
   .workspaceOperation("open", {
     title: "Open",
     description: "Open a cmux workspace",

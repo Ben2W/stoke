@@ -192,14 +192,12 @@ rm -rf /var/lib/apt/lists/*
   .idleTimeoutSeconds(vmIdleTimeoutSeconds);
 
 const freestyleProvider = freestyle.provider();
+const terminalProvider = freestyle.terminal();
 
-export const dev = workflow(${workflowName}, {
-  providers: {
-    freestyle: freestyleProvider,
-    terminal: freestyle.terminal(),
-    cmux: cmux.provider(),
-  },
-})
+export const dev = workflow(${workflowName})
+  .sequence("dev")
+  .addProvider("freestyle", freestyleProvider)
+  .addProvider("terminal", terminalProvider)
   .step("create-base-vm", async ({ providers }) => {
     console.log("creating base vm");
     const { vm, vmId } = await providers.freestyle.client.vms.create({
@@ -291,6 +289,7 @@ export const dev = workflow(${workflowName}, {
       await providers.freestyle.client.vms.delete({ vmId: workspace.ctx.vmId });
     },
   })
+  .addProvider("cmux", cmux.provider())
   .workspaceOperation("open-cmux", {
     title: "Open cmux",
     description: "Open the workspace in cmux",

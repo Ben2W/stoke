@@ -16,7 +16,7 @@ reliably.
 
 - Defines complete development environments with a typed TypeScript API.
 - Runs setup as a workflow graph, with cache keys based on code, inputs,
-  provider fingerprints, and upstream outputs.
+  scoped provider fingerprints, and upstream outputs.
 - Creates named workspaces from prepared state, such as VM snapshots.
 - Exposes project-defined workspace operations like `ssh`, `open-cmux`,
   `open-vscode`, `preview`, or anything else your project needs.

@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { freestyle } from "@rigkit/provider-freestyle";
 import { workflow } from "@rigkit/sdk";
 import {
   freestyleCompanyBaseFragment,
@@ -54,12 +53,7 @@ describe("freestyleCompanyBaseFragment", () => {
   });
 
   test("composes with a Freestyle workflow and a typed dependent sequence", () => {
-    const app = workflow("example", {
-      providers: {
-        freestyle: freestyle.provider(),
-        terminal: freestyle.terminal(),
-      },
-    });
+    const app = workflow("example");
 
     const repoSetup = app
       .sequence<FreestyleCompanyBaseFragmentContext>("repo-setup")
@@ -82,12 +76,7 @@ describe("freestyleCompanyBaseFragment", () => {
   });
 
   test("wraps a dependent sequence with the base fragment and auth check", () => {
-    const app = workflow("wrapped-example", {
-      providers: {
-        freestyle: freestyle.provider(),
-        terminal: freestyle.terminal(),
-      },
-    });
+    const app = workflow("wrapped-example");
 
     const repoSetup = app
       .sequence<FreestyleCompanyBaseFragmentContext>("repo-setup")
@@ -111,12 +100,7 @@ describe("freestyleCompanyBaseFragment", () => {
 });
 
 if (false) {
-  const app = workflow("wrapped-typecheck", {
-    providers: {
-      freestyle: freestyle.provider(),
-      terminal: freestyle.terminal(),
-    },
-  });
+  const app = workflow("wrapped-typecheck");
 
   const preservingSetup = app
     .sequence<FreestyleCompanyBaseFragmentContext>("preserving-setup")

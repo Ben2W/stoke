@@ -15,19 +15,19 @@ A provider turns config into typed runtime helpers:
 import { env, workflow } from "@rigkit/sdk";
 import { provider as acmeDbProvider } from "@acme/rigkit-provider-db";
 
-const app = workflow("api", {
-  providers: {
-    db: acmeDbProvider({
-      apiUrl: "https://db.internal.example.com",
-      token: env.secret("ACME_DB_TOKEN"),
-    }),
-  },
+const app = workflow("api");
+const dbProvider = acmeDbProvider({
+  apiUrl: "https://db.internal.example.com",
+  token: env.secret("ACME_DB_TOKEN"),
 });
 
-export const api = app.sequence("api").task("branch-db", async ({ db }) => {
-  const branch = await db.createBranch({ name: "api-dev" });
-  return { ctx: { database: branch } };
-});
+export const api = app
+  .sequence("api")
+  .addProvider("db", dbProvider)
+  .task("branch-db", async ({ providers }) => {
+    const branch = await providers.db.createBranch({ name: "api-dev" });
+    return { ctx: { database: branch } };
+  });
 ```
 
 ## Provider pieces
@@ -92,6 +92,8 @@ const acmeDbProviderPlugin: BaseProviderPlugin = {
 
 Rigkit resolves provider config before `createProvider(...)` receives it. Config
 may contain plain values or resolvers such as `env.secret("ACME_DB_TOKEN")`.
+Resolved config contributes to the scoped provider fingerprint for handlers
+after `.addProvider(...)`.
 Provider-specific helpers such as `parseConfig(...)` and
 `createBranchInAcme(...)` are normal package code; Rigkit only cares about the
 definition, plugin, and controller contracts.

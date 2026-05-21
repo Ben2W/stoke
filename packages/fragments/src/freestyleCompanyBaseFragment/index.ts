@@ -1,6 +1,7 @@
 import {
   VmBaseImage,
   VmSpec,
+  freestyle,
   type FreestyleProviderDefinition,
   type FreestyleTerminalProviderDefinition,
 } from "@rigkit/provider-freestyle";
@@ -91,14 +92,14 @@ export type FreestyleCompanyBaseFragment = WorkflowNodeDefinition<FreestyleCompa
 export type FreestyleCompanyBaseWrappedFragment<Context extends FreestyleCompanyBaseFragmentContext> =
   WorkflowNodeDefinition<FreestyleCompanyBaseFragmentProviderMap, {}, Context>;
 
-type FreestyleCompanyBasePreservingChild<Child extends WorkflowNodeDefinition<FreestyleCompanyBaseFragmentProviderMap, any, any>> =
+type FreestyleCompanyBasePreservingChild<Child extends WorkflowNodeDefinition<any, any, any>> =
   FreestyleCompanyBaseFragmentContext extends WorkflowNodeInput<Child>
     ? WorkflowNodeOutput<Child> extends FreestyleCompanyBaseFragmentContext
       ? Child
       : never
     : never;
 
-type FreestyleCompanyBasePreservedOutput<Child extends WorkflowNodeDefinition<FreestyleCompanyBaseFragmentProviderMap, any, any>> =
+type FreestyleCompanyBasePreservedOutput<Child extends WorkflowNodeDefinition<any, any, any>> =
   WorkflowNodeOutput<Child> extends FreestyleCompanyBaseFragmentContext
     ? WorkflowNodeOutput<Child>
     : never;
@@ -134,7 +135,7 @@ export function freestyleCompanyBaseFragment(options: FreestyleCompanyBaseFragme
     ...(claude ? [claudePackage] : []),
   ];
 
-  const config = {
+  const config: FreestyleCompanyBaseFragmentConfig = {
     github,
     codex,
     claude,
@@ -151,16 +152,18 @@ export function freestyleCompanyBaseFragment(options: FreestyleCompanyBaseFragme
       vcpuCount: options.vm?.vcpuCount ?? 4,
       rootfsSizeGb: options.vm?.rootfsSizeGb ?? 24,
     },
-  } satisfies FreestyleCompanyBaseFragmentConfig;
+  };
 
-  return sequence<FreestyleCompanyBaseFragmentProviderMap, {}>("freestyle-company-base")
+  return sequence<{}, {}>("freestyle-company-base")
+    .addProvider("freestyle", freestyle.provider())
+    .addProvider("terminal", freestyle.terminal())
     .global()
     .configure(config)
     .task(
       "install-tooling",
       { version: "freestyle-company-base-tooling-v1" },
-      async ({ config, freestyle, step }) => {
-        const { vm, vmId } = await freestyle.client.vms.create({
+      async ({ config, providers, step }) => {
+        const { vm, vmId } = await providers.freestyle.client.vms.create({
           spec: createVmSpec(config),
           logger: console.log,
         });
@@ -191,17 +194,17 @@ export function freestyleCompanyBaseFragment(options: FreestyleCompanyBaseFragme
             },
           };
         } finally {
-          await freestyle.client.vms.delete({ vmId });
+          await providers.freestyle.client.vms.delete({ vmId });
         }
       },
     )
     .task(
       "github-auth",
       { version: "freestyle-company-base-github-auth-v1" },
-      async ({ config, freestyle, terminal, step }) => {
+      async ({ config, providers, step }) => {
         if (!config.github) return { ctx: { ...step.ctx } };
 
-        const created = await freestyle.client.vms.create({
+        const created = await providers.freestyle.client.vms.create({
           snapshotId: step.ctx.snapshotId,
           idleTimeoutSeconds: config.vm.idleTimeoutSeconds,
           logger: console.log,
@@ -210,8 +213,8 @@ export function freestyleCompanyBaseFragment(options: FreestyleCompanyBaseFragme
         try {
           const authenticated = await vm.exec(withHome(config.vm.home, "gh auth status -h github.com >/dev/null 2>&1"));
           if ((authenticated.statusCode ?? 0) !== 0) {
-            await terminal.open("Log in to GitHub", {
-              ssh: await freestyle.createSSHOptions({ vmId }),
+            await providers.terminal.open("Log in to GitHub", {
+              ssh: await providers.freestyle.createSSHOptions({ vmId }),
               command: "gh auth login --hostname github.com --git-protocol https --web",
               keepOpenAfterCommand: true,
               instructions:
@@ -240,24 +243,24 @@ export function freestyleCompanyBaseFragment(options: FreestyleCompanyBaseFragme
           const snapshot = await vm.snapshot();
           return { ctx: updateCompanyBaseSnapshot(step.ctx, snapshot.snapshotId, { github: true }) };
         } finally {
-          await freestyle.client.vms.delete({ vmId });
+          await providers.freestyle.client.vms.delete({ vmId });
         }
       },
     )
     .task(
       "codex-auth",
       { version: "freestyle-company-base-codex-auth-v1" },
-      async ({ config, freestyle, terminal, step }) => {
+      async ({ config, providers, step }) => {
         if (!config.codex) return { ctx: { ...step.ctx } };
 
-        const { vm, vmId } = await freestyle.client.vms.create({
+        const { vm, vmId } = await providers.freestyle.client.vms.create({
           snapshotId: step.ctx.snapshotId,
           idleTimeoutSeconds: config.vm.idleTimeoutSeconds,
           logger: console.log,
         });
         try {
-          await terminal.open("Initialize Codex CLI", {
-            ssh: await freestyle.createSSHOptions({ vmId }),
+          await providers.terminal.open("Initialize Codex CLI", {
+            ssh: await providers.freestyle.createSSHOptions({ vmId }),
             command: agentCliInitCommand(config.vm.home, "codex"),
             keepOpenAfterCommand: true,
             instructions:
@@ -267,24 +270,24 @@ export function freestyleCompanyBaseFragment(options: FreestyleCompanyBaseFragme
           const snapshot = await vm.snapshot();
           return { ctx: updateCompanyBaseSnapshot(step.ctx, snapshot.snapshotId, { codex: true }) };
         } finally {
-          await freestyle.client.vms.delete({ vmId });
+          await providers.freestyle.client.vms.delete({ vmId });
         }
       },
     )
     .task(
       "claude-auth",
       { version: "freestyle-company-base-claude-auth-v1" },
-      async ({ config, freestyle, terminal, step }) => {
+      async ({ config, providers, step }) => {
         if (!config.claude) return { ctx: { ...step.ctx } };
 
-        const { vm, vmId } = await freestyle.client.vms.create({
+        const { vm, vmId } = await providers.freestyle.client.vms.create({
           snapshotId: step.ctx.snapshotId,
           idleTimeoutSeconds: config.vm.idleTimeoutSeconds,
           logger: console.log,
         });
         try {
-          await terminal.open("Initialize Claude CLI", {
-            ssh: await freestyle.createSSHOptions({ vmId }),
+          await providers.terminal.open("Initialize Claude CLI", {
+            ssh: await providers.freestyle.createSSHOptions({ vmId }),
             command: agentCliInitCommand(config.vm.home, "claude"),
             keepOpenAfterCommand: true,
             instructions:
@@ -294,19 +297,21 @@ export function freestyleCompanyBaseFragment(options: FreestyleCompanyBaseFragme
           const snapshot = await vm.snapshot();
           return { ctx: updateCompanyBaseSnapshot(step.ctx, snapshot.snapshotId, { claude: true }) };
         } finally {
-          await freestyle.client.vms.delete({ vmId });
+          await providers.freestyle.client.vms.delete({ vmId });
         }
       },
     ) as unknown as FreestyleCompanyBaseFragment;
 }
 
 export function withFreestyleCompanyBase<
-  Child extends WorkflowNodeDefinition<FreestyleCompanyBaseFragmentProviderMap, any, any>,
+  Child extends WorkflowNodeDefinition<any, any, any>,
 >(
   child: FreestyleCompanyBasePreservingChild<Child>,
   options: FreestyleCompanyBaseFragmentOptions = {},
 ): FreestyleCompanyBaseWrappedFragment<FreestyleCompanyBasePreservedOutput<Child>> {
-  return sequence<FreestyleCompanyBaseFragmentProviderMap, {}>("with-freestyle-company-base")
+  return sequence<{}, {}>("with-freestyle-company-base")
+    .addProvider("freestyle", freestyle.provider())
+    .addProvider("terminal", freestyle.terminal())
     .add(freestyleCompanyBaseFragment(options))
     .add(child as any)
     .add(freestyleCompanyBaseAuthCheckFragment<FreestyleCompanyBasePreservedOutput<Child>>(options) as any) as unknown as FreestyleCompanyBaseWrappedFragment<FreestyleCompanyBasePreservedOutput<Child>>;
@@ -315,8 +320,8 @@ export function withFreestyleCompanyBase<
 function freestyleCompanyBaseAuthCheckFragment<Context extends FreestyleCompanyBaseFragmentContext>(
   options: FreestyleCompanyBaseFragmentOptions,
 ): WorkflowNodeDefinition<FreestyleCompanyBaseFragmentProviderMap, Context, Context> {
-  const handler = async ({ freestyle, step }: any) => {
-    const { vm, vmId } = await freestyle.client.vms.create({
+  const handler = async ({ providers, step }: any) => {
+    const { vm, vmId } = await providers.freestyle.client.vms.create({
       snapshotId: step.ctx.snapshotId,
       idleTimeoutSeconds: step.ctx.freestyleCompanyBase.idleTimeoutSeconds,
       logger: console.log,
@@ -331,11 +336,13 @@ function freestyleCompanyBaseAuthCheckFragment<Context extends FreestyleCompanyB
 
       return { ctx: { ...step.ctx } as Context };
     } finally {
-      await freestyle.client.vms.delete({ vmId });
+      await providers.freestyle.client.vms.delete({ vmId });
     }
   };
 
-  return sequence<FreestyleCompanyBaseFragmentProviderMap, Context>("freestyle-company-base-auth-check")
+  return sequence<{}, Context>("freestyle-company-base-auth-check")
+    .addProvider("freestyle", freestyle.provider())
+    .addProvider("terminal", freestyle.terminal())
     .local()
     .task("check-auth", { cacheTTL: 0 }, handler as any) as unknown as WorkflowNodeDefinition<FreestyleCompanyBaseFragmentProviderMap, Context, Context>;
 }

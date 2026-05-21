@@ -331,14 +331,16 @@ async function runCli(argv: string[]): Promise<void> {
     });
 
   cache
-    .command("invalidate [step]")
+    .command("invalidate [task]")
     .description("Invalidate cached task outputs so they re-run on next plan/apply")
+    .option("--workflow <workflow>", "Workflow name")
     .option("--all", "Invalidate every cached task in this project's workflow")
     .option("-y, --yes", "Skip confirmation when invalidating --all")
     .option("--json", "Print machine-readable JSON")
-    .action(async (step: string | undefined, options: { all?: boolean; yes?: boolean; json?: boolean }) => {
+    .action(async (task: string | undefined, options: { workflow?: string; all?: boolean; yes?: boolean; json?: boolean }) => {
       await runCacheInvalidate(makeInvocation(rootOptions(program), options.json), {
-        step,
+        task,
+        workflow: options.workflow,
         all: Boolean(options.all),
         yes: Boolean(options.yes),
       });
@@ -1121,21 +1123,22 @@ async function runProvidersFreestyleClear(invocation: CliInvocation): Promise<vo
 }
 
 type CacheInvalidateOptions = {
-  step?: string;
+  task?: string;
+  workflow?: string;
   all: boolean;
   yes: boolean;
 };
 
 async function runCacheInvalidate(invocation: CliInvocation, options: CacheInvalidateOptions): Promise<void> {
-  if (options.step && options.all) {
-    throw new Error(`rig cache invalidate accepts either a step or --all, not both`);
+  if (options.task && options.all) {
+    throw new Error(`rig cache invalidate accepts either a task or --all, not both`);
   }
 
   const runtime = await loadRuntime(invocation);
   let targets: string[] = [];
 
-  if (options.step) {
-    targets = [options.step];
+  if (options.task) {
+    targets = [options.task];
   } else if (options.all) {
     if (!options.yes && !wantsJson(invocation) && canPrompt()) {
       const confirmed = await promptHostConfirm({
@@ -1151,8 +1154,12 @@ async function runCacheInvalidate(invocation: CliInvocation, options: CacheInval
     // Interactive: multi-select among currently-valid cache entries.
     const cache = await runtime.control.cache();
     const candidates = cache.entries
-      .filter((entry) => !entry.invalidated && entry.scope === "local")
-      .map((entry) => ({ path: entry.nodePath || entry.nodeName, workflow: entry.workflow }));
+      .filter((entry) => !entry.invalidated)
+      .map((entry) => ({
+        path: entry.displayPath || entry.nodePath || entry.nodeName,
+        workflow: entry.workflow,
+        scope: entry.scope,
+      }));
     if (candidates.length === 0) {
       if (wantsJson(invocation)) {
         printJson({ ok: true, invalidated: 0 });
@@ -1162,14 +1169,17 @@ async function runCacheInvalidate(invocation: CliInvocation, options: CacheInval
       return;
     }
     if (wantsJson(invocation) || !canPrompt()) {
-      throw new Error(`rig cache invalidate needs a step name or --all when not running in an interactive terminal`);
+      throw new Error(`rig cache invalidate needs a task name or --all when not running in an interactive terminal`);
     }
     const picked = await promptCacheInvalidateSelection(candidates);
     if (picked.length === 0) throw new Error("Nothing selected");
     targets = picked;
   }
 
-  const result = await runtime.control.invalidateCache({ nodePaths: targets });
+  const result = await invalidateRuntimeCacheTargets(runtime, {
+    workflow: options.workflow,
+    nodePaths: targets,
+  });
   if (wantsJson(invocation)) {
     printJson(result);
     return;
@@ -1184,7 +1194,7 @@ async function runCacheInvalidate(invocation: CliInvocation, options: CacheInval
 }
 
 async function promptCacheInvalidateSelection(
-  candidates: Array<{ path: string; workflow: string }>,
+  candidates: Array<{ path: string; workflow: string; scope: "local" | "global" }>,
 ): Promise<string[]> {
   const answers = await inquirer.prompt<{ paths: string[] }>([{
     type: "checkbox",
@@ -1193,10 +1203,63 @@ async function promptCacheInvalidateSelection(
     choices: candidates.map((c) => ({
       name: c.path,
       value: c.path,
-      description: c.workflow ? `workflow ${c.workflow}` : undefined,
+      description: c.workflow ? `${c.scope} cache, workflow ${c.workflow}` : `${c.scope} cache`,
     })),
   }]);
   return answers.paths;
+}
+
+async function invalidateRuntimeCacheTargets(
+  runtime: RuntimeClient,
+  input: { workflow?: string; nodePaths: string[] },
+): Promise<{ ok: boolean; invalidated: number }> {
+  if (input.workflow) {
+    return await runtime.control.invalidateCache({
+      workflow: input.workflow,
+      nodePaths: input.nodePaths,
+    });
+  }
+
+  const cache = await runtime.control.cache();
+  const entries = cache.entries.filter((entry) => !entry.invalidated);
+  if (input.nodePaths.length === 0) {
+    const workflows = [...new Set(entries.map((entry) => entry.workflow))];
+    const results = await Promise.all(
+      workflows.map((workflow) => runtime.control.invalidateCache({ workflow, nodePaths: [] })),
+    );
+    return {
+      ok: true,
+      invalidated: results.reduce((total, result) => total + result.invalidated, 0),
+    };
+  }
+
+  const grouped = new Map<string, string[]>();
+  const fallbackWorkflows = [...new Set(entries.map((entry) => entry.workflow))];
+  for (const target of input.nodePaths) {
+    const matches = entries.filter((entry) =>
+      entry.nodePath === target ||
+      entry.displayPath === target ||
+      entry.nodeName === target
+    );
+    const workflows = matches.length > 0
+      ? [...new Set(matches.map((entry) => entry.workflow))]
+      : fallbackWorkflows;
+    if (workflows.length !== 1) {
+      throw new Error(`Pass --workflow to choose a workflow`);
+    }
+    const workflow = workflows[0]!;
+    grouped.set(workflow, [...(grouped.get(workflow) ?? []), target]);
+  }
+
+  const results = await Promise.all(
+    [...grouped].map(([workflow, nodePaths]) =>
+      runtime.control.invalidateCache({ workflow, nodePaths })
+    ),
+  );
+  return {
+    ok: true,
+    invalidated: results.reduce((total, result) => total + result.invalidated, 0),
+  };
 }
 
 async function executeRuntimeOperation(
@@ -2843,6 +2906,8 @@ function printCacheEntries(entries: ReadonlyArray<{
   scope: "local" | "global";
   workflow: string;
   nodePath: string;
+  displayPath?: string;
+  planIndex?: number;
   nodeName: string;
   createdAt: string;
   invalidated: boolean;
@@ -2854,17 +2919,18 @@ function printCacheEntries(entries: ReadonlyArray<{
   }
 
   const rows = entries.map((entry) => [
+    { text: entry.planIndex === undefined ? "" : String(entry.planIndex + 1), style: ui.dim },
+    {
+      text: entry.invalidated ? "invalidated" : "cached",
+      style: entry.invalidated ? ui.warn : ui.dim,
+    },
+    { text: entry.displayPath || entry.nodePath || entry.nodeName, style: ui.bold },
     { text: entry.scope, style: ui.dim },
     { text: entry.workflow },
-    { text: entry.nodePath || entry.nodeName, style: ui.bold },
-    {
-      text: entry.invalidated ? "invalidated" : "valid",
-      style: entry.invalidated ? ui.warn : ui.ok,
-    },
     { text: entry.fragmentHash ? entry.fragmentHash.slice(0, 19) : "", style: ui.dim },
     { text: formatCreatedTimestamp(entry.createdAt), style: ui.dim },
   ]);
-  console.log(ui.columns(["scope", "workflow", "node", "status", "fragment", "created"], rows));
+  console.log(ui.columns(["#", "status", "node", "scope", "workflow", "fragment", "created"], rows));
 }
 
 function printConfig(info: EngineProjectInfo): void {

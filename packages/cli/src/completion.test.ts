@@ -371,7 +371,9 @@ describe("CLI completion", () => {
 
       expect(targets.map((item) => item.value)).toEqual([
         "install-tooling",
-        "build",
+        "setup.build",
+        "base",
+        "--workflow",
         "--all",
         "-y",
         "--yes",
@@ -384,7 +386,24 @@ describe("CLI completion", () => {
         words: ["rig", "cache", "invalidate", "--"],
         currentIndex: 3,
       });
-      expect(flags.map((item) => item.value)).toEqual(["--all", "--yes", "--json", "--help"]);
+      expect(flags.map((item) => item.value)).toEqual(["--workflow", "--all", "--yes", "--json", "--help"]);
+
+      const workflowValues = await completeRig({
+        cwd: projectDir,
+        words: ["rig", "cache", "invalidate", "--workflow", ""],
+        currentIndex: 4,
+      });
+      expect(workflowValues.map((item) => item.value)).toEqual(["smoke", "api"]);
+    });
+
+    const apiProjectDir = mkdtempSync(join(tmpdir(), "rigkit-completion-"));
+    await withWorkspaceRuntime({ projectDir: apiProjectDir, includeApiWorkflow: true }, async () => {
+      const apiTargets = await completeRig({
+        cwd: apiProjectDir,
+        words: ["rig", "cache", "invalidate", "--workflow=api", ""],
+        currentIndex: 4,
+      });
+      expect(apiTargets.map((item) => item.value)).toEqual(["api.ready", "--workflow", "--all", "-y", "--yes", "--json", "--help"]);
     });
   });
 
@@ -558,6 +577,8 @@ async function withWorkspaceRuntime(
               scope: "local",
               workflow: "smoke",
               nodePath: "build",
+              displayPath: "setup.build",
+              planIndex: 1,
               nodeName: "build",
               nodeKind: "task",
               runId: "run-build",
@@ -585,6 +606,18 @@ async function withWorkspaceRuntime(
               createdAt: new Date(nowMs - 5_000).toISOString(),
               fragmentHash: "fragment",
             },
+            ...(input.includeApiWorkflow ? [{
+              scope: "local",
+              workflow: "api",
+              nodePath: "ready",
+              displayPath: "api.ready",
+              planIndex: 0,
+              nodeName: "ready",
+              nodeKind: "task",
+              runId: "run-api-ready",
+              invalidated: false,
+              createdAt: new Date(nowMs - 15_000).toISOString(),
+            }] : []),
           ],
         });
       }

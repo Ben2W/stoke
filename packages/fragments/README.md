@@ -27,17 +27,16 @@ import {
 } from "@rigkit/fragments";
 import { workflow } from "@rigkit/sdk";
 
-const app = workflow("my-app", {
-  providers: {
-    freestyle: freestyle.provider(),
-    terminal: freestyle.terminal(),
-  },
-});
+const app = workflow("my-app");
+const freestyleProvider = freestyle.provider();
+const terminalProvider = freestyle.terminal();
 
 const repoSetup = app
   .sequence<FreestyleCompanyBaseFragmentContext>("repo-setup")
-  .task("clone-repo", async ({ freestyle, step }) => {
-    const created = await freestyle.client.vms.create({
+  .addProvider("freestyle", freestyleProvider)
+  .addProvider("terminal", terminalProvider)
+  .task("clone-repo", async ({ providers, step }) => {
+    const created = await providers.freestyle.client.vms.create({
       snapshotId: step.ctx.snapshotId,
       idleTimeoutSeconds: step.ctx.freestyleCompanyBase.idleTimeoutSeconds,
       logger: console.log,
@@ -48,7 +47,7 @@ const repoSetup = app
       const snapshot = await vm.snapshot();
       return { ctx: { ...step.ctx, snapshotId: snapshot.snapshotId, repoPath: "/workspace/app" } };
     } finally {
-      await freestyle.client.vms.delete({ vmId });
+      await providers.freestyle.client.vms.delete({ vmId });
     }
   });
 

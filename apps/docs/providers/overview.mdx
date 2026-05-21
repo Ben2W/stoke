@@ -13,22 +13,31 @@ import { workflow } from "@rigkit/sdk";
 import { cmux } from "@rigkit/provider-cmux";
 import { freestyle } from "@rigkit/provider-freestyle";
 
-const app = workflow("website", {
-  providers: {
-    freestyle: freestyle.provider(),
-    terminal: freestyle.terminal(),
-    cmux: cmux.provider(),
-  },
-});
-```
+const app = workflow("website");
+const freestyleProvider = freestyle.provider();
 
-```ts
-.task("prepare", async ({ freestyle }) => {
-  const { vm, vmId } = await freestyle.client.vms.create({
-    logger: console.log,
+export const website = app
+  .sequence("website")
+  .addProvider("freestyle", freestyleProvider)
+  .addProvider("terminal", freestyle.terminal())
+  .task("prepare", async ({ providers }) => {
+    const { vm, vmId } = await providers.freestyle.client.vms.create({
+      logger: console.log,
+    });
+    // ...
+  })
+  .addProvider("cmux", cmux.provider())
+  .workspaceOperation("open-cmux", {
+    title: "Open cmux",
+    run: async ({ providers, workspace }) => {
+      await providers.cmux.open({
+        name: workspace.name,
+        ssh: await providers.freestyle.cmux.createSshOptions({
+          vmId: workspace.ctx.vmId,
+        }),
+      });
+    },
   });
-  // ...
-});
 ```
 
 ## Built-in providers
@@ -51,18 +60,21 @@ Provider config can read environment variables through `env(...)`:
 import { env, workflow } from "@rigkit/sdk";
 import { freestyle } from "@rigkit/provider-freestyle";
 
-const app = workflow("website", {
-  providers: {
-    freestyle: freestyle.provider({
-      apiKey: env.secret("FREESTYLE_API_KEY"),
-    }),
-  },
+const app = workflow("website");
+const freestyleProvider = freestyle.provider({
+  apiKey: env.secret("FREESTYLE_API_KEY"),
 });
+
+export const website = app
+  .sequence("website")
+  .addProvider("freestyle", freestyleProvider);
 ```
 
 Rigkit loads `.env` from the selected project directory before loading
-`rigkit/index.ts`. Resolved provider config is part of the provider fingerprint,
-so changing it can make cached task runs stale.
+`rigkit/index.ts`. Resolved provider config is part of the scoped provider
+fingerprint for tasks, workspace hooks, and operations after `.addProvider(...)`.
+Changing provider config only makes cached runs stale where that provider is in
+scope.
 
 ## What providers own
 
