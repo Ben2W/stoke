@@ -1,0 +1,94 @@
+---
+title: "gcloud provider"
+description: "Copy local Google Cloud CLI config and auth files into Rigkit workspaces."
+noindex: true
+---
+
+The gcloud provider copies selected local Google Cloud CLI auth/config files
+into a remote workspace. It does not run Google OAuth.
+
+Use it when the developer already has local `gcloud` installed and
+authenticated, and the workspace should behave the same way.
+
+## Add the provider
+
+```ts
+import { copyGcloudConfig } from "@rigkit/provider-gcloud-cli";
+import { workflow } from "@rigkit/sdk";
+
+const app = workflow("gcloud-example");
+const gcloudConfigProvider = copyGcloudConfig.provider({
+  requireAuth: true,
+});
+
+export const gcloudExample = app
+  .sequence("gcloud-example")
+  .addProvider("gcloudConfig", gcloudConfigProvider);
+```
+
+With `requireAuth: true`, provider startup checks:
+
+- `gcloud --version`
+- `gcloud auth print-access-token`
+
+If local `gcloud` is missing or unauthenticated, Rigkit fails before running the
+workflow and tells the user what to install or run.
+
+## Copy config files
+
+Inside a task or operation, read the local config file set and inject it into
+the VM:
+
+```ts
+import {
+  gcloudConfigCopyInjectionSteps,
+  gcloudCopiedConfigReadyCommand,
+} from "@rigkit/provider-gcloud-cli";
+
+const gcloudConfigFiles = await providers.gcloudConfig.configFiles();
+
+for (const step of gcloudConfigCopyInjectionSteps(gcloudConfigFiles)) {
+  await vm.exec(step.command, {
+    name: step.name,
+    env: step.env,
+  });
+}
+
+const verified = await vm.exec(gcloudCopiedConfigReadyCommand());
+if ((verified.statusCode ?? 0) !== 0) {
+  throw new Error(`gcloud did not accept the copied config files:\n${verified.stdout}${verified.stderr}`);
+}
+```
+
+The helper copies only known gcloud config/auth paths and skips cache/log
+directories.
+
+## Fresh access tokens
+
+The provider can also mint a fresh local access token:
+
+```ts
+const credentials = await providers.gcloudConfig.freshAccessToken({
+  account: "developer@example.com",
+});
+```
+
+Inject the token directly or store it in provider storage. Avoid returning
+access tokens from tasks unless caching the token is the explicit boundary you
+want.
+
+## Options
+
+```ts
+copyGcloudConfig.provider({
+  command: "gcloud",
+  requireAuth: true,
+  account: "developer@example.com",
+  scopes: ["email", "openid", "https://www.googleapis.com/auth/cloud-platform"],
+  configDir: "~/.config/gcloud",
+  accessTokenLifetimeSeconds: 55 * 60,
+});
+```
+
+Use `requireAuth: false` only when the workflow can tolerate missing local
+gcloud auth until a later operation.

@@ -1,1 +1,1 @@
-export const RIGKIT_ENGINE_VERSION = "0.2.13";
+export const RIGKIT_ENGINE_VERSION = "0.2.14";

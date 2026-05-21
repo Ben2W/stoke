@@ -4,11 +4,11 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Prepare patch release 0.2.14 from the matching version branch"
+        description: "Prepare patch release 0.2.15 from the matching version branch"
         required: true
         type: choice
         options:
-          - "0.2.14"
+          - "0.2.15"
 
 permissions:
   contents: write
