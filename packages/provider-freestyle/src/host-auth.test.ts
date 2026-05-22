@@ -490,7 +490,11 @@ describe("Freestyle provider proxy fetch", () => {
       Response.json({
         code: "INTERNAL_ERROR",
         message: "Internal server error",
-      }, { status: 500, statusText: "Internal Server Error" })
+      }, {
+        status: 500,
+        statusText: "Internal Server Error",
+        headers: { "x-freestyle-trace-id": "trace_sdk_123" },
+      })
     ));
 
     const messages = await captureConsoleError(async () => {
@@ -515,6 +519,7 @@ describe("Freestyle provider proxy fetch", () => {
     expect(messages[0]).toContain('"image": "ubuntu-24.04"');
     expect(messages[0]).toContain('"apiKey": "[redacted]"');
     expect(messages[0]).toContain('Response: 500 Internal Server Error');
+    expect(messages[0]).toContain("TraceId: trace_sdk_123");
     expect(messages[0]).not.toContain("real-api-key");
     expect(messages[0]).not.toContain("body-api-key");
   });
@@ -640,12 +645,12 @@ describe("Freestyle provider proxy fetch", () => {
           requestId: "req_123",
           logs: ["failed to boot base image"],
           accessToken: "secret-token",
-        }, { status: 500 })
+        }, { status: 500, headers: { "x-freestyle-trace-id": "trace_proxy_123" } })
       ),
     });
 
     let response: Response | undefined;
-    await captureConsoleError(async () => {
+    const messages = await captureConsoleError(async () => {
       response = await proxyFetch("https://api.freestyle.sh/v1/vms", {
         method: "POST",
         body: "{}",
@@ -653,6 +658,8 @@ describe("Freestyle provider proxy fetch", () => {
     });
 
     expect(response?.status).toBe(500);
+    expect(response?.headers.get("x-freestyle-trace-id")).toBe("trace_proxy_123");
+    expect(messages[0]).toContain("TraceId: trace_proxy_123");
     await expect(response?.json()).resolves.toEqual({
       code: "INTERNAL_ERROR",
       message: "VM setup failed",
