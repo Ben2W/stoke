@@ -1,0 +1,121 @@
+---
+title: "Quickstart"
+description: "Install Rigkit, initialize a project, apply the workflow, and create your first workspace."
+noindex: true
+---
+
+This guide creates a minimal Rigkit project, prepares it once, and creates one
+workspace.
+
+## Install
+
+```sh
+curl -fsSL https://www.rigkit.dev/install | sh
+```
+
+Open a new terminal, then verify the CLI:
+
+```sh
+rig version
+```
+
+## Initialize a project
+
+```sh
+mkdir website
+cd website
+pnpm add -D @rigkit/sdk @rigkit/provider-freestyle @rigkit/provider-cmux freestyle
+rig init
+```
+
+<Note>
+Agents, CI, and other non-interactive callers can parse JSON:
+
+```sh
+rig --json init
+```
+
+Use `--json` on later commands, and use `--yes` when removing workspaces.
+
+</Note>
+
+`rig init` creates:
+
+- `rigkit/index.ts`
+
+It does not prompt and does not write package metadata, environment files, or
+ignore rules.
+
+The generated config uses Freestyle browser login by default:
+
+```ts
+const freestyleProvider = freestyle.provider();
+```
+
+If you want API-key auth, change that line to:
+
+```ts
+import { env } from "@rigkit/sdk";
+
+const freestyleProvider = freestyle.provider({
+  apiKey: env.secret("FREESTYLE_API_KEY"),
+});
+```
+
+## What was generated
+
+The starter config prepares a Node.js 22 Freestyle VM, installs GitHub CLI,
+opens a browser-backed `gh auth login` terminal when needed, clones
+`octocat/Hello-World`, and snapshots the result.
+
+It also defines workspace lifecycle hooks plus `ssh`, `open-cmux`, and
+`open-vscode` operations. The persisted values are the snapshot id, workspace
+VM id, and cloned repository path.
+
+## Plan and apply
+
+```sh
+rig plan
+rig apply
+rig plan
+```
+
+The first plan shows the setup task as pending. `rig apply` runs it and stores
+the task output in `.rigkit/state.sqlite`. The second plan should show the task
+as cached.
+
+Cached setup is reused until a cache input changes: task code, provider config
+in scope for the task, upstream task output, output schema, `cacheTTL`, provider
+artifact validation, or manual invalidation.
+
+## Create a workspace
+
+```sh
+rig create dev
+rig ls
+```
+
+`rig create` runs `apply` first if setup is stale, then calls
+`workspace.create`. Remove the workspace when you are done:
+
+```sh
+rig rm dev
+```
+
+## Run an operation
+
+```sh
+rig apply
+rig create dev
+rig run dev ssh
+rig run dev open-cmux
+rig run dev open-vscode
+```
+
+## Next steps
+
+- Return `repoPath`, `devPort`, branch names, and other durable values from
+  setup tasks.
+- Add operations such as `status`, `test`, or `preview`.
+- Move shared base setup into a [global fragment](/v0.2.15/advanced/fragments) when
+  multiple projects use the same toolchain.
