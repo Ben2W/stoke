@@ -297,6 +297,11 @@ class StepInvalidationRestart extends Error {
 
 let configImportCounter = 0;
 
+type DefinitionSourceFile = {
+  path: string;
+  source: string;
+};
+
 function projectDirForConfigPath(configPath: string): string {
   const configDir = dirname(configPath);
   return basename(configDir) === "rigkit" ? dirname(configDir) : configDir;
@@ -306,15 +311,12 @@ function canonicalConfigPath(projectDir: string): string {
   return join(projectDir, "rigkit", "index.ts");
 }
 
-function definitionFingerprintFor(configPath: string): string {
+function definitionSourcesFor(configPath: string): DefinitionSourceFile[] {
   const configDir = dirname(configPath);
-  return hash({
-    cache: "definition-source-v1",
-    files: collectDefinitionFiles(configDir).map((file) => ({
-      path: file.slice(configDir.length + 1),
-      source: readFileSync(file, "utf8"),
-    })),
-  });
+  return collectDefinitionFiles(configDir).map((file) => ({
+    path: file.slice(configDir.length + 1),
+    source: readFileSync(file, "utf8"),
+  }));
 }
 
 function collectDefinitionFiles(dir: string): string[] {
@@ -354,7 +356,7 @@ export class DevMachineEngine {
   private readonly local: LocalWorkspaceRuntime;
   private readonly handlers = new Set<EventHandler>();
   private workflows = new Map<string, LoadedWorkflow>();
-  private definitionFingerprint = "";
+  private definitionSources: DefinitionSourceFile[] = [];
 
   constructor(options: CreateDevMachineEngineOptions = {}) {
     const requestedConfigPath = options.configPath ? resolve(options.configPath) : undefined;
@@ -403,7 +405,7 @@ export class DevMachineEngine {
       );
     }
 
-    this.definitionFingerprint = definitionFingerprintFor(this.configPath);
+    this.definitionSources = definitionSourcesFor(this.configPath);
 
     const moduleUrl = pathToFileURL(this.configPath);
     moduleUrl.searchParams.set("t", `${Date.now()}-${configImportCounter++}`);
@@ -1166,7 +1168,7 @@ export class DevMachineEngine {
       const nodePath = nodeDisplayPath(input.node, input.prefix, input.root, input.suppressSequenceName);
       const fragmentHash = globalFragmentHashFor({
         node: input.node,
-        definitionFingerprint: this.definitionFingerprint,
+        definitionSources: this.definitionSources,
       });
       const fragmentState = await this.getGlobalFragmentState({
         hash: fragmentHash,
@@ -1299,12 +1301,15 @@ export class DevMachineEngine {
     const cacheNodePath = [...input.cachePrefix, input.node.name].join(".");
     const upstreamRunIds = [...input.state.upstreamRunIds];
     const nodeKey = hash({
-      cache: "task-v5",
+      cache: "task-v6",
       kind: "task",
       path: cacheNodePath,
       name: input.node.name,
       config: input.configStack,
-      definition: this.definitionFingerprint,
+      definitionContext: taskDefinitionContextFingerprintFor(
+        this.definitionSources,
+        input.node.handler,
+      ),
       handler: functionFingerprintFor(input.node.handler),
       output: input.node.options?.output ?? null,
       version: input.node.options?.version ?? null,
@@ -2445,16 +2450,18 @@ function providerControllerCacheKey(name: string, provider: LoadedProviderDefini
 
 function globalFragmentHashFor(input: {
   node: WorkflowNodeDefinition<any, any, any>;
-  definitionFingerprint: string;
+  definitionSources: readonly DefinitionSourceFile[];
 }): string {
   return `sha256-${hash({
-    cache: "fragment-v1",
-    graph: graphFingerprintFor(input.node),
-    definitionFingerprint: input.definitionFingerprint,
+    cache: "fragment-v2",
+    graph: graphFingerprintFor(input.node, input.definitionSources),
   })}`;
 }
 
-function graphFingerprintFor(node: WorkflowNodeDefinition<any, any, any>): unknown {
+function graphFingerprintFor(
+  node: WorkflowNodeDefinition<any, any, any>,
+  definitionSources?: readonly DefinitionSourceFile[],
+): unknown {
   if (node.nodeKind === "task") {
     const task = node as WorkflowTaskNode<any, any, any>;
     return {
@@ -2462,6 +2469,9 @@ function graphFingerprintFor(node: WorkflowNodeDefinition<any, any, any>): unkno
       name: task.name,
       scope: task.cacheScope ?? null,
       config: task.config ?? null,
+      definitionContext: definitionSources
+        ? taskDefinitionContextFingerprintFor(definitionSources, task.handler)
+        : null,
       handler: functionFingerprintFor(task.handler),
       output: task.options?.output ?? null,
       cacheTTL: task.options?.cacheTTL ?? null,
@@ -2476,7 +2486,10 @@ function graphFingerprintFor(node: WorkflowNodeDefinition<any, any, any>): unkno
       scope: node.cacheScope ?? null,
       config: node.config ?? null,
       branches: Object.fromEntries(
-        Object.entries(parallelBranches(node)).map(([name, branch]) => [name, graphFingerprintFor(branch)]),
+        Object.entries(parallelBranches(node)).map(([name, branch]) => [
+          name,
+          graphFingerprintFor(branch, definitionSources),
+        ]),
       ),
     };
   }
@@ -2486,7 +2499,9 @@ function graphFingerprintFor(node: WorkflowNodeDefinition<any, any, any>): unkno
     name: node.name,
     scope: node.cacheScope ?? null,
     config: node.config ?? null,
-    children: sequenceChildren(node).map((child) => graphFingerprintFor(child)),
+    children: sequenceChildren(node).map((child) =>
+      graphFingerprintFor(child, definitionSources)
+    ),
   };
 }
 
@@ -2589,6 +2604,151 @@ function functionFingerprintFor(fn: Function): { name: string; length: number; s
     length: fn.length,
     source: Function.prototype.toString.call(fn),
   };
+}
+
+function taskDefinitionContextFingerprintFor(
+  sources: readonly DefinitionSourceFile[],
+  fn: Function,
+): string {
+  return hash({
+    cache: "definition-dependencies-v1",
+    dependencies: collectDefinitionDependencySnippets(
+      sources,
+      identifiersIn(Function.prototype.toString.call(fn)),
+    ),
+  });
+}
+
+const jsReservedWords = new Set([
+  "async",
+  "await",
+  "break",
+  "case",
+  "catch",
+  "class",
+  "const",
+  "continue",
+  "debugger",
+  "default",
+  "delete",
+  "do",
+  "else",
+  "export",
+  "extends",
+  "false",
+  "finally",
+  "for",
+  "from",
+  "function",
+  "if",
+  "import",
+  "in",
+  "instanceof",
+  "let",
+  "new",
+  "null",
+  "return",
+  "super",
+  "switch",
+  "this",
+  "throw",
+  "true",
+  "try",
+  "typeof",
+  "undefined",
+  "var",
+  "void",
+  "while",
+  "with",
+  "yield",
+]);
+
+function identifiersIn(source: string): Set<string> {
+  const identifiers = new Set<string>();
+  const identifierPattern = /\b[$A-Z_a-z][$\w]*\b/g;
+  for (const match of source.matchAll(identifierPattern)) {
+    const name = match[0];
+    const index = match.index ?? 0;
+    if (jsReservedWords.has(name)) continue;
+    if (source[index - 1] === ".") continue;
+    identifiers.add(name);
+  }
+  return identifiers;
+}
+
+function collectDefinitionDependencySnippets(
+  sources: readonly DefinitionSourceFile[],
+  initialIdentifiers: Iterable<string>,
+): { path: string; name: string; source: string }[] {
+  const queue = [...initialIdentifiers];
+  const seen = new Set<string>();
+  const snippets: { path: string; name: string; source: string }[] = [];
+
+  while (queue.length > 0) {
+    const name = queue.shift()!;
+    if (seen.has(name)) continue;
+    seen.add(name);
+
+    const snippet = findDefinitionSnippet(sources, name);
+    if (!snippet) continue;
+    snippets.push(snippet);
+
+    for (const dependency of identifiersIn(snippet.source)) {
+      if (!seen.has(dependency)) queue.push(dependency);
+    }
+  }
+
+  return snippets.sort((a, b) =>
+    a.path === b.path ? a.name.localeCompare(b.name) : a.path.localeCompare(b.path)
+  );
+}
+
+function findDefinitionSnippet(
+  sources: readonly DefinitionSourceFile[],
+  name: string,
+): { path: string; name: string; source: string } | undefined {
+  for (const file of sources) {
+    const source = variableDeclarationSnippet(file.source, name)
+      ?? functionOrClassDeclarationSnippet(file.source, name)
+      ?? importDeclarationSnippet(file.source, name);
+    if (source) return { path: file.path, name, source };
+  }
+  return undefined;
+}
+
+function variableDeclarationSnippet(source: string, name: string): string | undefined {
+  return declarationSnippet(
+    source,
+    new RegExp(`(^|\\n)([ \\t]*(?:export\\s+)?(?:const|let|var)\\s+${escapeRegExp(name)}\\b)`),
+  );
+}
+
+function functionOrClassDeclarationSnippet(source: string, name: string): string | undefined {
+  return declarationSnippet(
+    source,
+    new RegExp(`(^|\\n)([ \\t]*(?:export\\s+)?(?:async\\s+)?(?:function|class)\\s+${escapeRegExp(name)}\\b)`),
+  );
+}
+
+function declarationSnippet(source: string, pattern: RegExp): string | undefined {
+  const match = pattern.exec(source);
+  if (!match) return undefined;
+  const start = (match.index ?? 0) + match[1]!.length;
+  const next = /\n[ \t]*(?:export\s+)?(?:const|let|var|async\s+function|function|class)\s+/.exec(
+    source.slice(start + 1),
+  );
+  const end = next ? start + 1 + next.index : source.length;
+  return source.slice(start, end).trim();
+}
+
+function importDeclarationSnippet(source: string, name: string): string | undefined {
+  const escaped = escapeRegExp(name);
+  const importLine = new RegExp(`(^|\\n)([^\\n]*\\bimport\\b[^\\n]*\\b${escaped}\\b[^\\n]*)`).exec(source);
+  return importLine?.[2]?.trim();
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[\\^$.*+?()[\]{}|]/g, "\\$&");
 }
 
 function sequenceChildren(node: WorkflowNodeDefinition<any, any, any>): readonly WorkflowNodeDefinition<any, any, any>[] {
