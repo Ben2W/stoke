@@ -15,6 +15,7 @@ const DEFAULT_CLI_AUTH_TIMEOUT_MILLIS = 10 * 60 * 1000;
 const DEFAULT_POLL_INTERVAL_MILLIS = 2000;
 const RIGKIT_HEADER = "x-rigkit";
 const RIGKIT_VERSION_HEADER = "x-rigkit-version";
+const FREESTYLE_TRACE_ID_HEADER = "x-freestyle-trace-id";
 
 export type FreestyleProviderConfig = {
   apiKey?: string;
@@ -255,7 +256,7 @@ export function createFreestyleProxyFetch(input: {
       return new Response(normalized.body, {
         status: proxyResponse.status,
         statusText: proxyResponse.statusText,
-        headers: { "Content-Type": normalized.contentType },
+        headers: proxyResponseHeaders(proxyResponse, normalized.contentType),
       });
     }
 
@@ -265,14 +266,16 @@ export function createFreestyleProxyFetch(input: {
       if (requestId) {
         backgroundRequests.set(requestId, formatReplayableFetchRequest(resource, freestyleRequestInit));
       }
+      const headers = proxyResponseHeaders(proxyResponse);
+      if (requestId) headers.set("x-freestyle-background-request-id", requestId);
       return Response.json(data, {
         status: 202,
-        headers: {
-          ...(requestId ? { "x-freestyle-background-request-id": requestId } : {}),
-        },
+        headers,
       });
     }
-    return Response.json(data);
+    return Response.json(data, {
+      headers: proxyResponseHeaders(proxyResponse),
+    });
   };
 
   return Object.assign(proxyFetch, {
@@ -454,11 +457,25 @@ function isFreestyleBackgroundLogRequest(resource: Parameters<typeof fetch>[0]):
 async function formatResponseSummary(response: Response, responseText?: string): Promise<string> {
   const text = responseText ?? await response.clone().text().catch(() => "");
   const status = [response.status, response.statusText].filter(Boolean).join(" ");
+  const traceId = responseTraceId(response);
   const redactedBody = formatRedactedResponseBody(text);
   return [
     `Response: ${status}`,
+    ...(traceId ? [`TraceId: ${traceId}`] : []),
     ...(redactedBody ? [`Response body: ${redactedBody}`] : []),
   ].join("\n");
+}
+
+function proxyResponseHeaders(response: Response, contentType?: string): Headers {
+  const headers = new Headers();
+  if (contentType) headers.set("Content-Type", contentType);
+  const traceId = responseTraceId(response);
+  if (traceId) headers.set(FREESTYLE_TRACE_ID_HEADER, traceId);
+  return headers;
+}
+
+function responseTraceId(response: Response): string | undefined {
+  return nonEmpty(response.headers.get(FREESTYLE_TRACE_ID_HEADER) ?? undefined);
 }
 
 function formatRedactedResponseBody(text: string): string | undefined {

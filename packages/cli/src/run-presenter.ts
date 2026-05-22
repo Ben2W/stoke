@@ -128,10 +128,15 @@ export function createRunPresenter(operation: string): RunPresenter | undefined 
           if (stream === "debug" && process.env.RIGKIT_DEBUG !== "1") break;
           const label = stringField(event.label);
           const { icon, style } = logStreamPresentation(stream);
-          for (const line of data.replace(/\r/g, "").split("\n")) {
+          const lines = data.replace(/\r/g, "").split("\n").filter((line) => line.length > 0);
+          const replayableFetchRequest = isReplayableFetchRequestLog(stream, lines);
+          for (let index = 0; index < lines.length; index += 1) {
+            const line = lines[index]!;
             if (!line) continue;
             const prefix = label ? `${dim(`[${label}]`)} ` : "";
-            write(indent(`  ${icon} ${prefix}${style(trim(line))}`));
+            const lineIcon = replayableFetchRequest && index > 0 ? " " : icon;
+            const text = replayableFetchRequest ? line : trim(line);
+            write(indent(`  ${lineIcon} ${prefix}${style(text)}`));
           }
           break;
         }
@@ -206,6 +211,13 @@ export function createRunPresenter(operation: string): RunPresenter | undefined 
   };
 }
 
+function isReplayableFetchRequestLog(stream: string | undefined, lines: readonly string[]): boolean {
+  if (stream !== "stderr" && stream !== "error") return false;
+  const [heading] = lines;
+  if (!heading?.includes("request")) return false;
+  return lines.some((line) => line.startsWith("await fetch("));
+}
+
 function planSummary(total: number, cached: number): string {
   if (total === 0) return "no nodes";
   if (cached === 0) return `${total} ${noun("node", total)}`;
@@ -247,4 +259,3 @@ function logStreamPresentation(stream: string | undefined): {
       return { icon: dim(sym.dot), style: dim };
   }
 }
-
