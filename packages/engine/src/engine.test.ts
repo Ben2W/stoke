@@ -627,6 +627,51 @@ describe("DevMachineEngine workflow runtime", () => {
     expect(reapplied.context.value).toBe("two");
   });
 
+  test("keeps upstream task cache when adding a new downstream task", async () => {
+    const rootDir = mkdtempSync(join(tmpdir(), "rigkit-insert-task-cache-"));
+    const firstProjectDir = join(rootDir, "one");
+    const secondProjectDir = join(rootDir, "two");
+    const statePath = join(rootDir, ".rigkit", "state.sqlite");
+    mkdirSync(join(rootDir, ".rigkit"));
+    const writeConfig = (projectDir: string, includeExtra: boolean) =>
+      writeRigkitIndex(
+        projectDir,
+        `
+          import { workflow } from "${import.meta.dir}/index.ts";
+
+          const app = workflow("insert-task-cache");
+
+          export const root = app.sequence("root")
+            .task("base", async () => ({ ctx: { base: true } }))
+            ${includeExtra ? '.task("extra", async ({ step }) => ({ ctx: { ...step.ctx, extra: true } }))' : ""};
+        `,
+      );
+
+    writeConfig(firstProjectDir, false);
+    writeConfig(secondProjectDir, true);
+
+    const first = await createDevMachineEngine({
+      projectDir: firstProjectDir,
+      statePath,
+    });
+    await first.load();
+    const applied = await first.apply({ workflow: "insert-task-cache" });
+    expect(applied.context.base).toBe(true);
+    expect((await first.plan({ workflow: "insert-task-cache" })).cachedNodeCount).toBe(1);
+
+    const second = await createDevMachineEngine({
+      projectDir: secondProjectDir,
+      statePath,
+    });
+    await second.load();
+    const changed = await second.plan({ workflow: "insert-task-cache" });
+    expect(changed.nodes.map((node) => node.status)).toEqual(["cached", "pending"]);
+    expect(changed.cachedNodeCount).toBe(1);
+
+    const reapplied = await second.apply({ workflow: "insert-task-cache" });
+    expect(reapplied.context).toEqual({ base: true, extra: true });
+  });
+
   test("invalidates task cache when task version changes", async () => {
     const rootDir = mkdtempSync(join(tmpdir(), "rigkit-task-version-cache-"));
     const firstProjectDir = join(rootDir, "one");

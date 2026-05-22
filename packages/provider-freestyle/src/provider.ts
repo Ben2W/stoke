@@ -17,6 +17,7 @@ export type FreestyleSdkVm = ReturnType<Freestyle["vms"]["ref"]>;
 
 export type FreestyleSshInput = SshOptions & {
   vmId: string;
+  replaceColonWithComma?: boolean;
 };
 
 export type FreestyleCmuxSshOptions = Exclude<CmuxSshInput, string>;
@@ -24,7 +25,8 @@ export type FreestyleCmuxSshOptions = Exclude<CmuxSshInput, string>;
 export type FreestyleCmuxSshOptionsInput = Omit<
   FreestyleCmuxSshOptions,
   "kind" | "destination" | "host" | "username"
-> & FreestyleSshInput;
+> &
+  FreestyleSshInput;
 
 export type FreestyleVscodeUrlOptions = FreestyleSshInput & {
   cwd?: string;
@@ -34,7 +36,9 @@ export type FreestyleRuntime = {
   readonly client: Freestyle;
   createSSHOptions(input: FreestyleSshInput): Promise<SshConnection>;
   cmux: {
-    createSshOptions(input: FreestyleCmuxSshOptionsInput): Promise<FreestyleCmuxSshOptions>;
+    createSshOptions(
+      input: FreestyleCmuxSshOptionsInput,
+    ): Promise<FreestyleCmuxSshOptions>;
   };
   vscode: {
     createUrl(input: FreestyleVscodeUrlOptions): Promise<string>;
@@ -81,7 +85,9 @@ export function createFreestyleWorkflowController(input: {
         fingerprint: `identity:${input.identityId}`,
         metadata: {
           teamId: input.team.id,
-          ...(input.team.displayName ? { teamName: input.team.displayName } : {}),
+          ...(input.team.displayName
+            ? { teamName: input.team.displayName }
+            : {}),
         },
       };
     },
@@ -98,7 +104,9 @@ export function createLazyFreestyleWorkflowController(input: {
     token: FreestyleToken;
     team?: FreestyleResolvedTeam;
   }>;
-  checks(context: { mode: "plan" | "require" }): Promise<WorkflowProviderCheckResult[]>;
+  checks(context: {
+    mode: "plan" | "require";
+  }): Promise<WorkflowProviderCheckResult[]>;
 }): WorkflowProviderController<FreestyleRuntime> {
   return {
     providerId: FREESTYLE_PROVIDER_ID,
@@ -116,9 +124,13 @@ export function createFreestyleTerminalController(): WorkflowProviderController<
     runtime(context) {
       return {
         open: async (title, options) => {
-          const command = buildInteractiveSshCommand(options.ssh, options.command, {
-            keepOpenAfterCommand: options.keepOpenAfterCommand,
-          });
+          const command = buildInteractiveSshCommand(
+            options.ssh,
+            options.command,
+            {
+              keepOpenAfterCommand: options.keepOpenAfterCommand,
+            },
+          );
           const session = createFreestyleTerminalSession({
             title,
             command,
@@ -141,7 +153,9 @@ function createFreestyleRuntime(input: {
   token: FreestyleToken;
 }): FreestyleRuntime {
   const ensureSSHAccess = async (vmId: string) => {
-    const identity = input.client.identities.ref({ identityId: input.identityId });
+    const identity = input.client.identities.ref({
+      identityId: input.identityId,
+    });
     try {
       await identity.permissions.vms.grant({ vmId });
     } catch (error) {
@@ -154,20 +168,34 @@ function createFreestyleRuntime(input: {
 
   const runtime: FreestyleRuntime = {
     client: input.client,
-    createSSHOptions: async ({ vmId, user }) => {
+    createSSHOptions: async ({ vmId, user, replaceColonWithComma }) => {
       await ensureSSHAccess(vmId);
-      return freestyleSshConnection(vmId, input.token, user);
+      return freestyleSshConnection(
+        vmId,
+        input.token,
+        user,
+        replaceColonWithComma,
+      );
     },
     cmux: {
       createSshOptions: async (options) => {
         const { vmId, user, ...sshOptions } = options;
-        const ssh = await runtime.createSSHOptions({ vmId, user });
+        const ssh = await runtime.createSSHOptions({
+          vmId,
+          user,
+          replaceColonWithComma: true,
+        });
         return freestyleCmuxSshOptions(ssh, sshOptions);
       },
     },
     vscode: {
       createUrl: async ({ vmId, user, cwd }) => {
-        const ssh = await runtime.createSSHOptions({ vmId, user });
+        const ssh = await runtime.createSSHOptions({
+          vmId,
+          user,
+          replaceColonWithComma: true,
+        });
+        // replace the colon with a comma to avoid vscode parsing the token as a port number
         return freestyleVscodeUrl(ssh, { cwd });
       },
     },
@@ -182,15 +210,24 @@ function formatFreestyleTeam(team: FreestyleResolvedTeam): string {
   return team.displayName ? `${team.displayName} (${team.id})` : team.id;
 }
 
-function freestyleSshConnection(vmId: string, token: FreestyleToken, user: string | undefined): SshConnection {
+function freestyleSshConnection(
+  vmId: string,
+  token: FreestyleToken,
+  user: string | undefined,
+  replaceColonWithComma: boolean = false,
+): SshConnection {
   const userPart = `+${user ?? defaultFreestyleVmUser}`;
   const username = `${vmId}${userPart}`;
+  let command = `ssh ${username}:${token}@vm-ssh.freestyle.sh`;
+  if (replaceColonWithComma) {
+    command = command.replace(":", ",");
+  }
   return {
     kind: "ssh",
     host: "vm-ssh.freestyle.sh",
     username,
     auth: { type: "token", token },
-    command: `ssh ${username}:${token}@vm-ssh.freestyle.sh`,
+    command,
   };
 }
 
@@ -230,7 +267,9 @@ const freestyleCmuxTokenSshOptions = [
 
 function freestyleCmuxSshOptions(
   connection: SshConnection,
-  options: Omit<FreestyleCmuxSshOptionsInput, keyof FreestyleSshInput> | undefined,
+  options:
+    | Omit<FreestyleCmuxSshOptionsInput, keyof FreestyleSshInput>
+    | undefined,
 ): FreestyleCmuxSshOptions {
   const { sshOptions, port, ...rest } = options ?? {};
   const mergedSshOptions = [
@@ -240,23 +279,30 @@ function freestyleCmuxSshOptions(
   return {
     kind: "ssh",
     destination: freestyleCmuxDestination(connection),
-    ...(port !== undefined || connection.port !== undefined ? { port: port ?? connection.port } : {}),
+    ...(port !== undefined || connection.port !== undefined
+      ? { port: port ?? connection.port }
+      : {}),
     ...rest,
     ...(mergedSshOptions.length ? { sshOptions: mergedSshOptions } : {}),
   };
 }
 
 function freestyleCmuxDestination(connection: SshConnection): string {
-  if (connection.auth.type === "token") return `${connection.username},${connection.auth.token}@${connection.host}`;
+  if (connection.auth.type === "token")
+    return `${connection.username},${connection.auth.token}@${connection.host}`;
   return `${connection.username}@${connection.host}`;
 }
 
 function vscodeAuthorityForSsh(connection: SshConnection): string {
-  if (connection.auth.type === "token") return `${connection.username}:${connection.auth.token}@${connection.host}`;
+  if (connection.auth.type === "token")
+    return `${connection.username}:${connection.auth.token}@${connection.host}`;
   return `${connection.username}@${connection.host}`;
 }
 
-function freestyleVscodeUrl(connection: SshConnection, options: { cwd?: string } = {}): string {
+function freestyleVscodeUrl(
+  connection: SshConnection,
+  options: { cwd?: string } = {},
+): string {
   return `vscode://vscode-remote/ssh-remote+${encodeURIComponent(vscodeAuthorityForSsh(connection))}${options.cwd ?? ""}?windowId=_blank`;
 }
 
@@ -269,16 +315,21 @@ export function buildInteractiveSshCommand(
     return connection.command;
   }
 
-  const command = remoteCommand && options.keepOpenAfterCommand
-    ? keepOpenAfterCommand(remoteCommand)
-    : remoteCommand;
+  const command =
+    remoteCommand && options.keepOpenAfterCommand
+      ? keepOpenAfterCommand(remoteCommand)
+      : remoteCommand;
   const destination = `${connection.username}:${connection.auth.token}@${connection.host}`;
   const args = ["ssh"];
   if (command) args.push("-tt", "-q");
   if (connection.port !== undefined) args.push("-p", String(connection.port));
   args.push(destination);
   if (command) args.push(withBrowserOpenFallback(command));
-  return args.map((arg) => arg === "ssh" || arg.startsWith("-") ? arg : shellQuote(arg)).join(" ");
+  return args
+    .map((arg) =>
+      arg === "ssh" || arg.startsWith("-") ? arg : shellQuote(arg),
+    )
+    .join(" ");
 }
 
 function withBrowserOpenFallback(command: string): string {
