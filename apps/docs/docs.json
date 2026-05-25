@@ -46,7 +46,7 @@
   "navigation": {
     "versions": [
       {
-        "version": "v0.2.15",
+        "version": "v0.2.16",
         "default": true,
         "tag": "Latest",
         "pages": [
@@ -139,6 +139,56 @@
             "group": "Reference",
             "pages": [
               "canary/reference/cli"
+            ]
+          }
+        ]
+      },
+      {
+        "version": "v0.2.15",
+        "pages": [
+          "v0.2.15/introduction",
+          {
+            "group": "Get started",
+            "pages": [
+              "v0.2.15/guides/quickstart",
+              "v0.2.15/reference/cli"
+            ]
+          },
+          {
+            "group": "Concepts",
+            "pages": [
+              "v0.2.15/concepts/mental-model",
+              "v0.2.15/concepts/cache-and-state"
+            ]
+          },
+          {
+            "group": "Writing configs",
+            "pages": [
+              "v0.2.15/guides/workflows",
+              "v0.2.15/guides/workspaces",
+              "v0.2.15/advanced/fragments"
+            ]
+          },
+          {
+            "group": "Built-in providers",
+            "pages": [
+              "v0.2.15/providers/overview",
+              "v0.2.15/providers/freestyle",
+              "v0.2.15/providers/terminal",
+              "v0.2.15/providers/cmux",
+              "v0.2.15/providers/gcloud"
+            ]
+          },
+          {
+            "group": "Extending Rigkit",
+            "pages": [
+              "v0.2.15/providers/creating-providers"
+            ]
+          },
+          {
+            "group": "Changelog",
+            "pages": [
+              "v0.2.15/changelog/overview"
             ]
           }
         ]
