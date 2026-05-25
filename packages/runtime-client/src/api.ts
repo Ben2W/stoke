@@ -121,7 +121,12 @@ export const RuntimeControlCacheResponseEffectSchema = Schema.Struct({
   entries: Schema.Array(RuntimeControlCacheEntryEffectSchema),
 }).annotations({ identifier: "CacheResponse" });
 
+export const RuntimeControlCacheRequestEffectSchema = Schema.Struct({
+  workflow: Schema.String,
+}).annotations({ identifier: "CacheRequest" });
+
 export const RuntimeControlCacheClearRequestEffectSchema = Schema.Struct({
+  workflow: Schema.String,
   scope: Schema.optional(Schema.Literal("local", "global", "all")),
 }).annotations({ identifier: "CacheClearRequest" });
 
@@ -131,7 +136,7 @@ export const RuntimeControlCacheClearResponseEffectSchema = Schema.Struct({
 }).annotations({ identifier: "CacheClearResponse" });
 
 export const RuntimeControlCacheInvalidateRequestEffectSchema = Schema.Struct({
-  workflow: Schema.optional(Schema.String),
+  workflow: Schema.String,
   nodePaths: Schema.optional(Schema.Array(Schema.String)),
 }).annotations({ identifier: "CacheInvalidateRequest" });
 
@@ -139,6 +144,50 @@ export const RuntimeControlCacheInvalidateResponseEffectSchema = Schema.Struct({
   ok: Schema.Boolean,
   invalidated: Schema.Number,
 }).annotations({ identifier: "CacheInvalidateResponse" });
+
+export const RuntimeControlCacheExplainReasonEffectSchema = Schema.Struct({
+  code: Schema.String,
+  message: Schema.String,
+  detail: Schema.optional(Schema.String),
+}).annotations({ identifier: "CacheExplainReason" });
+
+export const RuntimeControlCacheExplainCandidateEffectSchema = Schema.Struct({
+  runId: Schema.String,
+  scope: Schema.Literal("local", "global"),
+  nodePath: Schema.String,
+  displayPath: Schema.String,
+  nodeName: Schema.String,
+  nodeKind: Schema.String,
+  createdAt: Schema.String,
+  invalidated: Schema.Boolean,
+  fragmentHash: Schema.optional(Schema.String),
+  reasons: Schema.Array(RuntimeControlCacheExplainReasonEffectSchema),
+}).annotations({ identifier: "CacheExplainCandidate" });
+
+export const RuntimeControlCacheExplanationEffectSchema = Schema.Struct({
+  workflow: Schema.String,
+  path: Schema.String,
+  name: Schema.String,
+  status: Schema.Literal("cached", "pending"),
+  reason: RuntimeControlCacheExplainReasonEffectSchema,
+  runId: Schema.optional(Schema.String),
+  scope: Schema.Literal("local", "global"),
+  cacheWorkflow: Schema.String,
+  cacheNodePath: Schema.String,
+  upstreamRunIds: Schema.Array(Schema.String),
+  cacheTTL: Schema.optional(Schema.Unknown),
+  candidates: Schema.Array(RuntimeControlCacheExplainCandidateEffectSchema),
+}).annotations({ identifier: "CacheExplanation" });
+
+export const RuntimeControlCacheExplainRequestEffectSchema = Schema.Struct({
+  workflow: Schema.String,
+  task: Schema.optional(Schema.String),
+}).annotations({ identifier: "CacheExplainRequest" });
+
+export const RuntimeControlCacheExplainResponseEffectSchema = Schema.Struct({
+  workflow: Schema.String,
+  explanations: Schema.Array(RuntimeControlCacheExplanationEffectSchema),
+}).annotations({ identifier: "CacheExplainResponse" });
 
 export const RuntimeControlRunEffectSchema = Schema.Struct({
   runId: Schema.String,
@@ -199,11 +248,17 @@ export type RuntimeControlWorkspace = Schema.Schema.Type<typeof RuntimeControlWo
 export type RuntimeControlWorkspacesResponse = Schema.Schema.Type<typeof RuntimeControlWorkspacesResponseEffectSchema>;
 export type RuntimeControlSnapshotsResponse = Schema.Schema.Type<typeof RuntimeControlSnapshotsResponseEffectSchema>;
 export type RuntimeControlCacheEntry = Schema.Schema.Type<typeof RuntimeControlCacheEntryEffectSchema>;
+export type RuntimeControlCacheRequest = Schema.Schema.Type<typeof RuntimeControlCacheRequestEffectSchema>;
 export type RuntimeControlCacheResponse = Schema.Schema.Type<typeof RuntimeControlCacheResponseEffectSchema>;
 export type RuntimeControlCacheClearRequest = Schema.Schema.Type<typeof RuntimeControlCacheClearRequestEffectSchema>;
 export type RuntimeControlCacheClearResponse = Schema.Schema.Type<typeof RuntimeControlCacheClearResponseEffectSchema>;
 export type RuntimeControlCacheInvalidateRequest = Schema.Schema.Type<typeof RuntimeControlCacheInvalidateRequestEffectSchema>;
 export type RuntimeControlCacheInvalidateResponse = Schema.Schema.Type<typeof RuntimeControlCacheInvalidateResponseEffectSchema>;
+export type RuntimeControlCacheExplainReason = Schema.Schema.Type<typeof RuntimeControlCacheExplainReasonEffectSchema>;
+export type RuntimeControlCacheExplainCandidate = Schema.Schema.Type<typeof RuntimeControlCacheExplainCandidateEffectSchema>;
+export type RuntimeControlCacheExplanation = Schema.Schema.Type<typeof RuntimeControlCacheExplanationEffectSchema>;
+export type RuntimeControlCacheExplainRequest = Schema.Schema.Type<typeof RuntimeControlCacheExplainRequestEffectSchema>;
+export type RuntimeControlCacheExplainResponse = Schema.Schema.Type<typeof RuntimeControlCacheExplainResponseEffectSchema>;
 export type RuntimeControlRunOperationRequest = Schema.Schema.Type<typeof RuntimeControlRunOperationRequestEffectSchema>;
 export type RuntimeControlRun = Schema.Schema.Type<typeof RuntimeControlRunEffectSchema>;
 export type RuntimeControlRunsResponse = Schema.Schema.Type<typeof RuntimeControlRunsResponseEffectSchema>;
@@ -228,6 +283,12 @@ export const runtimeControlApi = HttpApi.make("rigkit-runtime")
       .add(HttpApiEndpoint.get("workspaces", "/workspaces").addSuccess(RuntimeControlWorkspacesResponseEffectSchema))
       .add(HttpApiEndpoint.get("snapshots", "/snapshots").addSuccess(RuntimeControlSnapshotsResponseEffectSchema))
       .add(HttpApiEndpoint.get("cache", "/cache").addSuccess(RuntimeControlCacheResponseEffectSchema))
+      .add(HttpApiEndpoint.post("listCache", "/cache/list")
+        .setPayload(RuntimeControlCacheRequestEffectSchema)
+        .addSuccess(RuntimeControlCacheResponseEffectSchema))
+      .add(HttpApiEndpoint.post("explainCache", "/cache/explain")
+        .setPayload(RuntimeControlCacheExplainRequestEffectSchema)
+        .addSuccess(RuntimeControlCacheExplainResponseEffectSchema))
       .add(HttpApiEndpoint.post("clearCache", "/cache/clear")
         .setPayload(RuntimeControlCacheClearRequestEffectSchema)
         .addSuccess(RuntimeControlCacheClearResponseEffectSchema))

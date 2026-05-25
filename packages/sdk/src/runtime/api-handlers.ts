@@ -29,6 +29,8 @@ import {
   shutdownRuntime,
   startRuntimeRun,
   submitHostResponse,
+  explainRuntimeCache,
+  listRuntimeCache,
   runtimeCache,
   clearRuntimeCache,
   invalidateRuntimeCache,
@@ -61,6 +63,10 @@ export const runtimeControlApiHandlersLayer = HttpApiBuilder.group(
       .handle("workspaces", (request) => handleControlRequest(request, (state) => runtimeWorkspaces(state.context)))
       .handle("snapshots", (request) => handleControlRequest(request, (state) => runtimeSnapshots(state.context)))
       .handle("cache", (request) => handleControlRequest(request, (state) => runtimeCache(state.context)))
+      .handle("listCache", (request) =>
+        handleControlRequest(request, (state) => listRuntimeCache(state.context, request.payload)))
+      .handle("explainCache", (request) =>
+        handleControlRequest(request, (state) => explainRuntimeCache(state.context, request.payload)))
       .handle("clearCache", (request) =>
         handleControlRequest(request, (state) => clearRuntimeCache(state.context, request.payload)))
       .handle("invalidateCache", (request) =>

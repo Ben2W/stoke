@@ -177,37 +177,38 @@ refreshed task.
 List cache entries:
 
 ```sh
-rig cache ls
+rig cache dev ls
+```
+
+Explain why tasks are cached or pending:
+
+```sh
+rig cache dev explain
+rig cache dev explain install-tooling
 ```
 
 Invalidate one task path:
 
 ```sh
-rig cache invalidate install-tooling
+rig cache dev invalidate install-tooling
 ```
 
 Invalidate every task in the selected workflow:
 
 ```sh
-rig cache invalidate --all
+rig cache dev invalidate --all
 ```
 
 Clear local cache:
 
 ```sh
-rig cache clear --local
+rig cache dev clear --local
 ```
 
 Clear global fragments reachable from the current workflow:
 
 ```sh
-rig cache clear --global
-```
-
-Clear all known global fragments without loading a config:
-
-```sh
-rig cache clear --global --all
+rig cache dev clear --global
 ```
 
 ## Workspace state

@@ -139,7 +139,7 @@ const COMMANDS: CompletionItem[] = withGroup(GROUP_COMMANDS, [
   { value: "rm", description: "remove a workspace" },
   { value: "run", description: "run a workspace operation" },
   { value: "ls", description: "list project workspaces" },
-  { value: "cache", description: "inspect and clear Rigkit cache" },
+  { value: "cache", description: "inspect and clear workflow cache" },
   { value: "providers", description: "manage provider-owned local state" },
   { value: "projects", description: "discover Rigkit projects" },
   { value: "doctor", description: "show runtime diagnostics" },
@@ -270,6 +270,7 @@ const LIST_TARGETS: CompletionItem[] = withGroup(GROUP_TARGETS, [
 
 const CACHE_SUBCOMMANDS: CompletionItem[] = withGroup(GROUP_SUBCOMMANDS, [
   { value: "ls", description: "list cache entries" },
+  { value: "explain", description: "explain cache reuse decisions" },
   { value: "clear", description: "clear cache entries" },
   { value: "invalidate", description: "mark cached task outputs stale" },
 ]);
@@ -282,12 +283,14 @@ const CACHE_SUBCOMMAND_OPTIONS: Record<string, OptionDefinition[]> = {
   clear: [
     option(["--local"], "clear local cache entries"),
     option(["--global"], "clear global cache fragments"),
-    option(["--all"], "clear every global fragment with --global"),
+    JSON_OPTION,
+    HELP_OPTION,
+  ],
+  explain: [
     JSON_OPTION,
     HELP_OPTION,
   ],
   invalidate: [
-    option(["--workflow"], "workflow name", { takesValue: true }),
     option(["--all"], "invalidate every cached task"),
     option(["-y", "--yes"], "skip confirmation"),
     JSON_OPTION,
@@ -701,21 +704,29 @@ function completeLsCommand(context: CompletionContext): CompletionItem[] {
 
 async function completeCacheCommand(context: CompletionContext): Promise<CompletionItem[]> {
   const cache = parseCacheArgs(context);
+  const paths = resolveProjectDir(context.words, context.cwd);
+  if (!cache.workflow) {
+    if (context.current.startsWith("-")) return filterItems(optionItems(COMMAND_OPTIONS.cache), context.current);
+    return filterItems(await safeWorkflowTargets(paths), context.current);
+  }
+
   if (!cache.subcommand) {
     if (context.current.startsWith("-")) return filterItems(optionItems(COMMAND_OPTIONS.cache), context.current);
     return filterItems(CACHE_SUBCOMMANDS, context.current);
   }
 
   const options = CACHE_SUBCOMMAND_OPTIONS[cache.subcommand] ?? [HELP_OPTION];
-  if (cache.subcommand !== "invalidate") {
+  if (cache.subcommand === "ls" || cache.subcommand === "clear") {
     return completeOptionsOnlyCommand(context, options);
   }
 
   const taskArgs = positionalsFrom(cache.args, options);
   if (taskArgs.length === 0) {
-    const requestedWorkflow = workflowOptionValue(cache.args, options);
+    const targets = cache.subcommand === "explain"
+      ? await safeCacheExplainTargets(paths, cache.workflow)
+      : await safeCacheInvalidateTargets(paths, cache.workflow);
     return completeMixed({
-      primary: await safeCacheInvalidateTargets(resolveProjectDir(context.words, context.cwd), requestedWorkflow),
+      primary: targets,
       options,
       current: context.current,
     });
@@ -938,10 +949,12 @@ function workflowOptionValue(tokens: string[], options: OptionDefinition[]): str
   return workflow;
 }
 
-function parseCacheArgs(context: CompletionContext): { subcommand?: string; args: string[] } {
+function parseCacheArgs(context: CompletionContext): { workflow?: string; subcommand?: string; args: string[] } {
   const positionals = positionalTokensFrom(context.argsBefore, COMMAND_OPTIONS.cache);
-  const subcommand = positionals[0];
+  const workflow = positionals[0];
+  const subcommand = positionals[1];
   return {
+    workflow: workflow?.value,
     subcommand: subcommand?.value,
     args: subcommand ? context.argsBefore.slice(subcommand.index + 1) : [],
   };
@@ -1291,20 +1304,37 @@ async function safeWorkflowForWorkspace(
 
 async function safeCacheInvalidateTargets(
   paths: { projectDir: string; configPath: string },
-  workflow?: string,
+  workflow: string,
 ): Promise<CompletionItem[]> {
   try {
     const runtime = await getOrStartRuntime(paths);
-    const cache = await runtime.control.cache() as unknown as { entries: readonly RuntimeCacheCompletionEntry[] };
+    const cache = await runtime.control.cache({ workflow }) as unknown as { entries: readonly RuntimeCacheCompletionEntry[] };
     return dedupeItems(cache.entries
-      .filter((entry) => !entry.invalidated && (!workflow || entry.workflow === workflow))
+      .filter((entry) => !entry.invalidated)
       .map((entry) => ({
         value: entry.displayPath || entry.nodePath || entry.nodeName,
-        description: entry.workflow
-          ? `${entry.scope} cache, workflow ${entry.workflow}`
-          : `${entry.scope} cache`,
+        description: `${entry.scope} cache`,
         group: GROUP_CACHE,
       })));
+  } catch {
+    return [];
+  }
+}
+
+async function safeCacheExplainTargets(
+  paths: { projectDir: string; configPath: string },
+  workflow: string,
+): Promise<CompletionItem[]> {
+  try {
+    const runtime = await getOrStartRuntime(paths);
+    const cache = await runtime.control.explainCache({ workflow }) as unknown as {
+      explanations: Array<{ path: string; name: string; status: string; reason?: { message?: string } }>;
+    };
+    return dedupeItems(cache.explanations.map((entry) => ({
+      value: entry.path || entry.name,
+      description: `${entry.status}${entry.reason?.message ? `, ${entry.reason.message}` : ""}`,
+      group: GROUP_CACHE,
+    })));
   } catch {
     return [];
   }

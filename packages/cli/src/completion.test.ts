@@ -249,27 +249,37 @@ describe("CLI completion", () => {
   });
 
   test("completes cache subcommands and flags", async () => {
-    const subcommands = await completeRig({
-      cwd: process.cwd(),
-      words: ["rig", "cache", ""],
-      currentIndex: 2,
+    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-completion-"));
+    await withWorkspaceRuntime({ projectDir }, async () => {
+      const workflows = await completeRig({
+        cwd: projectDir,
+        words: ["rig", "cache", ""],
+        currentIndex: 2,
+      });
+
+      expect(workflows.map((item) => item.value)).toEqual(["smoke", "api"]);
+
+      const subcommands = await completeRig({
+        cwd: projectDir,
+        words: ["rig", "cache", "smoke", ""],
+        currentIndex: 3,
+      });
+
+      expect(subcommands.map((item) => item.value)).toEqual(["ls", "explain", "clear", "invalidate"]);
+
+      const clearFlags = await completeRig({
+        cwd: projectDir,
+        words: ["rig", "cache", "smoke", "clear", "--"],
+        currentIndex: 4,
+      });
+
+      expect(clearFlags.map((item) => item.value)).toEqual([
+        "--local",
+        "--global",
+        "--json",
+        "--help",
+      ]);
     });
-
-    expect(subcommands.map((item) => item.value)).toEqual(["ls", "clear", "invalidate"]);
-
-    const clearFlags = await completeRig({
-      cwd: process.cwd(),
-      words: ["rig", "cache", "clear", "--"],
-      currentIndex: 3,
-    });
-
-    expect(clearFlags.map((item) => item.value)).toEqual([
-      "--local",
-      "--global",
-      "--all",
-      "--json",
-      "--help",
-    ]);
   });
 
   test("completes provider targets, subcommands, and flags", async () => {
@@ -365,15 +375,14 @@ describe("CLI completion", () => {
     await withWorkspaceRuntime({ projectDir }, async () => {
       const targets = await completeRig({
         cwd: projectDir,
-        words: ["rig", "cache", "invalidate", ""],
-        currentIndex: 3,
+        words: ["rig", "cache", "smoke", "invalidate", ""],
+        currentIndex: 4,
       });
 
       expect(targets.map((item) => item.value)).toEqual([
         "install-tooling",
         "setup.build",
         "base",
-        "--workflow",
         "--all",
         "-y",
         "--yes",
@@ -383,27 +392,27 @@ describe("CLI completion", () => {
 
       const flags = await completeRig({
         cwd: projectDir,
-        words: ["rig", "cache", "invalidate", "--"],
-        currentIndex: 3,
-      });
-      expect(flags.map((item) => item.value)).toEqual(["--workflow", "--all", "--yes", "--json", "--help"]);
-
-      const workflowValues = await completeRig({
-        cwd: projectDir,
-        words: ["rig", "cache", "invalidate", "--workflow", ""],
+        words: ["rig", "cache", "smoke", "invalidate", "--"],
         currentIndex: 4,
       });
-      expect(workflowValues.map((item) => item.value)).toEqual(["smoke", "api"]);
+      expect(flags.map((item) => item.value)).toEqual(["--all", "--yes", "--json", "--help"]);
+
+      const explainTargets = await completeRig({
+        cwd: projectDir,
+        words: ["rig", "cache", "smoke", "explain", ""],
+        currentIndex: 4,
+      });
+      expect(explainTargets.map((item) => item.value)).toEqual(["install-tooling", "setup.build", "base", "--json", "--help"]);
     });
 
     const apiProjectDir = mkdtempSync(join(tmpdir(), "rigkit-completion-"));
     await withWorkspaceRuntime({ projectDir: apiProjectDir, includeApiWorkflow: true }, async () => {
       const apiTargets = await completeRig({
         cwd: apiProjectDir,
-        words: ["rig", "cache", "invalidate", "--workflow=api", ""],
+        words: ["rig", "cache", "api", "invalidate", ""],
         currentIndex: 4,
       });
-      expect(apiTargets.map((item) => item.value)).toEqual(["api.ready", "--workflow", "--all", "-y", "--yes", "--json", "--help"]);
+      expect(apiTargets.map((item) => item.value)).toEqual(["api.ready", "--all", "-y", "--yes", "--json", "--help"]);
     });
   });
 
@@ -486,7 +495,7 @@ async function withWorkspaceRuntime(
   const server = Bun.serve({
     hostname: "127.0.0.1",
     port: 0,
-    fetch(request) {
+    async fetch(request) {
       if (request.headers.get("authorization") !== `Bearer ${token}`) {
         return runtimeJson({ error: { message: "Unauthorized" } }, { status: 401 });
       }
@@ -559,66 +568,99 @@ async function withWorkspaceRuntime(
           ],
         });
       }
-      if (pathname === "/cache") {
+      if (pathname === "/cache" || pathname === "/cache/list" || pathname === "/cache/explain") {
         const nowMs = Date.now();
+        const body = pathname === "/cache" ? {} : await request.json() as { workflow?: string };
+        const entries = [
+          {
+            scope: "local",
+            workflow: "smoke",
+            nodePath: "install-tooling",
+            nodeName: "install-tooling",
+            nodeKind: "task",
+            runId: "run-install",
+            invalidated: false,
+            createdAt: new Date(nowMs - 60_000).toISOString(),
+          },
+          {
+            scope: "local",
+            workflow: "smoke",
+            nodePath: "build",
+            displayPath: "setup.build",
+            planIndex: 1,
+            nodeName: "build",
+            nodeKind: "task",
+            runId: "run-build",
+            invalidated: false,
+            createdAt: new Date(nowMs - 30_000).toISOString(),
+          },
+          {
+            scope: "local",
+            workflow: "smoke",
+            nodePath: "old-task",
+            nodeName: "old-task",
+            nodeKind: "task",
+            runId: "run-old",
+            invalidated: true,
+            createdAt: new Date(nowMs - 10_000).toISOString(),
+          },
+          {
+            scope: "global",
+            workflow: "smoke",
+            nodePath: "base",
+            nodeName: "base",
+            nodeKind: "task",
+            runId: "run-base",
+            invalidated: false,
+            createdAt: new Date(nowMs - 5_000).toISOString(),
+            fragmentHash: "fragment",
+          },
+          ...(input.includeApiWorkflow ? [{
+            scope: "local",
+            workflow: "api",
+            nodePath: "ready",
+            displayPath: "api.ready",
+            planIndex: 0,
+            nodeName: "ready",
+            nodeKind: "task",
+            runId: "run-api-ready",
+            invalidated: false,
+            createdAt: new Date(nowMs - 15_000).toISOString(),
+          }] : []),
+        ];
+        const filtered = body.workflow ? entries.filter((entry) => entry.workflow === body.workflow) : entries;
+        if (pathname === "/cache/explain") {
+          return runtimeJson({
+            workflow: body.workflow ?? "smoke",
+            explanations: filtered
+              .filter((entry) => !entry.invalidated)
+              .map((entry) => ({
+                workflow: entry.workflow,
+                path: entry.displayPath ?? entry.nodePath,
+                name: entry.nodeName,
+                status: "cached",
+                reason: { code: "cached", message: "cached" },
+                runId: entry.runId,
+                scope: entry.scope,
+                cacheWorkflow: entry.workflow,
+                cacheNodePath: entry.nodePath,
+                upstreamRunIds: [],
+                candidates: [{
+                  runId: entry.runId,
+                  scope: entry.scope,
+                  nodePath: entry.nodePath,
+                  displayPath: entry.displayPath ?? entry.nodePath,
+                  nodeName: entry.nodeName,
+                  nodeKind: entry.nodeKind,
+                  createdAt: entry.createdAt,
+                  invalidated: entry.invalidated,
+                  reasons: [{ code: "cached", message: "cached" }],
+                }],
+              })),
+          });
+        }
         return runtimeJson({
-          entries: [
-            {
-              scope: "local",
-              workflow: "smoke",
-              nodePath: "install-tooling",
-              nodeName: "install-tooling",
-              nodeKind: "task",
-              runId: "run-install",
-              invalidated: false,
-              createdAt: new Date(nowMs - 60_000).toISOString(),
-            },
-            {
-              scope: "local",
-              workflow: "smoke",
-              nodePath: "build",
-              displayPath: "setup.build",
-              planIndex: 1,
-              nodeName: "build",
-              nodeKind: "task",
-              runId: "run-build",
-              invalidated: false,
-              createdAt: new Date(nowMs - 30_000).toISOString(),
-            },
-            {
-              scope: "local",
-              workflow: "smoke",
-              nodePath: "old-task",
-              nodeName: "old-task",
-              nodeKind: "task",
-              runId: "run-old",
-              invalidated: true,
-              createdAt: new Date(nowMs - 10_000).toISOString(),
-            },
-            {
-              scope: "global",
-              workflow: "smoke",
-              nodePath: "base",
-              nodeName: "base",
-              nodeKind: "task",
-              runId: "run-base",
-              invalidated: false,
-              createdAt: new Date(nowMs - 5_000).toISOString(),
-              fragmentHash: "fragment",
-            },
-            ...(input.includeApiWorkflow ? [{
-              scope: "local",
-              workflow: "api",
-              nodePath: "ready",
-              displayPath: "api.ready",
-              planIndex: 0,
-              nodeName: "ready",
-              nodeKind: "task",
-              runId: "run-api-ready",
-              invalidated: false,
-              createdAt: new Date(nowMs - 15_000).toISOString(),
-            }] : []),
-          ],
+          entries: filtered,
         });
       }
       if (pathname === "/operations") {

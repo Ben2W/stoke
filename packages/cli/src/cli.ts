@@ -6,8 +6,8 @@ import inquirer from "inquirer";
 import * as ui from "./ui.ts";
 import {
   getOrStartRuntime,
-  defaultRigkitHome,
   type RuntimeClient,
+  type RuntimeControlCacheExplanation,
 } from "@rigkit/runtime-client";
 import {
   createFileProviderHostStorage,
@@ -77,10 +77,19 @@ type ListOptions = {
   workflow?: string;
 };
 
+type CacheListOptions = {
+  workflow: string;
+};
+
+type CacheExplainOptions = {
+  workflow: string;
+  task?: string;
+};
+
 type CacheClearOptions = {
+  workflow: string;
   local: boolean;
   global: boolean;
-  all: boolean;
 };
 
 type PackageManager = "bun" | "pnpm" | "npm" | "skip";
@@ -304,43 +313,41 @@ async function runCli(argv: string[]): Promise<void> {
     });
 
   const cache = program
-    .command("cache")
-    .description("Inspect and clear Rigkit cache");
-
-  cache
-    .command("ls")
-    .description("List cache entries for the selected project config")
-    .option("--json", "Print machine-readable JSON")
-    .action(async (options: { json?: boolean }) => {
-      await runCacheList(makeInvocation(rootOptions(program), options.json));
-    });
-
-  cache
-    .command("clear")
-    .description("Clear cache entries")
-    .option("--local", "Clear local cache entries for the selected config")
+    .command("cache <workflow> <action> [args...]")
+    .description("Inspect and clear workflow cache")
+    .allowUnknownOption(false)
+    .option("--local", "Clear local cache entries")
     .option("--global", "Clear global cache fragments")
-    .option("--all", "With --global, clear every global fragment without loading a config")
-    .option("--json", "Print machine-readable JSON")
-    .action(async (options: { local?: boolean; global?: boolean; all?: boolean; json?: boolean }) => {
-      await runCacheClear(makeInvocation(rootOptions(program), options.json), {
-        local: Boolean(options.local),
-        global: Boolean(options.global),
-        all: Boolean(options.all),
-      });
-    });
-
-  cache
-    .command("invalidate [task]")
-    .description("Invalidate cached task outputs so they re-run on next plan/apply")
-    .option("--workflow <workflow>", "Workflow name")
-    .option("--all", "Invalidate every cached task in this project's workflow")
+    .option("--all", "Invalidate every cached task in the workflow")
     .option("-y, --yes", "Skip confirmation when invalidating --all")
     .option("--json", "Print machine-readable JSON")
-    .action(async (task: string | undefined, options: { workflow?: string; all?: boolean; yes?: boolean; json?: boolean }) => {
-      await runCacheInvalidate(makeInvocation(rootOptions(program), options.json), {
-        task,
-        workflow: options.workflow,
+    .addHelpText("after", [
+      "",
+      "Actions:",
+      "  ls                       List workflow cache entries",
+      "  explain [task]           Explain why tasks are cached or pending",
+      "  invalidate [task]        Mark cached task output stale",
+      "  clear                    Delete workflow cache entries",
+      "",
+      "Examples:",
+      "  rig cache dev explain",
+      "  rig cache dev explain install-tooling",
+      "  rig cache dev invalidate install-tooling",
+      "  rig cache dev invalidate --all --yes",
+      "",
+    ].join("\n"))
+    .action(async (
+      workflow: string,
+      action: string,
+      args: string[],
+      options: { local?: boolean; global?: boolean; all?: boolean; yes?: boolean; json?: boolean },
+    ) => {
+      await runCacheCommand(makeInvocation(rootOptions(program), options.json), {
+        workflow,
+        action,
+        args: args ?? [],
+        local: Boolean(options.local),
+        global: Boolean(options.global),
         all: Boolean(options.all),
         yes: Boolean(options.yes),
       });
@@ -1054,9 +1061,66 @@ async function runList(invocation: CliInvocation, options: ListOptions): Promise
   printConfig(project);
 }
 
-async function runCacheList(invocation: CliInvocation): Promise<void> {
+async function runCacheCommand(
+  invocation: CliInvocation,
+  input: {
+    workflow: string;
+    action: string;
+    args: string[];
+    local: boolean;
+    global: boolean;
+    all: boolean;
+    yes: boolean;
+  },
+): Promise<void> {
+  switch (input.action) {
+    case "ls":
+      assertNoCacheArgs(input.action, input.args);
+      await runCacheList(invocation, { workflow: input.workflow });
+      return;
+    case "explain":
+      assertAtMostOneCacheArg(input.action, input.args);
+      await runCacheExplain(invocation, {
+        workflow: input.workflow,
+        task: input.args[0],
+      });
+      return;
+    case "clear":
+      assertNoCacheArgs(input.action, input.args);
+      if (input.all) {
+        throw new Error(`rig cache <workflow> clear does not accept --all; omit flags to clear local and global cache for the workflow`);
+      }
+      await runCacheClear(invocation, {
+        workflow: input.workflow,
+        local: input.local,
+        global: input.global,
+      });
+      return;
+    case "invalidate":
+      assertAtMostOneCacheArg(input.action, input.args);
+      await runCacheInvalidate(invocation, {
+        workflow: input.workflow,
+        task: input.args[0],
+        all: input.all,
+        yes: input.yes,
+      });
+      return;
+    default:
+      throw new Error(`Unknown cache action ${input.action}. Expected ls, explain, clear, or invalidate.`);
+  }
+}
+
+function assertNoCacheArgs(action: string, args: readonly string[]): void {
+  if (args.length > 0) throw new Error(`rig cache <workflow> ${action} does not accept positional arguments`);
+}
+
+function assertAtMostOneCacheArg(action: string, args: readonly string[]): void {
+  if (args.length > 1) throw new Error(`rig cache <workflow> ${action} accepts at most one task`);
+}
+
+async function runCacheList(invocation: CliInvocation, options: CacheListOptions): Promise<void> {
   const runtime = await loadRuntime(invocation);
-  const cache = await runtime.control.cache();
+  const cache = await runtime.control.cache({ workflow: options.workflow });
   if (wantsJson(invocation)) {
     printJson(cache);
     return;
@@ -1064,31 +1128,27 @@ async function runCacheList(invocation: CliInvocation): Promise<void> {
   printCacheEntries(cache.entries);
 }
 
-async function runCacheClear(invocation: CliInvocation, options: CacheClearOptions): Promise<void> {
-  if (options.all && !options.global) {
-    throw new Error(`rig cache clear --all must be combined with --global`);
-  }
-  if (options.local && options.global && !options.all) {
-    throw new Error(`Choose --local or --global, not both`);
-  }
-
-  if (options.global && options.all) {
-    if (invocation.global.chdir || invocation.global.state) {
-      throw new Error(`rig cache clear --global --all cannot be combined with --chdir or --state`);
-    }
-    const fragmentRoot = join(defaultRigkitHome(), "fragments");
-    rmSync(fragmentRoot, { recursive: true, force: true });
-    if (wantsJson(invocation)) {
-      printJson({ ok: true, deleted: null, scope: "global-all", fragmentRoot });
-      return;
-    }
-    console.log(`Cleared global fragment cache at ${fragmentRoot}`);
+async function runCacheExplain(invocation: CliInvocation, options: CacheExplainOptions): Promise<void> {
+  const runtime = await loadRuntime(invocation);
+  const explanation = await runtime.control.explainCache({
+    workflow: options.workflow,
+    ...(options.task ? { task: options.task } : {}),
+  });
+  if (wantsJson(invocation)) {
+    printJson(explanation);
     return;
+  }
+  printCacheExplanations(explanation.explanations);
+}
+
+async function runCacheClear(invocation: CliInvocation, options: CacheClearOptions): Promise<void> {
+  if (options.local && options.global) {
+    throw new Error(`Choose --local or --global, not both`);
   }
 
   const scope = options.local ? "local" : options.global ? "global" : "all";
   const runtime = await loadRuntime(invocation);
-  const result = await runtime.control.clearCache({ scope });
+  const result = await runtime.control.clearCache({ workflow: options.workflow, scope });
   if (wantsJson(invocation)) {
     printJson(result);
     return;
@@ -1123,15 +1183,15 @@ async function runProvidersFreestyleClear(invocation: CliInvocation): Promise<vo
 }
 
 type CacheInvalidateOptions = {
+  workflow: string;
   task?: string;
-  workflow?: string;
   all: boolean;
   yes: boolean;
 };
 
 async function runCacheInvalidate(invocation: CliInvocation, options: CacheInvalidateOptions): Promise<void> {
   if (options.task && options.all) {
-    throw new Error(`rig cache invalidate accepts either a task or --all, not both`);
+    throw new Error(`rig cache <workflow> invalidate accepts either a task or --all, not both`);
   }
 
   const runtime = await loadRuntime(invocation);
@@ -1142,17 +1202,17 @@ async function runCacheInvalidate(invocation: CliInvocation, options: CacheInval
   } else if (options.all) {
     if (!options.yes && !wantsJson(invocation) && canPrompt()) {
       const confirmed = await promptHostConfirm({
-        message: "Invalidate every cached task in this project?",
+        message: `Invalidate every cached task in workflow ${options.workflow}?`,
         defaultValue: false,
       });
       if (!confirmed) throw new Error("Invalidate cancelled");
     } else if (!options.yes && !canPrompt()) {
-      throw new Error(`rig cache invalidate --all needs --yes when not running in an interactive terminal`);
+      throw new Error(`rig cache <workflow> invalidate --all needs --yes when not running in an interactive terminal`);
     }
     targets = []; // empty = engine invalidates everything for the workflow
   } else {
     // Interactive: multi-select among currently-valid cache entries.
-    const cache = await runtime.control.cache();
+    const cache = await runtime.control.cache({ workflow: options.workflow });
     const candidates = cache.entries
       .filter((entry) => !entry.invalidated)
       .map((entry) => ({
@@ -1169,14 +1229,14 @@ async function runCacheInvalidate(invocation: CliInvocation, options: CacheInval
       return;
     }
     if (wantsJson(invocation) || !canPrompt()) {
-      throw new Error(`rig cache invalidate needs a task name or --all when not running in an interactive terminal`);
+      throw new Error(`rig cache <workflow> invalidate needs a task name or --all when not running in an interactive terminal`);
     }
     const picked = await promptCacheInvalidateSelection(candidates);
     if (picked.length === 0) throw new Error("Nothing selected");
     targets = picked;
   }
 
-  const result = await invalidateRuntimeCacheTargets(runtime, {
+  const result = await runtime.control.invalidateCache({
     workflow: options.workflow,
     nodePaths: targets,
   });
@@ -1207,59 +1267,6 @@ async function promptCacheInvalidateSelection(
     })),
   }]);
   return answers.paths;
-}
-
-async function invalidateRuntimeCacheTargets(
-  runtime: RuntimeClient,
-  input: { workflow?: string; nodePaths: string[] },
-): Promise<{ ok: boolean; invalidated: number }> {
-  if (input.workflow) {
-    return await runtime.control.invalidateCache({
-      workflow: input.workflow,
-      nodePaths: input.nodePaths,
-    });
-  }
-
-  const cache = await runtime.control.cache();
-  const entries = cache.entries.filter((entry) => !entry.invalidated);
-  if (input.nodePaths.length === 0) {
-    const workflows = [...new Set(entries.map((entry) => entry.workflow))];
-    const results = await Promise.all(
-      workflows.map((workflow) => runtime.control.invalidateCache({ workflow, nodePaths: [] })),
-    );
-    return {
-      ok: true,
-      invalidated: results.reduce((total, result) => total + result.invalidated, 0),
-    };
-  }
-
-  const grouped = new Map<string, string[]>();
-  const fallbackWorkflows = [...new Set(entries.map((entry) => entry.workflow))];
-  for (const target of input.nodePaths) {
-    const matches = entries.filter((entry) =>
-      entry.nodePath === target ||
-      entry.displayPath === target ||
-      entry.nodeName === target
-    );
-    const workflows = matches.length > 0
-      ? [...new Set(matches.map((entry) => entry.workflow))]
-      : fallbackWorkflows;
-    if (workflows.length !== 1) {
-      throw new Error(`Pass --workflow to choose a workflow`);
-    }
-    const workflow = workflows[0]!;
-    grouped.set(workflow, [...(grouped.get(workflow) ?? []), target]);
-  }
-
-  const results = await Promise.all(
-    [...grouped].map(([workflow, nodePaths]) =>
-      runtime.control.invalidateCache({ workflow, nodePaths })
-    ),
-  );
-  return {
-    ok: true,
-    invalidated: results.reduce((total, result) => total + result.invalidated, 0),
-  };
 }
 
 async function executeRuntimeOperation(
@@ -1809,7 +1816,7 @@ async function runHelp(invocation: CliInvocation): Promise<void> {
         { name: "rm", description: "Remove a workspace" },
         { name: "run", description: "Run a workspace operation" },
         { name: "ls", description: "List project workspaces" },
-        { name: "cache", description: "Inspect and clear Rigkit cache" },
+        { name: "cache", description: "Inspect and clear workflow cache" },
         { name: "providers", description: "Manage provider-owned local state" },
         { name: "projects", description: "Discover Rigkit projects below the current directory" },
         { name: "doctor", description: "Show Rigkit runtime diagnostics" },
@@ -1839,7 +1846,7 @@ async function runHelp(invocation: CliInvocation): Promise<void> {
     cmd("rm",         "Remove a workspace"),
     cmd("run",        "Run a workspace operation"),
     cmd("ls",         "List project workspaces"),
-    cmd("cache",      "Inspect and clear Rigkit cache"),
+    cmd("cache",      "Inspect and clear workflow cache"),
     cmd("providers",  "Manage provider-owned local state"),
     cmd("projects",   "Discover Rigkit projects below the current directory"),
     cmd("doctor",     "Show Rigkit runtime diagnostics"),
@@ -2668,6 +2675,11 @@ function printPlan(plan: WorkflowPlan): void {
     { text: node.reason ?? "", style: ui.dim },
   ]);
   console.log(ui.columns(["#", "status", "node", "reason"], rows));
+
+  if (plan.nodes.some((node) => node.status === "pending")) {
+    console.log("");
+    console.log(ui.dim(`For cache details, run: rig cache ${plan.workflow} explain`));
+  }
 }
 
 function providerCheckValue(check: NonNullable<WorkflowPlan["providerChecks"]>[number]): string {
@@ -2931,6 +2943,34 @@ function printCacheEntries(entries: ReadonlyArray<{
     { text: formatCreatedTimestamp(entry.createdAt), style: ui.dim },
   ]);
   console.log(ui.columns(["#", "status", "node", "scope", "workflow", "fragment", "created"], rows));
+}
+
+function printCacheExplanations(explanations: readonly RuntimeControlCacheExplanation[]): void {
+  if (explanations.length === 0) {
+    console.log(ui.dim("no cache tasks"));
+    return;
+  }
+
+  const rows = explanations.map((entry, index) => [
+    { text: String(index + 1), style: ui.dim },
+    { text: entry.status, style: planStatusStyle(entry.status) },
+    { text: entry.path, style: ui.bold },
+    { text: formatCacheExplainReason(entry.reason), style: entry.status === "cached" ? ui.dim : ui.warn },
+    { text: formatCacheExplainCandidate(entry), style: ui.dim },
+  ]);
+  console.log(ui.columns(["#", "status", "node", "reason", "latest candidate"], rows));
+}
+
+function formatCacheExplainReason(reason: RuntimeControlCacheExplanation["reason"]): string {
+  return reason.detail ? `${reason.message} (${reason.detail})` : reason.message;
+}
+
+function formatCacheExplainCandidate(entry: RuntimeControlCacheExplanation): string {
+  const candidate = entry.candidates[0];
+  if (!candidate) return "";
+  const reason = candidate.reasons[0];
+  const prefix = entry.runId === candidate.runId ? "run" : reason?.message ?? "run";
+  return `${prefix} ${candidate.runId.slice(0, 8)} ${formatCreatedTimestamp(candidate.createdAt)}`;
 }
 
 function printConfig(info: EngineProjectInfo): void {

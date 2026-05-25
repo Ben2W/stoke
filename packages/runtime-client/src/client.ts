@@ -22,6 +22,9 @@ import {
   runtimeControlApi,
   type RuntimeControlHealth,
   type RuntimeControlHostResponse,
+  type RuntimeControlCacheExplainRequest,
+  type RuntimeControlCacheExplainResponse,
+  type RuntimeControlCacheRequest,
   type RuntimeControlCacheClearRequest,
   type RuntimeControlCacheClearResponse,
   type RuntimeControlCacheInvalidateRequest,
@@ -54,7 +57,8 @@ export type RuntimeHttpClient = {
   workflows(): Promise<RuntimeControlWorkflowsResponse>;
   workspaces(): Promise<RuntimeControlWorkspacesResponse>;
   snapshots(): Promise<RuntimeControlSnapshotsResponse>;
-  cache(): Promise<RuntimeControlCacheResponse>;
+  cache(body?: RuntimeControlCacheRequest): Promise<RuntimeControlCacheResponse>;
+  explainCache(body: RuntimeControlCacheExplainRequest): Promise<RuntimeControlCacheExplainResponse>;
   clearCache(body: RuntimeControlCacheClearRequest): Promise<RuntimeControlCacheClearResponse>;
   invalidateCache(body: RuntimeControlCacheInvalidateRequest): Promise<RuntimeControlCacheInvalidateResponse>;
   runs(): Promise<RuntimeControlRunsResponse>;
@@ -133,11 +137,21 @@ function makeRuntimeHttpClient(options: RuntimeHttpClientOptions): RuntimeHttpCl
         method: "GET",
         path: "/snapshots",
       }),
-    cache: () =>
-      runRuntimeHttpRequest(withRuntimeControlClient(options, (client) => client.cache({ withResponse: true })), {
-        method: "GET",
-        path: "/cache",
-      }),
+    cache: (body) =>
+      body
+        ? runRuntimeHttpRequest(
+          withRuntimeControlClient(options, (client) => client.listCache({ payload: body, withResponse: true })),
+          { method: "POST", path: "/cache/list" },
+        )
+        : runRuntimeHttpRequest(withRuntimeControlClient(options, (client) => client.cache({ withResponse: true })), {
+          method: "GET",
+          path: "/cache",
+        }),
+    explainCache: (body) =>
+      runRuntimeHttpRequest(
+        withRuntimeControlClient(options, (client) => client.explainCache({ payload: body, withResponse: true })),
+        { method: "POST", path: "/cache/explain" },
+      ),
     clearCache: (body) =>
       runRuntimeHttpRequest(
         withRuntimeControlClient(options, (client) => client.clearCache({ payload: body, withResponse: true })),
