@@ -1,8 +1,6 @@
 import { cmux } from "@rigkit/provider-cmux";
 import {
   freestyle,
-  VmBaseImage,
-  VmSpec,
   type FreestyleSdkVm,
 } from "@rigkit/provider-freestyle";
 import { workflow } from "@rigkit/sdk";
@@ -20,57 +18,6 @@ const vmHome = "/root";
 const shpoolVersion = "0.10.0";
 const shpoolSocketPath = `${vmHome}/.local/run/shpool/${devSessionName}.socket`;
 
-const vmSpec = new VmSpec()
-  .baseImage(new VmBaseImage("FROM node:22"))
-  .runCommands(
-    `
-set -e
-export DEBIAN_FRONTEND=noninteractive
-
-apt-get update -qq
-apt-get install -y -qq ca-certificates curl gnupg
-mkdir -p /etc/apt/keyrings
-
-curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /etc/apt/keyrings/githubcli-archive-keyring.gpg
-chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg
-printf 'deb [arch=%s signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main\\n' "$(dpkg --print-architecture)" > /etc/apt/sources.list.d/github-cli.list
-
-apt-get update -qq
-apt-get install -y -qq build-essential ca-certificates curl gh git gnupg pkg-config python3 unzip xz-utils
-
-corepack enable
-export HOME=/root
-export PATH="/usr/local/bin:/root/.local/bin:/opt/bun/bin:$PATH"
-npm config set prefix /usr/local
-
-curl -fsSL https://bun.sh/install | BUN_INSTALL=/opt/bun bash &
-bun_pid=$!
-
-npm install -g @openai/codex &
-codex_pid=$!
-
-wait "$bun_pid"
-wait "$codex_pid"
-
-curl --proto '=https' --tlsv1.2 -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain 1.85.0
-. /root/.cargo/env
-cargo install shpool --locked --version ${shpoolVersion}
-
-ln -sf /opt/bun/bin/bun /usr/local/bin/bun
-ln -sf /root/.cargo/bin/shpool /usr/local/bin/shpool
-mkdir -p /root/.codex
-printf 'cli_auth_credentials_store = "file"\\n' > /root/.codex/config.toml
-git config --system init.defaultBranch main
-bun --version
-codex --version
-shpool version
-
-rm -rf /var/lib/apt/lists/*
-`,
-  )
-  .idleTimeoutSeconds(vmIdleTimeoutSeconds)
-  .snapshot();
-
 const app = workflow("freestyle-website-next");
 const freestyleProvider = freestyle.provider();
 const terminalProvider = freestyle.terminal();
@@ -81,10 +28,21 @@ const websiteSetup = app
   .addProvider("terminal", terminalProvider)
   .task("install-dependencies", async ({ providers }) => {
     const { vm, vmId } = await providers.freestyle.client.vms.create({
-      spec: vmSpec,
+      idleTimeoutSeconds: vmIdleTimeoutSeconds,
       logger: console.log,
     });
     try {
+      console.log("installing base website dependencies");
+      const dependencies = await vm.exec({
+        command: installDependenciesCommand(),
+        timeoutMs: 20 * 60 * 1000,
+      });
+      if ((dependencies.statusCode ?? 0) !== 0) {
+        throw new Error(
+          `website base dependency install failed:\n${dependencies.stdout ?? ""}${dependencies.stderr ?? ""}`.trim(),
+        );
+      }
+
       const snapshot = await vm.snapshot();
       return { ctx: { snapshotId: snapshot.snapshotId } };
     } finally {
@@ -401,6 +359,49 @@ export const freestyleWebsiteNext = app
 function dirname(path: string): string {
   const index = path.lastIndexOf("/");
   return index <= 0 ? "/" : path.slice(0, index);
+}
+
+function installDependenciesCommand(): string {
+  return [
+    "set -e",
+    "export DEBIAN_FRONTEND=noninteractive",
+    "apt-get update -qq",
+    "apt-get install -y -qq ca-certificates curl gnupg",
+    "mkdir -p /etc/apt/keyrings",
+    "curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /etc/apt/keyrings/githubcli-archive-keyring.gpg",
+    "chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg",
+    'printf \'deb [arch=%s signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main\\n\' "$(dpkg --print-architecture)" > /etc/apt/sources.list.d/github-cli.list',
+    "curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg",
+    "chmod go+r /etc/apt/keyrings/nodesource.gpg",
+    "printf 'deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_22.x nodistro main\\n' > /etc/apt/sources.list.d/nodesource.list",
+    "apt-get update -qq",
+    "apt-get install -y -qq build-essential ca-certificates curl gh git gnupg nodejs pkg-config python3 unzip xz-utils",
+    "corepack enable",
+    `export HOME=${shellQuote(vmHome)}`,
+    `export PATH=${shellQuote(devEnvironmentPath)}:"$PATH"`,
+    "npm config set prefix /usr/local",
+    "curl -fsSL https://bun.sh/install | BUN_INSTALL=/opt/bun bash &",
+    "bun_pid=$!",
+    "npm install -g @openai/codex &",
+    "codex_pid=$!",
+    'wait "$bun_pid"',
+    'wait "$codex_pid"',
+    "curl --proto '=https' --tlsv1.2 -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain 1.85.0",
+    `. ${shellQuote(`${vmHome}/.cargo/env`)}`,
+    `cargo install shpool --locked --version ${shellQuote(shpoolVersion)}`,
+    "ln -sf /opt/bun/bin/bun /usr/local/bin/bun",
+    "ln -sf /opt/bun/bin/bunx /usr/local/bin/bunx",
+    `ln -sf ${shellQuote(`${vmHome}/.cargo/bin/shpool`)} /usr/local/bin/shpool`,
+    `mkdir -p ${shellQuote(`${vmHome}/.codex`)}`,
+    `printf 'cli_auth_credentials_store = "file"\\n' > ${shellQuote(`${vmHome}/.codex/config.toml`)}`,
+    "git config --system init.defaultBranch main",
+    "node --version",
+    "npm --version",
+    "bun --version",
+    "codex --version",
+    "shpool version",
+    "rm -rf /var/lib/apt/lists/*",
+  ].join("\n");
 }
 
 // vm.exec does not have its home directory set to the root user's home, so we need to set HOME explicitly for commands that expect it.

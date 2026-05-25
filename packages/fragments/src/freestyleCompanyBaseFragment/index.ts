@@ -1,6 +1,4 @@
 import {
-  VmBaseImage,
-  VmSpec,
   freestyle,
   type FreestyleProviderDefinition,
   type FreestyleTerminalProviderDefinition,
@@ -161,13 +159,26 @@ export function freestyleCompanyBaseFragment(options: FreestyleCompanyBaseFragme
     .configure(config)
     .task(
       "install-tooling",
-      { version: "freestyle-company-base-tooling-v1" },
+      { version: "freestyle-company-base-tooling-v2" },
       async ({ config, providers, step }) => {
         const { vm, vmId } = await providers.freestyle.client.vms.create({
-          spec: createVmSpec(config),
+          idleTimeoutSeconds: config.vm.idleTimeoutSeconds,
+          memSizeGb: config.vm.memSizeGb,
+          vcpuCount: config.vm.vcpuCount,
+          rootfsSizeGb: config.vm.rootfsSizeGb,
           logger: console.log,
         });
         try {
+          const tooling = await vm.exec({
+            command: installToolingCommand(config),
+            timeoutMs: 20 * 60 * 1000,
+          });
+          if ((tooling.statusCode ?? 0) !== 0) {
+            throw new Error(
+              `Freestyle company base tooling install failed:\n${tooling.stdout ?? ""}${tooling.stderr ?? ""}`.trim(),
+            );
+          }
+
           const snapshot = await vm.snapshot();
           return {
             ctx: {
@@ -347,23 +358,10 @@ function freestyleCompanyBaseAuthCheckFragment<Context extends FreestyleCompanyB
     .task("check-auth", { cacheTTL: 0 }, handler as any) as unknown as WorkflowNodeDefinition<FreestyleCompanyBaseFragmentProviderMap, Context, Context>;
 }
 
-function createVmSpec(config: FreestyleCompanyBaseFragmentConfig): VmSpec {
-  return new VmSpec()
-    .baseImage(
-      new VmBaseImage(`FROM node:${config.nodeMajor}`).runCommands(
-        installToolingCommand(config),
-      ),
-    )
-    .memSizeGb(config.vm.memSizeGb)
-    .vcpuCount(config.vm.vcpuCount)
-    .rootfsSizeGb(config.vm.rootfsSizeGb)
-    .idleTimeoutSeconds(config.vm.idleTimeoutSeconds)
-    .snapshot();
-}
-
 function installToolingCommand(config: FreestyleCompanyBaseFragmentConfig): string {
   const aptPackages = [...config.systemPackages];
   if (config.github && !aptPackages.includes("gh")) aptPackages.push("gh");
+  if (!aptPackages.includes("nodejs")) aptPackages.push("nodejs");
 
   const lines = [
     "set -e",
@@ -381,6 +379,12 @@ function installToolingCommand(config: FreestyleCompanyBaseFragmentConfig): stri
       "printf 'deb [arch=%s signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main\\n' \"$(dpkg --print-architecture)\" > /etc/apt/sources.list.d/github-cli.list",
     );
   }
+
+  lines.push(
+    "curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg",
+    "chmod go+r /etc/apt/keyrings/nodesource.gpg",
+    `printf 'deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_${config.nodeMajor}.x nodistro main\\n' > /etc/apt/sources.list.d/nodesource.list`,
+  );
 
   lines.push(
     "apt-get update -qq",

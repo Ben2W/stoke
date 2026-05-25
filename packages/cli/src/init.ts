@@ -160,36 +160,12 @@ export function starterConfig(): string {
 
   return `import { workflow } from "@rigkit/sdk";
 import { cmux } from "@rigkit/provider-cmux";
-import { freestyle, VmBaseImage, VmSpec } from "@rigkit/provider-freestyle";
+import { freestyle } from "@rigkit/provider-freestyle";
 
 const repo = "octocat/Hello-World";
 const repoPath = "/workspace/Hello-World";
 const vmHome = "/root";
 const vmIdleTimeoutSeconds = 3600;
-const vmSpec = new VmSpec()
-  .baseImage(new VmBaseImage("FROM node:22"))
-  .runCommands(
-    \`
-set -e
-export DEBIAN_FRONTEND=noninteractive
-
-apt-get update -qq
-apt-get install -y -qq ca-certificates curl git gnupg openssh-client
-mkdir -p /etc/apt/keyrings
-
-curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /etc/apt/keyrings/githubcli-archive-keyring.gpg
-chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg
-printf 'deb [arch=%s signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main\\\\n' "$(dpkg --print-architecture)" > /etc/apt/sources.list.d/github-cli.list
-
-apt-get update -qq
-apt-get install -y -qq gh
-
-git config --system init.defaultBranch main
-gh --version
-rm -rf /var/lib/apt/lists/*
-\`,
-  )
-  .idleTimeoutSeconds(vmIdleTimeoutSeconds);
 
 const freestyleProvider = freestyle.provider();
 const terminalProvider = freestyle.terminal();
@@ -198,13 +174,21 @@ export const dev = workflow(${workflowName})
   .sequence("dev")
   .addProvider("freestyle", freestyleProvider)
   .addProvider("terminal", terminalProvider)
-  .step("create-base-vm", async ({ providers }) => {
-    console.log("creating base vm");
+  .step("install-dependencies", async ({ providers }) => {
+    console.log("installing base dependencies");
     const { vm, vmId } = await providers.freestyle.client.vms.create({
-      spec: vmSpec,
+      idleTimeoutSeconds: vmIdleTimeoutSeconds,
       logger: console.log,
     });
     try {
+      const dependencies = await vm.exec({
+        command: installDependenciesCommand(),
+        timeoutMs: 10 * 60 * 1000,
+      });
+      if ((dependencies.statusCode ?? 0) !== 0) {
+        throw new Error(\`Base dependency install failed:\\n\${dependencies.stdout ?? ""}\${dependencies.stderr ?? ""}\`.trim());
+      }
+
       const result = await vm.exec("node --version");
       if ((result.statusCode ?? 0) !== 0 || !result.stdout.trim().startsWith("v22.")) {
         throw new Error(\`Expected Node.js v22, got: \${result.stdout}\${result.stderr}\`);
@@ -342,6 +326,29 @@ export const dev = workflow(${workflowName})
 function dirname(path: string): string {
   const index = path.lastIndexOf("/");
   return index <= 0 ? "/" : path.slice(0, index);
+}
+
+function installDependenciesCommand(): string {
+  return [
+    "set -e",
+    "export DEBIAN_FRONTEND=noninteractive",
+    "apt-get update -qq",
+    "apt-get install -y -qq ca-certificates curl git gnupg openssh-client",
+    "mkdir -p /etc/apt/keyrings",
+    "curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /etc/apt/keyrings/githubcli-archive-keyring.gpg",
+    "chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg",
+    "printf 'deb [arch=%s signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main\\\\n' \\"$(dpkg --print-architecture)\\" > /etc/apt/sources.list.d/github-cli.list",
+    "curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg",
+    "chmod go+r /etc/apt/keyrings/nodesource.gpg",
+    "printf 'deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_22.x nodistro main\\\\n' > /etc/apt/sources.list.d/nodesource.list",
+    "apt-get update -qq",
+    "apt-get install -y -qq gh nodejs",
+    "git config --system init.defaultBranch main",
+    "node --version",
+    "npm --version",
+    "gh --version",
+    "rm -rf /var/lib/apt/lists/*",
+  ].join("\\n");
 }
 
 function withVmHome(command: string): string {

@@ -4,7 +4,6 @@ import {
 } from "@rigkit/fragments";
 import { freestyle } from "@rigkit/provider-freestyle";
 import { workflow } from "@rigkit/sdk";
-import { Snapshot } from "freestyle";
 
 const projectPath = "/workspace/company-project";
 

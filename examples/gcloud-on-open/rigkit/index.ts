@@ -1,25 +1,11 @@
 import { workflow } from "@rigkit/sdk";
-import {
-  freestyle,
-  VmBaseImage,
-  VmSpec,
-} from "@rigkit/provider-freestyle";
+import { freestyle } from "@rigkit/provider-freestyle";
 import {
   copyGcloudConfig,
   gcloudCopiedConfigReadyCommand,
 } from "@rigkit/provider-gcloud-cli";
 
-type VmContext = {
-  snapshotId: string;
-};
-
 const vmIdleTimeoutSeconds = 3600;
-
-const vmSpec = new VmSpec()
-  .baseImage(new VmBaseImage("FROM ubuntu:24.04"))
-  .memSizeGb(16)
-  .vcpuCount(4)
-  .idleTimeoutSeconds(vmIdleTimeoutSeconds);
 
 const app = workflow("gcloud-on-open");
 const freestyleProvider = freestyle.provider();
@@ -30,22 +16,11 @@ const gcloudConfigProvider = copyGcloudConfig.provider({
 const baseVm = app
   .sequence("base-vm")
   .addProvider("freestyle", freestyleProvider)
-  .task("create", async ({ providers }) => {
+  .task("install-dependencies", async ({ providers }) => {
     const { vm, vmId } = await providers.freestyle.client.vms.create({
-      spec: vmSpec,
-      logger: console.log,
-    });
-    try {
-      const snapshot = await vm.snapshot();
-      return { ctx: { snapshotId: snapshot.snapshotId } };
-    } finally {
-      await providers.freestyle.client.vms.delete({ vmId });
-    }
-  })
-  .task("install-gcloud-cli", async ({ step, providers }) => {
-    const { vm, vmId } = await providers.freestyle.client.vms.create({
-      snapshotId: step.ctx.snapshotId,
       idleTimeoutSeconds: vmIdleTimeoutSeconds,
+      memSizeGb: 16,
+      vcpuCount: 4,
       logger: console.log,
     });
     try {
@@ -79,7 +54,7 @@ export const gcloudOnOpen = app
   .addProvider("freestyle", freestyleProvider)
   .addProvider("gcloudConfig", gcloudConfigProvider)
   .workspace({
-    create: async ({ workflow, providers, step }) => {
+    create: async ({ workflow, providers }) => {
       const gcloudConfigFiles = await providers.gcloudConfig.configFiles();
       const { vm, vmId } = await providers.freestyle.client.vms.create({
         snapshotId: workflow.ctx.snapshotId,

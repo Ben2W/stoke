@@ -52,28 +52,33 @@ freestyle.provider({
 ## Create and snapshot a VM
 
 ```ts
-import { VmSpec } from "@rigkit/provider-freestyle";
+const setup = app
+  .sequence("setup")
+  .addProvider("freestyle", freestyleProvider)
+  .task("install-dependencies", async ({ providers }) => {
+    const { vm, vmId } = await providers.freestyle.client.vms.create({
+      idleTimeoutSeconds: 3600,
+      memSizeGb: 16,
+      vcpuCount: 4,
+      rootfsSizeGb: 24,
+      logger: console.log,
+    });
 
-const vmSpec = new VmSpec()
-  .runCommands("corepack enable")
-  .memSizeGb(16)
-  .vcpuCount(4)
-  .rootfsSizeGb(24)
-  .idleTimeoutSeconds(3600);
+    try {
+      const install = await vm.exec({
+        command: "corepack enable",
+        timeoutMs: 60 * 1000,
+      });
+      if ((install.statusCode ?? 0) !== 0) {
+        throw new Error(`Dependency install failed:\n${install.stderr}`);
+      }
 
-const setup = app.sequence("setup").task("prepare-image", async ({ freestyle }) => {
-  const { vm, vmId } = await freestyle.client.vms.create({
-    spec: vmSpec,
-    logger: console.log,
+      const snapshot = await vm.snapshot();
+      return { ctx: { snapshotId: snapshot.snapshotId } };
+    } finally {
+      await providers.freestyle.client.vms.delete({ vmId });
+    }
   });
-
-  try {
-    const snapshot = await vm.snapshot();
-    return { ctx: { snapshotId: snapshot.snapshotId } };
-  } finally {
-    await freestyle.client.vms.delete({ vmId });
-  }
-});
 ```
 
 Pass `logger: console.log` to Freestyle SDK calls that support logging. Rigkit
@@ -152,15 +157,13 @@ await local.open(url);
 
 ## Freestyle exports
 
-`@rigkit/provider-freestyle` re-exports Freestyle SDK classes so configs use one
-SDK instance for specs and clients:
+`@rigkit/provider-freestyle` exports provider helpers and Freestyle SDK types
+commonly used by configs:
 
 ```ts
 import {
   freestyle,
   Freestyle,
-  VmBaseImage,
-  VmSpec,
   type FreestyleSdkVm,
 } from "@rigkit/provider-freestyle";
 ```
@@ -169,6 +172,8 @@ import {
 
 - Create temporary VMs in setup tasks, snapshot them, and delete the temporary
   VM in `finally`.
+- Install VM dependencies with `vm.exec(...)` inside setup tasks before
+  snapshotting.
 - Return `snapshotId` from setup tasks and `vmId` from workspace creates.
 - Keep VM paths, ports, branch names, and service commands in JSON context.
 - Use the terminal provider for interactive auth flows.

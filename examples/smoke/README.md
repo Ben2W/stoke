@@ -1,6 +1,7 @@
 # Smoke Example
 
-This example defines a single `smoke` workflow that creates a Freestyle VM, installs the Google Cloud CLI, and runs an interactive browser-terminal login task.
+This example defines a single provider-free `smoke` workflow with one cached
+setup step, one workspace lifecycle, and one workspace operation.
 
 Run from this directory:
 
@@ -12,6 +13,5 @@ rig projects
 rig run smoke-workspace ssh --print
 ```
 
-During `rig apply`, `rig` opens a local browser terminal for the interactive step. When the terminal work is done, click Finished.
-
-The Freestyle API key is read from the repo root `.env` when commands are run from the root with `--chdir=examples/smoke`, or from this directory's environment when run directly.
+During `rig apply`, `rig` runs the setup step and stores the generated workflow
+context in the local project state.
