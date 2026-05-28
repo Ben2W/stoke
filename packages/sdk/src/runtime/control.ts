@@ -85,15 +85,28 @@ export async function runtimeCache(context: RuntimeContext) {
   return await engine.listCache();
 }
 
-export async function clearRuntimeCache(context: RuntimeContext, body: { scope?: "local" | "global" | "all" }) {
+export async function listRuntimeCache(context: RuntimeContext, body: { workflow: string }) {
   const engine = await loadEngine(context);
-  const result = await engine.clearCache({ scope: body.scope });
+  return await engine.listCache({ workflow: body.workflow });
+}
+
+export async function explainRuntimeCache(context: RuntimeContext, body: { workflow: string; task?: string }) {
+  const engine = await loadEngine(context);
+  return await engine.explainCache({
+    workflow: body.workflow,
+    task: body.task,
+  });
+}
+
+export async function clearRuntimeCache(context: RuntimeContext, body: { workflow: string; scope?: "local" | "global" | "all" }) {
+  const engine = await loadEngine(context);
+  const result = await engine.clearCache({ workflow: body.workflow, scope: body.scope });
   return { ok: true, deleted: result.deleted };
 }
 
 export async function invalidateRuntimeCache(
   context: RuntimeContext,
-  body: { workflow?: string; nodePaths?: readonly string[] },
+  body: { workflow: string; nodePaths?: readonly string[] },
 ) {
   const engine = await loadEngine(context);
   const result = await engine.invalidateCache({

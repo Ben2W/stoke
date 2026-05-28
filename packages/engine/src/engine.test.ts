@@ -820,6 +820,49 @@ describe("DevMachineEngine workflow runtime", () => {
     expect(cache.entries.map((entry) => entry.nodeName)).toEqual(["first", "second"]);
   });
 
+  test("explains cached and changed task cache decisions", async () => {
+    const rootDir = mkdtempSync(join(tmpdir(), "rigkit-cache-explain-"));
+    const firstProjectDir = join(rootDir, "one");
+    const secondProjectDir = join(rootDir, "two");
+    const statePath = join(rootDir, ".rigkit", "state.sqlite");
+    mkdirSync(join(rootDir, ".rigkit"));
+    const writeConfig = (projectDir: string, value: string) =>
+      writeRigkitIndex(
+        projectDir,
+        `
+          import { sequence } from "${import.meta.dir}/index.ts";
+
+          export const explain = sequence("explain")
+            .task("value", async () => ({ ctx: { value: "${value}" } }));
+        `,
+      );
+
+    const firstConfigPath = writeConfig(firstProjectDir, "one");
+    const first = await createDevMachineEngine({ projectDir: firstProjectDir, configPath: firstConfigPath, statePath });
+    await first.load();
+    await first.apply({ workflow: "explain" });
+
+    const cached = await first.explainCache({ workflow: "explain" });
+    expect(cached.explanations[0]).toMatchObject({
+      path: "value",
+      status: "cached",
+      reason: { code: "cached" },
+    });
+
+    const secondConfigPath = writeConfig(secondProjectDir, "two");
+    const second = await createDevMachineEngine({ projectDir: secondProjectDir, configPath: secondConfigPath, statePath });
+    await second.load();
+
+    const changed = await second.explainCache({ workflow: "explain", task: "value" });
+    expect(changed.explanations).toHaveLength(1);
+    expect(changed.explanations[0]).toMatchObject({
+      path: "value",
+      status: "pending",
+      reason: { code: "task-changed" },
+      candidates: [{ reasons: [{ code: "task-changed" }] }],
+    });
+  });
+
   test("invalidates global cache entries by plan display path", async () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-global-cache-invalidate-"));
     const fragmentRoot = join(projectDir, "fragments");

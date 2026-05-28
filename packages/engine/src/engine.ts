@@ -4,7 +4,7 @@ import { pathToFileURL } from "node:url";
 import { isProviderDefinition, isWorkflowNode } from "./authoring.ts";
 import { runWithStepConsole, type ConsoleLevel, type StepConsoleSink } from "./console-intercept.ts";
 import { loadDotEnv } from "./env-file.ts";
-import { hash } from "./hash.ts";
+import { hash, stableJson } from "./hash.ts";
 import {
   createFileProviderHostStorage,
   defaultProviderHostStorageDir,
@@ -136,6 +136,58 @@ export type EngineCacheClearResult = {
   deleted: number;
 };
 
+export type EngineCacheExplainReasonCode =
+  | "cached"
+  | "upstream-pending"
+  | "no-previous-run"
+  | "invalidated"
+  | "task-changed"
+  | "provider-changed"
+  | "upstream-changed"
+  | "expired"
+  | "output-schema-invalid"
+  | "artifact-invalid"
+  | "unknown";
+
+export type EngineCacheExplainReason = {
+  code: EngineCacheExplainReasonCode;
+  message: string;
+  detail?: string;
+};
+
+export type EngineCacheExplainCandidate = {
+  runId: string;
+  scope: EngineCacheScope;
+  nodePath: string;
+  displayPath: string;
+  nodeName: string;
+  nodeKind: string;
+  createdAt: string;
+  invalidated: boolean;
+  fragmentHash?: string;
+  reasons: EngineCacheExplainReason[];
+};
+
+export type EngineCacheExplanation = {
+  workflow: string;
+  path: string;
+  name: string;
+  status: "cached" | "pending";
+  reason: EngineCacheExplainReason;
+  runId?: string;
+  scope: EngineCacheScope;
+  cacheWorkflow: string;
+  cacheNodePath: string;
+  upstreamRunIds: string[];
+  cacheTTL?: WorkflowTaskCacheTTL;
+  candidates: EngineCacheExplainCandidate[];
+};
+
+export type EngineCacheExplainResult = {
+  workflow: string;
+  explanations: EngineCacheExplanation[];
+};
+
 export type WorkflowSummary = {
   name: string;
   providers: string[];
@@ -258,6 +310,7 @@ type EvaluateNodeInput = {
   suppressSequenceName?: string;
   suppressCacheSequenceName?: string;
   planNodes: WorkflowPlanNode[];
+  cacheExplanations: EngineCacheExplanation[];
   index: { value: number };
 };
 
@@ -815,11 +868,29 @@ export class DevMachineEngine {
     return { entries };
   }
 
+  async explainCache(input: {
+    workflow: string;
+    task?: string;
+  }): Promise<EngineCacheExplainResult> {
+    const workflow = this.getWorkflow(input.workflow);
+    const evaluated = await this.evaluate({
+      workflow,
+      mode: "plan",
+    });
+    const explanations = input.task
+      ? resolveCacheExplainTargets(input.task, evaluated.cacheExplanations)
+      : evaluated.cacheExplanations;
+    return {
+      workflow: workflow.name,
+      explanations,
+    };
+  }
+
   async invalidateCache(input: {
-    workflow?: string;
+    workflow: string;
     machine?: string;
     nodePaths?: readonly string[];
-  } = {}): Promise<{ invalidated: number }> {
+  }): Promise<{ invalidated: number }> {
     const workflow = this.getWorkflow(input.workflow ?? input.machine);
     const cache = await this.listCache({ workflow: workflow.name });
     const entries = cache.entries.filter((entry) => !entry.invalidated);
@@ -831,10 +902,10 @@ export class DevMachineEngine {
   }
 
   async clearCache(input: {
-    workflow?: string;
+    workflow: string;
     machine?: string;
     scope?: EngineCacheClearScope;
-  } = {}): Promise<EngineCacheClearResult> {
+  }): Promise<EngineCacheClearResult> {
     const scope = input.scope ?? "all";
     const workflow = this.getWorkflow(input.workflow ?? input.machine);
     const evaluated = await this.evaluate({
@@ -1106,8 +1177,14 @@ export class DevMachineEngine {
   private async evaluate(input: {
     workflow: LoadedWorkflow;
     mode: EvaluationMode;
-  }): Promise<{ context: Record<string, JsonValue>; plan: WorkflowPlan; fragments: Set<string> }> {
+  }): Promise<{
+    context: Record<string, JsonValue>;
+    plan: WorkflowPlan;
+    fragments: Set<string>;
+    cacheExplanations: EngineCacheExplanation[];
+  }> {
     const planNodes: WorkflowPlanNode[] = [];
+    const cacheExplanations: EngineCacheExplanation[] = [];
     const providerChecks = new Map<string, WorkflowProviderCheck>();
     const providerControllerCache: ProviderControllerCache = new Map();
     const previousEvaluationFragmentHashes = this.evaluationFragmentHashes;
@@ -1138,6 +1215,7 @@ export class DevMachineEngine {
         cachePrefix: [],
         root: true,
         planNodes,
+        cacheExplanations,
         index: { value: 0 },
       });
     } finally {
@@ -1160,6 +1238,7 @@ export class DevMachineEngine {
       context: result.context,
       plan,
       fragments,
+      cacheExplanations,
     };
   }
 
@@ -1325,6 +1404,21 @@ export class DevMachineEngine {
         reason: input.state.blockedReason ?? "upstream output is pending",
         upstreamRunIds,
       });
+      input.cacheExplanations.push({
+        workflow: input.workflow.name,
+        path: nodePath,
+        name: input.node.name,
+        status: "pending",
+        reason: cacheExplainReason("upstream-pending", {
+          detail: input.state.blockedReason ?? "upstream output is pending",
+        }),
+        scope: input.cache.scope,
+        cacheWorkflow: input.cache.workflow,
+        cacheNodePath,
+        upstreamRunIds,
+        ...(input.node.options?.cacheTTL !== undefined ? { cacheTTL: input.node.options.cacheTTL } : {}),
+        candidates: [],
+      });
       return {
         context: input.state.context,
         upstreamRunIds: [],
@@ -1376,6 +1470,22 @@ export class DevMachineEngine {
         runId: cached.id,
         upstreamRunIds,
       });
+      input.cacheExplanations.push({
+        workflow: input.workflow.name,
+        path: nodePath,
+        name: input.node.name,
+        status: "cached",
+        reason: cacheExplainReason("cached"),
+        runId: cached.id,
+        scope: input.cache.scope,
+        cacheWorkflow: input.cache.workflow,
+        cacheNodePath,
+        upstreamRunIds,
+        ...(input.node.options?.cacheTTL !== undefined ? { cacheTTL: input.node.options.cacheTTL } : {}),
+        candidates: [
+          cacheExplainCandidateForRun(cached, input.cache, nodePath, [cacheExplainReason("cached")]),
+        ],
+      });
       return {
         context: cached.output,
         upstreamRunIds: [cached.id],
@@ -1385,12 +1495,28 @@ export class DevMachineEngine {
       };
     }
 
+    const cacheExplanation = await this.explainTaskCacheDecision({
+      workflow: input.workflow.name,
+      displayNodePath: nodePath,
+      nodeName: input.node.name,
+      state: input.cache.state,
+      cache: input.cache,
+      cacheNodePath,
+      nodeKey,
+      providerFingerprint,
+      upstreamRunIds,
+      providers,
+      outputSchema: input.node.options?.output,
+      cacheTTL: input.node.options?.cacheTTL,
+    });
+    input.cacheExplanations.push(cacheExplanation);
+
     input.planNodes.push({
       index: planIndex,
       path: nodePath,
       name: input.node.name,
       status: "pending",
-      reason: "no reusable node run",
+      reason: cacheExplanation.reason.message,
       upstreamRunIds,
     });
 
@@ -1536,6 +1662,93 @@ export class DevMachineEngine {
       ...cached,
       output: parsed,
     };
+  }
+
+  private async explainTaskCacheDecision(input: {
+    workflow: string;
+    displayNodePath: string;
+    nodeName: string;
+    state: StateService;
+    cache: EvaluationCacheTarget;
+    cacheNodePath: string;
+    nodeKey: string;
+    providerFingerprint: string;
+    upstreamRunIds: readonly string[];
+    providers: ProviderControllers;
+    outputSchema?: OutputSchema;
+    cacheTTL?: WorkflowTaskCacheTTL;
+  }): Promise<EngineCacheExplanation> {
+    const runs = input.state.listNodeRuns()
+      .filter((run) => run.workflow === input.cache.workflow && run.nodePath === input.cacheNodePath);
+    const candidates = await Promise.all(
+      runs.map(async (run) =>
+        cacheExplainCandidateForRun(
+          run,
+          input.cache,
+          input.displayNodePath,
+          await this.cacheMissReasonsForRun({
+            run,
+            displayNodePath: input.displayNodePath,
+            nodeKey: input.nodeKey,
+            providerFingerprint: input.providerFingerprint,
+            upstreamRunIds: input.upstreamRunIds,
+            providers: input.providers,
+            outputSchema: input.outputSchema,
+            cacheTTL: input.cacheTTL,
+          }),
+        )
+      ),
+    );
+
+    return {
+      workflow: input.workflow,
+      path: input.displayNodePath,
+      name: input.nodeName,
+      status: "pending",
+      reason: summarizeCacheMiss(candidates),
+      scope: input.cache.scope,
+      cacheWorkflow: input.cache.workflow,
+      cacheNodePath: input.cacheNodePath,
+      upstreamRunIds: [...input.upstreamRunIds],
+      ...(input.cacheTTL !== undefined ? { cacheTTL: input.cacheTTL } : {}),
+      candidates,
+    };
+  }
+
+  private async cacheMissReasonsForRun(input: {
+    run: WorkflowNodeRunRecord;
+    displayNodePath: string;
+    nodeKey: string;
+    providerFingerprint: string;
+    upstreamRunIds: readonly string[];
+    providers: ProviderControllers;
+    outputSchema?: OutputSchema;
+    cacheTTL?: WorkflowTaskCacheTTL;
+  }): Promise<EngineCacheExplainReason[]> {
+    const run = input.run;
+    if (run.invalidated) return [cacheExplainReason("invalidated")];
+    if (run.nodeKey !== input.nodeKey) return [cacheExplainReason("task-changed")];
+    if (run.providerFingerprint !== input.providerFingerprint) return [cacheExplainReason("provider-changed")];
+    if (stableJson(run.upstreamRunIds) !== stableJson([...input.upstreamRunIds])) {
+      return [cacheExplainReason("upstream-changed")];
+    }
+    if (!isCacheFresh(run.createdAt, input.cacheTTL)) {
+      return [cacheExplainReason("expired", { detail: `created ${run.createdAt}` })];
+    }
+
+    const parsed = normalizeTaskOutput(input.displayNodePath, run.output, input.outputSchema, "cached");
+    if (!parsed) return [cacheExplainReason("output-schema-invalid")];
+
+    for (const artifact of run.artifacts) {
+      const providerId = providerIdOf(artifact);
+      if (!providerId) return [cacheExplainReason("artifact-invalid", { detail: "artifact is missing provider id" })];
+      const provider = Object.values(input.providers).find((controller) => controller.providerId === providerId);
+      if (provider?.validateArtifact && !await provider.validateArtifact(artifact)) {
+        return [cacheExplainReason("artifact-invalid", { detail: `${providerId} artifact validation failed` })];
+      }
+    }
+
+    return [cacheExplainReason("unknown")];
   }
 
   private async createTaskRuntime(input: {
@@ -2516,6 +2729,88 @@ function nodeDisplayPath(
     return (root || suppressSequenceName === node.name ? prefix : [...prefix, node.name]).join(".");
   }
   return [...prefix, node.name].join(".");
+}
+
+function cacheExplainReason(
+  code: EngineCacheExplainReasonCode,
+  options: { detail?: string } = {},
+): EngineCacheExplainReason {
+  return {
+    code,
+    message: cacheExplainReasonMessage(code),
+    ...(options.detail ? { detail: options.detail } : {}),
+  };
+}
+
+function cacheExplainReasonMessage(code: EngineCacheExplainReasonCode): string {
+  switch (code) {
+    case "cached":
+      return "cached";
+    case "upstream-pending":
+      return "upstream output is pending";
+    case "no-previous-run":
+      return "no previous run";
+    case "invalidated":
+      return "cache entry was invalidated";
+    case "task-changed":
+      return "task definition changed";
+    case "provider-changed":
+      return "provider fingerprint changed";
+    case "upstream-changed":
+      return "upstream run ids changed";
+    case "expired":
+      return "cacheTTL expired";
+    case "output-schema-invalid":
+      return "cached output no longer matches the output schema";
+    case "artifact-invalid":
+      return "cached artifact is no longer valid";
+    case "unknown":
+      return "no reusable node run";
+  }
+}
+
+function cacheExplainCandidateForRun(
+  run: WorkflowNodeRunRecord,
+  cache: EvaluationCacheTarget,
+  displayPath: string,
+  reasons: EngineCacheExplainReason[],
+): EngineCacheExplainCandidate {
+  return {
+    runId: run.id,
+    scope: cache.scope,
+    nodePath: run.nodePath,
+    displayPath,
+    nodeName: run.nodeName,
+    nodeKind: run.nodeKind,
+    createdAt: run.createdAt,
+    invalidated: run.invalidated,
+    ...(cache.scope === "global" && cache.fragmentHash ? { fragmentHash: cache.fragmentHash } : {}),
+    reasons,
+  };
+}
+
+function summarizeCacheMiss(candidates: readonly EngineCacheExplainCandidate[]): EngineCacheExplainReason {
+  if (candidates.length === 0) return cacheExplainReason("no-previous-run");
+  return candidates[0]?.reasons[0] ?? cacheExplainReason("unknown");
+}
+
+function resolveCacheExplainTargets(
+  target: string,
+  explanations: readonly EngineCacheExplanation[],
+): EngineCacheExplanation[] {
+  const exactMatches = explanations.filter((entry) =>
+    entry.path === target || entry.cacheNodePath === target
+  );
+  const matches = exactMatches.length > 0
+    ? exactMatches
+    : explanations.filter((entry) => entry.name === target);
+
+  if (matches.length === 0) throw new Error(`Unknown cache task ${target}`);
+  if (matches.length > 1) {
+    const labels = matches.map((entry) => entry.path).join(", ");
+    throw new Error(`Task ${target} matches multiple tasks: ${labels}`);
+  }
+  return matches;
 }
 
 function cacheEntryForRun(

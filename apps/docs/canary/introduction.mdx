@@ -31,28 +31,31 @@ flowchart LR
 
 ```ts
 import { workflow } from "@rigkit/sdk";
-import { freestyle, VmSpec } from "@rigkit/provider-freestyle";
+import { freestyle } from "@rigkit/provider-freestyle";
 
-const app = workflow("website", {
-  providers: {
-    freestyle: freestyle.provider(),
-    terminal: freestyle.terminal(),
-  },
-});
+const app = workflow("website");
+const freestyleProvider = freestyle.provider();
+const terminalProvider = freestyle.terminal();
 
 export const website = app
   .sequence("website")
-  .task("prepare-image", async ({ freestyle }) => {
-    const { vm, vmId } = await freestyle.client.vms.create({
-      spec: new VmSpec().runCommands("corepack enable"),
+  .addProvider("freestyle", freestyleProvider)
+  .addProvider("terminal", terminalProvider)
+  .task("install-dependencies", async ({ providers }) => {
+    const { vm, vmId } = await providers.freestyle.client.vms.create({
       logger: console.log,
     });
 
     try {
+      const install = await vm.exec("corepack enable");
+      if ((install.statusCode ?? 0) !== 0) {
+        throw new Error(`Dependency install failed:\n${install.stderr}`);
+      }
+
       const snapshot = await vm.snapshot();
       return { ctx: { snapshotId: snapshot.snapshotId, repoPath: "/workspace/app" } };
     } finally {
-      await freestyle.client.vms.delete({ vmId });
+      await providers.freestyle.client.vms.delete({ vmId });
     }
   })
   .workspace({

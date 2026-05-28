@@ -1,5 +1,5 @@
 import { cmux } from "@rigkit/provider-cmux";
-import { freestyle, VmBaseImage } from "@rigkit/provider-freestyle";
+import { freestyle } from "@rigkit/provider-freestyle";
 import { workflow } from "@rigkit/sdk";
 
 const app = workflow("cmux-playground");

@@ -51,25 +51,27 @@ freestyle.provider({
 ## Prepare a snapshot
 
 ```ts
-import { VmSpec } from "@rigkit/provider-freestyle";
-
-const vmSpec = new VmSpec()
-  .runCommands("corepack enable")
-  .memSizeGb(16)
-  .vcpuCount(4)
-  .rootfsSizeGb(24)
-  .idleTimeoutSeconds(3600);
-
 const setup = app
   .sequence("setup")
   .addProvider("freestyle", freestyleProvider)
-  .task("prepare-image", async ({ providers }) => {
+  .task("install-dependencies", async ({ providers }) => {
     const { vm, vmId } = await providers.freestyle.client.vms.create({
-      spec: vmSpec,
+      idleTimeoutSeconds: 3600,
+      memSizeGb: 16,
+      vcpuCount: 4,
+      rootfsSizeGb: 24,
       logger: console.log,
     });
 
     try {
+      const install = await vm.exec({
+        command: "corepack enable",
+        timeoutMs: 60 * 1000,
+      });
+      if ((install.statusCode ?? 0) !== 0) {
+        throw new Error(`Dependency install failed:\n${install.stderr}`);
+      }
+
       const snapshot = await vm.snapshot();
       return { ctx: { snapshotId: snapshot.snapshotId } };
     } finally {
@@ -144,15 +146,13 @@ await local.open(url);
 
 ## Exports
 
-`@rigkit/provider-freestyle` re-exports the Freestyle SDK classes used by
-configs:
+`@rigkit/provider-freestyle` exports the provider helpers and Freestyle SDK
+types commonly used by configs:
 
 ```ts
 import {
   freestyle,
   Freestyle,
-  VmBaseImage,
-  VmSpec,
   type FreestyleSdkVm,
 } from "@rigkit/provider-freestyle";
 ```
@@ -161,6 +161,8 @@ import {
 
 - Create temporary VMs in setup tasks, snapshot them, and delete them in
   `finally`.
+- Install VM dependencies with `vm.exec(...)` inside setup tasks before
+  snapshotting.
 - Store IDs, paths, ports, branch names, and commands in JSON context.
 - Use the terminal provider for interactive auth flows.
 - Set `idleTimeoutSeconds` deliberately for both setup and workspace VMs.

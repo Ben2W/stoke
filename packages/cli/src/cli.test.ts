@@ -38,7 +38,7 @@ describe("CLI entrypoint", () => {
     expect(rootHelp.stdout).toContain("plan        Plan project workflow changes");
     expect(rootHelp.stdout).toContain("rm          Remove a workspace");
     expect(rootHelp.stdout).toContain("run         Run a workspace operation");
-    expect(rootHelp.stdout).toContain("cache       Inspect and clear Rigkit cache");
+    expect(rootHelp.stdout).toContain("cache       Inspect and clear workflow cache");
     expect(rootHelp.stdout).toContain("providers   Manage provider-owned local state");
 
     const version = await runCli(["version"]);
@@ -53,7 +53,7 @@ describe("CLI entrypoint", () => {
     expect(help.stdout).toContain("plan        Plan project workflow changes");
     expect(help.stdout).toContain("rm          Remove a workspace");
     expect(help.stdout).toContain("run         Run a workspace operation");
-    expect(help.stdout).toContain("cache       Inspect and clear Rigkit cache");
+    expect(help.stdout).toContain("cache       Inspect and clear workflow cache");
     expect(help.stdout).toContain("providers   Manage provider-owned local state");
   });
 
@@ -266,27 +266,16 @@ describe("CLI entrypoint", () => {
     }
   });
 
-  test("clears all global fragment cache without loading a config", async () => {
-    const rigkitHome = mkdtempSync(join(tmpdir(), "rigkit-cli-cache-"));
-    const fragmentDir = join(rigkitHome, "fragments", "sha256-test");
-    mkdirSync(fragmentDir, { recursive: true });
-    writeFileSync(join(fragmentDir, "state.sqlite"), "");
+  test("clears workflow cache through the runtime", async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-cli-cache-clear-"));
 
-    try {
-      const result = await runCli(["cache", "clear", "--global", "--all", "--json"], {
-        env: { RIGKIT_HOME: rigkitHome },
-      });
+    await withWorkspaceRuntime({ projectDir }, async ({ env }) => {
+      const result = await runCli([`--chdir=${projectDir}`, "cache", "smoke", "clear", "--global", "--json"], { env });
 
       expect(result.exitCode).toBe(0);
       expect(result.stderr).toBe("");
-      expect(JSON.parse(result.stdout)).toMatchObject({
-        ok: true,
-        scope: "global-all",
-      });
-      expect(existsSync(fragmentDir)).toBe(false);
-    } finally {
-      rmSync(rigkitHome, { recursive: true, force: true });
-    }
+      expect(JSON.parse(result.stdout)).toEqual({ ok: true, deleted: 1 });
+    });
   });
 
   test("clears Freestyle provider host storage without loading a project", async () => {
@@ -318,7 +307,7 @@ describe("CLI entrypoint", () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-cli-cache-invalidate-"));
 
     await withWorkspaceRuntime({ projectDir, cacheInvalidated: 0 }, async ({ env }) => {
-      const result = await runCli([`--chdir=${projectDir}`, "cache", "invalidate", "missing-task"], { env });
+      const result = await runCli([`--chdir=${projectDir}`, "cache", "smoke", "invalidate", "missing-task"], { env });
 
       expect(result.exitCode).toBe(0);
       expect(result.stderr).toBe("");
@@ -331,7 +320,7 @@ describe("CLI entrypoint", () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-cli-cache-invalidate-json-"));
 
     await withWorkspaceRuntime({ projectDir, cacheInvalidated: 0 }, async ({ env }) => {
-      const result = await runCli([`--chdir=${projectDir}`, "cache", "invalidate", "missing-task", "--json"], { env });
+      const result = await runCli([`--chdir=${projectDir}`, "cache", "smoke", "invalidate", "missing-task", "--json"], { env });
 
       expect(result.exitCode).toBe(0);
       expect(result.stderr).toBe("");
@@ -339,11 +328,11 @@ describe("CLI entrypoint", () => {
     });
   });
 
-  test("infers workflow when invalidating a unique cache task", async () => {
+  test("passes positional workflow when invalidating cache", async () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-cli-cache-invalidate-workflow-"));
 
     await withWorkspaceRuntime({ projectDir, requireCacheInvalidateWorkflow: true }, async ({ env }) => {
-      const result = await runCli([`--chdir=${projectDir}`, "cache", "invalidate", "ready", "--json"], { env });
+      const result = await runCli([`--chdir=${projectDir}`, "cache", "smoke", "invalidate", "ready", "--json"], { env });
 
       expect(result.exitCode).toBe(0);
       expect(result.stderr).toBe("");
@@ -355,7 +344,7 @@ describe("CLI entrypoint", () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-cli-cache-list-"));
 
     await withWorkspaceRuntime({ projectDir }, async ({ env }) => {
-      const result = await runCli([`--chdir=${projectDir}`, "cache", "ls"], { env });
+      const result = await runCli([`--chdir=${projectDir}`, "cache", "smoke", "ls"], { env });
 
       expect(result.exitCode).toBe(0);
       expect(result.stderr).toBe("");
@@ -363,6 +352,25 @@ describe("CLI entrypoint", () => {
       expect(result.stdout).toContain("cached");
       expect(result.stdout).toContain("ready");
       expect(result.stdout).not.toContain("valid");
+    });
+  });
+
+  test("explains workflow cache decisions", async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-cli-cache-explain-"));
+
+    await withWorkspaceRuntime({ projectDir }, async ({ env }) => {
+      const result = await runCli([`--chdir=${projectDir}`, "cache", "smoke", "explain", "--json"], { env });
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stderr).toBe("");
+      expect(JSON.parse(result.stdout)).toMatchObject({
+        workflow: "smoke",
+        explanations: [{
+          path: "ready",
+          status: "cached",
+          reason: { code: "cached" },
+        }],
+      });
     });
   });
 
@@ -693,7 +701,46 @@ async function withWorkspaceRuntime(
         }
         return runtimeJson({ ok: true, invalidated: input.cacheInvalidated ?? 1 });
       }
-      if (pathname === "/cache") {
+      if (pathname === "/cache/clear") {
+        const body = await request.json() as { workflow?: string };
+        if (body.workflow !== "smoke") {
+          return runtimeJson({ error: { message: "Unknown workflow" } }, { status: 400 });
+        }
+        return runtimeJson({ ok: true, deleted: 1 });
+      }
+      if (pathname === "/cache/explain") {
+        const body = await request.json() as { workflow?: string; task?: string };
+        if (body.workflow !== "smoke") {
+          return runtimeJson({ error: { message: "Unknown workflow" } }, { status: 400 });
+        }
+        return runtimeJson({
+          workflow: "smoke",
+          explanations: [{
+            workflow: "smoke",
+            path: "ready",
+            name: "ready",
+            status: "cached",
+            reason: { code: "cached", message: "cached" },
+            runId: "run-ready",
+            scope: "local",
+            cacheWorkflow: "smoke",
+            cacheNodePath: "ready",
+            upstreamRunIds: [],
+            candidates: [{
+              runId: "run-ready",
+              scope: "local",
+              nodePath: "ready",
+              displayPath: "ready",
+              nodeName: "ready",
+              nodeKind: "task",
+              createdAt: now,
+              invalidated: false,
+              reasons: [{ code: "cached", message: "cached" }],
+            }],
+          }],
+        });
+      }
+      if (pathname === "/cache" || pathname === "/cache/list") {
         return runtimeJson({
           entries: [{
             scope: "local",

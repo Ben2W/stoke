@@ -42,9 +42,10 @@ rig apply                   # rerun only stale tasks
 **Force a rerun:**
 
 ```sh
-rig cache invalidate <task>     # mark one task stale
-rig cache invalidate --all      # mark every task stale
-rig cache clear --local         # delete local cache entries
+rig cache dev explain           # explain cache decisions
+rig cache dev invalidate <task> # mark one task stale
+rig cache dev invalidate --all  # mark every task stale
+rig cache dev clear --local     # delete local cache entries
 ```
 
 ## Agents and CI
@@ -58,12 +59,12 @@ rig apply --workflow dev --json
 rig create --workflow dev dev --json
 rig run dev status --json
 rig rm dev --yes --json
-rig cache invalidate --all --yes --json
+rig cache dev invalidate --all --yes --json
 ```
 
 Use `--json` on commands that support it instead of scraping interactive output.
 Use `--yes` only for commands that ask for confirmation: `rig rm` and
-`rig cache invalidate --all`.
+`rig cache <workflow> invalidate --all`.
 
 The rest of this page is a reference for every command and option.
 
@@ -221,38 +222,46 @@ workspace list, cache status, and last applied summary when available.
 
 ## `rig cache`
 
-Inspect and change cache state.
+Inspect and change workflow cache state. Cache commands require the workflow
+name immediately after `cache`.
 
 List cache entries:
 
 ```sh
-rig cache ls
-rig cache ls --json
+rig cache dev ls
+rig cache dev ls --json
+```
+
+Explain why each task is cached or pending:
+
+```sh
+rig cache dev explain
+rig cache dev explain install-tooling
 ```
 
 Invalidate cached task output so tasks rerun on the next plan/apply:
 
 ```sh
-rig cache invalidate install-tooling
-rig cache invalidate --all
-rig cache invalidate --all --yes
+rig cache dev invalidate install-tooling
+rig cache dev invalidate --all
+rig cache dev invalidate --all --yes
 ```
 
 Clear cache entries:
 
 ```sh
-rig cache clear --local
-rig cache clear --global
-rig cache clear --global --all
+rig cache dev clear
+rig cache dev clear --local
+rig cache dev clear --global
 ```
 
 Options:
 
 | Option | Description |
 | --- | --- |
-| `--local` | Clear local cache entries for the selected config. |
+| `--local` | Clear local cache entries for the workflow. |
 | `--global` | Clear global fragments reachable from the selected workflow. |
-| `--all` | With `--global`, clear every global fragment without loading a config. |
+| `--all` | With `invalidate`, mark every cached task in the workflow stale. |
 | `--json` | Print JSON. |
 
 Use invalidation when you want Rigkit to keep the cache records but mark them
