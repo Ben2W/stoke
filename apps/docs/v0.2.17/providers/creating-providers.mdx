@@ -1,0 +1,229 @@
+---
+title: "Creating providers"
+description: "Create a custom Rigkit provider with typed config, runtime helpers, storage, host capabilities, and artifact validation."
+noindex: true
+---
+
+<Note>
+Most projects do not need a custom provider. Use this page when you are building
+an integration package for an internal platform, database service, cloud API, or
+trusted host tool.
+</Note>
+
+A provider turns config into typed runtime helpers:
+
+```ts
+import { env, workflow } from "@rigkit/sdk";
+import { provider as acmeDbProvider } from "@acme/rigkit-provider-db";
+
+const app = workflow("api");
+const dbProvider = acmeDbProvider({
+  apiUrl: "https://db.internal.example.com",
+  token: env.secret("ACME_DB_TOKEN"),
+});
+
+export const api = app
+  .sequence("api")
+  .addProvider("db", dbProvider)
+  .task("branch-db", async ({ providers }) => {
+    const branch = await providers.db.createBranch({ name: "api-dev" });
+    return { ctx: { database: branch } };
+  });
+```
+
+## Provider pieces
+
+A provider package usually exports:
+
+- a provider definition function, built with `defineProvider(...)`;
+- a plugin with `createProvider(...)`;
+- a controller whose `runtime(...)` method returns helpers used by tasks and
+  operations.
+
+```ts
+import {
+  defineProvider,
+  type WorkflowProviderDefinition,
+} from "@rigkit/sdk";
+import type {
+  BaseProviderPlugin,
+  ProviderStorage,
+  WorkflowProviderController,
+} from "@rigkit/engine";
+
+const ACME_DB_PROVIDER_ID = "acme-db";
+
+type AcmeDbConfig = {
+  apiUrl: string;
+  token?: string;
+};
+
+type AcmeDbBranchRef = {
+  provider: typeof ACME_DB_PROVIDER_ID;
+  kind: "branch";
+  branchId: string;
+  url: string;
+};
+
+type AcmeDbRuntime = {
+  createBranch(input: { name: string }): Promise<AcmeDbBranchRef>;
+  deleteBranch(input: { branchId: string }): Promise<void>;
+};
+
+export type AcmeDbProviderDefinition = WorkflowProviderDefinition<
+  typeof ACME_DB_PROVIDER_ID,
+  AcmeDbConfig,
+  AcmeDbRuntime
+>;
+
+export function provider(
+  config: AcmeDbProviderDefinition["config"],
+): AcmeDbProviderDefinition {
+  return defineProvider(ACME_DB_PROVIDER_ID, config, acmeDbProviderPlugin);
+}
+
+const acmeDbProviderPlugin: BaseProviderPlugin = {
+  providerId: ACME_DB_PROVIDER_ID,
+  async createProvider({ provider, storage }) {
+    const config = parseConfig(provider.config);
+    return createAcmeDbController(config, storage);
+  },
+};
+```
+
+Rigkit resolves provider config before `createProvider(...)` receives it. Config
+may contain plain values or resolvers such as `env.secret("ACME_DB_TOKEN")`.
+Resolved config contributes to the scoped provider fingerprint for handlers
+after `.addProvider(...)`.
+Provider-specific helpers such as `parseConfig(...)` and
+`createBranchInAcme(...)` are normal package code; Rigkit only cares about the
+definition, plugin, and controller contracts.
+
+## Controller
+
+The controller creates a runtime for each task, hook, or operation:
+
+```ts
+function createAcmeDbController(
+  config: AcmeDbConfig,
+  storage: ProviderStorage,
+): WorkflowProviderController<AcmeDbRuntime> {
+  return {
+    providerId: ACME_DB_PROVIDER_ID,
+
+    runtime(context) {
+      return {
+        createBranch: async ({ name }) => {
+          const branch = await createBranchInAcme(config, name);
+          const ref: AcmeDbBranchRef = {
+            provider: ACME_DB_PROVIDER_ID,
+            kind: "branch",
+            branchId: branch.id,
+            url: branch.url,
+          };
+
+          storage.set(`branch:${ref.branchId}`, ref);
+          context.metadata({ branchId: ref.branchId });
+          return ref;
+        },
+
+        deleteBranch: async ({ branchId }) => {
+          await deleteBranchInAcme(config, branchId);
+          storage.delete(`branch:${branchId}`);
+        },
+      };
+    },
+
+    validateArtifact(ref) {
+      return isBranchRef(ref) && Boolean(storage.get(`branch:${ref.branchId}`));
+    },
+  };
+}
+```
+
+Task output should store refs, not live clients. Rigkit scans task output for
+objects shaped like `{ provider: string, kind: string }`; when cached output
+contains one, Rigkit asks the matching provider to validate it if
+`validateArtifact(...)` exists.
+
+## Storage
+
+`createProvider(...)` receives two JSON stores:
+
+| Store | Scope | Use it for |
+| --- | --- | --- |
+| `storage` | Selected project | Provider resource bookkeeping. |
+| `hostStorage` | Developer machine | Credentials and login state that outlive one project. |
+
+Both stores support:
+
+```ts
+storage.get("key");
+storage.set("key", { ok: true });
+storage.delete("key");
+storage.entries("prefix:");
+```
+
+Use task context for workflow output users should compose. Use provider storage
+for implementation records. Use host storage for credentials.
+
+## Host actions
+
+Provider runtimes receive `context.local` for explicit developer-machine
+actions:
+
+```ts
+runtime(context) {
+  return {
+    openDashboard: async (url: string) => {
+      await context.local.open(url);
+    },
+    runTrustedCommand: async () => {
+      const result = await context.local.command?.({
+        argv: ["acme", "status"],
+        mode: "capture",
+        reason: "Check local Acme CLI authentication",
+      });
+      return result?.stdout;
+    },
+  };
+}
+```
+
+For richer integrations, define a named host capability and have a trusted host
+register a handler. The cmux provider uses this pattern for `cmux.open`.
+
+## Provider-owned interactions
+
+Use `context.interaction.present(...)` when the provider owns a URL or terminal
+session and the host only needs to present it:
+
+```ts
+runtime(context) {
+  return {
+    login: async () => {
+      await context.interaction.present({
+        title: "Log in to Acme",
+        url: "https://acme.example.com/device",
+        instructions: "Complete login, then return to Rigkit.",
+        completed: waitForLogin(),
+        stop: async () => {
+          await cancelLogin();
+        },
+      });
+    },
+  };
+}
+```
+
+## Rules
+
+- Validate provider config before creating the controller.
+- Keep provider config JSON-serializable.
+- Return durable refs in task context.
+- Keep implementation details in `storage`.
+- Keep developer credentials in `hostStorage`.
+- Implement `validateArtifact(...)` for cached refs whose remote resource may
+  disappear.
+- Use `context.metadata(...)` for run metadata that helps debug provider work.
+- Use `context.local` only for explicit host-side actions.
