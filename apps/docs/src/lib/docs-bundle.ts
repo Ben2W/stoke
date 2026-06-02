@@ -168,12 +168,12 @@ function toBundledDoc(entry: DocsEntry): BundledDoc {
   };
 }
 
-export async function getBundledDocs() {
+export async function getBundledDocs(): Promise<BundledDoc[]> {
   const entries = await getDocsEntries();
   return entries.map(toBundledDoc);
 }
 
-export async function getBundledDocById(id: string) {
+export async function getBundledDocById(id: string): Promise<BundledDoc | undefined> {
   const docs = await getBundledDocs();
   return docs.find((doc) => doc.id === id || doc.id === `${id}/index`);
 }

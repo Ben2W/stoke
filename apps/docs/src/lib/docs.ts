@@ -105,8 +105,8 @@ export function docDisplayTitle(entry: DocsEntry) {
   return entry.data.sidebarTitle ?? entry.data.title;
 }
 
-export async function getDocsEntries() {
-  const entries = await getCollection("docs");
+export async function getDocsEntries(): Promise<DocsEntry[]> {
+  const entries = await getCollection("docs") as DocsEntry[];
   const visibleEntries = navigationIdSet.size
     ? entries.filter((entry) => navigationIdSet.has(entry.id))
     : entries;
