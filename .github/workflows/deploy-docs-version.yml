@@ -60,4 +60,4 @@ jobs:
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        run: pnpm --filter @rigkit/docs deploy:version -- --version "${{ steps.tag.outputs.tag }}"
+        run: pnpm --filter @rigkit/docs run deploy:version -- --version "${{ steps.tag.outputs.tag }}"
