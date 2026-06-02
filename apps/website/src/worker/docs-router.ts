@@ -270,26 +270,20 @@ const DOCS_VERSION_SELECTOR_JS = `
   }
 
   function ensurePicker() {
-    const sidebar = document.querySelector(".sidebar");
-    if (!sidebar) return undefined;
+    document.querySelector(".docs-global-version-picker")?.remove();
 
-    let picker = sidebar.querySelector(".docs-global-version-picker");
-    if (!picker) {
-      picker = document.createElement("label");
-      picker.className = "version-picker docs-global-version-picker";
+    const brand = document.querySelector(".brand");
+    if (!brand) return undefined;
 
-      const label = document.createElement("span");
-      label.textContent = "version";
-
-      const select = document.createElement("select");
-      select.className = "version-select";
+    let select = brand.querySelector(".brand-version-select");
+    if (!select) {
+      select = document.createElement("select");
+      select.className = "brand-version-select";
       select.setAttribute("aria-label", "Documentation version");
-
-      picker.append(label, select);
-      sidebar.prepend(picker);
+      brand.append(select);
     }
 
-    return picker.querySelector("select");
+    return select;
   }
 
   async function setupVersionPicker() {
@@ -312,7 +306,8 @@ const DOCS_VERSION_SELECTOR_JS = `
     select.replaceChildren(...entries.map((entry) => {
       const option = document.createElement("option");
       option.value = entry.version;
-      option.textContent = entry.label || entry.version;
+      option.textContent = entry.version;
+      if (entry.label) option.title = entry.label;
       option.selected = current && entry.version === current.version;
       return option;
     }));

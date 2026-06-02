@@ -101,13 +101,18 @@ a {
   gap: 0.6rem;
   letter-spacing: -0.01em;
   padding: 0 1.4rem;
-  text-decoration: none;
   white-space: nowrap;
 }
 
-.brand img {
-  height: 1.3rem;
-  width: auto;
+.brand-link {
+  color: inherit;
+  text-decoration: none;
+}
+
+.brand-link:hover,
+.brand-link:focus-visible {
+  color: var(--ink);
+  outline: 0;
 }
 
 .topbar nav {
@@ -146,38 +151,24 @@ a {
   width: 1.1rem;
 }
 
-.version-picker {
-  color: var(--faint);
-  display: grid;
-  font-size: 0.68rem;
-  font-weight: 650;
-  gap: 0.4rem;
-  letter-spacing: 0.08em;
-  margin-bottom: 0.8rem;
-  text-transform: uppercase;
-}
-
-.version-select {
+.brand-version-select {
   appearance: none;
-  background:
-    linear-gradient(45deg, transparent 50%, var(--muted) 50%) right 0.85rem center / 0.34rem 0.34rem no-repeat,
-    linear-gradient(135deg, var(--muted) 50%, transparent 50%) right 0.6rem center / 0.34rem 0.34rem no-repeat,
-    var(--panel-soft);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  color: var(--ink-soft);
+  background: transparent;
+  border: 0;
+  color: var(--muted);
+  cursor: pointer;
   font-family: var(--mono);
   font-size: 0.78rem;
+  font-weight: 650;
   letter-spacing: 0;
-  min-height: 2.2rem;
-  padding: 0.45rem 1.6rem 0.45rem 0.7rem;
-  width: 100%;
+  margin-left: 0.15rem;
+  max-width: 8rem;
+  min-width: 0;
+  padding: 0;
 }
 
-.version-select:hover,
-.version-select:focus-visible {
-  background-color: var(--bg);
-  border-color: var(--line-strong);
+.brand-version-select:hover,
+.brand-version-select:focus-visible {
   color: var(--ink);
   outline: 0;
 }
@@ -1785,16 +1776,13 @@ a {
 
   /* Keep rows at their natural height so a long nav scrolls (rather than the
      flex column squishing them) and the footer can pin to the bottom. */
-  .sidebar > .version-picker,
   .sidebar > .sidebar-search,
   .sidebar > .nav-group,
   .sidebar > .drawer-links {
     flex-shrink: 0;
   }
 
-  /* Stagger the version control, search field, and nav sections into view as
-     the drawer slides open. */
-  .sidebar.is-open .version-picker,
+  /* Stagger the search field and nav sections into view as the drawer opens. */
   .sidebar.is-open .sidebar-search,
   .sidebar.is-open .nav-group,
   .sidebar.is-open .drawer-links {
@@ -1805,19 +1793,19 @@ a {
     animation-delay: 0.05s;
   }
 
-  .sidebar.is-open .nav-group:nth-child(3) {
+  .sidebar.is-open .nav-group:nth-child(2) {
     animation-delay: 0.1s;
   }
 
-  .sidebar.is-open .nav-group:nth-child(4) {
+  .sidebar.is-open .nav-group:nth-child(3) {
     animation-delay: 0.15s;
   }
 
-  .sidebar.is-open .nav-group:nth-child(5) {
+  .sidebar.is-open .nav-group:nth-child(4) {
     animation-delay: 0.2s;
   }
 
-  .sidebar.is-open .nav-group:nth-child(6),
+  .sidebar.is-open .nav-group:nth-child(5),
   .sidebar.is-open .drawer-links {
     animation-delay: 0.25s;
   }

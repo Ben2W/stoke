@@ -220,10 +220,9 @@ const conductorUrl = `conductor://prompt=${encodeURIComponent(conductorPrompt)}`
             <path d="M5 5l14 14M19 5 5 19"></path>
           </svg>
         </button>
-        <a class="brand" href={docsWebPath("/")}>
-          <img src={docsWebPath("/logo.svg")} alt="" />
-          <span>Rigkit Docs</span>
-        </a>
+        <div class="brand">
+          <a class="brand-link" href={docsWebPath("/")}>Rigkit Docs</a>
+        </div>
         <nav aria-label="Top navigation">
           <a class="nav-discord" href="https://discord.gg/v5WT4fbXhc">
             <DiscordIcon class="nav-discord-icon" />

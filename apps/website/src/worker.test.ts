@@ -291,7 +291,11 @@ describe("website worker · install routes", () => {
 
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toContain("application/javascript");
-    expect(await response.text()).toContain("/docs/api/versions.json");
+    const script = await response.text();
+    expect(script).toContain("/docs/api/versions.json");
+    expect(script).toContain("brand-version-select");
+    expect(script).not.toContain("sidebar.prepend");
+    expect(script).not.toContain('className = "version-select"');
   });
 
   test("redirects apex and legacy Freestyle domains to www.rigkit.dev", async () => {

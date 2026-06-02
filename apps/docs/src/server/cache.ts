@@ -29,7 +29,6 @@ export function cacheControlFor(url: URL, response: Response) {
     pathname.startsWith("/_astro/") ||
     pathname.startsWith("/og/") ||
     pathname === "/favicon.png" ||
-    pathname === "/logo.svg" ||
     pathname.endsWith(".css") ||
     pathname.endsWith(".js") ||
     pathname.endsWith(".png") ||
