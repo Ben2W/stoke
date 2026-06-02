@@ -1,4 +1,9 @@
-export const docsFigureNames = ["concepts", "configs", "providers"] as const;
+export const docsFigureNames = [
+  "concepts",
+  "configs",
+  "providers",
+  "rocket",
+] as const;
 
 export type DocsFigureName = (typeof docsFigureNames)[number];
 
@@ -18,6 +23,10 @@ export const docsFigures = {
   },
   providers: {
     src: "providers.png",
+    backgroundColor: "#fdf7f3",
+  },
+  rocket: {
+    src: "rocket.png",
     backgroundColor: "#fdf7f3",
   },
 } as const satisfies Record<DocsFigureName, DocsFigureDefinition>;
