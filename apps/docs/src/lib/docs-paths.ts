@@ -1,5 +1,9 @@
+const docsBasePathEnv = (
+  import.meta as ImportMeta & { env?: Record<string, string | undefined> }
+).env?.PUBLIC_DOCS_BASE_PATH;
+
 export const DOCS_WEB_BASE_PATH =
-  (import.meta.env.PUBLIC_DOCS_BASE_PATH || "/docs").replace(/\/+$/, "") || "/docs";
+  (docsBasePathEnv || "/docs").replace(/\/+$/, "") || "/docs";
 
 export function docsWebPath(pathname: string) {
   if (pathname === "/" || pathname === "") return DOCS_WEB_BASE_PATH;
