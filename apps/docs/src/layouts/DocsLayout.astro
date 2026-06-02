@@ -3,7 +3,6 @@ import "@/styles/docs.css";
 import { ClientRouter } from "astro:transitions";
 import CopyPageButton from "@/components/docs/CopyPageButton.astro";
 import OpenMarkdownLink from "@/components/docs/OpenMarkdownLink.astro";
-import OpenInLink from "@/components/docs/OpenInLink.astro";
 import DiscordIcon from "@/components/docs/DiscordIcon.astro";
 import type { MarkdownHeading } from "astro";
 import type { CollectionEntry } from "astro:content";
@@ -14,7 +13,6 @@ import {
   getAdjacentDocs,
   getNavigationGroups,
 } from "@/lib/docs";
-import { absolutizeMarkdownLinks, getBundledDocById } from "@/lib/docs-bundle";
 import { docsWebPath } from "@/lib/docs-paths";
 
 interface Props {
@@ -47,110 +45,6 @@ const searchGroups = navGroups.map((group) => ({
 const tocHeadings = headings.filter((heading) => heading.depth === 2 || heading.depth === 3);
 const markdownPath = path === "/" ? "/index.md" : `${path}.md`;
 const markdownHref = docsWebPath(markdownPath);
-const markdownUrl = new URL(markdownHref, site).toString();
-const ruleSlug = entry.id === "index" ? "docs" : entry.id.replaceAll("/", "-");
-const ruleAddedDate = new Date().toISOString().slice(0, 10);
-const bundledDoc = await getBundledDocById(entry.id);
-const pageMarkdown = bundledDoc
-  ? absolutizeMarkdownLinks(bundledDoc.markdown, docsWebPath(path), site)
-  : "";
-
-const RIGKIT_BLURB = [
-  "Rigkit is Freestyle's TypeScript workflow runner for declarative dev environments. Use it to prepare and cache setup once, then create named workspaces for agents, developers, CI jobs, and tests.",
-  "",
-  "Rigkit resources:",
-  "- Docs: https://www.rigkit.dev/docs",
-  "- LLM index (machine-readable docs map): https://www.rigkit.dev/docs/llms.txt",
-  "- Bash docs API: https://www.rigkit.dev/docs/bash",
-].join("\n");
-
-const ruleText = [
-  `Reference documentation for this page: ${markdownUrl}`,
-  ``,
-  `This rule was added on ${ruleAddedDate}. The snapshot below may be stale; for the most up-to-date docs fetch them live from one of:`,
-  `  • HTTP: \`https://www.rigkit.dev/docs\``,
-  `  • Bash: \`curl https://www.rigkit.dev/docs/bash --data-binary 'cat ${markdownPath}'\``,
-  ``,
-  `When answering questions related to Rigkit, consult these sources as authoritative.`,
-  ``,
-  `---`,
-  ``,
-  pageMarkdown,
-  ``,
-  `---`,
-  ``,
-  RIGKIT_BLURB,
-].join("\n");
-const cursorRuleUrl = `https://cursor.com/link/rule?${new URLSearchParams({
-  name: `rigkit-${ruleSlug}`,
-  text: ruleText,
-}).toString()}`;
-
-const aiPrompt = [
-  `Source: ${markdownUrl}`,
-  ``,
-  `--- ${entry.data.title} ---`,
-  ``,
-  pageMarkdown,
-  ``,
-  `---`,
-  ``,
-  `Use the documentation above as context. What would you like to know?`,
-  ``,
-  RIGKIT_BLURB,
-].join("\n");
-const chatGptUrl = `https://chatgpt.com/?${new URLSearchParams({ q: aiPrompt }).toString()}`;
-
-const claudeSkillName = `rigkit-${ruleSlug}`;
-// Quote YAML scalar values: the description embeds `: ` (from the title and the
-// `Source:` URL), which an unquoted scalar parses as a mapping separator and
-// fails. JSON.stringify produces a double-quoted string that is valid YAML.
-const skillDescription = `Rigkit docs reference for "${entry.data.title}". Use when the user asks about ${entry.data.title} or related Rigkit topics. Source: ${markdownUrl}`;
-const skillBody = [
-  `<<<SKILL`,
-  `---`,
-  `name: ${claudeSkillName}`,
-  `description: ${JSON.stringify(skillDescription)}`,
-  `---`,
-  ``,
-  `# ${entry.data.title}`,
-  ``,
-  pageMarkdown,
-  ``,
-  `---`,
-  ``,
-  `## About Rigkit`,
-  ``,
-  RIGKIT_BLURB,
-  ``,
-  `> Snapshot ${ruleAddedDate}. These docs may be stale; fetch the latest from the resources above.`,
-  `SKILL>>>`,
-].join("\n");
-
-const claudeSkillPrompt = [
-  `Install as a global Claude Code skill: write the body between \`<<<SKILL\` and \`SKILL>>>\` (not the markers) to ~/.claude/skills/${claudeSkillName}/SKILL.md, creating the dir if needed. Then reply "Added skill ${claudeSkillName}." plus a short summary of what the docs cover.`,
-  ``,
-  skillBody,
-].join("\n");
-const claudeCodeUrl = `claude-cli://open?${new URLSearchParams({ q: claudeSkillPrompt }).toString()}`;
-
-const codexSkillPrompt = [
-  `Install as a global Codex skill: write the body between \`<<<SKILL\` and \`SKILL>>>\` (not the markers) to ~/.agents/skills/${claudeSkillName}/SKILL.md, creating the dir if needed. Then reply "Added skill ${claudeSkillName}." plus a short summary of what the docs cover.`,
-  ``,
-  skillBody,
-].join("\n");
-const codexUrl = `codex://threads/new?${new URLSearchParams({ prompt: codexSkillPrompt }).toString()}`;
-
-const conductorPrompt = [
-  `Install as a global skill. Write the body between \`<<<SKILL\` and \`SKILL>>>\` (not the markers) to your runtime's skills dir, creating it if needed:`,
-  `- Claude Code → ~/.claude/skills/${claudeSkillName}/SKILL.md`,
-  `- Codex → ~/.agents/skills/${claudeSkillName}/SKILL.md`,
-  ``,
-  `Then reply "Added skill ${claudeSkillName}." plus a short summary of what the docs cover.`,
-  ``,
-  skillBody,
-].join("\n");
-const conductorUrl = `conductor://prompt=${encodeURIComponent(conductorPrompt)}`;
 ---
 
 <!doctype html>
@@ -362,11 +256,6 @@ const conductorUrl = `conductor://prompt=${encodeURIComponent(conductorPrompt)}`
             }
           </aside>
           <div class="toc-rail-actions">
-            <OpenInLink href={claudeCodeUrl} label="Open in Claude Code" brand="claudecode" />
-            <OpenInLink href={codexUrl} label="Open in Codex" brand="codex" />
-            <OpenInLink href={cursorRuleUrl} label="Open in Cursor" brand="cursor" />
-            <OpenInLink href={conductorUrl} label="Open in Conductor" brand="conductor" />
-            <OpenInLink href={chatGptUrl} label="Open in ChatGPT" brand="chatgpt" />
             <OpenMarkdownLink href={markdownHref} />
             <CopyPageButton href={markdownHref} />
           </div>

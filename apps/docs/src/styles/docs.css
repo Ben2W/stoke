@@ -1552,11 +1552,6 @@ a {
     border-color: var(--ink);
   }
 
-  /* "Open in <AI tool>" deep links target desktop apps; on compact screens we
-     keep only the markdown actions (Open Markdown + Copy page). */
-  .toc-rail-action--agent {
-    display: none;
-  }
 }
 
 @media (max-width: 760px) {
