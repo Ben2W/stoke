@@ -1,0 +1,21 @@
+---
+import type { GetStaticPaths } from "astro";
+import DocsPage from "@/components/docs/DocsPage.astro";
+import { getDocsEntries, slugParamFromDoc } from "@/lib/docs";
+
+export const prerender = true;
+
+export const getStaticPaths = (async () => {
+  const entries = await getDocsEntries();
+  return entries
+    .filter((entry) => entry.id !== "index")
+    .map((entry) => ({
+      params: { slug: slugParamFromDoc(entry) },
+      props: { entry, entries },
+    }));
+}) satisfies GetStaticPaths;
+
+const { entry, entries } = Astro.props;
+---
+
+<DocsPage entry={entry} entries={entries} />

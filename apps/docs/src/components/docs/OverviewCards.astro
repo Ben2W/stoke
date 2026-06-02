@@ -1,0 +1,54 @@
+---
+import DocsNavFigure from "@/components/docs/DocsNavFigure.astro";
+import { resolveDocsFigure, type DocsFigureName } from "@/lib/docs-figures";
+import { docsWebPath } from "@/lib/docs-paths";
+
+type OverviewCard = {
+  title: string;
+  description: string;
+  href: string;
+  figure: DocsFigureName;
+};
+
+const cards: OverviewCard[] = [
+  {
+    title: "Quickstart",
+    description: "Install Rigkit, initialize a project, apply the workflow, and create your first workspace.",
+    href: "/guides/quickstart",
+    figure: "rocket",
+  },
+  {
+    title: "Concepts",
+    description: "Understand workflows, tasks, context, providers, workspaces, operations, fragments, and hosts.",
+    href: "/concepts/mental-model",
+    figure: "concepts",
+  },
+  {
+    title: "Writing configs",
+    description: "Compose tasks, workspaces, operations, and fragments in a typed Rigkit config.",
+    href: "/guides/workflows",
+    figure: "configs",
+  },
+  {
+    title: "Providers",
+    description: "Connect workflows to Freestyle VMs, terminals, cmux, gcloud, and custom integrations.",
+    href: "/providers/overview",
+    figure: "providers",
+  },
+];
+---
+
+<div class="doc-overview-card-grid">
+  {
+    cards.map((card) => (
+      <a class="doc-overview-card" href={docsWebPath(card.href)}>
+        <DocsNavFigure
+          class="doc-overview-card-image"
+          figure={resolveDocsFigure(card.figure, card.title)}
+        />
+        <span class="doc-overview-card-title">{card.title}</span>
+        <span class="doc-overview-card-description">{card.description}</span>
+      </a>
+    ))
+  }
+</div>

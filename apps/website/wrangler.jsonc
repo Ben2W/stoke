@@ -17,6 +17,12 @@
     { "pattern": "rig.freestyle.sh", "custom_domain": true },
     { "pattern": "rigkit.freestyle.sh", "custom_domain": true },
   ],
+  "services": [
+    {
+      "binding": "DOCS_LATEST",
+      "service": "rigkit-docs"
+    }
+  ],
   "vars": {
     "GITHUB_REPO": "freestyle-sh/rigkit",
     "PUBLIC_BASE_URL": "https://www.rigkit.dev",

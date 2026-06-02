@@ -1,0 +1,144 @@
+<code-group class="code-group">
+  <slot />
+</code-group>
+
+<script>
+  // Brand marks for known package managers. Keyed by the fence's tab label.
+  const LOGOS: Record<string, string> = {
+    pnpm: `<svg viewBox="0 0 80 80" aria-hidden="true"><path fill="#F9AD00" d="M75 1.9H51.5v23.5H75zM48.6 1.9H25.1v23.5h23.5zM22.2 1.9H-1.3v23.5h23.5z" transform="translate(2 2)"/><path fill="#4E4E4E" d="M75 28.3H51.5v23.5H75zM75 54.6H51.5v23.5H75zM48.6 54.6H25.1v23.5h23.5zM48.6 28.3H25.1v23.5h23.5z" transform="translate(2 2)"/></svg>`,
+    bun: `<svg viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="12.5" rx="10.5" ry="9.2" fill="#FBF0DF" stroke="#16120E" stroke-width="1.1"/><circle cx="8.8" cy="12" r="1.5" fill="#16120E"/><circle cx="15.2" cy="12" r="1.5" fill="#16120E"/><path d="M9.6 15.4c1.4 1.3 3.4 1.3 4.8 0" fill="none" stroke="#16120E" stroke-width="1.1" stroke-linecap="round"/><ellipse cx="7" cy="14.4" rx="1.5" ry="1" fill="#F4B6C2"/><ellipse cx="17" cy="14.4" rx="1.5" ry="1" fill="#F4B6C2"/></svg>`,
+    npm: `<svg viewBox="0 0 24 24" aria-hidden="true"><rect width="24" height="24" rx="2.5" fill="#CB3837"/><path fill="#fff" d="M4.5 4.5h15v15h-4.1V8.6h-3.1v10.9H4.5z"/></svg>`,
+    yarn: `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="11" fill="#2C8EBB"/><path d="M17.8 14.3c-.9.3-1.4.9-2.4 1.5-.5.3-1.2.6-1.8.8.1-.5.1-1 .3-1.4.3-.8 1-1.2 1.4-1.9.3-.5.5-1.3.5-1.3s.6.4.8 1.1c.1-.5.2-1.5-.1-2.2-.2-.4-.5-.7-.7-.9.3-1-.3-1.9-.3-1.9s-.6.1-1 .5c-.6-.2-1-.2-1-.2s-.4-.6-1.3-.8c-1.2-.3-1.9.4-2.1.7-.6.1-1.2.5-1.3 1.3-.2.8.3 1.6.3 1.6s-.4.5-.3 1.2c.1.6.5 1 .9 1.1.2.6.7 1.1 1.3 1.2 0 .3.1.5.3.7-.2.4-.3.9-.2 1.1.1.3.4.3.7.3.3.5 1 .7 1.7.7 1 0 2.4-.3 3.1-.7.5-.2 1-.5 1.3-.8.4-.4.4-1.1-.1-1.3z" fill="#fff"/></svg>`,
+  };
+
+  class CodeGroup extends HTMLElement {
+    connectedCallback() {
+      if (this.dataset.ready) return;
+      this.dataset.ready = "true";
+
+      const panels = Array.from(this.querySelectorAll<HTMLPreElement>(":scope > pre"));
+      if (panels.length === 0) return;
+
+      const groupId = `cg-${Math.random().toString(36).slice(2, 8)}`;
+      const header = document.createElement("div");
+      header.className = "code-group-header";
+
+      const tablist = document.createElement("div");
+      tablist.className = "code-group-tabs";
+      tablist.setAttribute("role", "tablist");
+
+      const indicator = document.createElement("span");
+      indicator.className = "code-group-indicator";
+      indicator.setAttribute("aria-hidden", "true");
+      tablist.appendChild(indicator);
+
+      const copy = document.createElement("button");
+      copy.type = "button";
+      copy.className = "code-group-copy";
+      copy.setAttribute("aria-label", "Copy code");
+
+      const tabs = panels.map((panel, i) => {
+        const label =
+          panel.getAttribute("data-code-title") ||
+          panel.getAttribute("data-code-lang") ||
+          `Tab ${i + 1}`;
+
+        const tab = document.createElement("button");
+        tab.type = "button";
+        tab.className = "code-group-tab";
+        tab.id = `${groupId}-tab-${i}`;
+        tab.setAttribute("role", "tab");
+        tab.setAttribute("aria-selected", i === 0 ? "true" : "false");
+        tab.tabIndex = i === 0 ? 0 : -1;
+
+        const logo = LOGOS[label.toLowerCase()];
+        if (logo) {
+          const mark = document.createElement("span");
+          mark.className = "code-group-logo";
+          mark.innerHTML = logo;
+          tab.appendChild(mark);
+        }
+        tab.appendChild(document.createTextNode(label));
+
+        panel.classList.add("code-group-panel");
+        panel.setAttribute("role", "tabpanel");
+        panel.setAttribute("aria-labelledby", tab.id);
+        panel.hidden = i !== 0;
+
+        tablist.appendChild(tab);
+        return tab;
+      });
+
+      let active = 0;
+      const moveIndicator = () => {
+        const tab = tabs[active];
+        indicator.style.transform = `translateX(${tab.offsetLeft}px)`;
+        indicator.style.width = `${tab.offsetWidth}px`;
+      };
+
+      const select = (i: number, focus = false) => {
+        active = i;
+        panels.forEach((panel, j) => (panel.hidden = j !== i));
+        tabs.forEach((tab, j) => {
+          const selected = j === i;
+          tab.setAttribute("aria-selected", selected ? "true" : "false");
+          tab.tabIndex = selected ? 0 : -1;
+          if (selected && focus) tab.focus();
+        });
+        moveIndicator();
+      };
+
+      tabs.forEach((tab, i) => {
+        tab.addEventListener("click", () => select(i));
+        tab.addEventListener("keydown", (event) => {
+          if (event.key === "ArrowRight" || event.key === "ArrowDown") {
+            event.preventDefault();
+            select((active + 1) % tabs.length, true);
+          } else if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
+            event.preventDefault();
+            select((active - 1 + tabs.length) % tabs.length, true);
+          } else if (event.key === "Home") {
+            event.preventDefault();
+            select(0, true);
+          } else if (event.key === "End") {
+            event.preventDefault();
+            select(tabs.length - 1, true);
+          }
+        });
+      });
+
+      let resetTimer: ReturnType<typeof setTimeout>;
+      copy.addEventListener("click", async () => {
+        const code = panels[active].querySelector("code") ?? panels[active];
+        try {
+          await navigator.clipboard.writeText(code.textContent ?? "");
+          copy.classList.add("is-copied");
+          copy.setAttribute("aria-label", "Copied");
+          clearTimeout(resetTimer);
+          resetTimer = setTimeout(() => {
+            copy.classList.remove("is-copied");
+            copy.setAttribute("aria-label", "Copy code");
+          }, 1500);
+        } catch {
+          /* clipboard unavailable */
+        }
+      });
+
+      header.appendChild(tablist);
+      header.appendChild(copy);
+      this.insertBefore(header, this.firstChild);
+
+      // Position the sliding indicator once laid out, and keep it aligned.
+      requestAnimationFrame(() => {
+        moveIndicator();
+        tablist.classList.add("is-ready");
+      });
+      if (document.fonts?.ready) document.fonts.ready.then(moveIndicator);
+      new ResizeObserver(moveIndicator).observe(tablist);
+    }
+  }
+
+  if (!customElements.get("code-group")) {
+    customElements.define("code-group", CodeGroup);
+  }
+</script>

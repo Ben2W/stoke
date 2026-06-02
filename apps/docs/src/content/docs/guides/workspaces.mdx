@@ -1,0 +1,214 @@
+---
+title: "Workspaces and operations"
+description: "Create named workspaces from workflow output and expose project-specific commands with rig run."
+figure: "configs"
+---
+
+<Note>
+This page is for config authors. For command syntax, use the
+[CLI reference](/reference/cli).
+</Note>
+
+`rig apply` prepares workflow context. `rig create <name>` uses that context to
+create a named workspace. `rig run <name> <operation>` runs project code
+against that workspace. Use `--workflow <workflow>` when selecting a specific
+workflow in a multi-workflow project or running non-interactively.
+
+Providers are lexical. Add `.addProvider(...)` before the workspace hooks or
+operations that use those providers.
+
+## Workspace lifecycle
+
+Add `.workspace({ create, remove })` to make a workflow workspace-capable:
+
+```ts
+export const website = app
+  .sequence("website")
+  .addProvider("freestyle", freestyleProvider)
+  .add(websiteSetup)
+  .workspace({
+    create: async ({ workflow, providers, workspace }) => {
+      const { vmId } = await providers.freestyle.client.vms.create({
+        snapshotId: workflow.ctx.snapshotId,
+        logger: console.log,
+      });
+
+      return {
+        vmId,
+        name: workspace.name,
+        repoPath: workflow.ctx.repoPath,
+        devPort: workflow.ctx.devPort,
+      };
+    },
+    remove: async ({ providers, workspace }) => {
+      await providers.freestyle.client.vms.delete({
+        vmId: workspace.ctx.vmId,
+      });
+    },
+  });
+```
+
+`create` receives the final workflow context and the requested workspace name.
+It returns workspace context, which must be JSON-serializable. Rigkit stores it
+in `.rigkit/state.sqlite`.
+
+`remove` receives the saved workspace context and should clean up provider
+resources.
+
+Run the lifecycle:
+
+```sh
+rig apply
+rig create dev
+rig ls
+rig rm dev
+```
+
+Workspace names may contain letters, numbers, `.`, `_`, and `-`, and cannot
+start with `-`.
+
+## Workspace operations
+
+Workspace operations are project-defined commands:
+
+```ts
+.workspaceOperation("status", {
+  title: "Status",
+  description: "Return workspace details",
+  run: async ({ workspace }) => ({
+    workspace: workspace.name,
+    vmId: workspace.ctx.vmId,
+    repoPath: workspace.ctx.repoPath,
+  }),
+});
+```
+
+Run it:
+
+```sh
+rig run dev status
+rig run dev status --json
+```
+
+Operation results must be JSON-serializable. `--json` prints machine-readable
+output.
+
+## SSH operation
+
+Use the Freestyle terminal provider for browser terminal sessions:
+
+```ts
+.workspaceOperation("ssh", {
+  title: "SSH",
+  description: "Open an interactive shell",
+  run: async ({ providers, workspace }) => {
+    await providers.terminal.open(`SSH ${workspace.name}`, {
+      ssh: await providers.freestyle.createSSHOptions({
+        vmId: workspace.ctx.vmId,
+      }),
+      command: `cd ${workspace.ctx.repoPath} && exec bash -l`,
+      keepOpenAfterCommand: true,
+    });
+  },
+});
+```
+
+## cmux operation
+
+Use the cmux provider when local cmux should open terminals and an optional
+browser URL connected to the remote workspace:
+
+```ts
+.workspaceOperation("open-cmux", {
+  title: "Open cmux",
+  run: async ({ providers, workspace }) => {
+    await providers.cmux.open({
+      name: workspace.name,
+      ssh: await providers.freestyle.cmux.createSshOptions({
+        vmId: workspace.ctx.vmId,
+      }),
+      cwd: workspace.ctx.repoPath,
+      surfaceLayout: "tabs",
+      terminals: [
+        { command: workspace.ctx.devCommand },
+        { command: "codex", focus: false },
+      ],
+      url: `http://localhost:${workspace.ctx.devPort}`,
+      focus: true,
+      waitForRemoteReady: {
+        timeoutMs: 90 * 1000,
+        requireProxy: true,
+      },
+    });
+  },
+});
+```
+
+`surfaceLayout: "tabs"` puts terminals and the browser URL in tabs. Omit it, or
+set `"splits"`, for split panes.
+
+## VS Code operation
+
+The Freestyle provider can create a VS Code Remote SSH URL:
+
+```ts
+.workspaceOperation("open-vscode", {
+  title: "Open VS Code",
+  run: async ({ providers, workspace, local }) => {
+    const url = await providers.freestyle.vscode.createUrl({
+      vmId: workspace.ctx.vmId,
+      cwd: workspace.ctx.repoPath,
+    });
+    await local.open(url);
+  },
+});
+```
+
+## Operation input
+
+Operations declare input with Zod schemas. Runtime hosts use the generated JSON
+Schema to prompt or build CLI flags; Zod enums become select prompts.
+
+```ts
+import { z } from "@rigkit/sdk";
+
+.workspaceOperation("dev", {
+  title: "Start dev server",
+  input: z.object({
+    port: z.number().default(3000).describe("Port to use"),
+    mode: z.enum(["local", "tunnel"]).default("local").describe("Dev mode"),
+  }),
+  run: async ({ input, workspace }) => ({
+    workspace: workspace.name,
+    port: input.port,
+    mode: input.mode,
+  }),
+});
+```
+
+For workspace operations, `rig run <workspace> <operation>` supplies the target
+workspace. Put extra operation inputs in the Zod object.
+
+## Defensive create hooks
+
+If `create` allocates resources and then fails, clean them up before throwing:
+
+```ts
+create: async ({ workflow, providers, workspace }) => {
+  const { vmId } = await providers.freestyle.client.vms.create({
+    snapshotId: workflow.ctx.snapshotId,
+    logger: console.log,
+  });
+
+  try {
+    const branch = `rigkit/${workspace.name}`;
+    // Configure the VM here.
+    return { vmId, branch };
+  } catch (error) {
+    await providers.freestyle.client.vms.delete({ vmId });
+    throw error;
+  }
+}
+```
+
+This prevents failed workspace creates from leaking provider resources.

@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import worker from "./worker.ts";
+import {
+  DOCS_VERSIONS,
+  type ConfiguredDocsVersion,
+} from "./worker/docs-versions.ts";
 
 type MetadataBody = {
   version: string;
@@ -34,10 +38,20 @@ const checksums = [
 ].join("\n");
 
 const originalFetch = globalThis.fetch;
+const originalDocsVersions = DOCS_VERSIONS.map(cloneDocsVersion);
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
+  setDocsVersions(originalDocsVersions);
 });
+
+function setDocsVersions(versions: ConfiguredDocsVersion[]) {
+  DOCS_VERSIONS.splice(0, DOCS_VERSIONS.length, ...versions.map(cloneDocsVersion));
+}
+
+function cloneDocsVersion(version: ConfiguredDocsVersion): ConfiguredDocsVersion {
+  return { ...version };
+}
 
 describe("website worker · install routes", () => {
   test("serves latest release metadata from GitHub releases", async () => {
@@ -164,25 +178,127 @@ describe("website worker · install routes", () => {
     expect(assetCalls).toEqual(["/index.html"]);
   });
 
-  test("redirects /docs paths to docs.rigkit.dev", async () => {
-    const cases = [
-      ["https://www.rigkit.dev/docs", "https://docs.rigkit.dev/"],
-      ["https://www.rigkit.dev/docs/guides/quickstart?foo=1", "https://docs.rigkit.dev/guides/quickstart?foo=1"],
-      ["https://rigkit.dev/docs/reference/cli#version", "https://docs.rigkit.dev/reference/cli#version"],
-      ["https://rig.freestyle.sh/docs/guides/quickstart?foo=1", "https://docs.rigkit.dev/guides/quickstart?foo=1"],
-    ] as const;
+  test("routes latest docs through the docs Worker binding and injects the selector", async () => {
+    const docsCalls: string[] = [];
+    const env: Env = {
+      ...baseEnv(),
+      ASSETS: rejectAssets("ASSETS.fetch should not be called for docs routes"),
+      DOCS_LATEST: {
+        async fetch(request: Request) {
+          docsCalls.push(new URL(request.url).pathname);
+          return new Response("<!doctype html><html><head></head><body><main>docs</main></body></html>", {
+            headers: { "content-type": "text/html; charset=utf-8" },
+          });
+        },
+      },
+    };
 
-    for (const [input, location] of cases) {
-      const response = await worker.fetch(new Request(input), noopAssetsEnv(), ctx());
-      expect(response.status).toBe(308);
-      expect(response.headers.get("location")).toBe(location);
-    }
+    const response = await worker.fetch(
+      new Request("https://www.rigkit.dev/docs/guides/quickstart"),
+      env,
+      ctx(),
+    );
+
+    expect(response.status).toBe(200);
+    expect(docsCalls).toEqual(["/docs/guides/quickstart"]);
+    expect(response.headers.get("x-robots-tag")).toBeNull();
+    expect(await response.text()).toContain('/docs/docs-version-selector.js');
+  });
+
+  test("routes archived docs through their version Worker binding and marks them noindex", async () => {
+    const docsCalls: string[] = [];
+    setDocsVersions([
+      {
+        version: "v0.2.17",
+        label: "v0.2.17 · Latest",
+        basePath: "/docs",
+        startPath: "/docs",
+        binding: "DOCS_LATEST",
+        current: true,
+      },
+      {
+        version: "v0.1",
+        label: "v0.1 · v0.1.9",
+        basePath: "/docs/v0.1",
+        startPath: "/docs/v0.1",
+        binding: "DOCS_V0_1",
+        archive: true,
+      },
+    ]);
+
+    const env: Env = {
+      ...baseEnv(),
+      ASSETS: rejectAssets("ASSETS.fetch should not be called for archived docs routes"),
+      DOCS_LATEST: rejectDocs("DOCS_LATEST should not be called for archived docs routes"),
+      DOCS_V0_1: {
+        async fetch(request: Request) {
+          docsCalls.push(new URL(request.url).pathname);
+          return new Response("just-bash", {
+            headers: { "content-type": "text/plain; charset=utf-8" },
+          });
+        },
+      },
+    };
+
+    const response = await worker.fetch(
+      new Request("https://www.rigkit.dev/docs/v0.1/bash"),
+      env,
+      ctx(),
+    );
+
+    expect(response.status).toBe(200);
+    expect(docsCalls).toEqual(["/docs/v0.1/bash"]);
+    expect(response.headers.get("x-robots-tag")).toBe("noindex");
+    expect(await response.text()).toBe("just-bash");
+  });
+
+  test("serves the public docs versions manifest from the website Worker", async () => {
+    const response = await worker.fetch(
+      new Request("https://www.rigkit.dev/docs/api/versions.json"),
+      {
+        ...baseEnv(),
+        ASSETS: rejectAssets("ASSETS.fetch should not be called for docs manifest"),
+        DOCS_LATEST: rejectDocs("DOCS_LATEST should not be called for docs manifest"),
+      },
+      ctx(),
+    );
+
+    expect(response.status).toBe(200);
+    const body = await response.json() as { entries: Array<Record<string, unknown>> };
+    expect(body.entries).toEqual([
+      {
+        version: "v0.2.17",
+        label: "v0.2.17 · Latest",
+        basePath: "/docs",
+        startPath: "/docs",
+        current: true,
+        archive: false,
+      },
+    ]);
+    expect(body.entries[0]).not.toHaveProperty("binding");
+  });
+
+  test("serves the docs version selector script from the website Worker", async () => {
+    const response = await worker.fetch(
+      new Request("https://www.rigkit.dev/docs/docs-version-selector.js"),
+      {
+        ...baseEnv(),
+        ASSETS: rejectAssets("ASSETS.fetch should not be called for docs selector"),
+        DOCS_LATEST: rejectDocs("DOCS_LATEST should not be called for docs selector"),
+      },
+      ctx(),
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("application/javascript");
+    expect(await response.text()).toContain("/docs/api/versions.json");
   });
 
   test("redirects apex and legacy Freestyle domains to www.rigkit.dev", async () => {
     const cases = [
       ["https://rigkit.dev/install", "https://www.rigkit.dev/install"],
       ["https://rigkit.freestyle.sh/install", "https://www.rigkit.dev/install"],
+      ["https://docs.rigkit.dev/guides/quickstart", "https://www.rigkit.dev/docs/guides/quickstart"],
       ["http://rig.freestyle.sh/latest.json", "https://www.rigkit.dev/latest.json"],
       ["https://rigkit.freestyle.sh/releases/v0.2.9#assets", "https://www.rigkit.dev/releases/v0.2.9#assets"],
     ] as const;
@@ -193,79 +309,12 @@ describe("website worker · install routes", () => {
       expect(response.headers.get("location")).toBe(location);
     }
   });
-
-  test("proxies docs.rigkit.dev to Mintlify", async () => {
-    const proxyCalls: { url: string; host: string | null; forwardedHost: string | null }[] = [];
-    globalThis.fetch = (async (input: Request | string | URL) => {
-      const req = input instanceof Request ? input : new Request(input);
-      proxyCalls.push({
-        url: req.url,
-        host: req.headers.get("Host"),
-        forwardedHost: req.headers.get("X-Forwarded-Host"),
-      });
-      return new Response("<html>mintlify</html>", {
-        status: 200,
-        headers: { "content-type": "text/html" },
-      });
-    }) as typeof fetch;
-
-    const response = await worker.fetch(
-      new Request("https://docs.rigkit.dev/"),
-      noopAssetsEnv(),
-      ctx(),
-    );
-    expect(response.status).toBe(200);
-    expect(await response.text()).toBe("<html>mintlify</html>");
-    expect(proxyCalls).toEqual([
-      {
-        url: "https://freestyle.mintlify.dev/docs",
-        host: "freestyle.mintlify.dev",
-        forwardedHost: "docs.rigkit.dev",
-      },
-    ]);
-  });
-
-  test("proxies nested docs.rigkit.dev paths to Mintlify with query preserved", async () => {
-    const proxyUrls: string[] = [];
-    globalThis.fetch = (async (input: Request | string | URL) => {
-      const req = input instanceof Request ? input : new Request(input);
-      proxyUrls.push(req.url);
-      return new Response("ok");
-    }) as typeof fetch;
-
-    const response = await worker.fetch(
-      new Request("https://docs.rigkit.dev/guides/quickstart?foo=1"),
-      noopAssetsEnv(),
-      ctx(),
-    );
-    expect(response.status).toBe(200);
-    expect(proxyUrls).toEqual([
-      "https://freestyle.mintlify.dev/docs/guides/quickstart?foo=1",
-    ]);
-  });
-
-  test("redirects redundant /docs prefix on docs.rigkit.dev", async () => {
-    const response = await worker.fetch(
-      new Request("https://docs.rigkit.dev/docs/reference/cli#version"),
-      noopAssetsEnv(),
-      ctx(),
-    );
-
-    expect(response.status).toBe(308);
-    expect(response.headers.get("location")).toBe("https://docs.rigkit.dev/reference/cli#version");
-  });
 });
 
 function noopAssetsEnv(): Env {
   return {
-    GITHUB_REPO: "freestyle-sh/rigkit",
-    PUBLIC_BASE_URL: "https://www.rigkit.dev",
-    CACHE_TTL_SECONDS: "30",
-    ASSETS: {
-      async fetch() {
-        throw new Error("ASSETS.fetch should not be called for /docs paths");
-      },
-    },
+    ...baseEnv(),
+    ASSETS: rejectAssets("ASSETS.fetch should not be called for redirect-only paths"),
   };
 }
 
@@ -275,22 +324,43 @@ type Env = {
   PUBLIC_BASE_URL?: string;
   CACHE_TTL_SECONDS?: string;
   ASSETS: { fetch(request: Request): Promise<Response> };
+  DOCS_LATEST?: { fetch(request: Request): Promise<Response> };
+  DOCS_V0_1?: { fetch(request: Request): Promise<Response> };
+  [key: string]: unknown;
 };
 
 function dispatch(url: string, overrides: Partial<Record<"GITHUB_TOKEN", string>> = {}): Promise<Response> {
   const env: Env = {
-    GITHUB_REPO: "freestyle-sh/rigkit",
-    PUBLIC_BASE_URL: "https://www.rigkit.dev",
-    CACHE_TTL_SECONDS: "30",
-    ASSETS: {
-      async fetch() {
-        throw new Error("ASSETS.fetch should not be called for install paths");
-      },
-    },
+    ...baseEnv(),
+    ASSETS: rejectAssets("ASSETS.fetch should not be called for install paths"),
     ...overrides,
   };
 
   return worker.fetch(new Request(url), env, ctx());
+}
+
+function baseEnv(): Omit<Env, "ASSETS"> {
+  return {
+    GITHUB_REPO: "freestyle-sh/rigkit",
+    PUBLIC_BASE_URL: "https://www.rigkit.dev",
+    CACHE_TTL_SECONDS: "30",
+  };
+}
+
+function rejectAssets(message: string): Env["ASSETS"] {
+  return {
+    async fetch() {
+      throw new Error(message);
+    },
+  };
+}
+
+function rejectDocs(message: string): { fetch(request: Request): Promise<Response> } {
+  return {
+    async fetch() {
+      throw new Error(message);
+    },
+  };
 }
 
 function ctx(): ExecutionContext {

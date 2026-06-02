@@ -1,0 +1,24 @@
+---
+interface Props {
+  label: string;
+  tags?: string[];
+}
+
+const { label, tags = [] } = Astro.props;
+---
+
+<section class="doc-update">
+  <header class="doc-update__header">
+    <span class="doc-update__label">{label}</span>
+    {
+      tags.length ? (
+        <span class="doc-update__tags">
+          {tags.map((tag) => <span>{tag}</span>)}
+        </span>
+      ) : null
+    }
+  </header>
+  <div class="doc-update__body">
+    <slot />
+  </div>
+</section>

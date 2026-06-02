@@ -1,0 +1,27 @@
+---
+import { docsWebPath } from "@/lib/docs-paths";
+
+interface Props {
+  title: string;
+  href: string;
+  icon?: string;
+}
+
+const { title, href, icon } = Astro.props;
+const glyph = icon
+  ? icon
+      .split("-")
+      .map((part) => part[0])
+      .join("")
+      .slice(0, 2)
+  : "->";
+const cardHref = href.startsWith("/") ? docsWebPath(href) : href;
+---
+
+<a class="doc-card" href={cardHref}>
+  <span class="doc-card-icon" aria-hidden="true">{glyph}</span>
+  <span class="doc-card-body">
+    <span class="doc-card-title">{title}</span>
+    <span class="doc-card-description"><slot /></span>
+  </span>
+</a>

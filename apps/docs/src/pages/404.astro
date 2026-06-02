@@ -1,0 +1,23 @@
+---
+import "@/styles/docs.css";
+import { docsWebPath } from "@/lib/docs-paths";
+
+export const prerender = true;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Page not found - Rigkit Docs</title>
+    <meta name="robots" content="noindex" />
+  </head>
+  <body>
+    <main class="content">
+      <p class="eyebrow">Rigkit / Docs</p>
+      <h1>Page not found</h1>
+      <p><a class="cursor-install-link" href={docsWebPath("/")}>Start from the overview</a></p>
+    </main>
+  </body>
+</html>

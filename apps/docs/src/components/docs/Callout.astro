@@ -1,0 +1,11 @@
+---
+interface Props {
+  kind?: "note" | "tip";
+}
+
+const { kind = "note" } = Astro.props;
+---
+
+<aside class:list={["doc-callout", `doc-callout--${kind}`]}>
+  <slot />
+</aside>

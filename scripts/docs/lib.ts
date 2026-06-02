@@ -1,47 +1,31 @@
-import {
-  cpSync,
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  readdirSync,
-  rmSync,
-  statSync,
-  writeFileSync,
-} from "node:fs";
-import { extname, join, relative, sep } from "node:path";
-import { parseVersion, root } from "../release/config";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { join, relative, sep } from "node:path";
+import { parseVersion, root, versionLineForVersion } from "../release/config";
 
 export const docsDir = join(root, "apps", "docs");
+export const docsContentDir = join(docsDir, "src", "content", "docs");
 export const docsJsonPath = join(docsDir, "docs.json");
+const websiteWranglerPath = join(root, "apps", "website", "wrangler.jsonc");
+const websiteDocsVersionsPath = join(root, "apps", "website", "src", "worker", "docs-versions.ts");
 export const latestTag = "Latest";
-export const canaryVersion = "Canary";
-export const canaryTag = "Preview";
-const canaryPathPrefix = "canary";
-const legacyLatestVersion = "Latest";
-const legacyCanaryVersion = "canary";
 
 type NavigationPage = string | NavigationGroup;
 
 type NavigationGroup = {
   group?: string;
+  label?: string;
+  root?: string;
   pages?: NavigationPage[];
-  [key: string]: unknown;
-};
-
-type NavigationVersion = {
-  version: string;
-  tag?: string;
-  default?: boolean;
-  pages?: NavigationPage[];
-  groups?: NavigationGroup[];
   [key: string]: unknown;
 };
 
 type DocsJson = {
+  version?: string;
+  tag?: string;
   navigation?: {
     pages?: NavigationPage[];
     groups?: NavigationGroup[];
-    versions?: NavigationVersion[];
+    versions?: unknown;
     [key: string]: unknown;
   };
   [key: string]: unknown;
@@ -65,27 +49,20 @@ export function normalizeDocsVersion(input: string): string {
 }
 
 export function createDocsVersion(inputVersion: string, options: CreateDocsVersionOptions = {}): void {
+  void options;
   const version = normalizeDocsVersion(inputVersion);
   const docsJson = readDocsJson();
-  const latestPages = latestPagesFor(docsJson);
-  const canaryPages = canaryPagesFor(docsJson, latestPages);
-  const versionDir = join(docsDir, version);
+  const previousVersion = docsJson.version;
 
-  if (existsSync(versionDir)) {
-    if (!options.force) {
-      throw new Error(`${relative(root, versionDir)} already exists. Pass --force to replace it.`);
-    }
-    rmSync(versionDir, { recursive: true, force: true });
-  }
+  docsJson.version = version;
+  docsJson.tag = latestTag;
+  delete docsJson.navigation?.versions;
 
-  copyCurrentDocsToVersion(version);
-  rewriteVersionedDocLinks(version);
-  markDocsNoindex(versionDir);
-  ensureCanaryDocs();
-  updateDocsJsonForVersion(docsJson, version, latestPages, canaryPages);
+  writeDocsJson(docsJson);
+  syncWebsiteDocsRouting(previousVersion, version);
   assertDocsReleaseSnapshot(version);
 
-  console.log(`Created docs snapshot ${version}`);
+  console.log(`Updated docs release metadata to ${version}`);
 }
 
 export function assertDocsReleaseSnapshot(inputVersion: string): void {
@@ -98,100 +75,39 @@ export function assertDocsVersion(
 ): void {
   const version = normalizeDocsVersion(inputVersion);
   const docsJson = readDocsJson();
+
+  if (docsJson.version !== version) {
+    throw new Error(`apps/docs/docs.json version must be ${version}; got ${docsJson.version ?? "<missing>"}`);
+  }
+
+  if (options.requireLatestTag && docsJson.tag !== latestTag) {
+    throw new Error(`apps/docs/docs.json tag must be ${JSON.stringify(latestTag)}`);
+  }
+
   const navigation = docsJson.navigation;
-  if (!navigation?.versions || navigation.versions.length === 0) {
-    throw new Error("apps/docs/docs.json must use navigation.versions for release docs");
+  if (!navigation) {
+    throw new Error("apps/docs/docs.json is missing navigation");
   }
 
-  const currentEntry = navigation.versions.find((entry) => entry.default === true);
-  if (!currentEntry) {
-    throw new Error("apps/docs/docs.json is missing a default docs version");
-  }
-  if (currentEntry.version === legacyLatestVersion) {
-    throw new Error(`The default docs version must be a semver release, not ${JSON.stringify(legacyLatestVersion)}`);
-  }
-  if (!isStableDocsVersion(currentEntry.version)) {
-    throw new Error(`The default docs version must be a stable release; got ${currentEntry.version}`);
-  }
-  if (currentEntry.tag !== latestTag) {
-    throw new Error(`The default docs version must be tagged ${JSON.stringify(latestTag)}`);
-  }
-  if (options.requireLatestTag && currentEntry.version !== version) {
-    throw new Error(`The default docs version must be ${version}`);
+  if (navigation.versions) {
+    throw new Error("apps/docs/docs.json must not contain navigation.versions; version routing belongs to apps/website");
   }
 
-  const versionEntry = navigation.versions.find((entry) => entry.version === version);
-  if (!versionEntry) {
-    throw new Error(`apps/docs/docs.json is missing docs version ${version}`);
+  const pages = navigation.pages ?? navigation.groups ?? [];
+  const flatPages = pagesForNavigationPages(pages);
+  if (flatPages.length === 0) {
+    throw new Error("apps/docs/docs.json navigation must include pages");
   }
 
-  const versionDir = join(docsDir, version);
-  if (!existsSync(versionDir) || !statSync(versionDir).isDirectory()) {
-    throw new Error(`Missing docs snapshot directory ${relative(root, versionDir)}`);
-  }
-
-  const canaryEntry = navigation.versions.find((entry) => isCanaryVersion(entry.version));
-  if (!canaryEntry) {
-    throw new Error(`apps/docs/docs.json is missing the ${canaryVersion} docs version`);
-  }
-  if (canaryEntry.tag !== canaryTag) {
-    throw new Error(`The ${canaryVersion} docs version must be tagged ${JSON.stringify(canaryTag)}`);
-  }
-
-  for (const entry of navigation.versions) {
-    if (entry !== currentEntry && entry.default === true) {
-      throw new Error(`Only ${currentEntry.version} may be default; ${entry.version} also has default: true`);
+  for (const page of flatPages) {
+    if (isVersionedPage(page) || page.startsWith("canary/")) {
+      throw new Error(`Docs page ${page} must use an unversioned standalone docs path`);
     }
-    if (entry !== currentEntry && entry.tag === latestTag) {
-      throw new Error(`Only ${currentEntry.version} may be tagged ${JSON.stringify(latestTag)}; ${entry.version} is also tagged`);
-    }
-  }
 
-  const latestPages = pagesForVersion(currentEntry);
-  if (latestPages.length === 0) {
-    throw new Error(`${currentEntry.version} docs version has no pages`);
-  }
-  for (const page of latestPages) {
-    if (isVersionedPage(page) || page.startsWith(`${canaryPathPrefix}/`)) {
-      throw new Error(`${currentEntry.version} docs page ${page} must use an unversioned canonical path`);
-    }
     const path = pagePath(page);
     if (!existsSync(path)) {
-      throw new Error(`${currentEntry.version} docs references missing page ${relative(root, path)}`);
+      throw new Error(`Docs references missing page ${relative(root, path)}`);
     }
-  }
-
-  const archivePages = versionEntry.default === true
-    ? pagesForNavigationPages(prefixPages(latestPages, version))
-    : pagesForVersion(versionEntry);
-  if (archivePages.length === 0) {
-    throw new Error(`Docs version ${version} has no archived pages`);
-  }
-
-  for (const page of archivePages) {
-    if (!page.startsWith(`${version}/`)) {
-      throw new Error(`Archived docs version ${version} page ${page} must live under ${version}/`);
-    }
-    const path = pagePath(page);
-    if (!existsSync(path)) {
-      throw new Error(`Archived docs version ${version} references missing page ${relative(root, path)}`);
-    }
-    assertFileNoindex(path);
-  }
-
-  const canaryPages = pagesForVersion(canaryEntry);
-  if (canaryPages.length === 0) {
-    throw new Error(`${canaryVersion} docs version has no pages`);
-  }
-  for (const page of canaryPages) {
-    if (!page.startsWith(`${canaryPathPrefix}/`)) {
-      throw new Error(`${canaryVersion} docs page ${page} must live under ${canaryPathPrefix}/`);
-    }
-    const path = pagePath(page);
-    if (!existsSync(path)) {
-      throw new Error(`${canaryVersion} docs references missing page ${relative(root, path)}`);
-    }
-    assertFileNoindex(path);
   }
 }
 
@@ -201,258 +117,6 @@ function readDocsJson(): DocsJson {
 
 function writeDocsJson(value: DocsJson): void {
   writeFileSync(docsJsonPath, `${JSON.stringify(value, null, 2)}\n`);
-}
-
-function latestPagesFor(docsJson: DocsJson): NavigationPage[] {
-  const navigation = docsJson.navigation;
-  if (!navigation) {
-    throw new Error("apps/docs/docs.json is missing navigation");
-  }
-
-  if (navigation.versions) {
-    const latest = navigation.versions.find((entry) => entry.version === legacyLatestVersion)
-      ?? navigation.versions.find((entry) => entry.default === true);
-    if (latest) {
-      if (latest.pages) return removeLeadingVersionPrefix(latest.pages);
-      if (latest.groups) return removeLeadingVersionPrefix(latest.groups);
-      throw new Error(`The default docs version must define pages or groups`);
-    }
-
-    const legacyCanary = navigation.versions.find((entry) => isCanaryVersion(entry.version));
-    if (legacyCanary) {
-      const legacyPages = legacyCanary.pages ?? legacyCanary.groups;
-      if (legacyPages) return removePagePrefix(legacyPages, canaryPathPrefix);
-    }
-
-    const defaultVersion = navigation.versions.find((entry) => entry.default === true);
-    const defaultPages = defaultVersion?.pages ?? defaultVersion?.groups;
-    if (defaultPages) return removeLeadingVersionPrefix(defaultPages);
-
-    throw new Error(`apps/docs/docs.json navigation.versions must include a default docs version or ${canaryVersion}`);
-  }
-
-  if (navigation.pages) return navigation.pages;
-  if (navigation.groups) return navigation.groups;
-  throw new Error("apps/docs/docs.json navigation must define pages, groups, or versions");
-}
-
-function canaryPagesFor(docsJson: DocsJson, latestPages: NavigationPage[]): NavigationPage[] {
-  const navigation = docsJson.navigation;
-  const canary = navigation?.versions?.find((entry) => isCanaryVersion(entry.version));
-  const pages = canary?.pages ?? canary?.groups;
-  if (!pages) return prefixPages(latestPages, canaryPathPrefix);
-
-  const flatPages = pagesForNavigationPages(pages);
-  if (flatPages.every((page) => page.startsWith(`${canaryPathPrefix}/`))) {
-    return pages;
-  }
-
-  return prefixPages(removePagePrefix(pages, canaryPathPrefix), canaryPathPrefix);
-}
-
-function copyCurrentDocsToVersion(version: string): void {
-  const targetDir = join(docsDir, version);
-  mkdirSync(targetDir, { recursive: true });
-
-  for (const entry of readdirSync(docsDir, { withFileTypes: true })) {
-    if (shouldSkipDocsRootEntry(entry.name, version)) continue;
-    cpSync(join(docsDir, entry.name), join(targetDir, entry.name), {
-      recursive: true,
-      errorOnExist: false,
-      force: true,
-    });
-  }
-}
-
-function shouldSkipDocsRootEntry(name: string, currentVersion: string): boolean {
-  return (
-    name === currentVersion ||
-    name === canaryPathPrefix ||
-    name === "node_modules" ||
-    name === "docs.json" ||
-    name === "package.json" ||
-    name === "package-lock.json" ||
-    name === "pnpm-lock.yaml" ||
-    name === "yarn.lock" ||
-    name === "bun.lock" ||
-    name === ".gitignore" ||
-    name === ".DS_Store" ||
-    name === ".mintlify" ||
-    /^v\d+\.\d+\.\d+$/.test(name)
-  );
-}
-
-function ensureCanaryDocs(): void {
-  const canaryDir = join(docsDir, canaryPathPrefix);
-  if (existsSync(canaryDir)) return;
-
-  mkdirSync(canaryDir, { recursive: true });
-  for (const entry of readdirSync(docsDir, { withFileTypes: true })) {
-    if (shouldSkipDocsRootEntry(entry.name, canaryPathPrefix)) continue;
-    cpSync(join(docsDir, entry.name), join(canaryDir, entry.name), {
-      recursive: true,
-      errorOnExist: false,
-      force: true,
-    });
-  }
-  rewriteLinksInDocsDir(canaryDir, canaryPathPrefix);
-  markDocsNoindex(canaryDir);
-}
-
-function rewriteVersionedDocLinks(version: string): void {
-  rewriteLinksInDocsDir(join(docsDir, version), version);
-}
-
-function rewriteLinksInDocsDir(dir: string, prefix: string): void {
-  for (const file of listFiles(dir)) {
-    const extension = extname(file);
-    if (extension !== ".mdx" && extension !== ".md") continue;
-    const source = readFileSync(file, "utf8");
-    const next = rewriteAbsoluteDocLinks(source, prefix);
-    if (next !== source) {
-      writeFileSync(file, next);
-    }
-  }
-}
-
-function rewriteAbsoluteDocLinks(source: string, prefix: string): string {
-  return source
-    .replace(
-      /(\]\()\/(?!v\d+\.\d+\.\d+\/|canary\/|\/|#|https?:\/\/)([^)\s]*)/g,
-      `$1/${prefix}/$2`,
-    )
-    .replace(
-      /(href=["'])\/(?!v\d+\.\d+\.\d+\/|canary\/|\/|#|https?:\/\/)([^"']*)/g,
-      `$1/${prefix}/$2`,
-    );
-}
-
-export function markDocsNoindex(dir: string): void {
-  for (const file of listFiles(dir)) {
-    const extension = extname(file);
-    if (extension !== ".mdx" && extension !== ".md") continue;
-    const source = readFileSync(file, "utf8");
-    const next = ensureNoindexFrontmatter(source);
-    if (next !== source) {
-      writeFileSync(file, next);
-    }
-  }
-}
-
-function updateDocsJsonForVersion(
-  docsJson: DocsJson,
-  version: string,
-  latestPages: NavigationPage[],
-  canaryPages: NavigationPage[],
-): void {
-  const navigation = docsJson.navigation ?? {};
-  const existingVersions = navigation.versions ?? [];
-  const latestEntry = existingVersions.find((entry) => entry.version === legacyLatestVersion)
-    ?? existingVersions.find((entry) => entry.default === true);
-  const canaryEntry = existingVersions.find((entry) => isCanaryVersion(entry.version));
-  const previousStable = existingVersions.filter((entry) =>
-    entry.version !== legacyLatestVersion && !isCanaryVersion(entry.version) && entry.version !== version
-  );
-
-  const nextLatest: NavigationVersion = {
-    ...(latestEntry ?? {}),
-    version,
-    default: true,
-    tag: latestTag,
-    pages: latestPages,
-  };
-  delete nextLatest.groups;
-
-  const nextCanary: NavigationVersion = {
-    ...(canaryEntry ?? {}),
-    version: canaryVersion,
-    tag: canaryTag,
-    pages: canaryPages,
-  };
-  delete nextCanary.default;
-  delete nextCanary.groups;
-
-  const nextStableVersions = previousStable.map((entry) => {
-    const sourcePages = entry.pages ?? entry.groups;
-    const next: NavigationVersion = {
-      ...entry,
-      pages: sourcePages ? prefixPages(removeLeadingVersionPrefix(sourcePages), entry.version) : entry.pages,
-    };
-    delete next.default;
-    delete next.groups;
-    if (next.tag === latestTag || next.tag === version) delete next.tag;
-    return next;
-  });
-
-  docsJson.navigation = {
-    ...navigation,
-    versions: [
-      nextLatest,
-      nextCanary,
-      ...nextStableVersions,
-    ],
-  };
-  delete docsJson.navigation.pages;
-  delete docsJson.navigation.groups;
-
-  writeDocsJson(docsJson);
-}
-
-function prefixPages(pages: NavigationPage[], prefix: string): NavigationPage[] {
-  return pages.map((page) => {
-    if (typeof page === "string") return prefixPagePath(page, prefix);
-    const next: NavigationGroup = { ...page };
-    if (typeof next.root === "string") {
-      next.root = prefixPagePath(next.root, prefix);
-    }
-    if (next.pages) {
-      next.pages = prefixPages(next.pages, prefix);
-    }
-    return next;
-  });
-}
-
-function prefixPagePath(page: string, prefix: string): string {
-  if (page.startsWith(`${prefix}/`)) return page;
-  if (/^https?:\/\//.test(page) || page.startsWith("/")) return page;
-  return `${prefix}/${page}`;
-}
-
-function removeLeadingVersionPrefix(pages: NavigationPage[]): NavigationPage[] {
-  return pages.map((page) => {
-    if (typeof page === "string") return page.replace(/^v\d+\.\d+\.\d+\//, "");
-    const next: NavigationGroup = { ...page };
-    if (typeof next.root === "string") {
-      next.root = next.root.replace(/^v\d+\.\d+\.\d+\//, "");
-    }
-    if (next.pages) {
-      next.pages = removeLeadingVersionPrefix(next.pages);
-    }
-    return next;
-  });
-}
-
-function removePagePrefix(pages: NavigationPage[], prefix: string): NavigationPage[] {
-  return pages.map((page) => {
-    if (typeof page === "string") return removePrefix(page, prefix);
-    const next: NavigationGroup = { ...page };
-    if (typeof next.root === "string") {
-      next.root = removePrefix(next.root, prefix);
-    }
-    if (next.pages) {
-      next.pages = removePagePrefix(next.pages, prefix);
-    }
-    return next;
-  });
-}
-
-function removePrefix(page: string, prefix: string): string {
-  return page.startsWith(`${prefix}/`) ? page.slice(prefix.length + 1) : page;
-}
-
-function pagesForVersion(version: NavigationVersion): string[] {
-  const roots: NavigationPage[] = version.pages ?? version.groups ?? [];
-  return pagesForNavigationPages(roots);
 }
 
 function pagesForNavigationPages(roots: NavigationPage[]): string[] {
@@ -473,54 +137,242 @@ function collectPages(pages: NavigationPage[], result: string[]): void {
 }
 
 function pagePath(page: string): string {
-  const normalized = page.split("/").join(sep);
-  return join(docsDir, `${normalized}.mdx`);
-}
-
-function isCanaryVersion(version: string): boolean {
-  return version === canaryVersion || version === legacyCanaryVersion;
-}
-
-function isStableDocsVersion(version: string): boolean {
-  if (!/^v\d+\.\d+\.\d+$/.test(version)) return false;
-  return !version.includes("-");
+  const normalized = (page === "introduction" ? "index" : page).split("/").join(sep);
+  return join(docsContentDir, `${normalized}.mdx`);
 }
 
 function isVersionedPage(page: string): boolean {
-  return /^v\d+\.\d+\.\d+\//.test(page);
+  return /^v\d+\.\d+(?:\.\d+)?\//.test(page);
 }
 
-function ensureNoindexFrontmatter(source: string): string {
-  const match = source.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?/);
-  if (!match) {
-    return `---\nnoindex: true\n---\n\n${source}`;
+function syncWebsiteDocsRouting(previousVersion: string | undefined, nextVersion: string) {
+  if (!existsSync(websiteWranglerPath) || !existsSync(websiteDocsVersionsPath)) return;
+
+  const versionsSource = readFileSync(websiteDocsVersionsPath, "utf8");
+  const currentVersions = readDocsVersionsSource(versionsSource);
+  const previousLine = previousVersion && isStableDocsVersion(previousVersion)
+    ? versionLineForVersion(previousVersion.slice(1))
+    : undefined;
+  const nextLine = versionLineForVersion(nextVersion.slice(1));
+
+  const versions = currentVersions.filter((entry) => entry.version !== nextVersion);
+  const latest = {
+    version: nextVersion,
+    label: `${nextVersion} · Latest`,
+    basePath: "/docs",
+    startPath: "/docs",
+    binding: "DOCS_LATEST",
+    current: true,
+  };
+
+  for (const entry of versions) {
+    if (entry.current) delete entry.current;
+    if (entry.binding === "DOCS_LATEST" || entry.basePath === "/docs") continue;
+    entry.archive = true;
   }
 
-  const frontmatter = match[1];
-  if (/^noindex:\s*true\s*$/m.test(frontmatter)) return source;
+  if (previousVersion && previousLine && previousLine !== nextLine) {
+    const archiveVersion = `v${previousLine}`;
+    const existing = versions.find((entry) => entry.version === archiveVersion);
+    const archive = {
+      version: archiveVersion,
+      label: `${archiveVersion} · ${previousVersion}`,
+      basePath: `/docs/${archiveVersion}`,
+      startPath: `/docs/${archiveVersion}`,
+      binding: bindingNameForLine(archiveVersion),
+      archive: true,
+    };
 
-  const nextFrontmatter = `${frontmatter.trimEnd()}\nnoindex: true`;
-  const body = source.slice(match[0].length).replace(/^\r?\n/, "");
-  return `---\n${nextFrontmatter}\n---\n\n${body}`;
-}
+    if (existing) Object.assign(existing, archive);
+    else versions.push(archive);
+  }
 
-function assertFileNoindex(path: string): void {
-  const source = readFileSync(path, "utf8");
-  const match = source.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?/);
-  if (!match || !/^noindex:\s*true\s*$/m.test(match[1])) {
-    throw new Error(`${relative(root, path)} must set noindex: true`);
+  versions.sort((a, b) => {
+    if (a.binding === "DOCS_LATEST") return -1;
+    if (b.binding === "DOCS_LATEST") return 1;
+    return b.version.localeCompare(a.version, undefined, { numeric: true });
+  });
+
+  const nextVersions = [latest, ...versions.filter((entry) => entry.binding !== "DOCS_LATEST")];
+  const nextVersionsSource = replaceDocsVersionsSource(versionsSource, nextVersions);
+  if (nextVersionsSource !== versionsSource) {
+    writeFileSync(websiteDocsVersionsPath, nextVersionsSource);
+  }
+
+  const wranglerSource = readFileSync(websiteWranglerPath, "utf8");
+  const nextServices = syncDocsServices(readServicesArray(wranglerSource), nextVersions);
+  const nextWranglerSource = replaceArrayProperty(wranglerSource, "services", nextServices);
+  if (nextWranglerSource !== wranglerSource) {
+    writeFileSync(websiteWranglerPath, nextWranglerSource);
   }
 }
 
-function listFiles(dir: string): string[] {
-  const files: string[] = [];
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    const path = join(dir, entry.name);
-    if (entry.isDirectory()) {
-      files.push(...listFiles(path));
-    } else if (entry.isFile()) {
-      files.push(path);
+type WebsiteDocsVersion = {
+  version: string;
+  label?: string;
+  basePath: string;
+  startPath?: string;
+  binding: string;
+  current?: boolean;
+  archive?: boolean;
+};
+
+type WebsiteServiceBinding = {
+  binding: string;
+  service: string;
+};
+
+function readDocsVersionsSource(source: string): WebsiteDocsVersion[] {
+  const arraySource = readExportedArray(source, "DOCS_VERSIONS");
+  if (!arraySource) return [];
+
+  try {
+    const parsed = JSON.parse(arraySource) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(isWebsiteDocsVersion);
+  } catch {
+    return [];
+  }
+}
+
+function isWebsiteDocsVersion(value: unknown): value is WebsiteDocsVersion {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Record<string, unknown>;
+  return (
+    typeof candidate.version === "string" &&
+    typeof candidate.basePath === "string" &&
+    typeof candidate.binding === "string"
+  );
+}
+
+function replaceDocsVersionsSource(source: string, versions: WebsiteDocsVersion[]) {
+  const bounds = exportedArrayBounds(source, "DOCS_VERSIONS");
+  if (!bounds) return source;
+
+  return `${source.slice(0, bounds.start)}${JSON.stringify(versions, null, 2)}${source.slice(bounds.end + 1)}`;
+}
+
+function readServicesArray(source: string): WebsiteServiceBinding[] {
+  const arraySource = readArrayProperty(source, "services");
+  if (!arraySource) return [];
+
+  try {
+    const parsed = JSON.parse(arraySource) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(isWebsiteServiceBinding);
+  } catch {
+    return [];
+  }
+}
+
+function isWebsiteServiceBinding(value: unknown): value is WebsiteServiceBinding {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Record<string, unknown>;
+  return typeof candidate.binding === "string" && typeof candidate.service === "string";
+}
+
+function syncDocsServices(
+  services: WebsiteServiceBinding[],
+  versions: WebsiteDocsVersion[],
+): WebsiteServiceBinding[] {
+  const byBinding = new Map(services.map((service) => [service.binding, service]));
+  for (const version of versions) {
+    byBinding.set(version.binding, {
+      binding: version.binding,
+      service: serviceNameForBinding(version.binding),
+    });
+  }
+  return [...byBinding.values()];
+}
+
+function serviceNameForBinding(binding: string) {
+  if (binding === "DOCS_LATEST") return "rigkit-docs";
+  return `rigkit-docs-${binding.replace(/^DOCS_/, "").toLowerCase().replace(/_/g, "-")}`;
+}
+
+function bindingNameForLine(archiveVersion: string) {
+  return `DOCS_${archiveVersion.replace(/^v/, "V").replace(/\./g, "_")}`;
+}
+
+function readArrayProperty(source: string, property: string) {
+  const propertyIndex = source.indexOf(`"${property}"`);
+  if (propertyIndex < 0) return undefined;
+  const start = source.indexOf("[", propertyIndex);
+  if (start < 0) return undefined;
+  const end = findMatchingBracket(source, start);
+  return end ? source.slice(start, end + 1) : undefined;
+}
+
+function readExportedArray(source: string, exportName: string) {
+  const bounds = exportedArrayBounds(source, exportName);
+  return bounds ? source.slice(bounds.start, bounds.end + 1) : undefined;
+}
+
+function exportedArrayBounds(source: string, exportName: string) {
+  const exportIndex = source.indexOf(`export const ${exportName}`);
+  if (exportIndex < 0) return undefined;
+  const valueIndex = source.indexOf("=", exportIndex);
+  if (valueIndex < 0) return undefined;
+  const start = source.indexOf("[", valueIndex);
+  if (start < 0) return undefined;
+  const end = findMatchingBracket(source, start);
+  return end ? { start, end } : undefined;
+}
+
+function replaceArrayProperty<T>(source: string, property: string, values: T[]) {
+  const propertyIndex = source.indexOf(`"${property}"`);
+  if (propertyIndex < 0) {
+    const insertion = `  "${property}": ${formatJsonArray(values, 2)},\n`;
+    return source.replace(/(\{\n)/, `$1${insertion}`);
+  }
+
+  const start = source.indexOf("[", propertyIndex);
+  if (start < 0) return source;
+  const end = findMatchingBracket(source, start);
+  if (!end) return source;
+
+  return `${source.slice(0, start)}${formatJsonArray(values, 2)}${source.slice(end + 1)}`;
+}
+
+function findMatchingBracket(source: string, start: number) {
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (let index = start; index < source.length; index += 1) {
+    const char = source[index];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === "\\") {
+        escaped = true;
+      } else if (char === "\"") {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (char === "\"") {
+      inString = true;
+      continue;
+    }
+
+    if (char === "[") depth += 1;
+    if (char === "]") {
+      depth -= 1;
+      if (depth === 0) return index;
     }
   }
-  return files;
+
+  return undefined;
+}
+
+function formatJsonArray<T>(values: T[], indent: number) {
+  const formatted = JSON.stringify(values, null, 2);
+  const padding = " ".repeat(indent);
+  return formatted.replace(/\n/g, `\n${padding}`);
+}
+
+function isStableDocsVersion(version: string) {
+  return /^v\d+\.\d+\.\d+$/.test(version);
 }

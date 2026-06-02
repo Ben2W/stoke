@@ -101,7 +101,7 @@ runs:
       shell: bash
       run: pnpm release:bump -- "${{ steps.plan.outputs.version }}"
 
-    - name: Snapshot release docs
+    - name: Update docs release version
       shell: bash
       run: pnpm docs:version -- --version "${{ steps.plan.outputs.version }}"
 
@@ -157,7 +157,7 @@ runs:
           echo "- Current version: ${CURRENT_VERSION}"
           echo "- Target branch: ${TARGET_BRANCH}"
           echo "- Release type: ${RELEASE_TYPE}"
-          echo "- Docs snapshot: apps/docs/v${VERSION}"
+          echo "- Docs metadata: apps/docs/docs.json"
           echo ""
           echo "Merging this PR will create tag v${VERSION}. The tag will trigger npm publishing and the CLI release."
         } > "$body"

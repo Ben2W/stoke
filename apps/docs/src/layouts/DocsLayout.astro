@@ -1,0 +1,1144 @@
+---
+import "@/styles/docs.css";
+import { ClientRouter } from "astro:transitions";
+import CopyPageButton from "@/components/docs/CopyPageButton.astro";
+import OpenMarkdownLink from "@/components/docs/OpenMarkdownLink.astro";
+import OpenInLink from "@/components/docs/OpenInLink.astro";
+import DiscordIcon from "@/components/docs/DiscordIcon.astro";
+import type { MarkdownHeading } from "astro";
+import type { CollectionEntry } from "astro:content";
+import {
+  docDisplayTitle,
+  docOgImagePathFromId,
+  docPathFromId,
+  getAdjacentDocs,
+  getNavigationGroups,
+} from "@/lib/docs";
+import { absolutizeMarkdownLinks, getBundledDocById } from "@/lib/docs-bundle";
+import { docsWebPath } from "@/lib/docs-paths";
+
+interface Props {
+  entry: CollectionEntry<"docs">;
+  entries: CollectionEntry<"docs">[];
+  headings: MarkdownHeading[];
+}
+
+const { entry, entries, headings } = Astro.props;
+const isDev = import.meta.env.DEV;
+const site = Astro.site ?? new URL("https://www.rigkit.dev");
+const path = docPathFromId(entry.id);
+const canonical = new URL(docsWebPath(path), site).toString();
+const generatedOgPath = docOgImagePathFromId(entry.id);
+const ogImage = new URL(docsWebPath(generatedOgPath), site).toString();
+const navGroups = getNavigationGroups(entries);
+const adjacent = getAdjacentDocs(entries, entry);
+
+// Flatten the nav into a per-group list for the ⌘K palette, carrying the
+// folder label so nested pages can show a breadcrumb (e.g. "Domains › DNS").
+type SearchItem = { doc: CollectionEntry<"docs">; folder: string | null };
+const searchGroups = navGroups.map((group) => ({
+  label: group.label,
+  items: group.entries.flatMap((item): SearchItem[] =>
+    "entries" in item
+      ? item.entries.map((folderEntry) => ({ doc: folderEntry, folder: item.label }))
+      : [{ doc: item, folder: null }],
+  ),
+}));
+const tocHeadings = headings.filter((heading) => heading.depth === 2 || heading.depth === 3);
+const markdownPath = path === "/" ? "/index.md" : `${path}.md`;
+const markdownHref = docsWebPath(markdownPath);
+const markdownUrl = new URL(markdownHref, site).toString();
+const ruleSlug = entry.id === "index" ? "docs" : entry.id.replaceAll("/", "-");
+const ruleAddedDate = new Date().toISOString().slice(0, 10);
+const bundledDoc = await getBundledDocById(entry.id);
+const pageMarkdown = bundledDoc
+  ? absolutizeMarkdownLinks(bundledDoc.markdown, docsWebPath(path), site)
+  : "";
+
+const RIGKIT_BLURB = [
+  "Rigkit is Freestyle's TypeScript workflow runner for declarative dev environments. Use it to prepare and cache setup once, then create named workspaces for agents, developers, CI jobs, and tests.",
+  "",
+  "Rigkit resources:",
+  "- Docs: https://www.rigkit.dev/docs",
+  "- LLM index (machine-readable docs map): https://www.rigkit.dev/docs/llms.txt",
+  "- Bash docs API: https://www.rigkit.dev/docs/bash",
+].join("\n");
+
+const ruleText = [
+  `Reference documentation for this page: ${markdownUrl}`,
+  ``,
+  `This rule was added on ${ruleAddedDate}. The snapshot below may be stale; for the most up-to-date docs fetch them live from one of:`,
+  `  • HTTP: \`https://www.rigkit.dev/docs\``,
+  `  • Bash: \`curl https://www.rigkit.dev/docs/bash --data-binary 'cat ${markdownPath}'\``,
+  ``,
+  `When answering questions related to Rigkit, consult these sources as authoritative.`,
+  ``,
+  `---`,
+  ``,
+  pageMarkdown,
+  ``,
+  `---`,
+  ``,
+  RIGKIT_BLURB,
+].join("\n");
+const cursorRuleUrl = `https://cursor.com/link/rule?${new URLSearchParams({
+  name: `rigkit-${ruleSlug}`,
+  text: ruleText,
+}).toString()}`;
+
+const aiPrompt = [
+  `Source: ${markdownUrl}`,
+  ``,
+  `--- ${entry.data.title} ---`,
+  ``,
+  pageMarkdown,
+  ``,
+  `---`,
+  ``,
+  `Use the documentation above as context. What would you like to know?`,
+  ``,
+  RIGKIT_BLURB,
+].join("\n");
+const chatGptUrl = `https://chatgpt.com/?${new URLSearchParams({ q: aiPrompt }).toString()}`;
+
+const claudeSkillName = `rigkit-${ruleSlug}`;
+// Quote YAML scalar values: the description embeds `: ` (from the title and the
+// `Source:` URL), which an unquoted scalar parses as a mapping separator and
+// fails. JSON.stringify produces a double-quoted string that is valid YAML.
+const skillDescription = `Rigkit docs reference for "${entry.data.title}". Use when the user asks about ${entry.data.title} or related Rigkit topics. Source: ${markdownUrl}`;
+const skillBody = [
+  `<<<SKILL`,
+  `---`,
+  `name: ${claudeSkillName}`,
+  `description: ${JSON.stringify(skillDescription)}`,
+  `---`,
+  ``,
+  `# ${entry.data.title}`,
+  ``,
+  pageMarkdown,
+  ``,
+  `---`,
+  ``,
+  `## About Rigkit`,
+  ``,
+  RIGKIT_BLURB,
+  ``,
+  `> Snapshot ${ruleAddedDate}. These docs may be stale; fetch the latest from the resources above.`,
+  `SKILL>>>`,
+].join("\n");
+
+const claudeSkillPrompt = [
+  `Install as a global Claude Code skill: write the body between \`<<<SKILL\` and \`SKILL>>>\` (not the markers) to ~/.claude/skills/${claudeSkillName}/SKILL.md, creating the dir if needed. Then reply "Added skill ${claudeSkillName}." plus a short summary of what the docs cover.`,
+  ``,
+  skillBody,
+].join("\n");
+const claudeCodeUrl = `claude-cli://open?${new URLSearchParams({ q: claudeSkillPrompt }).toString()}`;
+
+const codexSkillPrompt = [
+  `Install as a global Codex skill: write the body between \`<<<SKILL\` and \`SKILL>>>\` (not the markers) to ~/.agents/skills/${claudeSkillName}/SKILL.md, creating the dir if needed. Then reply "Added skill ${claudeSkillName}." plus a short summary of what the docs cover.`,
+  ``,
+  skillBody,
+].join("\n");
+const codexUrl = `codex://threads/new?${new URLSearchParams({ prompt: codexSkillPrompt }).toString()}`;
+
+const conductorPrompt = [
+  `Install as a global skill. Write the body between \`<<<SKILL\` and \`SKILL>>>\` (not the markers) to your runtime's skills dir, creating it if needed:`,
+  `- Claude Code → ~/.claude/skills/${claudeSkillName}/SKILL.md`,
+  `- Codex → ~/.agents/skills/${claudeSkillName}/SKILL.md`,
+  ``,
+  `Then reply "Added skill ${claudeSkillName}." plus a short summary of what the docs cover.`,
+  ``,
+  skillBody,
+].join("\n");
+const conductorUrl = `conductor://prompt=${encodeURIComponent(conductorPrompt)}`;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" href={docsWebPath("/favicon.png")} />
+    <link rel="canonical" href={canonical} />
+    <title>{entry.data.title} - Rigkit Docs</title>
+    <meta name="description" content={entry.data.description} />
+    {entry.data.noindex ? <meta name="robots" content="noindex" /> : null}
+    <meta property="og:title" content={`${entry.data.title} - Rigkit Docs`} />
+    <meta property="og:description" content={entry.data.description} />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:site_name" content="Rigkit Docs" />
+    <meta property="og:type" content="article" />
+    <meta property="og:image" content={ogImage} />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={`${entry.data.title} - Rigkit Docs`} />
+    <meta name="twitter:description" content={entry.data.description} />
+    <meta name="twitter:image" content={ogImage} />
+    {
+      isDev && (
+        <script is:inline>
+          import("/@vite/client");
+        </script>
+      )
+    }
+    <ClientRouter />
+  </head>
+  <body>
+    <a class="skip-link" href="#content">Skip to content</a>
+    <div class="site-shell">
+      <header class="topbar" transition:persist>
+        <button
+          class="menu-toggle"
+          type="button"
+          aria-label="Toggle navigation menu"
+          aria-expanded="false"
+          aria-controls="docs-nav"
+        >
+          <svg
+            class="menu-toggle__open"
+            width="26"
+            height="26"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            aria-hidden="true"
+          >
+            <path d="M3 8.5h18M3 15.5h18"></path>
+          </svg>
+          <svg
+            class="menu-toggle__close"
+            width="26"
+            height="26"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            aria-hidden="true"
+          >
+            <path d="M5 5l14 14M19 5 5 19"></path>
+          </svg>
+        </button>
+        <a class="brand" href={docsWebPath("/")}>
+          <img src={docsWebPath("/logo.svg")} alt="" />
+          <span>Rigkit Docs</span>
+        </a>
+        <nav aria-label="Top navigation">
+          <a class="nav-discord" href="https://discord.gg/v5WT4fbXhc">
+            <DiscordIcon class="nav-discord-icon" />
+            <span>Discord</span>
+          </a>
+          <a class="nav-dashboard" href="https://github.com/freestyle-sh/rigkit">GitHub</a>
+        </nav>
+      </header>
+
+      <div class="nav-scrim" aria-hidden="true"></div>
+
+      <div class="docs-shell">
+        <aside id="docs-nav" class="sidebar" aria-label="Documentation navigation">
+          <button
+            class="sidebar-search"
+            type="button"
+            aria-label="Search docs"
+            aria-haspopup="dialog"
+            aria-keyshortcuts="Meta+K Control+K"
+          >
+            <span class="sidebar-search__prompt" aria-hidden="true">❯</span>
+            <span class="sidebar-search__label">search</span>
+            <kbd class="sidebar-search__kbd">⌘K</kbd>
+          </button>
+          {
+            navGroups.map((group) => (
+              <section class="nav-group">
+                <h2>{group.label}</h2>
+                <ul>
+                  {group.entries.map((item) => {
+                    if ("entries" in item) {
+                      const active = item.entries.some((folderEntry) => folderEntry.id === entry.id);
+                      return (
+                        <li>
+                          <details class="nav-folder" open={active}>
+                            <summary>{item.label}</summary>
+                            <ul>
+                              {item.entries.map((folderEntry) => {
+                                const href = docsWebPath(docPathFromId(folderEntry.id));
+                                const folderEntryActive = folderEntry.id === entry.id;
+                                return (
+                                  <li>
+                                    <a aria-current={folderEntryActive ? "page" : undefined} href={href}>
+                                      {docDisplayTitle(folderEntry)}
+                                    </a>
+                                  </li>
+                                );
+                              })}
+                            </ul>
+                          </details>
+                        </li>
+                      );
+                    }
+
+                    const href = docsWebPath(docPathFromId(item.id));
+                    const active = item.id === entry.id;
+                    return (
+                      <li>
+                        <a aria-current={active ? "page" : undefined} href={href}>
+                          {docDisplayTitle(item)}
+                        </a>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </section>
+            ))
+          }
+
+          <div class="drawer-links">
+            <a class="drawer-link" href="https://discord.gg/v5WT4fbXhc">
+              <DiscordIcon class="drawer-link-icon" />
+              <span>Discord</span>
+            </a>
+            <a class="drawer-link" href="https://github.com/freestyle-sh/rigkit">
+              <svg
+                class="drawer-link-icon"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.8"
+                aria-hidden="true"
+              >
+                <rect x="3.5" y="3.5" width="7" height="7" rx="1.5"></rect>
+                <rect x="13.5" y="3.5" width="7" height="7" rx="1.5"></rect>
+                <rect x="3.5" y="13.5" width="7" height="7" rx="1.5"></rect>
+                <rect x="13.5" y="13.5" width="7" height="7" rx="1.5"></rect>
+              </svg>
+              <span>GitHub</span>
+            </a>
+          </div>
+        </aside>
+
+        <main class="content" id="content" transition:name="docs-content">
+          <p class="eyebrow" transition:persist transition:name="docs-eyebrow">Rigkit / Docs</p>
+          <h1>{entry.data.title}</h1>
+          <p class="description">{entry.data.description}</p>
+          <article class="doc-prose">
+            <slot />
+          </article>
+
+          <nav class="pagination" aria-label="Previous and next pages">
+            {
+              adjacent.previous ? (
+                <a href={docsWebPath(docPathFromId(adjacent.previous.id))} rel="prev">
+                  <span>Previous</span>
+                  {docDisplayTitle(adjacent.previous)}
+                </a>
+              ) : (
+                <span />
+              )
+            }
+            {
+              adjacent.next ? (
+                <a href={docsWebPath(docPathFromId(adjacent.next.id))} rel="next">
+                  <span>Next</span>
+                  {docDisplayTitle(adjacent.next)}
+                </a>
+              ) : null
+            }
+          </nav>
+        </main>
+
+        <div class="toc-rail">
+          <aside class="toc" aria-label="On this page">
+            <h2>On this page</h2>
+            {
+              tocHeadings.length ? (
+                <ol>
+                  {tocHeadings.map((heading) => (
+                    <li class={`depth-${heading.depth}`}>
+                      <a href={`#${heading.slug}`}>{heading.text}</a>
+                    </li>
+                  ))}
+                </ol>
+              ) : null
+            }
+          </aside>
+          <div class="toc-rail-actions">
+            <OpenInLink href={claudeCodeUrl} label="Open in Claude Code" brand="claudecode" />
+            <OpenInLink href={codexUrl} label="Open in Codex" brand="codex" />
+            <OpenInLink href={cursorRuleUrl} label="Open in Cursor" brand="cursor" />
+            <OpenInLink href={conductorUrl} label="Open in Conductor" brand="conductor" />
+            <OpenInLink href={chatGptUrl} label="Open in ChatGPT" brand="chatgpt" />
+            <OpenMarkdownLink href={markdownHref} />
+            <CopyPageButton href={markdownHref} />
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <dialog
+      id="search-dialog"
+      class="cmdk"
+      aria-label="Search docs"
+      data-search-url={docsWebPath("/api/search")}
+    >
+      <div class="cmdk__panel">
+        <div class="cmdk__input">
+          <span class="cmdk__prompt" aria-hidden="true">❯</span>
+          <div class="cmdk__entry is-empty">
+            <input
+              type="text"
+              class="cmdk__field"
+              aria-label="Search the docs"
+              autocomplete="off"
+              autocorrect="off"
+              autocapitalize="off"
+              spellcheck="false"
+            />
+            <span class="cmdk__cursor" aria-hidden="true"></span>
+            <span class="cmdk__hint" aria-hidden="true">search the docs</span>
+          </div>
+          <kbd class="cmdk__esc">esc</kbd>
+        </div>
+        <ul class="cmdk__results">
+          {
+            searchGroups.map((group) => (
+              <li class="cmdk__group">
+                <p class="cmdk__group-label">{group.label}</p>
+                <ul>
+                  {group.items.map(({ doc, folder }) => (
+                    <li class="cmdk__item">
+                      <a href={docsWebPath(docPathFromId(doc.id))}>
+                        <span class="cmdk__item-title">
+                          {folder ? (
+                            <span class="cmdk__crumb">
+                              {folder} <span aria-hidden="true">›</span>{" "}
+                            </span>
+                          ) : null}
+                          {docDisplayTitle(doc)}
+                        </span>
+                        <span class="cmdk__item-desc">{doc.data.description}</span>
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              </li>
+            ))
+          }
+        </ul>
+        <footer class="cmdk__footer">
+          <span><kbd>↑</kbd><kbd>↓</kbd> navigate</span>
+          <span><kbd>↵</kbd> open</span>
+          <span><kbd>esc</kbd> close</span>
+        </footer>
+      </div>
+    </dialog>
+
+    <script>
+      import type { SearchPreviewProps } from "@/components/docs/SearchPreview";
+
+      // Add a copy button to standalone code blocks (CodeGroup handles its own).
+      // Runs on every page load, including client-side navigations via the router.
+      function enhanceCodeBlocks() {
+        for (const pre of document.querySelectorAll<HTMLPreElement>(".doc-prose pre")) {
+          if (pre.closest("code-group") || pre.parentElement?.classList.contains("code-block")) {
+            continue;
+          }
+
+          const wrapper = document.createElement("div");
+          wrapper.className = "code-block";
+          pre.replaceWith(wrapper);
+          wrapper.appendChild(pre);
+
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = "code-copy";
+          button.setAttribute("aria-label", "Copy code");
+          wrapper.appendChild(button);
+
+          let resetTimer: ReturnType<typeof setTimeout>;
+          button.addEventListener("click", async () => {
+            const code = pre.querySelector("code") ?? pre;
+            try {
+              await navigator.clipboard.writeText(code.textContent ?? "");
+              button.classList.add("is-copied");
+              button.setAttribute("aria-label", "Copied");
+              clearTimeout(resetTimer);
+              resetTimer = setTimeout(() => {
+                button.classList.remove("is-copied");
+                button.setAttribute("aria-label", "Copy code");
+              }, 1500);
+            } catch {
+              /* clipboard unavailable */
+            }
+          });
+        }
+      }
+
+      document.addEventListener("astro:page-load", enhanceCodeBlocks);
+
+      // The sidebar is persisted across navigations, so move the active highlight
+      // to the current page on each load.
+      function updateActiveNav() {
+        const current = location.pathname.replace(/\/+$/, "") || "/";
+        for (const link of document.querySelectorAll<HTMLAnchorElement>(".sidebar a")) {
+          const href = (link.getAttribute("href") ?? "").replace(/\/+$/, "") || "/";
+          if (href === current) link.setAttribute("aria-current", "page");
+          else link.removeAttribute("aria-current");
+        }
+
+        for (const folder of document.querySelectorAll<HTMLDetailsElement>(".sidebar details.nav-folder")) {
+          folder.open = Boolean(folder.querySelector('a[aria-current="page"]'));
+        }
+      }
+
+      document.addEventListener("astro:page-load", updateActiveNav);
+
+      // Mobile navigation menu: the sidebar is hidden behind a toggle on small
+      // screens so the page content is visible immediately. The button and the
+      // sidebar both persist across navigations, so bind once and reset state
+      // (closed) on every page load.
+      function setupMenuToggle() {
+        const toggle = document.querySelector<HTMLButtonElement>(".menu-toggle");
+        const sidebar = document.getElementById("docs-nav");
+        const scrim = document.querySelector<HTMLElement>(".nav-scrim");
+        if (!toggle || !sidebar) return;
+
+        const close = () => {
+          sidebar.classList.remove("is-open");
+          toggle.setAttribute("aria-expanded", "false");
+          document.body.classList.remove("nav-open");
+        };
+
+        // Always start a fresh page with the menu closed.
+        close();
+
+        // The scrim is re-rendered on each navigation, so bind it every load.
+        if (scrim && scrim.dataset.bound !== "1") {
+          scrim.dataset.bound = "1";
+          scrim.addEventListener("click", close);
+        }
+
+        // The toggle and sidebar persist across navigations; bind them once.
+        if (toggle.dataset.bound === "1") return;
+        toggle.dataset.bound = "1";
+
+        toggle.addEventListener("click", () => {
+          const open = sidebar.classList.toggle("is-open");
+          toggle.setAttribute("aria-expanded", String(open));
+          document.body.classList.toggle("nav-open", open);
+        });
+
+        // Tapping a destination closes the menu (same-page anchors won't
+        // trigger a navigation, so handle it explicitly).
+        sidebar.addEventListener("click", (event) => {
+          if ((event.target as HTMLElement).closest("a")) close();
+        });
+
+        // Allow Escape to dismiss the menu.
+        document.addEventListener("keydown", (event) => {
+          if (event.key === "Escape" && sidebar.classList.contains("is-open")) close();
+        });
+      }
+
+      document.addEventListener("astro:page-load", setupMenuToggle);
+
+      // "On this page" scrollspy: slide a small square to the section in view.
+      let tocUpdate: () => void = () => {};
+      let tocListenersAttached = false;
+
+      function setupToc() {
+        const list = document.querySelector<HTMLOListElement>(".toc ol");
+        if (!list) {
+          tocUpdate = () => {};
+          return;
+        }
+
+        const entries = Array.from(list.querySelectorAll<HTMLAnchorElement>("a[href^='#']"))
+          .map((a) => {
+            const id = decodeURIComponent(a.hash.slice(1));
+            return { a, id, heading: document.getElementById(id) };
+          })
+          .filter((e): e is { a: HTMLAnchorElement; id: string; heading: HTMLElement } => !!e.heading);
+
+        if (entries.length === 0) {
+          tocUpdate = () => {};
+          return;
+        }
+
+        let indicator = list.querySelector<HTMLSpanElement>(".toc-indicator");
+        if (!indicator) {
+          indicator = document.createElement("span");
+          indicator.className = "toc-indicator";
+          indicator.setAttribute("aria-hidden", "true");
+          list.appendChild(indicator);
+        }
+        const square = indicator;
+
+        let activeId: string | null = null;
+        tocUpdate = () => {
+          const threshold = 120;
+          let current = entries[0];
+          for (const entry of entries) {
+            if (entry.heading.getBoundingClientRect().top - threshold <= 0) current = entry;
+            else break;
+          }
+          // Snap to the last section once scrolled to the bottom.
+          if (window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 2) {
+            current = entries[entries.length - 1];
+          }
+
+          if (current.id !== activeId) {
+            activeId = current.id;
+            for (const entry of entries) {
+              if (entry === current) entry.a.setAttribute("aria-current", "true");
+              else entry.a.removeAttribute("aria-current");
+            }
+          }
+          const { a } = current;
+          square.style.transform = `translateY(${a.offsetTop + a.offsetHeight / 2 - 3}px)`;
+        };
+
+        tocUpdate();
+        requestAnimationFrame(() => square.classList.add("is-ready"));
+
+        if (!tocListenersAttached) {
+          tocListenersAttached = true;
+          window.addEventListener("scroll", () => tocUpdate(), { passive: true });
+          window.addEventListener("resize", () => tocUpdate());
+        }
+      }
+
+      document.addEventListener("astro:page-load", setupToc);
+
+      // Copy-page buttons: fetch the .md twin of the current page and copy it.
+      function setupCopyPage() {
+        for (const btn of document.querySelectorAll<HTMLButtonElement>(".copy-page")) {
+          if (btn.dataset.copyBound === "1") continue;
+          btn.dataset.copyBound = "1";
+
+          const labelEl = btn.querySelector<HTMLSpanElement>(".copy-page__label");
+          const originalLabel = labelEl?.textContent ?? "Copy page";
+          let resetTimer: ReturnType<typeof setTimeout>;
+
+          btn.addEventListener("click", async () => {
+            const href = btn.dataset.mdHref;
+            if (!href) return;
+            try {
+              const res = await fetch(href);
+              if (!res.ok) throw new Error(`${res.status}`);
+              const text = await res.text();
+              await navigator.clipboard.writeText(text);
+              btn.classList.add("is-copied");
+              if (labelEl) labelEl.textContent = "Copied";
+              clearTimeout(resetTimer);
+              resetTimer = setTimeout(() => {
+                btn.classList.remove("is-copied");
+                if (labelEl) labelEl.textContent = originalLabel;
+              }, 1500);
+            } catch {
+              /* fetch or clipboard unavailable */
+            }
+          });
+        }
+      }
+
+      document.addEventListener("astro:page-load", setupCopyPage);
+
+      // Size the terminal field to its text so the block cursor sits flush
+      // against the last character (the native caret is hidden in CSS).
+      function syncSearchCursor() {
+        const entry = document.querySelector<HTMLElement>(".cmdk__entry");
+        const input = document.querySelector<HTMLInputElement>(".cmdk__field");
+        if (!entry || !input) return;
+        let mirror = entry.querySelector<HTMLElement>(".cmdk__mirror");
+        if (!mirror) {
+          mirror = document.createElement("span");
+          mirror.className = "cmdk__mirror";
+          mirror.setAttribute("aria-hidden", "true");
+          entry.appendChild(mirror);
+        }
+        mirror.textContent = input.value;
+        input.style.width = `${mirror.offsetWidth}px`;
+        entry.classList.toggle("is-empty", input.value.length === 0);
+
+        // The faux block cursor only tells the truth when the real caret is at
+        // the very end of the text with nothing selected — that's the one spot
+        // it's drawn. The moment the caret moves into the middle (arrow keys,
+        // a click, a selection) the block would point at the wrong place, so we
+        // hide it and hand the genuine caret back (see .is-caret-detached).
+        const caretAtEnd =
+          input.selectionStart === input.value.length &&
+          input.selectionEnd === input.value.length;
+        entry.classList.toggle("is-caret-detached", !caretAtEnd);
+      }
+
+      type DocsSearchResult = {
+        path: string;
+        title: string;
+        description: string;
+        sectionTitle?: string;
+        snippet: string;
+        previewMarkdown: string;
+        previewKind: "text" | "code";
+        previewLanguage?: string;
+        highlightTerms?: string[];
+        highlightPhraseTerms?: string[];
+      };
+
+      type DocsSearchPayload = {
+        query: string;
+        results: DocsSearchResult[];
+      };
+      type SearchPreviewModuleApi = typeof import("@/components/docs/SearchPreview");
+
+      let searchAbortController: AbortController | undefined;
+      let searchRequestId = 0;
+      let activeSearchItem = -1;
+      let browseResultsHtml: string | undefined;
+      let searchPreviewElements: HTMLElement[] = [];
+      let searchPreviewModule: SearchPreviewModuleApi | undefined;
+      let searchPreviewModulePromise: Promise<SearchPreviewModuleApi> | undefined;
+
+      const preloadSearchPreviewInDev = import.meta.env.DEV;
+
+      function searchResultsElement() {
+        return document.querySelector<HTMLElement>(".cmdk__results");
+      }
+
+      function ensureBrowseResults() {
+        const results = searchResultsElement();
+        if (!results || browseResultsHtml !== undefined) return;
+        browseResultsHtml = results.innerHTML;
+      }
+
+      function searchResultAnchors() {
+        return Array.from(document.querySelectorAll<HTMLAnchorElement>(".cmdk__item > a"));
+      }
+
+      function setActiveSearchItem(index: number) {
+        const anchors = searchResultAnchors();
+        if (anchors.length === 0) {
+          activeSearchItem = -1;
+          return;
+        }
+
+        activeSearchItem = (index + anchors.length) % anchors.length;
+
+        anchors.forEach((anchor, anchorIndex) => {
+          anchor.classList.toggle("is-active", anchorIndex === activeSearchItem);
+          anchor.setAttribute("aria-selected", anchorIndex === activeSearchItem ? "true" : "false");
+        });
+
+        anchors[activeSearchItem]?.scrollIntoView({ block: "nearest" });
+      }
+
+      function renderBrowseResults() {
+        const results = searchResultsElement();
+        if (!results) return;
+        ensureBrowseResults();
+        clearSearchPreviews();
+        results.innerHTML = browseResultsHtml ?? "";
+        setActiveSearchItem(0);
+      }
+
+      function clearSearchPreviews() {
+        const elements = searchPreviewElements;
+        searchPreviewElements = [];
+        if (!searchPreviewModule) return;
+        for (const element of elements) searchPreviewModule.unmountSearchPreview(element);
+      }
+
+      function loadSearchPreviewModule() {
+        if (searchPreviewModule) return Promise.resolve(searchPreviewModule);
+        searchPreviewModulePromise ??= import("@/components/docs/SearchPreview").then(
+          (module) => {
+            searchPreviewModule = module;
+            return module;
+          },
+          (error) => {
+            searchPreviewModulePromise = undefined;
+            throw error;
+          },
+        );
+        return searchPreviewModulePromise;
+      }
+
+      function preloadSearchPreviewModule() {
+        if (!preloadSearchPreviewInDev) return;
+        void loadSearchPreviewModule().catch((error) => {
+          console.warn("Search preview renderer failed to preload", error);
+        });
+      }
+
+      async function loadSearchPreviewModuleForSearch() {
+        try {
+          return await loadSearchPreviewModule();
+        } catch (error) {
+          if (!preloadSearchPreviewInDev) throw error;
+          await new Promise((resolve) => setTimeout(resolve, 150));
+          return loadSearchPreviewModule();
+        }
+      }
+
+      function renderSearchMessage(message: string) {
+        const results = searchResultsElement();
+        if (!results) return;
+
+        const item = document.createElement("li");
+        item.className = "cmdk__empty";
+        item.textContent = message;
+        clearSearchPreviews();
+        results.replaceChildren(item);
+        activeSearchItem = -1;
+      }
+
+      // Merge the (case-insensitive) spans of every highlight term in a string,
+      // mirroring the snippet highlighter so titles/headings mark the same words.
+      function highlightRanges(value: string, terms: string[]): Array<[number, number]> {
+        const lower = value.toLowerCase();
+        const ranges: Array<[number, number]> = [];
+        for (const term of terms) {
+          if (term.length < 1) continue;
+          let index = lower.indexOf(term);
+          while (index !== -1) {
+            ranges.push([index, index + term.length]);
+            index = lower.indexOf(term, index + term.length);
+          }
+        }
+        return ranges
+          .sort((a, b) => a[0] - b[0])
+          .reduce<Array<[number, number]>>((merged, range) => {
+            const previous = merged[merged.length - 1];
+            if (previous && range[0] <= previous[1]) previous[1] = Math.max(previous[1], range[1]);
+            else merged.push([...range]);
+            return merged;
+          }, []);
+      }
+
+      function escapeRegExp(value: string) {
+        return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      }
+
+      function contextualHighlightRanges(value: string, terms: string[]): Array<[number, number]> {
+        if (terms.length < 2) return [];
+
+        const tokenPattern = terms.map(escapeRegExp).join("[^A-Za-z0-9]+");
+        const phrasePattern = new RegExp(`(^|[^A-Za-z0-9])(${tokenPattern})(?=$|[^A-Za-z0-9])`, "gi");
+        const ranges: Array<[number, number]> = [];
+
+        for (const match of value.matchAll(phrasePattern)) {
+          const phrase = match[2];
+          if (!phrase || match.index === undefined) continue;
+
+          const phraseStart = match.index + (match[1]?.length ?? 0);
+          const termPattern = new RegExp(terms.map(escapeRegExp).join("|"), "gi");
+          for (const termMatch of phrase.matchAll(termPattern)) {
+            if (termMatch.index === undefined) continue;
+            ranges.push([
+              phraseStart + termMatch.index,
+              phraseStart + termMatch.index + termMatch[0].length,
+            ]);
+          }
+        }
+
+        return ranges;
+      }
+
+      function mergeHighlightRanges(ranges: Array<[number, number]>) {
+        return ranges
+          .sort((a, b) => a[0] - b[0])
+          .reduce<Array<[number, number]>>((merged, range) => {
+            const previous = merged[merged.length - 1];
+            if (previous && range[0] <= previous[1]) previous[1] = Math.max(previous[1], range[1]);
+            else merged.push([...range]);
+            return merged;
+          }, []);
+      }
+
+      // Fill an element with text, wrapping matched query terms in <mark> so the
+      // result title and section heading show why they matched.
+      function fillHighlighted(
+        target: HTMLElement,
+        text: string,
+        terms: string[],
+        phraseTerms: string[] = [],
+      ) {
+        const ranges = mergeHighlightRanges([
+          ...(terms.length ? highlightRanges(text, terms) : []),
+          ...contextualHighlightRanges(text, phraseTerms),
+        ]);
+        if (ranges.length === 0) {
+          target.textContent = text;
+          return;
+        }
+        target.replaceChildren();
+        let cursor = 0;
+        for (const [start, end] of ranges) {
+          if (start > cursor) target.appendChild(document.createTextNode(text.slice(cursor, start)));
+          const mark = document.createElement("mark");
+          mark.textContent = text.slice(start, end);
+          target.appendChild(mark);
+          cursor = end;
+        }
+        if (cursor < text.length) target.appendChild(document.createTextNode(text.slice(cursor)));
+      }
+
+      function resultAreaLabel(path: string) {
+        const pathname = path.split("#", 1)[0] ?? path;
+        const parts = pathname.replace(/^\/docs\/?/, "").split("/").filter(Boolean);
+        const section = parts[0] ?? "";
+
+        switch (section) {
+          case "":
+          case "introduction":
+          case "quickstart":
+            return "Start";
+          case "guides":
+          case "advanced":
+            return "Writing configs";
+          case "concepts":
+            return "Concepts";
+          case "providers":
+            return "Providers";
+          case "reference":
+            return "Reference";
+          default:
+            return "Docs";
+        }
+      }
+
+      function resultContext(result: DocsSearchResult) {
+        if (!result.sectionTitle) return result.description;
+        return `${resultAreaLabel(result.path)} / ${result.title}`;
+      }
+
+      function renderSearchResults(payload: DocsSearchPayload, previewModule?: SearchPreviewModuleApi) {
+        const results = searchResultsElement();
+        if (!results) return;
+
+        if (payload.results.length === 0) {
+          renderSearchMessage(`No results for "${payload.query}"`);
+          return;
+        }
+
+        clearSearchPreviews();
+        const group = document.createElement("li");
+        group.className = "cmdk__group";
+
+        const label = document.createElement("p");
+        label.className = "cmdk__group-label";
+        label.textContent = "Results";
+        group.appendChild(label);
+
+        const list = document.createElement("ul");
+        for (const result of payload.results) {
+          const item = document.createElement("li");
+          item.className = "cmdk__item";
+
+          const link = document.createElement("a");
+          link.href = result.path;
+
+          const highlightTerms = result.highlightTerms ?? [];
+          const highlightPhraseTerms = result.highlightPhraseTerms ?? [];
+          const headingText = result.sectionTitle ?? result.title;
+          const contextText = resultContext(result);
+
+          const title = document.createElement("span");
+          title.className = "cmdk__item-title";
+          fillHighlighted(title, headingText, highlightTerms, highlightPhraseTerms);
+          link.appendChild(title);
+
+          if (contextText) {
+            const context = document.createElement("span");
+            context.className = result.sectionTitle ? "cmdk__item-context" : "cmdk__item-desc";
+            fillHighlighted(context, contextText, highlightTerms, highlightPhraseTerms);
+            link.appendChild(context);
+          }
+
+          const previewMarkdown = result.previewMarkdown;
+          if (previewMarkdown) {
+            if (!previewModule) throw new Error("Search preview renderer was not loaded");
+            const previewKind = result.previewKind ?? "text";
+            const snippet = document.createElement("div");
+            snippet.className = "cmdk__item-snippet";
+            snippet.classList.toggle("is-code", previewKind === "code");
+            if (result.previewLanguage) snippet.dataset.language = result.previewLanguage;
+            link.appendChild(snippet);
+            searchPreviewElements.push(snippet);
+            previewModule.renderSearchPreview(snippet, {
+              markdown: previewMarkdown,
+              kind: previewKind,
+              language: result.previewLanguage,
+              highlightTerms: result.highlightTerms ?? [],
+              highlightPhraseTerms: result.highlightPhraseTerms ?? [],
+            } satisfies SearchPreviewProps);
+          }
+
+          item.appendChild(link);
+          list.appendChild(item);
+        }
+
+        group.appendChild(list);
+        results.replaceChildren(group);
+        setActiveSearchItem(0);
+      }
+
+      function scheduleSearch() {
+        const dialog = document.getElementById("search-dialog") as HTMLDialogElement | null;
+        const input = document.querySelector<HTMLInputElement>(".cmdk__field");
+        if (!dialog || !input) return;
+
+        const query = input.value.trim();
+        searchRequestId += 1;
+        searchAbortController?.abort();
+
+        if (!query) {
+          renderBrowseResults();
+          return;
+        }
+
+        const requestId = searchRequestId;
+        void runSearch(dialog, query, requestId);
+      }
+
+      async function runSearch(dialog: HTMLDialogElement, query: string, requestId: number) {
+        const searchUrl = dialog.dataset.searchUrl;
+        if (!searchUrl) {
+          if (requestId === searchRequestId) renderSearchMessage("Search is unavailable");
+          return;
+        }
+
+        const url = new URL(searchUrl, window.location.href);
+        url.searchParams.set("q", query);
+        url.searchParams.set("limit", "10");
+
+        const controller = new AbortController();
+        searchAbortController = controller;
+
+        try {
+          const response = await fetch(url, {
+            headers: { Accept: "application/json" },
+            signal: controller.signal,
+          });
+          if (!response.ok) throw new Error(`Search failed with ${response.status}`);
+          const payload = (await response.json()) as DocsSearchPayload;
+          if (requestId !== searchRequestId) return;
+          let previewModule: SearchPreviewModuleApi | undefined;
+          if (payload.results.some((result) => result.previewMarkdown)) {
+            try {
+              previewModule = await loadSearchPreviewModuleForSearch();
+            } catch (error) {
+              console.error("Search preview renderer failed to load", error);
+              if (requestId === searchRequestId) renderSearchMessage("Search preview failed");
+              return;
+            }
+          }
+          if (requestId !== searchRequestId) return;
+          renderSearchResults(payload, previewModule);
+        } catch (error) {
+          if ((error as Error).name === "AbortError") return;
+          if (requestId === searchRequestId) renderSearchMessage("Search is unavailable");
+        } finally {
+          if (searchAbortController === controller) searchAbortController = undefined;
+        }
+      }
+
+      function handleSearchKeydown(event: KeyboardEvent) {
+        if (event.key !== "ArrowDown" && event.key !== "ArrowUp" && event.key !== "Enter") {
+          return;
+        }
+
+        const anchors = searchResultAnchors();
+        if (anchors.length === 0) return;
+
+        if (event.key === "ArrowDown") {
+          event.preventDefault();
+          setActiveSearchItem(activeSearchItem + 1);
+          return;
+        }
+
+        if (event.key === "ArrowUp") {
+          event.preventDefault();
+          setActiveSearchItem(activeSearchItem - 1);
+          return;
+        }
+
+        const selected = anchors[activeSearchItem] ?? anchors[0];
+        if (selected) {
+          event.preventDefault();
+          selected.click();
+        }
+      }
+
+      function openSearch(dialog: HTMLDialogElement) {
+        const input = document.querySelector<HTMLInputElement>(".cmdk__field");
+        if (input) input.value = "";
+        if (!dialog.open) dialog.showModal();
+        renderBrowseResults();
+        syncSearchCursor();
+        input?.focus();
+      }
+
+      // ⌘K command palette. The trigger and dialog both persist across client
+      // navigations, so bind their listeners once (guarded by data-bound).
+      function setupSearchDialog() {
+        const trigger = document.querySelector<HTMLButtonElement>(".sidebar-search");
+        const dialog = document.getElementById("search-dialog") as HTMLDialogElement | null;
+        if (!trigger || !dialog) return;
+
+        const input = document.querySelector<HTMLInputElement>(".cmdk__field");
+        ensureBrowseResults();
+        preloadSearchPreviewModule();
+
+        if (input && input.dataset.bound !== "1") {
+          input.dataset.bound = "1";
+          input.addEventListener("input", () => {
+            syncSearchCursor();
+            scheduleSearch();
+          });
+          input.addEventListener("keydown", handleSearchKeydown);
+          // Caret moves that don't change the text (arrows, Home/End, clicks,
+          // selections) still shift where the real caret sits, so re-sync the
+          // block cursor's truthfulness after them too.
+          input.addEventListener("keyup", syncSearchCursor);
+          input.addEventListener("click", syncSearchCursor);
+          input.addEventListener("select", syncSearchCursor);
+          syncSearchCursor();
+        }
+
+        if (trigger.dataset.bound !== "1") {
+          trigger.dataset.bound = "1";
+          trigger.addEventListener("click", () => {
+            if (!dialog.open) openSearch(dialog);
+          });
+        }
+
+        if (dialog.dataset.bound !== "1") {
+          dialog.dataset.bound = "1";
+          // A click on the ::backdrop is dispatched on the dialog element itself.
+          dialog.addEventListener("click", (event) => {
+            if (event.target === dialog) dialog.close();
+          });
+          // Selecting a result navigates; close so it isn't left open underneath.
+          dialog.addEventListener("click", (event) => {
+            if ((event.target as HTMLElement).closest(".cmdk__item a")) dialog.close();
+          });
+        }
+      }
+
+      document.addEventListener("astro:page-load", setupSearchDialog);
+
+      // ⌘K / Ctrl+K toggles the palette. The document survives client-side
+      // navigations, so this listener only needs binding once.
+      document.addEventListener("keydown", (event) => {
+        if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+          event.preventDefault();
+          const dialog = document.getElementById("search-dialog") as HTMLDialogElement | null;
+          if (!dialog) return;
+          if (dialog.open) dialog.close();
+          else openSearch(dialog);
+        }
+      });
+    </script>
+  </body>
+</html>
