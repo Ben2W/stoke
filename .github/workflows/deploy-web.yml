@@ -63,6 +63,19 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: pnpm --filter @rigkit/docs run deploy
 
+      - name: Sync website GitHub token secret
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          RIGKIT_WORKER_GITHUB_TOKEN: ${{ secrets.RELEASE_BOT_TOKEN }}
+        run: |
+          if [ -z "$RIGKIT_WORKER_GITHUB_TOKEN" ]; then
+            echo "RELEASE_BOT_TOKEN is required to deploy the website Worker." >&2
+            exit 1
+          fi
+          cd apps/website
+          printf '%s' "$RIGKIT_WORKER_GITHUB_TOKEN" | pnpm exec wrangler secret put GITHUB_TOKEN --config wrangler.jsonc
+
       - name: Deploy website router
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

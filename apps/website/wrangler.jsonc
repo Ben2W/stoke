@@ -28,4 +28,7 @@
     "PUBLIC_BASE_URL": "https://www.rigkit.dev",
     "CACHE_TTL_SECONDS": "30",
   },
+  "secrets": {
+    "required": ["GITHUB_TOKEN"],
+  },
 }
