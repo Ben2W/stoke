@@ -1,5 +1,6 @@
 import { getBundledDocs, sshTerminalConfig } from "@/lib/docs-bundle";
 import { stripSearchIntentTags } from "@/lib/docs-search";
+import { createDocsVirtualFiles } from "@/lib/docs-vfs";
 
 export const prerender = true;
 
@@ -9,18 +10,15 @@ export async function GET() {
     ...doc,
     source: stripSearchIntentTags(source),
   }));
+  const generatedAt = new Date().toISOString();
+  const virtualFiles = createDocsVirtualFiles(publicDocs, {
+    generatedAt,
+    terminalConfig: sshTerminalConfig,
+    apiDocs: publicDocs,
+  });
+
   return new Response(
-    JSON.stringify(
-      {
-        docs: publicDocs,
-        ssh: sshTerminalConfig,
-        meta: {
-          generatedAt: new Date().toISOString(),
-        },
-      },
-      null,
-      2,
-    ),
+    virtualFiles.apiDocsJson,
     {
       headers: {
         "Content-Type": "application/json; charset=utf-8",

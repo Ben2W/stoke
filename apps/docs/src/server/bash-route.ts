@@ -6,12 +6,12 @@ import {
   type InitialFiles,
 } from "just-bash/browser";
 
-import { createDocsVirtualFiles, type DocsTerminalConfig } from "../lib/docs-vfs";
+import type { DocsVirtualFileSystemPayload } from "../lib/docs-vfs";
 import { docsWebPath } from "../lib/docs-paths";
 import { devAssetOrigin, fetchAssetUrl } from "./dev-assets";
 
 const BASH_PATH = docsWebPath("/bash");
-const DOCS_JSON_PATH = docsWebPath("/api/docs.json");
+const VFS_JSON_PATH = docsWebPath("/api/vfs.json");
 const EXECUTION_TIMEOUT_MS = 5_000;
 const MAX_COMMAND_BYTES = 64_000;
 const MAX_OUTPUT_BYTES = 256_000;
@@ -23,22 +23,6 @@ const ALLOWED_CONTENT_TYPES = new Set([
 ]);
 const encoder = new TextEncoder();
 const decoder = new TextDecoder("utf-8", { fatal: true });
-
-type DocsBashDocument = {
-  path: string;
-  markdownPath?: string;
-  title: string;
-  description: string;
-  markdown: string;
-};
-
-type DocsPayload = {
-  docs: DocsBashDocument[];
-  ssh: DocsTerminalConfig;
-  meta?: {
-    generatedAt?: string;
-  };
-};
 
 type BashRequestInput = {
   command: string;
@@ -57,7 +41,7 @@ type BashExecutionResult = {
   infrastructureError?: boolean;
 };
 
-let docsPayloadPromise: Promise<DocsPayload> | undefined;
+let docsPayloadPromise: Promise<DocsVirtualFileSystemPayload> | undefined;
 
 export function isBashRequest(url: URL) {
   return url.pathname === BASH_PATH;
@@ -145,7 +129,7 @@ export async function docsBashResponse(
     );
   }
 
-  let payload: DocsPayload;
+  let payload: DocsVirtualFileSystemPayload;
   try {
     payload = await getDocsPayload(env, url);
   } catch {
@@ -183,30 +167,27 @@ async function getDocsPayload(env: Env, requestUrl: URL) {
   }
 }
 
-async function loadDocsPayload(env: Env, requestUrl: URL): Promise<DocsPayload> {
-  const docsUrl = new URL(DOCS_JSON_PATH, requestUrl);
-  const response = await fetchAssetUrl(env, docsUrl);
+async function loadDocsPayload(
+  env: Env,
+  requestUrl: URL,
+): Promise<DocsVirtualFileSystemPayload> {
+  const vfsUrl = new URL(VFS_JSON_PATH, requestUrl);
+  const response = await fetchAssetUrl(env, vfsUrl);
 
   if (!response.ok) {
-    throw new Error(`Docs payload load failed with ${response.status}`);
+    throw new Error(`Docs VFS payload load failed with ${response.status}`);
   }
 
-  return (await response.json()) as DocsPayload;
+  return (await response.json()) as DocsVirtualFileSystemPayload;
 }
 
 async function runDocsBash(
-  payload: DocsPayload,
+  payload: DocsVirtualFileSystemPayload,
   input: BashRequestInput,
 ): Promise<BashExecutionResult> {
   const startedAt = performance.now();
-  const generatedAt = docsVersionForPayload(payload);
-  const virtualFiles = createDocsVirtualFiles(payload.docs, {
-    generatedAt,
-    terminalConfig: payload.ssh,
-    apiDocs: payload.docs,
-  });
   const bash = new Bash({
-    fs: readOnlyFileSystem(virtualFiles.files as InitialFiles),
+    fs: readOnlyFileSystem(payload.files as InitialFiles),
     cwd: "/",
     env: {
       HOME: "/",
@@ -299,14 +280,17 @@ function renderBashUsage(request: Request, env: Env, url: URL) {
   return [
     "Rigkit Docs Bash",
     "",
-    "Run one-shot just-bash commands against the Rigkit docs virtual filesystem.",
+    "Run one-shot just-bash commands against the Rigkit docs and source virtual filesystem.",
     "Pass a shell command in the request body.",
-    "Each request is stateless and starts in a fresh read-only docs filesystem.",
+    "Each request is stateless and starts in a fresh read-only virtual filesystem.",
     "",
     "Examples:",
     `  curl ${baseUrl} --data-binary 'ls /docs'`,
+    `  curl ${baseUrl} --data-binary 'ls /rigkit'`,
     `  curl ${baseUrl} --data-binary 'cat /docs/guides/quickstart.md'`,
+    `  curl ${baseUrl} --data-binary 'cat /rigkit/package.json'`,
     `  curl ${baseUrl} --data-binary 'grep -Rni "workspace" /docs | head -20'`,
+    `  curl ${baseUrl} --data-binary 'grep -Rni "createDocsVirtualFiles" /rigkit/apps/docs/src | head -20'`,
     `  curl ${baseUrl} --data-binary 'cat /docs/guides/quickstart.md | grep -i "rigkit"'`,
     `  curl ${baseUrl} --data-binary 'cat /api/docs.json | jq ".docs[].path"'`,
     `  curl ${baseUrl} -H 'Accept: application/json' --data-binary 'pwd'`,
@@ -323,6 +307,7 @@ function renderBashUsage(request: Request, env: Env, url: URL) {
     "",
     "Filesystem:",
     "  /docs              Markdown docs",
+    "  /rigkit            Rigkit source code snapshot",
     "  /README.md         Short orientation",
     "  /llms.txt          LLM index",
     "  /llms-full.txt     Full docs context",
@@ -472,7 +457,7 @@ function bashHeaders({
   return headers;
 }
 
-function docsVersionForPayload(payload: DocsPayload, env?: Env) {
+function docsVersionForPayload(payload: DocsVirtualFileSystemPayload, env?: Env) {
   return payload.meta?.generatedAt ?? env?.CACHE_VERSION ?? "unknown";
 }
 

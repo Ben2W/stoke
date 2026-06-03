@@ -63,6 +63,9 @@ describe("Worker cache policy", () => {
     expect(cacheControlFor(new URL("https://www.rigkit.dev/docs/api/docs.json"), response())).toBe(
       docsCache,
     );
+    expect(cacheControlFor(new URL("https://www.rigkit.dev/docs/api/vfs.json"), response())).toBe(
+      docsCache,
+    );
     expect(cacheControlFor(new URL("https://www.rigkit.dev/docs/just-bash"), response())).toBe(
       docsCache,
     );

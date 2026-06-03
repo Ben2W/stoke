@@ -21,13 +21,34 @@ export type DocsVirtualFile = {
 };
 
 export type DocsVirtualFileSystem = {
+  docs: DocsVirtualFileSource[];
+  generatedAt: string;
+  terminalConfig: DocsTerminalConfig;
   files: Record<string, string>;
   docFiles: DocsVirtualFile[];
   machineFiles: DocsVirtualFile[];
+  codebaseFiles: DocsVirtualFile[];
   apiDocsJson: string;
 };
 
+export type DocsVirtualFileSystemPayload = {
+  ssh: DocsTerminalConfig;
+  meta: {
+    generatedAt: string;
+    fileCount: number;
+    docFileCount: number;
+    machineFileCount: number;
+    codebaseFileCount: number;
+    codebaseRoot: string;
+  };
+  files: Record<string, string>;
+  docFiles: DocsVirtualFile[];
+  machineFiles: DocsVirtualFile[];
+  codebaseFiles: DocsVirtualFile[];
+};
+
 export const DEFAULT_DOCS_SITE = new URL("https://www.rigkit.dev");
+export const RIGKIT_CODEBASE_ROOT = "/rigkit";
 
 function resolveMarkdownLink(url: string, pagePath: string, site: URL): string {
   if (/^[a-z][a-z0-9+.-]*:/i.test(url)) return url;
@@ -117,11 +138,13 @@ export function createDocsVirtualFiles(
     site = DEFAULT_DOCS_SITE,
     terminalConfig,
     apiDocs = docs,
+    codebaseFiles = [],
   }: {
     generatedAt: string;
     site?: URL;
     terminalConfig: DocsTerminalConfig;
     apiDocs?: unknown;
+    codebaseFiles?: DocsVirtualFile[];
   },
 ): DocsVirtualFileSystem {
   const allPaths = docs.map((doc) => doc.path);
@@ -145,14 +168,38 @@ export function createDocsVirtualFiles(
     { path: "/api/docs.json", body: apiDocsJson },
   ];
   const files = Object.fromEntries(
-    [...docFiles, ...machineFiles].map((file) => [file.path, file.body]),
+    [...docFiles, ...machineFiles, ...codebaseFiles].map((file) => [file.path, file.body]),
   );
 
   return {
+    docs,
+    generatedAt,
+    terminalConfig,
     files,
     docFiles,
     machineFiles,
+    codebaseFiles,
     apiDocsJson,
+  };
+}
+
+export function serializeDocsVirtualFileSystem(
+  virtualFiles: DocsVirtualFileSystem,
+): DocsVirtualFileSystemPayload {
+  return {
+    ssh: virtualFiles.terminalConfig,
+    meta: {
+      generatedAt: virtualFiles.generatedAt,
+      fileCount: Object.keys(virtualFiles.files).length,
+      docFileCount: virtualFiles.docFiles.length,
+      machineFileCount: virtualFiles.machineFiles.length,
+      codebaseFileCount: virtualFiles.codebaseFiles.length,
+      codebaseRoot: RIGKIT_CODEBASE_ROOT,
+    },
+    files: virtualFiles.files,
+    docFiles: virtualFiles.docFiles,
+    machineFiles: virtualFiles.machineFiles,
+    codebaseFiles: virtualFiles.codebaseFiles,
   };
 }
 
@@ -164,7 +211,7 @@ function renderRootReadme() {
   return [
     "# Rigkit Docs shell",
     "",
-    "This shell exposes the Rigkit docs as a small virtual filesystem for humans, CLIs, and AI agents.",
+    "This shell exposes the Rigkit docs and source code as a small virtual filesystem for humans, CLIs, and AI agents.",
     "",
     "Rigkit runs declarative dev environments from a TypeScript config, then creates named workspaces for agents, developers, CI jobs, and tests.",
     "",
@@ -174,13 +221,17 @@ function renderRootReadme() {
     "- LLM index: https://www.rigkit.dev/docs/llms.txt",
     "- Full LLM context: https://www.rigkit.dev/docs/llms-full.txt",
     "- SSH docs root: /docs",
+    "- Source code root: /rigkit",
     "",
     "## Useful Commands",
     "",
     "```text",
     "ls /",
     "ls /docs",
+    "ls /rigkit",
     "cat /docs/guides/quickstart.md",
+    "cat /rigkit/package.json",
+    "grep \"createDocsVirtualFiles\" /rigkit/apps/docs/src/lib/docs-vfs.ts",
     "search workspace",
     "grep \"workflow\" /docs/guides --json",
     "context --json provider",

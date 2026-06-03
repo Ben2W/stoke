@@ -44,6 +44,7 @@ describe("just-bash docs VFS", () => {
 
     expect(output).toContain("docs.rigkit.dev:/$");
     expect(output).toContain("docs/");
+    expect(output).toContain("rigkit/");
     expect(output).toContain("README.md");
     expect(output).toContain("quickstart.md");
     expect(output).toContain("docs.rigkit.dev:/docs/guides$");
@@ -80,6 +81,29 @@ describe("just-bash docs VFS", () => {
     expect(tree.status).toBe(0);
     expect(tree.stdout).toContain("docs/guides/quickstart.md");
     expect(tree.stdout).toContain("docs/providers/freestyle.md");
+    expect(tree.stdout).toContain("rigkit/package.json");
+  });
+
+  test("mounts the Rigkit source tree in the virtual filesystem", () => {
+    const packageJson = spawnSync("bash", [justBashPath, "cat", "/rigkit/package.json"], {
+      cwd: root,
+      encoding: "utf8",
+      env: { ...process.env, TERM: "dumb", PAGER: "cat" },
+    });
+    const grep = spawnSync(
+      "bash",
+      [justBashPath, "grep", "createDocsVirtualFiles", "/rigkit/apps/docs/src/lib/docs-vfs.ts"],
+      {
+        cwd: root,
+        encoding: "utf8",
+        env: { ...process.env, TERM: "dumb", PAGER: "cat" },
+      },
+    );
+
+    expect(packageJson.status).toBe(0);
+    expect(packageJson.stdout).toContain('"name": "rigkit-monorepo"');
+    expect(grep.status).toBe(0);
+    expect(grep.stdout).toContain("/rigkit/apps/docs/src/lib/docs-vfs.ts");
   });
 
   test("docs.sh is a runnable alias for just-bash", () => {

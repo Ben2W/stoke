@@ -1,11 +1,18 @@
+import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import nodePath from "node:path";
+
 import { docOgImagePathFromId, docPathFromId, getDocsEntries, type DocsEntry } from "@/lib/docs";
 import { resolveDocsFigure, type DocsFigureName } from "@/lib/docs-figures";
 import { docsWebPath } from "@/lib/docs-paths";
 import { stripSearchIntentTags } from "@/lib/docs-search";
 import {
   DEFAULT_DOCS_SITE,
+  RIGKIT_CODEBASE_ROOT,
   absolutizeMarkdownLinks,
   createDocsVirtualFiles,
+  type DocsVirtualFile,
+  type DocsVirtualFileSystem,
   renderLlmsFullText,
   renderLlmsText,
 } from "@/lib/docs-vfs";
@@ -64,10 +71,56 @@ export const sshTerminalConfig: SshTerminalConfig = {
     "Full LLM context: https://www.rigkit.dev/docs/llms-full.txt",
     "",
     "Inside SSH: cat /README.md, cat /llms.txt, cat /api/docs.json",
-    "Try: ls /docs, cat /docs/guides/quickstart.md, search <query>, context --json <query>.",
+    "Try: ls /docs, ls /rigkit, cat /rigkit/package.json, search <query>, context --json <query>.",
     "Tab completes commands and paths. Type help for commands.",
   ].join("\n"),
 };
+
+const codebaseDecoder = new TextDecoder("utf-8", { fatal: true });
+let codebaseFilesCache: DocsVirtualFile[] | undefined;
+
+export function getBundledCodebaseFiles(): DocsVirtualFile[] {
+  if (codebaseFilesCache) return codebaseFilesCache;
+
+  const repoRoot = execFileSync("git", ["rev-parse", "--show-toplevel"], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+  }).trim();
+  const listed = execFileSync("git", ["ls-files", "-z"], {
+    cwd: repoRoot,
+    maxBuffer: 16 * 1024 * 1024,
+  });
+  const relativePaths = listed
+    .toString("utf8")
+    .split("\0")
+    .filter((path) => path.length > 0);
+
+  codebaseFilesCache = relativePaths.flatMap((relativePath) => {
+    const absolutePath = nodePath.join(repoRoot, relativePath);
+    const body = readTrackedTextFile(absolutePath);
+    if (body === undefined) return [];
+
+    return [
+      {
+        path: `${RIGKIT_CODEBASE_ROOT}/${relativePath.replace(/\\/g, "/")}`,
+        body,
+      },
+    ];
+  });
+
+  return codebaseFilesCache;
+}
+
+function readTrackedTextFile(absolutePath: string) {
+  const bytes = readFileSync(absolutePath);
+  if (bytes.includes(0)) return undefined;
+
+  try {
+    return codebaseDecoder.decode(bytes);
+  } catch {
+    return undefined;
+  }
+}
 
 function idFromGlobKey(key: string) {
   return key
@@ -173,6 +226,18 @@ export async function getBundledDocs(): Promise<BundledDoc[]> {
   return entries.map(toBundledDoc);
 }
 
+export async function getBundledDocsVirtualFiles(
+  generatedAt = new Date().toISOString(),
+): Promise<DocsVirtualFileSystem> {
+  const docs = await getBundledDocs();
+  return createDocsVirtualFiles(docs, {
+    generatedAt,
+    site: DEFAULT_DOCS_SITE,
+    terminalConfig: sshTerminalConfig,
+    codebaseFiles: getBundledCodebaseFiles(),
+  });
+}
+
 export async function getBundledDocById(id: string): Promise<BundledDoc | undefined> {
   const docs = await getBundledDocs();
   return docs.find((doc) => doc.id === id || doc.id === `${id}/index`);
@@ -210,14 +275,9 @@ function base64(value: string) {
   return Buffer.from(value, "utf8").toString("base64");
 }
 
-export function renderBashDocs(docs: BundledDoc[]) {
-  const generatedAt = new Date().toISOString();
-  const virtualFiles = createDocsVirtualFiles(docs, {
-    generatedAt,
-    site: DEFAULT_DOCS_SITE,
-    terminalConfig: sshTerminalConfig,
-  });
-
+export function renderBashDocs(virtualFiles: DocsVirtualFileSystem) {
+  const docs = virtualFiles.docs;
+  const generatedAt = virtualFiles.generatedAt;
   const titles = docs.map((doc) => bashSingleQuote(doc.title)).join(" ");
   const descriptions = docs.map((doc) => bashSingleQuote(doc.description)).join(" ");
   const paths = docs.map((doc) => bashSingleQuote(doc.path)).join(" ");
@@ -229,6 +289,12 @@ export function renderBashDocs(docs: BundledDoc[]) {
     .map((file) => bashSingleQuote(file.path))
     .join(" ");
   const machineBodies = virtualFiles.machineFiles
+    .map((file) => bashSingleQuote(base64(file.body)))
+    .join(" ");
+  const codebaseFiles = virtualFiles.codebaseFiles
+    .map((file) => bashSingleQuote(file.path))
+    .join(" ");
+  const codebaseBodies = virtualFiles.codebaseFiles
     .map((file) => bashSingleQuote(base64(file.body)))
     .join(" ");
 
@@ -249,6 +315,8 @@ export function renderBashDocs(docs: BundledDoc[]) {
     `DOC_BODIES=(${bodies})`,
     `MACHINE_FILES=(${machineFiles})`,
     `MACHINE_BODIES=(${machineBodies})`,
+    `CODEBASE_FILES=(${codebaseFiles})`,
+    `CODEBASE_BODIES=(${codebaseBodies})`,
     "COMMANDS=(help ls cd cat open search grep context tree version menu pwd clear exit quit logout)",
     'cwd="/"',
     "ssh_should_close=0",
@@ -331,17 +399,17 @@ export function renderBashDocs(docs: BundledDoc[]) {
     "print_help() {",
     "  cat <<'HELP'",
     "Commands:",
-    "  ls [path]        list docs files",
+    "  ls [path]        list virtual files",
     "  cd [path]        change directory",
-    "  cat <path>       print a docs file",
+    "  cat <path>       print a virtual file",
     "  open <path>      alias for cat",
     "  search [--json] [--limit n] <query>",
     "                   search titles and markdown",
     "  grep [--json] [--limit n] <query> [path]",
-    "                   search markdown lines",
+    "                   search virtual file lines",
     "  context [--json] [--tokens n] [query-or-path]",
     "                   print docs context for an agent",
-    "  tree [--json]    show all virtual docs files",
+    "  tree [--json]    show all virtual files",
     "  version [--json] show runtime and docs bundle metadata",
     "  menu             show numbered docs pages",
     "  pwd              print current directory",
@@ -383,6 +451,7 @@ export function renderBashDocs(docs: BundledDoc[]) {
     "  local file",
     '  for file in "${DOC_FILES[@]}"; do printf "%s\\n" "$file"; done',
     '  for file in "${MACHINE_FILES[@]}"; do printf "%s\\n" "$file"; done',
+    '  for file in "${CODEBASE_FILES[@]}"; do printf "%s\\n" "$file"; done',
     "}",
     "",
     "is_directory() {",
@@ -415,6 +484,31 @@ export function renderBashDocs(docs: BundledDoc[]) {
     '  local path="$1"',
     "  local i",
     '  for i in "${!MACHINE_FILES[@]}"; do if [ "${MACHINE_FILES[$i]}" = "$path" ]; then printf "%s\\n" "$i"; return 0; fi; done',
+    "  return 1",
+    "}",
+    "",
+    "codebase_file_index_for_path() {",
+    '  local path="$1"',
+    "  local i",
+    '  for i in "${!CODEBASE_FILES[@]}"; do if [ "${CODEBASE_FILES[$i]}" = "$path" ]; then printf "%s\\n" "$i"; return 0; fi; done',
+    "  return 1",
+    "}",
+    "",
+    "canonical_file_path() {",
+    '  local path="$1"',
+    "  local index",
+    '  if index="$(file_index_for_path "$path")"; then printf "%s\\n" "${DOC_FILES[$index]}"; return 0; fi',
+    '  if index="$(machine_file_index_for_path "$path")"; then printf "%s\\n" "${MACHINE_FILES[$index]}"; return 0; fi',
+    '  if index="$(codebase_file_index_for_path "$path")"; then printf "%s\\n" "${CODEBASE_FILES[$index]}"; return 0; fi',
+    "  return 1",
+    "}",
+    "",
+    "body_for_file() {",
+    '  local path="$1"',
+    "  local index",
+    '  if index="$(file_index_for_path "$path")"; then printf "%s" "${DOC_BODIES[$index]}" | decode_doc; return 0; fi',
+    '  if index="$(machine_file_index_for_path "$path")"; then printf "%s" "${MACHINE_BODIES[$index]}" | decode_doc; return 0; fi',
+    '  if index="$(codebase_file_index_for_path "$path")"; then printf "%s" "${CODEBASE_BODIES[$index]}" | decode_doc; return 0; fi',
     "  return 1",
     "}",
     "",
@@ -464,10 +558,9 @@ export function renderBashDocs(docs: BundledDoc[]) {
     "",
     "show_doc_by_path() {",
     '  local target="$1"',
-    "  local resolved index machine_index",
+    "  local resolved canonical",
     '  resolved="$(normalize_path "$cwd" "$target")" || return 1',
-    '  if index="$(file_index_for_path "$resolved")"; then show_doc_by_index "$index"; return 0; fi',
-    '  if machine_index="$(machine_file_index_for_path "$resolved")"; then printf "%s" "${MACHINE_BODIES[$machine_index]}" | decode_doc; return 0; fi',
+    '  if canonical="$(canonical_file_path "$resolved")"; then body_for_file "$canonical"; return 0; fi',
     '  printf "%s: not a file\\n" "$resolved"',
     "  return 1",
     "}",
@@ -565,8 +658,8 @@ export function renderBashDocs(docs: BundledDoc[]) {
     "files_under() {",
     '  local directory="$1"',
     "  local file",
-    '  if [ "$directory" = "/" ]; then for file in "${DOC_FILES[@]}"; do printf "%s\\n" "$file"; done; return; fi',
-    '  for file in "${DOC_FILES[@]}"; do case "$file" in "$directory"/*) printf "%s\\n" "$file" ;; esac; done',
+    '  if [ "$directory" = "/" ]; then each_file; return; fi',
+    '  while IFS= read -r file; do case "$file" in "$directory"/*) printf "%s\\n" "$file" ;; esac; done < <(each_file)',
     "}",
     "",
     "grep_docs_collect() {",
@@ -574,21 +667,20 @@ export function renderBashDocs(docs: BundledDoc[]) {
     '  local scope="${2:-}"',
     '  local limit="$3"',
     '  local resolved="/"',
-    "  local index file body line line_number needle haystack",
+    "  local canonical file body line line_number needle haystack",
     "  local scoped_files=()",
     "  SEARCH_FILES=(); SEARCH_LINE_NUMBERS=(); SEARCH_LINES=()",
     '  needle="$(lower "$query")"',
     '  if [ -n "$scope" ]; then',
     '    resolved="$(normalize_path "$cwd" "$scope")" || return 1',
     '    if is_directory "$resolved"; then while IFS= read -r file; do scoped_files+=("$file"); done < <(files_under "$resolved")',
-    '    elif index="$(file_index_for_path "$resolved")"; then scoped_files+=("${DOC_FILES[$index]}")',
+    '    elif canonical="$(canonical_file_path "$resolved")"; then scoped_files+=("$canonical")',
     '    else printf "%s: not a file or directory\\n" "$resolved"; return 1; fi',
     "  else",
     '    while IFS= read -r file; do scoped_files+=("$file"); done < <(files_under "/")',
     "  fi",
     '  for file in "${scoped_files[@]}"; do',
-    '    index="$(file_index_for_path "$file")" || continue',
-    '    body="$(printf "%s" "${DOC_BODIES[$index]}" | decode_doc)"',
+    '    body="$(body_for_file "$file")" || continue',
     "    line_number=0",
     '    while IFS= read -r line; do',
     "      line_number=$((line_number + 1))",
@@ -737,7 +829,7 @@ export function renderBashDocs(docs: BundledDoc[]) {
     '    printf ",\\n  \\"gitSha\\": "; json_escape "${FREESTYLE_DOCS_SSH_GIT_SHA:-unknown}"',
     '    printf ",\\n  \\"docsSource\\": "; json_escape "${FREESTYLE_DOCS_SSH_SOURCE:-unknown}"',
     '    printf ",\\n  \\"docsGeneratedAt\\": "; json_escape "$DOC_GENERATED_AT"',
-    '    printf ",\\n  \\"docsLoadedAtUnixSeconds\\": %s,\\n  \\"docCount\\": %s\\n}\\n" "${FREESTYLE_DOCS_SSH_LOADED_AT_UNIX_SECONDS:-0}" "${#DOC_FILES[@]}"',
+    '    printf ",\\n  \\"docsLoadedAtUnixSeconds\\": %s,\\n  \\"docCount\\": %s,\\n  \\"codebaseFileCount\\": %s\\n}\\n" "${FREESTYLE_DOCS_SSH_LOADED_AT_UNIX_SECONDS:-0}" "${#DOC_FILES[@]}" "${#CODEBASE_FILES[@]}"',
     "    return 0",
     "  fi",
     '  printf "freestyle-docs-ssh %s\\n" "${FREESTYLE_DOCS_SSH_BINARY_VERSION:-unknown}"',
@@ -746,6 +838,7 @@ export function renderBashDocs(docs: BundledDoc[]) {
     '  printf "docsGeneratedAt: %s\\n" "$DOC_GENERATED_AT"',
     '  printf "docsLoadedAtUnixSeconds: %s\\n" "${FREESTYLE_DOCS_SSH_LOADED_AT_UNIX_SECONDS:-0}"',
     '  printf "docCount: %s\\n" "${#DOC_FILES[@]}"',
+    '  printf "codebaseFileCount: %s\\n" "${#CODEBASE_FILES[@]}"',
     "}",
     "",
     "print_tree() {",

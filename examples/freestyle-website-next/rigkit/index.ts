@@ -1,8 +1,5 @@
 import { cmux } from "@rigkit/provider-cmux";
-import {
-  freestyle,
-  type FreestyleSdkVm,
-} from "@rigkit/provider-freestyle";
+import { freestyle, type FreestyleSdkVm } from "@rigkit/provider-freestyle";
 import { workflow } from "@rigkit/sdk";
 
 const repo = "freestyle-sh/freestyle-website-next";
@@ -18,7 +15,7 @@ const vmHome = "/root";
 const shpoolVersion = "0.10.0";
 const shpoolSocketPath = `${vmHome}/.local/run/shpool/${devSessionName}.socket`;
 
-const app = workflow("freestyle-website-next");
+const app = workflow("freestyle-website-next2");
 const freestyleProvider = freestyle.provider();
 const terminalProvider = freestyle.terminal();
 
@@ -370,7 +367,7 @@ function installDependenciesCommand(): string {
     "mkdir -p /etc/apt/keyrings",
     "curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /etc/apt/keyrings/githubcli-archive-keyring.gpg",
     "chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg",
-    'printf \'deb [arch=%s signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main\\n\' "$(dpkg --print-architecture)" > /etc/apt/sources.list.d/github-cli.list',
+    "printf 'deb [arch=%s signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main\\n' \"$(dpkg --print-architecture)\" > /etc/apt/sources.list.d/github-cli.list",
     "curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg",
     "chmod go+r /etc/apt/keyrings/nodesource.gpg",
     "printf 'deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_22.x nodistro main\\n' > /etc/apt/sources.list.d/nodesource.list",
