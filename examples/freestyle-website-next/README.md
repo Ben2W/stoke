@@ -1,6 +1,9 @@
 # Freestyle Website Next Example
 
 This example builds a Freestyle-backed workflow for `freestyle-sh/freestyle-website-next`.
+It is intentionally split into `rigkit/lib/*` and `rigkit/tasks/*` so larger
+workflows can keep provider setup, shell commands, VM helpers, and task handlers
+separate from the top-level workflow definition.
 
 The workflow:
 
@@ -14,6 +17,7 @@ The workflow:
 - starts the website dev server inside a named shpool session, waits for localhost to return HTML, and snapshots the warm VM
 - passes Freestyle VM snapshot refs through JSON workflow context
 - opens the created workspace in cmux with localhost, Codex, and a tab attached to the running shpool dev-server session
+- can run Codex on a task, push the workspace branch, and open a pull request
 - opens the created workspace in VS Code from the `open-vscode` workspace operation
 
 Run from this directory:

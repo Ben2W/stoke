@@ -8,7 +8,7 @@ import { docsWebPath } from "@/lib/docs-paths";
 import { stripSearchIntentTags } from "@/lib/docs-search";
 import {
   DEFAULT_DOCS_SITE,
-  RIGKIT_CODEBASE_ROOT,
+  MONOREPO_ROOT,
   absolutizeMarkdownLinks,
   createDocsVirtualFiles,
   type DocsVirtualFile,
@@ -71,7 +71,7 @@ export const sshTerminalConfig: SshTerminalConfig = {
     "Full LLM context: https://www.rigkit.dev/docs/llms-full.txt",
     "",
     "Inside SSH: cat /README.md, cat /llms.txt, cat /api/docs.json",
-    "Try: ls /docs, ls /rigkit, cat /rigkit/package.json, search <query>, context --json <query>.",
+    "Try: ls /docs, ls /monorepo, cat /monorepo/package.json, search <query>, context --json <query>.",
     "Tab completes commands and paths. Type help for commands.",
   ].join("\n"),
 };
@@ -102,7 +102,7 @@ export function getBundledCodebaseFiles(): DocsVirtualFile[] {
 
     return [
       {
-        path: `${RIGKIT_CODEBASE_ROOT}/${relativePath.replace(/\\/g, "/")}`,
+        path: `${MONOREPO_ROOT}/${relativePath.replace(/\\/g, "/")}`,
         body,
       },
     ];

@@ -48,7 +48,7 @@ export type DocsVirtualFileSystemPayload = {
 };
 
 export const DEFAULT_DOCS_SITE = new URL("https://www.rigkit.dev");
-export const RIGKIT_CODEBASE_ROOT = "/rigkit";
+export const MONOREPO_ROOT = "/monorepo";
 
 function resolveMarkdownLink(url: string, pagePath: string, site: URL): string {
   if (/^[a-z][a-z0-9+.-]*:/i.test(url)) return url;
@@ -194,7 +194,7 @@ export function serializeDocsVirtualFileSystem(
       docFileCount: virtualFiles.docFiles.length,
       machineFileCount: virtualFiles.machineFiles.length,
       codebaseFileCount: virtualFiles.codebaseFiles.length,
-      codebaseRoot: RIGKIT_CODEBASE_ROOT,
+      codebaseRoot: MONOREPO_ROOT,
     },
     files: virtualFiles.files,
     docFiles: virtualFiles.docFiles,
@@ -221,17 +221,17 @@ function renderRootReadme() {
     "- LLM index: https://www.rigkit.dev/docs/llms.txt",
     "- Full LLM context: https://www.rigkit.dev/docs/llms-full.txt",
     "- SSH docs root: /docs",
-    "- Source code root: /rigkit",
+    "- Source code root: /monorepo",
     "",
     "## Useful Commands",
     "",
     "```text",
     "ls /",
     "ls /docs",
-    "ls /rigkit",
+    "ls /monorepo",
     "cat /docs/guides/quickstart.md",
-    "cat /rigkit/package.json",
-    "grep \"createDocsVirtualFiles\" /rigkit/apps/docs/src/lib/docs-vfs.ts",
+    "cat /monorepo/package.json",
+    "grep \"createDocsVirtualFiles\" /monorepo/apps/docs/src/lib/docs-vfs.ts",
     "search workspace",
     "grep \"workflow\" /docs/guides --json",
     "context --json provider",
