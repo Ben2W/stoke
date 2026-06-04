@@ -7,6 +7,7 @@ export type ConfigSnippet = {
   blurb: string;
   html: string;
   interactive?: boolean;
+  demo?: "auth" | "operation";
 };
 
 export function ConfigShowcase({ snippets }: { snippets: ConfigSnippet[] }) {
@@ -51,10 +52,14 @@ export function ConfigShowcase({ snippets }: { snippets: ConfigSnippet[] }) {
         </p>
       </div>
 
-      {active.interactive ? (
+      {active.demo ? (
         <div className="grid grid-cols-1 gap-px border-t border-[var(--color-border)] bg-[var(--color-border)] lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]">
           <CodePane html={active.html} />
-          <InteractiveAuthPane key={active.id} />
+          {active.demo === "operation" ? (
+            <OperationDemoPane key={active.id} />
+          ) : (
+            <InteractiveAuthPane key={active.id} />
+          )}
         </div>
       ) : (
         <div className="border-t border-[var(--color-border)]">
@@ -309,6 +314,307 @@ function InteractiveAuthPane() {
       </div>
     </div>
   );
+}
+
+type OpTone = "ok" | "muted" | "default" | "accent" | "dim";
+type OpToken = { text: string; tone: OpTone };
+type OpCommitted = { id: string; tokens: OpToken[] };
+type OpActive =
+  | { kind: "command"; partial: string }
+  | { kind: "input"; label: string; partial: string }
+  | { kind: "select"; label: string; options: string[]; pointer: number }
+  | null;
+
+type OpStep =
+  | { kind: "command"; text: string; typeMs: number; pauseAfterMs: number }
+  | {
+      kind: "input";
+      label: string;
+      value: string;
+      typeMs: number;
+      pauseAfterMs: number;
+    }
+  | {
+      kind: "select";
+      label: string;
+      options: string[];
+      pick: number;
+      stepMs: number;
+      pauseAfterMs: number;
+    }
+  | {
+      kind: "output";
+      lines: { text: string; tone?: OpTone }[];
+      perLineMs: number;
+      pauseAfterMs: number;
+    };
+
+const OP_SCRIPT: OpStep[] = [
+  { kind: "command", text: "rig run dev task", typeMs: 720, pauseAfterMs: 420 },
+  {
+    kind: "input",
+    label: "What should the agent do?",
+    value: "fix the flaky test",
+    typeMs: 1150,
+    pauseAfterMs: 560,
+  },
+  {
+    kind: "select",
+    label: "Which agent?",
+    options: ["codex", "claude"],
+    pick: 1,
+    stepMs: 620,
+    pauseAfterMs: 620,
+  },
+  {
+    kind: "output",
+    lines: [
+      { text: "▸ claude · fix the flaky test", tone: "muted" },
+      { text: "✓ pushed rigkit/fix-the-flaky-test", tone: "ok" },
+      { text: "✓ opened PR github.com/acme/web/pull/42", tone: "ok" },
+    ],
+    perLineMs: 480,
+    pauseAfterMs: 600,
+  },
+];
+
+function OperationDemoPane() {
+  const [stepIndex, setStepIndex] = useState(0);
+  const [lines, setLines] = useState<OpCommitted[]>([]);
+  const [active, setActive] = useState<OpActive>(null);
+  const idCounter = useRef(0);
+
+  const nextId = () => {
+    idCounter.current += 1;
+    return `op-${idCounter.current}`;
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    const step = OP_SCRIPT[stepIndex];
+    if (!step) return;
+
+    if (step.kind === "command") {
+      setActive({ kind: "command", partial: "" });
+      const charDelay = step.typeMs / Math.max(step.text.length, 1);
+      for (let i = 0; i < step.text.length; i++) {
+        timers.push(
+          setTimeout(() => {
+            if (cancelled) return;
+            setActive({ kind: "command", partial: step.text.slice(0, i + 1) });
+          }, charDelay * (i + 1)),
+        );
+      }
+      timers.push(
+        setTimeout(() => {
+          if (cancelled) return;
+          setLines((prev) => [
+            ...prev,
+            {
+              id: nextId(),
+              tokens: [
+                { text: MAIN_PROMPT, tone: "accent" },
+                { text: step.text, tone: "default" },
+              ],
+            },
+          ]);
+          setActive(null);
+          setStepIndex((i) => i + 1);
+        }, step.typeMs + step.pauseAfterMs),
+      );
+    }
+
+    if (step.kind === "input") {
+      setActive({ kind: "input", label: step.label, partial: "" });
+      const charDelay = step.typeMs / Math.max(step.value.length, 1);
+      for (let i = 0; i < step.value.length; i++) {
+        timers.push(
+          setTimeout(() => {
+            if (cancelled) return;
+            setActive({
+              kind: "input",
+              label: step.label,
+              partial: step.value.slice(0, i + 1),
+            });
+          }, charDelay * (i + 1)),
+        );
+      }
+      timers.push(
+        setTimeout(() => {
+          if (cancelled) return;
+          setLines((prev) => [
+            ...prev,
+            {
+              id: nextId(),
+              tokens: [
+                { text: "? ", tone: "accent" },
+                { text: step.label, tone: "default" },
+                { text: " › ", tone: "dim" },
+                { text: step.value, tone: "default" },
+              ],
+            },
+          ]);
+          setActive(null);
+          setStepIndex((i) => i + 1);
+        }, step.typeMs + step.pauseAfterMs),
+      );
+    }
+
+    if (step.kind === "select") {
+      setActive({
+        kind: "select",
+        label: step.label,
+        options: step.options,
+        pointer: 0,
+      });
+      for (let p = 1; p <= step.pick; p++) {
+        timers.push(
+          setTimeout(() => {
+            if (cancelled) return;
+            setActive({
+              kind: "select",
+              label: step.label,
+              options: step.options,
+              pointer: p,
+            });
+          }, step.stepMs * p),
+        );
+      }
+      timers.push(
+        setTimeout(
+          () => {
+            if (cancelled) return;
+            setLines((prev) => [
+              ...prev,
+              {
+                id: nextId(),
+                tokens: [
+                  { text: "? ", tone: "accent" },
+                  { text: step.label, tone: "default" },
+                  { text: " › ", tone: "dim" },
+                  { text: step.options[step.pick] ?? "", tone: "accent" },
+                ],
+              },
+            ]);
+            setActive(null);
+            setStepIndex((i) => i + 1);
+          },
+          step.stepMs * step.pick + step.pauseAfterMs,
+        ),
+      );
+    }
+
+    if (step.kind === "output") {
+      step.lines.forEach((line, i) => {
+        timers.push(
+          setTimeout(
+            () => {
+              if (cancelled) return;
+              setLines((prev) => [
+                ...prev,
+                {
+                  id: nextId(),
+                  tokens: [{ text: line.text, tone: line.tone ?? "default" }],
+                },
+              ]);
+            },
+            step.perLineMs * (i + 1),
+          ),
+        );
+      });
+      timers.push(
+        setTimeout(
+          () => {
+            if (cancelled) return;
+            setStepIndex((i) => i + 1);
+          },
+          step.perLineMs * step.lines.length + step.pauseAfterMs,
+        ),
+      );
+    }
+
+    return () => {
+      cancelled = true;
+      for (const timer of timers) clearTimeout(timer);
+    };
+  }, [stepIndex]);
+
+  return (
+    <div className="relative flex min-h-0 flex-col bg-[#faf8f2]">
+      <div className="flex items-center border-b border-[var(--color-border)] bg-[#f2efe7] px-4 py-2.5">
+        <span className="font-mono text-[12px] text-[var(--color-muted)]">
+          terminal
+        </span>
+      </div>
+      <div className="h-[380px] overflow-hidden px-4 py-4 font-mono text-[13px] leading-[1.6] text-[var(--color-fg)] sm:h-[420px]">
+        <div className="flex flex-col gap-[2px]">
+          {lines.map((line) => (
+            <div key={line.id} className="whitespace-pre-wrap">
+              {line.tokens.map((token, i) => (
+                <span key={i} className={opToneClass(token.tone)}>
+                  {token.text}
+                </span>
+              ))}
+            </div>
+          ))}
+          {active && active.kind === "command" && (
+            <div className="whitespace-pre-wrap">
+              <span className={opToneClass("accent")}>{MAIN_PROMPT}</span>
+              <span>{active.partial}</span>
+              <Cursor />
+            </div>
+          )}
+          {active && active.kind === "input" && (
+            <div className="whitespace-pre-wrap">
+              <span className={opToneClass("accent")}>{"? "}</span>
+              <span className={opToneClass("default")}>{active.label}</span>
+              <span className={opToneClass("dim")}>{" › "}</span>
+              <span>{active.partial}</span>
+              <Cursor />
+            </div>
+          )}
+          {active && active.kind === "select" && (
+            <div className="flex flex-col gap-[1px]">
+              <div className="whitespace-pre-wrap">
+                <span className={opToneClass("accent")}>{"? "}</span>
+                <span className={opToneClass("default")}>{active.label}</span>
+                <span className={opToneClass("dim")}>{"  (↑↓ to choose)"}</span>
+              </div>
+              {active.options.map((option, i) => (
+                <div
+                  key={option}
+                  className={`whitespace-pre-wrap ${
+                    i === active.pointer
+                      ? "text-[var(--color-accent)]"
+                      : "text-[var(--color-muted)]"
+                  }`}
+                >
+                  {i === active.pointer ? "❯ " : "  "}
+                  {option}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function opToneClass(tone: OpTone): string {
+  switch (tone) {
+    case "ok":
+      return "text-[#1f8b4c]";
+    case "muted":
+      return "text-[var(--color-muted)]";
+    case "dim":
+      return "text-[var(--color-dim)]";
+    case "accent":
+      return "text-[var(--color-accent)]";
+    default:
+      return "text-[var(--color-fg)]";
+  }
 }
 
 function MainTerminal({ lines, idle }: { lines: Line[]; idle: boolean }) {

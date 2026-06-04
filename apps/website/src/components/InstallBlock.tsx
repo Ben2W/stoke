@@ -39,7 +39,11 @@ export function InstallBlock() {
         </div>
         <motion.span
           aria-hidden="true"
-          animate={copied ? { backgroundColor: "#0f9d58" } : { backgroundColor: "#0a0a0a" }}
+          animate={
+            copied
+              ? { backgroundColor: "#0f9d58" }
+              : { backgroundColor: "#0a0a0a" }
+          }
           transition={{ duration: 0.18 }}
           className="inline-flex shrink-0 items-center gap-2 rounded-lg px-3.5 py-2 font-sans text-[13px] font-semibold text-white"
         >
@@ -87,9 +91,6 @@ export function InstallBlock() {
           </span>
         </motion.span>
       </motion.button>
-      <p className="mt-4 ml-1 font-mono text-xs text-[var(--color-muted)]">
-        macOS &amp; Linux
-      </p>
     </div>
   );
 }

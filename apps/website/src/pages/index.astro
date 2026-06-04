@@ -8,8 +8,6 @@ import { CliShowcase } from "@/components/CliShowcase";
 import { ConfigShowcase } from "@/components/ConfigShowcase";
 import type { ConfigSnippet } from "@/components/ConfigShowcase";
 import { CmuxShowcase } from "@/components/CmuxShowcase";
-import DiscordIcon from "@/components/DiscordIcon.astro";
-import { LatestVersionBadge } from "@/components/LatestVersionBadge";
 
 const rigConfigSnippet = `import { freestyle, VmBaseImage, VmSpec } from "@rigkit/provider-freestyle";
 import { workflow } from "@rigkit/sdk";
@@ -72,6 +70,7 @@ type RawSnippet = {
   blurb: string;
   code: string;
   interactive?: boolean;
+  demo?: "auth" | "operation";
 };
 
 const rawSnippets: RawSnippet[] = [
@@ -79,6 +78,7 @@ const rawSnippets: RawSnippet[] = [
     id: "interactive-auth",
     label: "Interactive auth",
     interactive: true,
+    demo: "auth",
     blurb:
       "Need a human in the loop? Open an interactive SSH terminal in the user's local environment. rig apply pauses until they finish — then snapshots the authenticated state so the next run is one-shot.",
     code: `.task("github-auth", async ({ step, providers }) => {
@@ -99,88 +99,62 @@ const rawSnippets: RawSnippet[] = [
 `,
   },
   {
-    id: "workspace-branches",
-    label: "One branch per workspace",
+    id: "cached-tasks",
+    label: "Cached by version",
     blurb:
-      "Every workspace.create gets a fresh branch off main — no shared working directory, no rebasing dance. rig run \\${name} open picks up exactly where the agent left off.",
-    code: `.workspace({
-  create: async ({ workflow, providers, workspace }) => {
-    const { vm, vmId } = await providers.freestyle.client.vms.create({
-      snapshotId: workflow.ctx.snapshotId,
-    });
+      "Every task is cached. Tag it with a version — and an optional TTL — and rig reuses the snapshot until something changes. Edit one task and only it and everything downstream re-runs.",
+    code: `export const website = app
+  .sequence("website")
+  .addProvider("freestyle", freestyle.provider())
+  // Bump the version string to force a rebuild.
+  .task("apt-deps", { version: "node22-v2" }, installAptDeps)
+  .task("js-tools", { version: "bun-codex-v3" }, installJsTools)
+  .task("github-auth", { version: "auth-v6" }, githubAuth)
+  // Re-validate at most once a day.
+  .task("warm-codex", { version: "codex-v1", cacheTTL: "24h" }, warmCodex);
+`,
+  },
+  {
+    id: "typed-operations",
+    label: "Typed operations",
+    interactive: true,
+    demo: "operation",
+    blurb:
+      "Operations are typed commands with a Zod input schema. Pass inputs as flags in CI — or omit them and rig prompts interactively: text fields to type, enums to pick from a list.",
+    code: `import { z } from "@rigkit/sdk";
 
-    const branch = \`rigkit/\${workspace.name.replaceAll(
-      /[^A-Za-z0-9._/-]/g,
-      "-",
-    )}\`;
-    await vm.exec(
-      [
-        \`cd \${workflow.ctx.repoPath}\`,
-        \`git switch -C \${branch}\`,
-      ].join("\\n"),
-    );
-
-    return {
-      vmId,
-      branch,
-      repoPath: workflow.ctx.repoPath,
-      devPort: workflow.ctx.devPort,
-    };
+.workspaceOperation("task", {
+  title: "Run an agent task",
+  description: "Run an agent, push the branch, open a PR",
+  input: z.object({
+    task: z.string().min(1).describe("What should the agent do?"),
+    agent: z.enum(["codex", "claude"]).default("claude"),
+  }),
+  run: async ({ workspace, input }) => {
+    const prUrl = await runAgentAndOpenPr(workspace, input);
+    return { prUrl };
   },
 });
 `,
   },
   {
-    id: "vm-setup",
-    label: "VM image",
+    id: "compose",
+    label: "Compose & reuse",
     blurb:
-      "Tools, package managers, runtimes — bake them once into a snapshot. Every workspace boots from the same image in seconds, with bun, gh, node, and codex preinstalled.",
-    code: `const vmSpec = new VmSpec()
-  .runCommands(\`
-    set -e
-    export DEBIAN_FRONTEND=noninteractive
+      "Tasks, sequences, and parallel branches are plain values. Store them in variables, fork independent branches off the same context, and share one cached base across projects.",
+    code: `// A node is just a value — name it, then reuse it.
+const base = app
+  .sequence("base")
+  .task("install-tooling", installTooling)
+  .task("github-auth", githubAuth);
 
-    apt-get update -qq
-    apt-get install -y -qq \\
-      ca-certificates curl gnupg gh git nodejs
+// Parallel branches fork from the same upstream context.
+const services = app
+  .parallel("services")
+  .add(provisionDatabase)
+  .add(seedFixtures);
 
-    curl -fsSL https://bun.sh/install | bash
-    npm install -g @openai/codex
-    corepack enable
-
-    bun --version
-    codex --version
-  \`)
-  .memSizeGb(16)
-  .vcpuCount(4)
-  .rootfsSizeGb(24)
-  .idleTimeoutSeconds(3600);
-`,
-  },
-  {
-    id: "workspace-operations",
-    label: "Workspace operations",
-    blurb:
-      "Define what \\\"opening\\\" a workspace means: a cmux layout with the dev server, the agent CLI, and the preview URL — all wired up to the right SSH session and forwarded port.",
-    code: `.workspaceOperation("open-cmux", {
-  title: "Open cmux",
-  description: "Open the workspace in cmux",
-  run: async ({ providers, workspace }) => {
-    await providers.cmux.open({
-      name: workspace.name,
-      ssh: await providers.freestyle.cmux.createSshOptions({
-        vmId: workspace.ctx.vmId,
-      }),
-      cwd: workspace.ctx.repoPath,
-      surfaceLayout: "tabs",
-      terminals: [
-        { command: "bun run dev" },
-        { command: "claude", focus: true },
-      ],
-      url: \`http://localhost:\${workspace.ctx.devPort}\`,
-    });
-  },
-});
+export const website = app.sequence("website").add(base).add(services);
 `,
   },
 ];
@@ -191,6 +165,7 @@ const configSnippets: ConfigSnippet[] = await Promise.all(
     label: snippet.label,
     blurb: snippet.blurb,
     interactive: snippet.interactive,
+    demo: snippet.demo,
     html: await codeToHtml(snippet.code, {
       lang: "ts",
       theme: "github-light",
@@ -208,8 +183,6 @@ const configSnippets: ConfigSnippet[] = await Promise.all(
 
     <main class="flex-1 px-6 pt-10 pb-20 sm:px-10 sm:pt-16">
       <section class="mx-auto flex w-full max-w-4xl flex-col">
-        <LatestVersionBadge client:load />
-
         <h1
           class="font-sans text-[44px] font-extrabold leading-[1.02] tracking-[-0.035em] text-[var(--color-fg)] sm:text-[56px]"
         >
@@ -221,40 +194,23 @@ const configSnippets: ConfigSnippet[] = await Promise.all(
         <p
           class="mt-5 max-w-xl font-sans text-[16px] leading-[1.55] text-[#2a2a2a]"
         >
-          Define your whole dev environment in TypeScript — VM, tools, even an
-          interactive GitHub login. Snapshot it once, then fork it into ten
-          agents that all boot up already authenticated.
+          Define your whole dev environment in TypeScript, the packages, repos, and clis you need to authenticate into. Then fork 10 of them!
         </p>
 
         <div class="mt-10">
+          <p class="mb-2 ml-1 text-xs tracking-[0.1em] text-[var(--color-dim)]">
+            First, install the Rigkit CLI:
+          </p>
           <InstallBlock client:load />
         </div>
 
-        <div
-          class="mt-8 flex flex-wrap items-center gap-x-5 gap-y-3 font-mono text-[13px]"
-        >
-          <a
-            href="/docs"
-            class="inline-flex items-center gap-1.5 text-[var(--color-accent)] underline-offset-4 transition-all hover:underline"
+        <div class="mt-7">
+          <p
+            class="mb-2 ml-1 text-xs tracking-[0.1em] text-[var(--color-dim)]"
           >
-            Read the docs
-            <span aria-hidden="true">→</span>
-          </a>
-          <span class="text-[var(--color-dim)]">·</span>
-          <a
-            href="https://discord.com/invite/v5WT4fbXhc"
-            class="inline-flex items-center gap-1.5 text-[#5865f2] underline-offset-4 transition-all hover:underline"
-          >
-            <DiscordIcon class="h-[10px] w-[13px]" />
-            Join the Discord
-          </a>
-          <span class="text-[var(--color-dim)]">·</span>
-          <a
-            href="https://github.com/freestyle-sh/rigkit"
-            class="text-[var(--color-muted)] transition-colors hover:text-[var(--color-fg)]"
-          >
-            github.com/freestyle-sh/rigkit
-          </a>
+            Then give the following to the coding agent of your choice:
+          </p>
+          <SetupPrompt client:load />
         </div>
       </section>
 
@@ -266,24 +222,21 @@ const configSnippets: ConfigSnippet[] = await Promise.all(
         class="mx-auto mt-24 flex w-full max-w-4xl flex-col gap-6 sm:mt-32"
       >
         <header class="flex flex-col gap-3">
-          <span
-            class="inline-flex w-fit items-center gap-1.5 rounded-full border border-[var(--color-accent)] px-2.5 py-1 font-mono text-[10.5px] uppercase tracking-[0.1em] text-[var(--color-accent)]"
-          >
-            multi-agent
-          </span>
           <h2
             class="font-sans text-[32px] font-extrabold leading-[1.05] tracking-[-0.03em] text-[var(--color-fg)] sm:text-[40px]"
           >
-            Fork your whole environment into ten agents
+            Define what your agents' workspaces look like
           </h2>
-          <p
-            class="max-w-xl font-sans text-[15px] leading-[1.55] text-[#2a2a2a]"
-          >
-            A git worktree only forks your branch. Because your VM, ports, branch,
-            and GitHub login all live in one snapshot, rigkit forks the entire
-            thing — so every agent boots a real copy that's already authenticated
-            and ready to push.
-          </p>
+            <p
+              class="max-w-xl font-sans text-[15px] leading-[1.55] text-[#2a2a2a]"
+            >
+              Want to spin up 10 workspaces based off your development environment and open them all in cmux? You can define that.
+            </p>
+            <p
+              class="max-w-xl font-sans text-[15px] leading-[1.55] text-[#2a2a2a]"
+            >
+              Want to open one of them in VS Code, you can define that too.
+            </p>
         </header>
         <CmuxShowcase client:visible />
       </section>
@@ -291,11 +244,6 @@ const configSnippets: ConfigSnippet[] = await Promise.all(
       <section class="mt-24 border-y border-[var(--color-border)] bg-[#f7f4ec] py-20 sm:mt-32 sm:py-24">
         <div class="mx-auto flex w-full max-w-5xl flex-col gap-8 px-6 sm:px-10">
           <header class="flex flex-col gap-3">
-            <span
-              class="inline-flex w-fit items-center gap-1.5 rounded-full border border-[var(--color-accent)] px-2.5 py-1 font-mono text-[10.5px] uppercase tracking-[0.1em] text-[var(--color-accent)]"
-            >
-              config in typescript
-            </span>
             <h2
               class="font-sans text-[32px] font-extrabold leading-[1.05] tracking-[-0.03em] text-[var(--color-fg)] sm:text-[40px]"
             >
@@ -304,38 +252,13 @@ const configSnippets: ConfigSnippet[] = await Promise.all(
             <p
               class="max-w-2xl font-sans text-[15px] leading-[1.55] text-[#2a2a2a]"
             >
-              Tasks, workspaces, and operations are just typed functions. Compose
-              VM images, branch-per-workspace git, and even interactive logins
-              the same way you'd write any other module.
+              Tasks, workspaces, and operations are typed functions. Cache them
+              by version, give operations Zod-typed inputs, and compose the whole
+              graph the way you'd write any other module.
             </p>
           </header>
           <ConfigShowcase client:visible snippets={configSnippets} />
         </div>
-      </section>
-
-      <section
-        class="mx-auto mt-24 flex w-full max-w-3xl flex-col gap-6 px-6 sm:mt-32 sm:px-10"
-      >
-        <header class="flex flex-col gap-3">
-          <span
-            class="inline-flex w-fit items-center gap-1.5 rounded-full border border-[var(--color-accent)] px-2.5 py-1 font-mono text-[10.5px] uppercase tracking-[0.1em] text-[var(--color-accent)]"
-          >
-            setup in your repo
-          </span>
-          <h2
-            class="font-sans text-[32px] font-extrabold leading-[1.05] tracking-[-0.03em] text-[var(--color-fg)] sm:text-[40px]"
-          >
-            Let your agent wire it up.
-          </h2>
-          <p
-            class="max-w-xl font-sans text-[15px] leading-[1.55] text-[#2a2a2a]"
-          >
-            Already have a repo? Paste this into your coding agent. It pulls the
-            full docs from our plain-text API and scaffolds a typed Rigkit config
-            for your stack.
-          </p>
-        </header>
-        <SetupPrompt client:visible />
       </section>
 
       <section

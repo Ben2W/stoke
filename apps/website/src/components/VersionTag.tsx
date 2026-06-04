@@ -5,7 +5,7 @@ type LatestMetadata = {
   tag: string;
 };
 
-export function LatestVersionBadge() {
+export function VersionTag() {
   const [version, setVersion] = useState<string | null>(null);
 
   useEffect(() => {
@@ -17,7 +17,7 @@ export function LatestVersionBadge() {
         const data = (await response.json()) as LatestMetadata;
         if (!cancelled) setVersion(data.version);
       } catch {
-        // Silent: badge falls back to "Rigkit".
+        // Silent: tag stays hidden until a version is known.
       }
     })();
     return () => {
@@ -25,12 +25,14 @@ export function LatestVersionBadge() {
     };
   }, []);
 
+  if (!version) return null;
+
   return (
     <a
       href="/releases"
-      className="mb-7 inline-flex items-center self-start rounded-lg border-[1.5px] border-[var(--color-accent)] px-3 py-1.5 font-sans text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--color-accent)] transition-opacity hover:opacity-80"
+      className="font-mono text-[11px] font-medium text-[var(--color-accent)] transition-opacity hover:opacity-80"
     >
-      {version ? `Rigkit · v${shortVersion(version)}` : "Rigkit"}
+      v{shortVersion(version)}
     </a>
   );
 }

@@ -34,13 +34,13 @@ export function SetupPrompt() {
           >
             ›
           </span>
-          <p className="min-w-0 flex-1 font-mono text-[13.5px] leading-[1.6] text-[var(--color-fg)]">
-            Help me set up a Rigkit workspace in this repo. Use the Rigkit docs
-            API:{" "}
-            <span className="break-all text-[var(--color-accent)]">
-              {DOCS_API}
+          <div className="flex min-w-0 flex-1 flex-col gap-1 font-mono text-[13.5px] leading-[1.6]">
+            <span className="text-[var(--color-fg)]">
+              Help me set up a Rigkit workspace in this repo. Use the Rigkit docs
+              API:
             </span>
-          </p>
+            <span className="text-[var(--color-accent)]">{DOCS_API}</span>
+          </div>
         </div>
         <motion.span
           aria-hidden="true"
@@ -96,9 +96,6 @@ export function SetupPrompt() {
           </span>
         </motion.span>
       </motion.button>
-      <p className="mt-4 ml-1 font-mono text-xs text-[var(--color-muted)]">
-        works with Claude Code, Cursor, Codex &amp; any coding agent
-      </p>
     </div>
   );
 }
