@@ -17,9 +17,20 @@ type OutputStep = {
 
 type IdeStep = { kind: "ide" };
 
-type Step = CommandStep | OutputStep | IdeStep;
+type PopupStep =
+  | { kind: "popup-open"; delayMs: number }
+  | { kind: "popup-stream"; delayMs: number }
+  | { kind: "popup-auth"; delayMs: number }
+  | { kind: "popup-close"; delayMs: number };
+
+type Step = CommandStep | OutputStep | IdeStep | PopupStep;
+
+type PopupState = "hidden" | "spawning" | "waiting" | "authed";
 
 const PREVIEW_HOST = "workspace-1-sad145.style.dev";
+const DEVICE_CODE = "G3R4-9XAB";
+const DEVICE_URL = "https://github.com/login/device";
+const GH_USER = "ben";
 
 const SCRIPT: Step[] = [
   {
@@ -35,9 +46,23 @@ const SCRIPT: Step[] = [
       { text: "  cloning vercel/next.js-starter", tone: "muted" },
       { text: "  bun install · 132 packages", tone: "muted" },
       { text: "✓ clone-and-install   8.7s", tone: "ok" },
-      { text: "plan complete · 1 task applied", tone: "muted" },
+      { text: "▸ github-auth …", tone: "muted" },
+      { text: "  not authenticated — opening interactive terminal", tone: "muted" },
     ],
-    perLineMs: 380,
+    perLineMs: 360,
+    pauseAfterMs: 120,
+  },
+  { kind: "popup-open", delayMs: 120 },
+  { kind: "popup-stream", delayMs: 1200 },
+  { kind: "popup-auth", delayMs: 3400 },
+  { kind: "popup-close", delayMs: 1100 },
+  {
+    kind: "output",
+    lines: [
+      { text: "✓ github-auth   snapshot saved", tone: "ok" },
+      { text: "plan complete · 2 tasks applied", tone: "muted" },
+    ],
+    perLineMs: 360,
     pauseAfterMs: 700,
   },
   {
@@ -84,7 +109,9 @@ export function CliShowcase({ configHtml }: { configHtml: string }) {
   const [stepIndex, setStepIndex] = useState(0);
   const [lines, setLines] = useState<Line[]>([]);
   const [showIde, setShowIde] = useState(false);
+  const [popupState, setPopupState] = useState<PopupState>("hidden");
   const idCounter = useRef(0);
+  const skipTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const nextId = () => {
     idCounter.current += 1;
@@ -188,6 +215,50 @@ export function CliShowcase({ configHtml }: { configHtml: string }) {
         );
         return;
       }
+
+      if (step.kind === "popup-open") {
+        timers.push(
+          setTimeout(() => {
+            if (cancelled) return;
+            setPopupState("spawning");
+            setStepIndex((index) => index + 1);
+          }, step.delayMs),
+        );
+        return;
+      }
+
+      if (step.kind === "popup-stream") {
+        timers.push(
+          setTimeout(() => {
+            if (cancelled) return;
+            setPopupState("waiting");
+            setStepIndex((index) => index + 1);
+          }, step.delayMs),
+        );
+        return;
+      }
+
+      if (step.kind === "popup-auth") {
+        const timer = setTimeout(() => {
+          if (cancelled) return;
+          setPopupState("authed");
+          setStepIndex((index) => index + 1);
+        }, step.delayMs);
+        timers.push(timer);
+        skipTimerRef.current = timer;
+        return;
+      }
+
+      if (step.kind === "popup-close") {
+        timers.push(
+          setTimeout(() => {
+            if (cancelled) return;
+            setPopupState("hidden");
+            setStepIndex((index) => index + 1);
+          }, step.delayMs),
+        );
+        return;
+      }
     };
 
     runStep();
@@ -196,6 +267,16 @@ export function CliShowcase({ configHtml }: { configHtml: string }) {
       for (const timer of timers) clearTimeout(timer);
     };
   }, [stepIndex]);
+
+  const skipWait = () => {
+    if (popupState !== "waiting") return;
+    if (skipTimerRef.current) {
+      clearTimeout(skipTimerRef.current);
+      skipTimerRef.current = null;
+    }
+    setPopupState("authed");
+    setStepIndex((index) => index + 1);
+  };
 
   const [leftTab, setLeftTab] = useState<"terminal" | "config">("terminal");
 
@@ -216,12 +297,26 @@ export function CliShowcase({ configHtml }: { configHtml: string }) {
             onClick={() => setLeftTab("config")}
           />
         </div>
-        <div className="relative h-[340px] sm:h-[380px]">
+        <div className="relative h-[380px] sm:h-[420px]">
           <div
             className={`absolute inset-0 ${leftTab === "terminal" ? "" : "pointer-events-none opacity-0"}`}
             aria-hidden={leftTab !== "terminal"}
           >
             <TerminalLog lines={lines} idle={stepIndex >= SCRIPT.length} />
+            <AnimatePresence>
+              {leftTab === "terminal" && popupState !== "hidden" && (
+                <motion.div
+                  key="auth-popup"
+                  initial={{ opacity: 0, y: 12 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 6 }}
+                  transition={{ duration: 0.26, ease: [0.22, 1, 0.36, 1] }}
+                  className="absolute inset-x-3 bottom-3 top-12 sm:top-14"
+                >
+                  <PopupTerminal state={popupState} onContinue={skipWait} />
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
           <div
             className={`absolute inset-0 overflow-auto ${leftTab === "config" ? "" : "pointer-events-none opacity-0"}`}
@@ -383,6 +478,140 @@ function Cursor() {
       transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
       className="ml-[1px] inline-block h-[14px] w-[7px] -translate-y-[1px] align-middle bg-[var(--color-accent)]"
     />
+  );
+}
+
+function PopupTerminal({
+  state,
+  onContinue,
+}: {
+  state: Exclude<PopupState, "hidden">;
+  onContinue: () => void;
+}) {
+  return (
+    <div className="flex h-full flex-col overflow-hidden rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] shadow-[0_12px_28px_-14px_rgba(10,10,10,0.18)]">
+      <div className="flex items-center justify-between border-b border-[var(--color-border)] bg-[#f2efe7] px-3 py-1.5">
+        <span className="flex items-center gap-1.5 font-mono text-[11px] text-[var(--color-fg)]">
+          <SshGlyph />
+          Log in to GitHub
+        </span>
+        <span className="font-mono text-[10px] text-[var(--color-dim)]">
+          interactive terminal
+        </span>
+      </div>
+      <div className="relative flex min-h-0 flex-1 flex-col gap-[2px] overflow-hidden bg-[#faf8f2] px-3 py-2.5 font-mono text-[11.5px] leading-[1.55] text-[var(--color-fg)]">
+        <PopupLine prompt="root@vm-3f81 ~ #">
+          <span className="text-[var(--color-fg)]">
+            gh auth login --hostname github.com --web
+          </span>
+        </PopupLine>
+        {state !== "spawning" && (
+          <>
+            <PopupLine>
+              <span className="text-[#b8551f]">!</span>{" "}
+              <span className="text-[var(--color-fg)]">
+                First copy your one-time code:
+              </span>{" "}
+              <span className="font-semibold tracking-[0.05em] text-[var(--color-fg)]">
+                {DEVICE_CODE}
+              </span>
+            </PopupLine>
+            <PopupLine>
+              <span className="text-[var(--color-muted)]">
+                Press Enter to open
+              </span>{" "}
+              <button
+                type="button"
+                onClick={onContinue}
+                className="cursor-pointer text-[var(--color-accent)] underline-offset-2 hover:underline"
+                disabled={state !== "waiting"}
+              >
+                {DEVICE_URL}
+              </button>{" "}
+              <span className="text-[var(--color-muted)]">in your browser…</span>
+            </PopupLine>
+          </>
+        )}
+        {state === "authed" && (
+          <motion.div
+            initial={{ opacity: 0, y: 4 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.2 }}
+            className="mt-1 flex flex-col gap-[2px]"
+          >
+            <PopupLine>
+              <span className="text-[var(--color-muted)]">
+                Authentication complete.
+              </span>
+            </PopupLine>
+            <PopupLine>
+              <span className="text-[#1f8b4c]">✓</span>{" "}
+              <span className="text-[var(--color-fg)]">
+                Logged in as @{GH_USER}
+              </span>
+            </PopupLine>
+          </motion.div>
+        )}
+        <div className="mt-auto flex items-center justify-between border-t border-[var(--color-border)] pt-1.5 text-[10px] text-[var(--color-dim)]">
+          <span>instructions: Complete the GitHub login in this terminal.</span>
+          {state === "waiting" && (
+            <span
+              className="inline-flex items-center gap-1.5 rounded border border-[var(--color-accent)]/40 bg-[var(--color-accent-soft)] px-1.5 py-[2px] font-mono text-[9.5px] uppercase tracking-[0.1em] text-[var(--color-accent)]"
+              aria-live="polite"
+            >
+              <Spinner />
+              Authorizing
+            </span>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PopupLine({
+  children,
+  prompt,
+}: {
+  children: React.ReactNode;
+  prompt?: string;
+}) {
+  return (
+    <div className="whitespace-pre-wrap">
+      {prompt ? (
+        <span className="text-[var(--color-accent)]">{prompt} </span>
+      ) : null}
+      {children}
+    </div>
+  );
+}
+
+function Spinner() {
+  return (
+    <motion.span
+      aria-hidden="true"
+      animate={{ rotate: 360 }}
+      transition={{ duration: 0.85, repeat: Infinity, ease: "linear" }}
+      className="inline-block h-[9px] w-[9px] rounded-full border-[1.5px] border-[var(--color-accent)]/30 border-t-[var(--color-accent)]"
+    />
+  );
+}
+
+function SshGlyph() {
+  return (
+    <svg
+      viewBox="0 0 12 12"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      className="h-[10px] w-[10px] text-[var(--color-muted)]"
+    >
+      <path d="M2 4l2 2-2 2" />
+      <path d="M6 8h4" />
+    </svg>
   );
 }
 

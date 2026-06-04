@@ -64,20 +64,32 @@ const SCRIPT: Step[] = [
     kind: "output",
     lines: [
       {
-        text: "WORKSPACE                     STATUS    VM",
+        text: "WORKSPACE                     STATUS    AUTH",
         tone: "muted",
       },
       {
-        text: "agent-frontend-refactor       ready     vm_3f81…",
+        text: "agent-frontend-refactor       ready     ✓ ben",
         tone: "table",
       },
       {
-        text: "agent-seo-optimization        ready     vm_9c42…",
+        text: "agent-seo-optimization        ready     ✓ ben",
         tone: "table",
       },
       {
-        text: "agent-payment-flow            ready     vm_18ae…",
+        text: "agent-payment-flow            ready     ✓ ben",
         tone: "table",
+      },
+      {
+        text: "agent-onboarding-emails       ready     ✓ ben",
+        tone: "table",
+      },
+      {
+        text: "agent-flaky-test-fix          ready     ✓ ben",
+        tone: "table",
+      },
+      {
+        text: "+ 5 more · all forked from one authenticated snapshot",
+        tone: "muted",
       },
     ],
     perLineMs: 90,

@@ -3,6 +3,7 @@ import { codeToHtml } from "shiki";
 import SiteLayout from "@/layouts/SiteLayout.astro";
 import Header from "@/components/Header.astro";
 import { InstallBlock } from "@/components/InstallBlock";
+import { SetupPrompt } from "@/components/SetupPrompt";
 import { CliShowcase } from "@/components/CliShowcase";
 import { ConfigShowcase } from "@/components/ConfigShowcase";
 import type { ConfigSnippet } from "@/components/ConfigShowcase";
@@ -199,8 +200,8 @@ const configSnippets: ConfigSnippet[] = await Promise.all(
 ---
 
 <SiteLayout
-  title="Rigkit — declarative dev environments, in TypeScript"
-  description="Spin up forkable dev environments for your agents — VM, authenticated CLIs, editor, and preview URL — from a single typed config."
+  title="Rigkit — developer environments as code"
+  description="Define your whole dev environment in TypeScript — VM, tools, even an interactive GitHub login. Snapshot it once, then fork it into ten agents that all boot up already authenticated."
 >
   <div class="flex min-h-screen flex-col">
     <Header />
@@ -212,16 +213,17 @@ const configSnippets: ConfigSnippet[] = await Promise.all(
         <h1
           class="font-sans text-[44px] font-extrabold leading-[1.02] tracking-[-0.035em] text-[var(--color-fg)] sm:text-[56px]"
         >
-          Declarative dev environments,
+          Developer environments
           <br />
-          in TypeScript.
+          as code.
         </h1>
 
         <p
           class="mt-5 max-w-xl font-sans text-[16px] leading-[1.55] text-[#2a2a2a]"
         >
-          Spin up forkable dev environments for your agents — VM, authenticated
-          CLIs, editor, and preview URL — from a single typed config.
+          Define your whole dev environment in TypeScript — VM, tools, even an
+          interactive GitHub login. Snapshot it once, then fork it into ten
+          agents that all boot up already authenticated.
         </p>
 
         <div class="mt-10">
@@ -272,14 +274,15 @@ const configSnippets: ConfigSnippet[] = await Promise.all(
           <h2
             class="font-sans text-[32px] font-extrabold leading-[1.05] tracking-[-0.03em] text-[var(--color-fg)] sm:text-[40px]"
           >
-            Manage multi-agent workloads better than worktrees
+            Fork your whole environment into ten agents
           </h2>
           <p
             class="max-w-xl font-sans text-[15px] leading-[1.55] text-[#2a2a2a]"
           >
-            Git worktrees fork your branch. Because you declared your dev
-            environment, rigkit forks the whole thing — VM, processes, ports,
-            and branch — so every agent gets a real copy.
+            A git worktree only forks your branch. Because your VM, ports, branch,
+            and GitHub login all live in one snapshot, rigkit forks the entire
+            thing — so every agent boots a real copy that's already authenticated
+            and ready to push.
           </p>
         </header>
         <CmuxShowcase client:visible />
@@ -308,6 +311,31 @@ const configSnippets: ConfigSnippet[] = await Promise.all(
           </header>
           <ConfigShowcase client:visible snippets={configSnippets} />
         </div>
+      </section>
+
+      <section
+        class="mx-auto mt-24 flex w-full max-w-3xl flex-col gap-6 px-6 sm:mt-32 sm:px-10"
+      >
+        <header class="flex flex-col gap-3">
+          <span
+            class="inline-flex w-fit items-center gap-1.5 rounded-full border border-[var(--color-accent)] px-2.5 py-1 font-mono text-[10.5px] uppercase tracking-[0.1em] text-[var(--color-accent)]"
+          >
+            setup in your repo
+          </span>
+          <h2
+            class="font-sans text-[32px] font-extrabold leading-[1.05] tracking-[-0.03em] text-[var(--color-fg)] sm:text-[40px]"
+          >
+            Let your agent wire it up.
+          </h2>
+          <p
+            class="max-w-xl font-sans text-[15px] leading-[1.55] text-[#2a2a2a]"
+          >
+            Already have a repo? Paste this into your coding agent. It pulls the
+            full docs from our plain-text API and scaffolds a typed Rigkit config
+            for your stack.
+          </p>
+        </header>
+        <SetupPrompt client:visible />
       </section>
 
       <section
