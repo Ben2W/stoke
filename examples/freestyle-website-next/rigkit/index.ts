@@ -1,4 +1,4 @@
-import { workflow, z } from "@rigkit/sdk";
+import { env, workflow, z } from "@rigkit/sdk";
 import {
   attachDevServerLogCommand,
   startDevServerCommand,
