@@ -2,7 +2,6 @@ import { vmIdleTimeoutSeconds } from "../lib/config";
 import {
   installAptDependenciesCommand,
   installJavaScriptToolsCommand,
-  installShpoolCommand,
   verifySystemDependenciesCommand,
 } from "../lib/commands";
 import type { SnapshotContext } from "../lib/types";
@@ -61,19 +60,6 @@ export const installJavaScriptToolsTask: SetupTaskHandler<
     label: "javascript tool install",
     command: installJavaScriptToolsCommand(),
     timeoutMs: 10 * 60 * 1000,
-  });
-};
-
-export const installShpoolTask: SetupTaskHandler<
-  SnapshotContext,
-  SnapshotContext
-> = async ({ step, providers }) => {
-  console.log("installing rust and shpool");
-  return runSnapshotStage(providers, {
-    snapshotId: step.ctx.snapshotId,
-    label: "shpool install",
-    command: installShpoolCommand(),
-    timeoutMs: 15 * 60 * 1000,
   });
 };
 

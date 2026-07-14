@@ -1,5 +1,5 @@
 import type { WorkflowWorkspaceOperationHandler } from "@rigkit/sdk";
-import { devEnvironmentPath, shpoolSocketPath, vmHome } from "../lib/config";
+import { devEnvironmentPath, vmHome } from "../lib/config";
 import type { WebsiteProviders } from "../lib/providers";
 import { shellQuote } from "../lib/shell";
 import type { WebsiteContext, WebsiteWorkspaceContext } from "../lib/types";
@@ -86,9 +86,7 @@ export const executeCodexTaskOperation: WorkflowWorkspaceOperationHandler<
       await vm.exec({
         command: [
           "set -e",
-          `export HOME=${shellQuote(vmHome)}`,
-          `export PATH=${shellQuote(devEnvironmentPath)}:"$PATH"`,
-          `shpool --socket ${shellQuote(shpoolSocketPath)} kill ${shellQuote(sessionName)} >/dev/null 2>&1 || true`,
+          `if [ -f ${shellQuote(paths.pid)} ]; then kill "$(cat ${shellQuote(paths.pid)})" 2>/dev/null || true; fi`,
         ].join("\n"),
         timeoutMs: 30 * 1000,
       });
@@ -111,6 +109,7 @@ function codexTaskPaths(sessionName: string) {
     result: `${dir}/result.json`,
     lastMessage: `${dir}/last-message.txt`,
     body: `${dir}/pr-body.md`,
+    pid: `${dir}/session.pid`,
   };
 }
 
@@ -122,18 +121,16 @@ function startCodexTaskSessionCommand(options: {
   paths: ReturnType<typeof codexTaskPaths>;
 }): string {
   const prompt = codexPrompt(options.task);
-  const shpool = `shpool --socket ${shellQuote(shpoolSocketPath)}`;
 
   return [
     "set -e",
     `export HOME=${shellQuote(vmHome)}`,
     `export PATH=${shellQuote(devEnvironmentPath)}:"$PATH"`,
-    `mkdir -p ${shellQuote(options.paths.dir)} ${shellQuote(`${vmHome}/.config/shpool`)}`,
-    `printf '%s\\n' ${shellQuote(`initial_path = "${devEnvironmentPath}"`)} > ${shellQuote(`${vmHome}/.config/shpool/config.toml`)}`,
+    `mkdir -p ${shellQuote(options.paths.dir)}`,
     `printf '%s\\n' ${shellQuote(options.task)} > ${shellQuote(options.paths.task)}`,
     `printf '%s\\n' ${shellQuote(prompt)} > ${shellQuote(options.paths.prompt)}`,
     `rm -f ${shellQuote(options.paths.log)} ${shellQuote(options.paths.status)} ${shellQuote(options.paths.result)} ${shellQuote(options.paths.lastMessage)} ${shellQuote(options.paths.body)}`,
-    `${shpool} kill ${shellQuote(options.sessionName)} >/dev/null 2>&1 || true`,
+    `if [ -f ${shellQuote(options.paths.pid)} ]; then kill "$(cat ${shellQuote(options.paths.pid)})" 2>/dev/null || true; fi`,
     `cat > ${shellQuote(options.paths.runner)} <<'RIGKIT_CODEX_TASK_RUNNER'`,
     codexTaskRunnerScript({
       branch: options.branch,
@@ -142,7 +139,9 @@ function startCodexTaskSessionCommand(options: {
     }),
     "RIGKIT_CODEX_TASK_RUNNER",
     `chmod +x ${shellQuote(options.paths.runner)}`,
-    `${shpool} attach --background --force --dir ${shellQuote(options.repoPath)} --cmd ${shellQuote(options.paths.runner)} ${shellQuote(options.sessionName)}`,
+    // Detach the runner so it survives this exec; it writes its own log/status files.
+    `nohup ${shellQuote(options.paths.runner)} </dev/null >/dev/null 2>&1 &`,
+    `echo $! > ${shellQuote(options.paths.pid)}`,
   ].join("\n");
 }
 

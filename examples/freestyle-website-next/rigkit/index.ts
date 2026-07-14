@@ -1,5 +1,8 @@
 import { workflow, z } from "@rigkit/sdk";
-import { attachDevServerSessionCommand } from "./lib/commands";
+import {
+  attachDevServerLogCommand,
+  startDevServerCommand,
+} from "./lib/commands";
 import { vmIdleTimeoutSeconds } from "./lib/config";
 import {
   cmuxProvider,
@@ -7,7 +10,7 @@ import {
   terminalProvider,
 } from "./lib/providers";
 import { shellQuote } from "./lib/shell";
-import { waitForLocalhostHtml } from "./lib/vm";
+import { execOrThrow, waitForLocalhostHtml } from "./lib/vm";
 import { cloneAndInstallTask } from "./tasks/clone-and-install";
 import { executeCodexTaskOperation } from "./tasks/execute-codex-task";
 import { githubAuthTask } from "./tasks/github-auth";
@@ -15,10 +18,8 @@ import { initializeCodexCliTask } from "./tasks/initialize-codex-cli";
 import {
   installAptDependenciesTask,
   installJavaScriptToolsTask,
-  installShpoolTask,
   verifySystemDependenciesTask,
 } from "./tasks/install-dependencies";
-import { runDevServerTask } from "./tasks/run-dev-server";
 import { updateCodexCliAndEnableGoalTask } from "./tasks/update-codex-cli-and-enable-goal";
 
 const app = workflow("freestyle-website-next");
@@ -27,6 +28,9 @@ const websiteSetup = app
   .sequence("website-setup")
   .addProvider("freestyle", freestyleProvider)
   .addProvider("terminal", terminalProvider)
+  .configure({
+    CODEX_API_KEY: env("CODEX_API_KEY"),
+  })
   .task(
     "install-apt-dependencies",
     { version: "apt-dependencies-node22-v2" },
@@ -38,13 +42,8 @@ const websiteSetup = app
     installJavaScriptToolsTask,
   )
   .task(
-    "install-shpool",
-    { version: "shpool-0.10.0-v1" },
-    installShpoolTask,
-  )
-  .task(
     "verify-system-dependencies",
-    { version: "system-dependency-verification-v1" },
+    { version: "system-dependency-verification-v2" },
     verifySystemDependenciesTask,
   )
   .task("github-auth", { version: "github-auth-root-v6" }, githubAuthTask)
@@ -58,11 +57,6 @@ const websiteSetup = app
     "update-codex-cli-and-enable-goal",
     { version: "codex-cli-goals-v1", cacheTTL: "24h" },
     updateCodexCliAndEnableGoalTask,
-  )
-  .task(
-    "run-dev-server",
-    { version: "shpool-dev-server-v2" },
-    runDevServerTask,
   );
 
 export const freestyleWebsiteNext = app
@@ -92,6 +86,15 @@ export const freestyleWebsiteNext = app
             `workspace branch creation failed:\n${result.stdout ?? ""}${result.stderr ?? ""}`.trim(),
           );
         }
+        // The setup snapshot no longer bakes in a running dev server (shpool is
+        // gone), so start it here in the freshly forked workspace VM.
+        await execOrThrow(vm, "website dev server start", {
+          command: startDevServerCommand({
+            repoPath: workflow.ctx.repoPath,
+            command: workflow.ctx.devCommand,
+          }),
+          timeoutMs: 60 * 1000,
+        });
         await waitForLocalhostHtml(vm, workflow.ctx.devPort);
         return {
           vmId,
@@ -99,7 +102,6 @@ export const freestyleWebsiteNext = app
           repo: workflow.ctx.repo,
           branch,
           devCommand: workflow.ctx.devCommand,
-          devSessionName: workflow.ctx.devSessionName,
           devPort: workflow.ctx.devPort,
         };
       } catch (error) {
@@ -136,7 +138,7 @@ export const freestyleWebsiteNext = app
       await providers.cmux.send({
         workspace: cmuxWorkspace.workspaceId,
         surface: devTerminal.surfaceId,
-        text: `${attachDevServerSessionCommand(workspace.ctx.devSessionName)}\n`,
+        text: `${attachDevServerLogCommand()}\n`,
       });
       const codexTerminal = await providers.cmux.newSurface({
         workspace: cmuxWorkspace.workspaceId,

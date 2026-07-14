@@ -6,7 +6,6 @@ export type WebsiteContext = SnapshotContext & {
   repoPath: string;
   repo: string;
   devCommand: string;
-  devSessionName: string;
   devPort: number;
 };
 

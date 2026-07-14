@@ -1,8 +1,8 @@
 import {
   devEnvironmentPath,
+  devServerLogPath,
+  devServerPidPath,
   repoPath,
-  shpoolSocketPath,
-  shpoolVersion,
   vmHome,
 } from "./config";
 import { dirname, shellQuote } from "./shell";
@@ -97,36 +97,18 @@ codex --version
 `;
 }
 
-export function installShpoolCommand(): string {
-  return `
-set -e
-export HOME=/root
-export PATH="/usr/local/bin:/root/.local/bin:/opt/bun/bin:/root/.cargo/bin:$PATH"
-
-curl --proto '=https' --tlsv1.2 -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain 1.85.0
-. /root/.cargo/env
-cargo install shpool --locked --version ${shpoolVersion}
-
-mkdir -p /usr/local/bin
-ln -sf /root/.cargo/bin/shpool /usr/local/bin/shpool
-shpool version
-`;
-}
-
 export function verifySystemDependenciesCommand(): string {
   return `
 set -e
 export HOME=/root
-export PATH="/usr/local/bin:/root/.local/bin:/opt/bun/bin:/root/.cargo/bin:$PATH"
+export PATH="/usr/local/bin:/root/.local/bin:/opt/bun/bin:$PATH"
 
 command -v node
 command -v bun
 command -v codex
-command -v shpool
 node --version | grep -E '^v22\\.'
 bun --version
 codex --version
-shpool version
 `;
 }
 
@@ -215,52 +197,33 @@ export function configureGitIdentityCommand(): string {
   ].join("\n");
 }
 
-export function startDevServerSessionCommand(options: {
+// Start the dev server as a detached background process. shpool used to keep it
+// alive across the exec boundary; nohup + a redirected log file does the same job
+// without needing an interactive session to snapshot.
+export function startDevServerCommand(options: {
   repoPath: string;
   command: string;
-  sessionName: string;
 }): string {
-  const shpoolClientLogPath = "/tmp/shpool-dev-server-client.log";
-  const shpoolDaemonLogPath = `${vmHome}/.local/run/shpool/daemonized-shpool.log`;
-  const shpool = `shpool --socket ${shellQuote(shpoolSocketPath)} --log-file ${shellQuote(shpoolClientLogPath)} -vv`;
   return [
     "set -eu",
     `export HOME=${shellQuote(vmHome)}`,
     `export PATH=${shellQuote(devEnvironmentPath)}:"$PATH"`,
-    `mkdir -p ${shellQuote(`${vmHome}/.config/shpool`)}`,
-    `printf '%s\\n' ${shellQuote(`initial_path = "${devEnvironmentPath}"`)} > ${shellQuote(`${vmHome}/.config/shpool/config.toml`)}`,
-    "command -v shpool",
-    "shpool version",
+    `mkdir -p ${shellQuote(dirname(devServerLogPath))}`,
     `cd ${shellQuote(options.repoPath)}`,
-    `rm -f ${shellQuote(shpoolClientLogPath)} ${shellQuote(shpoolDaemonLogPath)}`,
-    `${shpool} kill ${shellQuote(options.sessionName)} >/dev/null 2>&1 || true`,
-    "set +e",
-    `${shpool} attach --background --force --dir ${shellQuote(options.repoPath)} --cmd ${shellQuote(options.command)} ${shellQuote(options.sessionName)}`,
-    "status=$?",
-    "set -e",
-    'if [ "$status" -ne 0 ]; then',
-    '  echo "shpool attach failed with status $status" >&2',
-    `  ${shpool} list >&2 || true`,
-    `  if [ -f ${shellQuote(shpoolClientLogPath)} ]; then`,
-    '    echo "shpool client log:" >&2',
-    `    sed -n '1,240p' ${shellQuote(shpoolClientLogPath)} >&2`,
-    "  fi",
-    `  if [ -f ${shellQuote(shpoolDaemonLogPath)} ]; then`,
-    '    echo "shpool daemon log:" >&2',
-    `    sed -n '1,240p' ${shellQuote(shpoolDaemonLogPath)} >&2`,
-    "  fi",
-    '  exit "$status"',
-    "fi",
-    `${shpool} list`,
+    `if [ -f ${shellQuote(devServerPidPath)} ]; then kill "$(cat ${shellQuote(devServerPidPath)})" 2>/dev/null || true; fi`,
+    `: > ${shellQuote(devServerLogPath)}`,
+    `nohup ${options.command} </dev/null >${shellQuote(devServerLogPath)} 2>&1 &`,
+    `echo $! > ${shellQuote(devServerPidPath)}`,
+    `echo "dev server started (pid $(cat ${shellQuote(devServerPidPath)}))"`,
   ].join("\n");
 }
 
-export function attachDevServerSessionCommand(sessionName: string): string {
+export function attachDevServerLogCommand(): string {
   return [
     "set -e",
     `export HOME=${shellQuote(vmHome)}`,
     `export PATH=${shellQuote(devEnvironmentPath)}:"$PATH"`,
-    `shpool --socket ${shellQuote(shpoolSocketPath)} list | awk 'NR > 1 {print $1}' | grep -Fxq ${shellQuote(sessionName)}`,
-    `exec shpool --socket ${shellQuote(shpoolSocketPath)} attach -f ${shellQuote(sessionName)}`,
+    `echo "Tailing dev server log (${devServerLogPath}). Press Ctrl-C to stop."`,
+    `exec tail -n +1 -f ${shellQuote(devServerLogPath)}`,
   ].join("\n");
 }

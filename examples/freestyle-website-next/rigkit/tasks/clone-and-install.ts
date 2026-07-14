@@ -1,7 +1,6 @@
 import {
   devCommand,
   devPort,
-  devSessionName,
   repo,
   repoPath,
   repoUrl,
@@ -62,7 +61,6 @@ export const cloneAndInstallTask: SetupTaskHandler<
         repoPath,
         repo,
         devCommand,
-        devSessionName,
         devPort,
       },
     };
