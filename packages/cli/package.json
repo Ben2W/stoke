@@ -9,7 +9,7 @@
     "directory": "packages/cli"
   },
   "bin": {
-    "rig": "./src/cli.ts"
+    "stoke": "./src/cli.ts"
   },
   "exports": {
     ".": "./src/cli.ts",
@@ -20,7 +20,7 @@
     "README.md"
   ],
   "scripts": {
-    "rig": "bun src/cli.ts",
+    "stoke": "bun src/cli.ts",
     "build": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
     "test": "bun test"

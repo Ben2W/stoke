@@ -10,63 +10,72 @@ cloud platform: Vercel.
 - The control plane is a Next.js application on Vercel Functions.
 - Durable managed data is Postgres supplied by Neon through the Vercel
   Marketplace.
-- Cloud development environments run in Vercel Sandbox.
-- cmux remains a first-class local host capability. A cloud service should not
-  try to replace the user's terminal UI.
+- Cloud development environments will run in Vercel Sandbox.
+- cmux remains a first-class local host capability.
 
-The inherited Cloudflare website and documentation applications are not Stoke
-deployment targets. They will be removed or ported rather than supported as a
-second platform.
+The inherited Cloudflare applications are not Stoke deployment targets. They
+remain in the fork only while the product surface is extracted.
 
-## Domain model
+## Project identity
 
-A project is a durable managed identity. Its source is either:
+A managed project points to either a GitHub repository or a machine-scoped local
+directory. A local source records both its machine name and absolute path, so the
+UI can present `Benjamin's MacBook · /path/to/project` without implying that the
+path is available to a cloud worker.
 
-- a GitHub repository, identified by owner and repository; or
-- a local checkout, identified by machine and path.
+Managed projects belong to a Better Auth user. Slugs and source identities are
+unique within that user, not globally.
 
-Local checkouts are explicitly machine-scoped so the UI can say, for example,
-`Benjamin's MacBook · ~/src/project` without pretending that path exists in the
-cloud.
+## Authentication and API
 
-The initial API is intentionally small:
+The Vercel control plane self-hosts Better Auth against the linked Neon Postgres
+database. GitHub is the browser identity provider. The CLI uses Better Auth's
+OAuth device-authorization flow and bearer sessions:
+
+1. `stoke login` requests a short-lived device code.
+2. The browser signs in with GitHub and approves that terminal.
+3. The CLI stores the resulting bearer session in a mode-`0600` credential file.
+4. `stoke logout` revokes the server session and removes the local credential.
+
+The initial API is deliberately small:
 
 - `GET /api/v1/health`
+- `GET /api/v1/auth/me`
 - `GET /api/v1/projects`
 - `POST /api/v1/projects`
 
-Project endpoints require `STOKE_API_TOKEN`. `DATABASE_URL` must point at the
-pooled Neon connection string. The schema is in
-`apps/app/drizzle/0000_project_registry.sql`.
+Project and identity endpoints require an authenticated bearer session.
+`DATABASE_URL` points at Neon; `BETTER_AUTH_SECRET`, `GITHUB_CLIENT_ID`, and
+`GITHUB_CLIENT_SECRET` configure authentication.
 
-The CLI uses the same contract:
+## CLI semantics
 
-- `rig add owner/repository` registers a GitHub source.
-- `rig add ./local-directory` registers a machine-scoped local source.
-- `rig ls` lists managed projects when no Rigkit project is selected.
-- `rig ls projects` always lists managed projects; `rig ls workspaces` keeps
-  the existing project-runtime view.
+- `stoke add owner/repository` registers a GitHub source.
+- `stoke add ./local-directory` registers a machine-scoped local source.
+- `stoke ls` always lists managed projects. It does not inspect a selected local
+  runtime and has no `projects` or `workspaces` target.
+- `stoke discover` finds local Stoke configurations when that lower-level view is
+  needed.
+- Existing workspace commands (`stoke create`, `stoke run`, `stoke rm`) continue
+  to use the local typed engine and retain cmux integration.
 
-The private-preview client reads `STOKE_API_URL` (defaulting to
-`https://usestoke.dev`) and `STOKE_API_TOKEN` from the environment.
+`STOKE_API_URL` defaults to `https://usestoke.dev`. `STOKE_TOKEN` is an explicit
+credential override for automation; interactive use reads the credential written
+by `stoke login`.
 
 ## Build order
 
-1. Project registry, typed managed client, `rig add`, and project listing.
-2. Replace the preview token with CLI authentication.
-3. Vercel Sandbox provider for GitHub-backed projects.
-4. Managed workflow state and shared cache metadata, keeping large cache
-   artifacts in object storage rather than Postgres.
-5. A CI adapter that invokes the same CLI and workflow graph as local usage.
+1. Authenticated project registry and deterministic CLI project listing.
+2. Vercel Sandbox execution for GitHub-backed projects.
+3. Managed workflow state and shared cache metadata, with large artifacts in
+   object storage rather than Postgres.
+4. A CI adapter that invokes the same CLI and workflow graph as local usage.
 
-## Deliberate cuts for the interview project
+## Deliberate interview-scope cuts
 
-- No multi-cloud abstraction.
+- No multi-cloud abstraction or Cloudflare deployment path.
 - No arbitrary TypeScript evaluation in the control plane.
 - No dashboard before the CLI loop works.
-- No organization/RBAC system in the first private preview; a scoped API token
-  is sufficient.
-- No replacement for GitHub Actions. Stoke first runs *inside* CI and shares
-  project state and cache with local development.
-- No global rewrite of Rigkit internals before the managed boundary proves what
-  needs to change.
+- No organization/RBAC model in the first private preview.
+- No GitHub Actions replacement; Stoke first runs inside CI.
+- No global rewrite of inherited `@rigkit/*` internals.

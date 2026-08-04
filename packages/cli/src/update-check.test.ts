@@ -56,7 +56,7 @@ describe("update check", () => {
       });
 
       expect(requests).toBe(1);
-      expect(output).toContain("rig 0.2.12 is available");
+      expect(output).toContain("stoke 0.2.12 is available");
     } finally {
       server.stop(true);
       rmSync(rigkitHome, { recursive: true, force: true });
@@ -106,7 +106,7 @@ describe("update check", () => {
       });
 
       expect(requests).toBe(1);
-      expect(output).toContain("rig 0.2.12 is available");
+      expect(output).toContain("stoke 0.2.12 is available");
     } finally {
       server.stop(true);
       rmSync(rigkitHome, { recursive: true, force: true });

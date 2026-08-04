@@ -21,6 +21,9 @@ type CompleteRigInput = {
 type CommandName =
   | "help"
   | "init"
+  | "login"
+  | "logout"
+  | "whoami"
   | "add"
   | "plan"
   | "apply"
@@ -30,7 +33,7 @@ type CommandName =
   | "ls"
   | "cache"
   | "providers"
-  | "projects"
+  | "discover"
   | "doctor"
   | "version"
   | "completion";
@@ -122,7 +125,6 @@ const GROUP_COMMANDS = "Commands";
 const GROUP_SUBCOMMANDS = "Subcommands";
 const GROUP_FLAGS = "Flags";
 const GROUP_GLOBAL = "Global flags";
-const GROUP_TARGETS = "Targets";
 const GROUP_WORKSPACES = "Workspaces";
 const GROUP_OPERATIONS = "Operations";
 const GROUP_VALUES = "Values";
@@ -133,17 +135,20 @@ const GROUP_PROVIDERS = "Providers";
 
 const COMMANDS: CompletionItem[] = withGroup(GROUP_COMMANDS, [
   { value: "help", description: "show CLI help" },
-  { value: "init", description: "initialize a Rigkit project" },
+  { value: "init", description: "initialize a Stoke project" },
+  { value: "login", description: "authenticate this terminal" },
+  { value: "logout", description: "remove this terminal's session" },
+  { value: "whoami", description: "show the current Stoke user" },
   { value: "add", description: "add a repository or local directory to Stoke" },
   { value: "plan", description: "plan project workflow changes" },
   { value: "apply", description: "apply project workflow changes" },
   { value: "create", description: "create a workspace" },
   { value: "rm", description: "remove a workspace" },
   { value: "run", description: "run a workspace operation" },
-  { value: "ls", description: "list project workspaces" },
+  { value: "ls", description: "list managed projects" },
   { value: "cache", description: "inspect and clear workflow cache" },
   { value: "providers", description: "manage provider-owned local state" },
-  { value: "projects", description: "discover Rigkit projects" },
+  { value: "discover", description: "discover Stoke projects" },
   { value: "doctor", description: "show runtime diagnostics" },
   { value: "version", description: "show CLI version" },
   { value: "completion", description: "generate shell completion" },
@@ -189,6 +194,17 @@ const COMMAND_OPTIONS: Record<CommandName, OptionDefinition[]> = {
   init: [
     HELP_OPTION,
   ],
+  login: [
+    HELP_OPTION,
+  ],
+  logout: [
+    JSON_OPTION,
+    HELP_OPTION,
+  ],
+  whoami: [
+    JSON_OPTION,
+    HELP_OPTION,
+  ],
   add: [
     option(["--name"], "managed project name", { takesValue: true }),
     JSON_OPTION,
@@ -223,7 +239,6 @@ const COMMAND_OPTIONS: Record<CommandName, OptionDefinition[]> = {
     HELP_OPTION,
   ],
   ls: [
-    option(["--workflow"], "workflow name", { takesValue: true }),
     JSON_OPTION,
     HELP_OPTION,
   ],
@@ -233,7 +248,7 @@ const COMMAND_OPTIONS: Record<CommandName, OptionDefinition[]> = {
   providers: [
     HELP_OPTION,
   ],
-  projects: [
+  discover: [
     JSON_OPTION,
     HELP_OPTION,
   ],
@@ -268,13 +283,6 @@ const CORE_OPERATION_OPTIONS: Partial<Record<CommandName, OptionDefinition[]>> =
     option(["--name"], "workspace name", { takesValue: true }),
   ],
 };
-
-const LIST_TARGETS: CompletionItem[] = withGroup(GROUP_TARGETS, [
-  { value: "projects", description: "list managed projects" },
-  { value: "workspaces", description: "list workspaces" },
-  { value: "snapshots", description: "list snapshots" },
-  { value: "config", description: "show project config" },
-]);
 
 const CACHE_SUBCOMMANDS: CompletionItem[] = withGroup(GROUP_SUBCOMMANDS, [
   { value: "ls", description: "list cache entries" },
@@ -383,7 +391,7 @@ export async function completeRig(input: CompleteRigInput): Promise<CompletionIt
 
 function completionContext(input: CompleteRigInput): CompletionContext {
   const cwd = input.cwd ?? process.cwd();
-  const words = input.words.length > 0 ? input.words : ["rig"];
+  const words = input.words.length > 0 ? input.words : ["stoke"];
   const currentIndex = input.currentIndex ?? Math.max(0, words.length - 1);
   const current = words[currentIndex] ?? "";
   const before = words.slice(1, currentIndex);
@@ -592,7 +600,7 @@ async function completeCommand(context: CompletionContext): Promise<CompletionIt
     case "rm":
       return await completeRmCommand(context);
     case "ls":
-      return completeLsCommand(context);
+      return completeOptionsOnlyCommand(context, COMMAND_OPTIONS.ls);
     case "cache":
       return await completeCacheCommand(context);
     case "providers":
@@ -600,7 +608,10 @@ async function completeCommand(context: CompletionContext): Promise<CompletionIt
     case "completion":
       return completeCompletionCommand(context);
     case "init":
-    case "projects":
+    case "login":
+    case "logout":
+    case "whoami":
+    case "discover":
     case "doctor":
     case "version":
     case "help":
@@ -694,24 +705,6 @@ async function completeRmCommand(context: CompletionContext): Promise<Completion
   if (!remove.workspace) {
     return completeMixed({
       primary: await safeWorkspaceTargets(paths, requestedWorkflow),
-      options,
-      current: context.current,
-    });
-  }
-
-  if (context.current.startsWith("-") || context.current === "") {
-    return filterItems(optionItems(options), context.current);
-  }
-
-  return [];
-}
-
-function completeLsCommand(context: CompletionContext): CompletionItem[] {
-  const options = COMMAND_OPTIONS.ls;
-  const targets = positionalsFrom(context.argsBefore, options);
-  if (targets.length === 0) {
-    return completeMixed({
-      primary: LIST_TARGETS,
       options,
       current: context.current,
     });
@@ -839,44 +832,44 @@ export function resolveCompletionShell(value: string | undefined, env: NodeJS.Pr
 
 export function renderCompletionScript(shell: CompletionShell): string {
   if (shell === "bash") {
-    return `# rig bash completion
-_rig_completion() {
+    return `# stoke bash completion
+_stoke_completion() {
   local completions
-  completions="$(command rig __complete --shell bash --index "$COMP_CWORD" -- "\${COMP_WORDS[@]}" 2>/dev/null)"
+  completions="$(command stoke __complete --shell bash --index "$COMP_CWORD" -- "\${COMP_WORDS[@]}" 2>/dev/null)"
   COMPREPLY=($(compgen -W "$completions" -- "\${COMP_WORDS[COMP_CWORD]}"))
   if [[ "\${#COMPREPLY[@]}" -eq 1 && ( "\${COMPREPLY[0]}" == */ || "\${COMPREPLY[0]}" == *= ) ]]; then
     compopt -o nospace 2>/dev/null || true
   fi
 }
-complete -F _rig_completion rig
+complete -F _stoke_completion stoke
 `;
   }
 
   if (shell === "fish") {
-    return `# rig fish completion
-function __rig_complete
+    return `# stoke fish completion
+function __stoke_complete
   set -l tokens (commandline -opc)
   set -l current (commandline -ct)
   set -l index (count $tokens)
-  command rig __complete --shell fish --index $index -- $tokens $current 2>/dev/null
+  command stoke __complete --shell fish --index $index -- $tokens $current 2>/dev/null
 end
-complete -c rig -f -a "(__rig_complete)"
+complete -c stoke -f -a "(__stoke_complete)"
 `;
   }
 
-  return `#compdef rig
-# rig zsh completion generated by \`rig completion zsh\`.
+  return `#compdef stoke
+# stoke zsh completion generated by \`stoke completion zsh\`.
 
 () {
-  zstyle ':completion:*:rig:*:descriptions' format $'\\e[1;34m%d\\e[0m'
-  zstyle ':completion:*:rig:*' group-name ''
-  zstyle ':completion:*:rig:*' verbose true
+  zstyle ':completion:*:stoke:*:descriptions' format $'\\e[1;34m%d\\e[0m'
+  zstyle ':completion:*:stoke:*' group-name ''
+  zstyle ':completion:*:stoke:*' verbose true
 }
 
-_rig() {
+_stoke() {
   local raw line value description marker group key tag
   local -A bucket_specs bucket_groups bucket_data
-  raw=("\${(@f)$(command rig __complete --shell zsh --index $((CURRENT - 1)) -- "\${words[@]}" 2>/dev/null)}")
+  raw=("\${(@f)$(command stoke __complete --shell zsh --index $((CURRENT - 1)) -- "\${words[@]}" 2>/dev/null)}")
 
   for line in "\${raw[@]}"; do
     [[ -z "$line" ]] && continue
@@ -886,7 +879,7 @@ _rig() {
     description="\${parts[2]:-}"
     marker="\${parts[3]:-}"
     group="\${parts[4]:-}"
-    [[ -z "$group" ]] && group="rig"
+    [[ -z "$group" ]] && group="stoke"
     key="\${group}|\${marker}"
     bucket_groups[$key]="$group"
     bucket_specs[$key]="$marker"
@@ -902,7 +895,7 @@ _rig() {
     matches=("\${(@f)bucket_data[$key]}")
     matches=("\${(@)matches:#}")
     tag="\${bucket_groups[$key]//[^A-Za-z0-9]/_}"
-    [[ -z "$tag" ]] && tag="rig"
+    [[ -z "$tag" ]] && tag="stoke"
     if [[ "\${bucket_specs[$key]}" == "nospace" ]]; then
       _describe -t "$tag" "\${bucket_groups[$key]}" matches -S ''
     else
@@ -911,7 +904,7 @@ _rig() {
   done
 }
 
-compdef _rig rig
+compdef _stoke stoke
 `;
 }
 

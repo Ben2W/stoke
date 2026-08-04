@@ -35,9 +35,9 @@ describe("CLI project resolution", () => {
     );
   });
 
-  test("does not treat rig.config.ts as a project config", () => {
+  test("does not treat stoke.config.ts as a project config", () => {
     const cwd = mkdtempSync(join(tmpdir(), "rigkit-cli-"));
-    writeFileSync(join(cwd, "rig.config.ts"), "export const dev = {}\n");
+    writeFileSync(join(cwd, "stoke.config.ts"), "export const dev = {}\n");
 
     expect(() => resolveConfigPaths({ cwd })).toThrow(
       /No Rigkit config found from .* upward/,

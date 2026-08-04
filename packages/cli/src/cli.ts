@@ -14,7 +14,6 @@ import {
   defaultProviderHostStorageDir,
   type DevMachineEvent,
   type WorkflowPlan,
-  type SnapshotRecord,
   type WorkspaceRecord,
 } from "@rigkit/engine";
 import type { ManagedProject } from "@stoke/managed";
@@ -23,7 +22,7 @@ import {
   type CmuxHostCapabilityHandler,
 } from "@rigkit/provider-cmux/host";
 import { DEFAULT_CONFIG_PATH, discoverProjectConfigs, resolveConfigPaths } from "./project.ts";
-import { RIGKIT_CLI_VERSION } from "./version.ts";
+import { STOKE_CLI_VERSION } from "./version.ts";
 import { initProject, type InitProjectResult } from "./init.ts";
 import { openExternalTarget } from "./interaction.ts";
 import { createRunPresenter, type RunPresenter } from "./run-presenter.ts";
@@ -43,8 +42,15 @@ import {
 } from "./completion.ts";
 import { generateWorkspaceName } from "./workspace-name.ts";
 import {
+  clearStokeCredential,
+  DeviceAuthorizationError,
+  exchangeDeviceAuthorization,
   managedClientFromEnvironment,
+  readStokeCredential,
+  requestDeviceAuthorization,
+  revokeStokeSession,
   resolveProjectSource,
+  writeStokeCredential,
 } from "./managed.ts";
 
 type GlobalOptions = {
@@ -75,11 +81,6 @@ type DoctorOptions = {
 type RunOptions = {
   all: boolean;
   discover: boolean;
-};
-
-type ListOptions = {
-  target?: string;
-  workflow?: string;
 };
 
 type AddOptions = {
@@ -203,10 +204,10 @@ if (process.argv[2] === "__complete") {
 async function runCli(argv: string[]): Promise<void> {
   const program = new Command();
   program
-    .name("rig")
-    .description("Rigkit workflow CLI")
+    .name("stoke")
+    .description("Stoke development environment CLI")
     .usage("[global options] <command> [args]")
-    .version(RIGKIT_CLI_VERSION, "-v, --version", "Show Rigkit CLI version")
+    .version(STOKE_CLI_VERSION, "-v, --version", "Show Stoke CLI version")
     .showHelpAfterError()
     .exitOverride()
     .argument("[command]")
@@ -229,14 +230,14 @@ async function runCli(argv: string[]): Promise<void> {
   program.hook("postAction", async (_thisCommand, actionCommand) => {
     await maybePrintUpdateNotice({
       commandName: actionCommand.name(),
-      currentVersion: RIGKIT_CLI_VERSION,
+      currentVersion: STOKE_CLI_VERSION,
       json: commandWantsJson(program, actionCommand),
     });
   });
 
   program
     .command("init")
-    .description("Initialize a Rigkit project")
+    .description("Initialize a Stoke project")
     .option("--package-manager <packageManager>", "Install with bun, pnpm, npm, or skip")
     .option("--no-install", "Write files without installing dependencies")
     .option("--json", "Print machine-readable JSON")
@@ -313,6 +314,29 @@ async function runCli(argv: string[]): Promise<void> {
     });
 
   program
+    .command("login")
+    .description("Authenticate this terminal with Stoke")
+    .action(async () => {
+      await runLogin();
+    });
+
+  program
+    .command("logout")
+    .description("Remove this terminal's Stoke session")
+    .option("--json", "Print machine-readable JSON")
+    .action(async (options: { json?: boolean }) => {
+      await runLogout(makeInvocation(rootOptions(program), options.json));
+    });
+
+  program
+    .command("whoami")
+    .description("Show the current Stoke user")
+    .option("--json", "Print machine-readable JSON")
+    .action(async (options: { json?: boolean }) => {
+      await runWhoAmI(makeInvocation(rootOptions(program), options.json));
+    });
+
+  program
     .command("add <source>")
     .description("Add a GitHub repository or local directory to Stoke")
     .option("--name <name>", "Managed project name")
@@ -324,12 +348,11 @@ async function runCli(argv: string[]): Promise<void> {
     });
 
   program
-    .command("ls [target]")
-    .description("List managed projects or project runtime resources")
-    .option("--workflow <workflow>", "Workflow name")
+    .command("ls")
+    .description("List managed projects")
     .option("--json", "Print machine-readable JSON")
-    .action(async (target: string | undefined, options: { workflow?: string; json?: boolean }) => {
-      await runList(makeInvocation(rootOptions(program), options.json), { target, workflow: options.workflow });
+    .action(async (options: { json?: boolean }) => {
+      await runManagedProjects(makeInvocation(rootOptions(program), options.json));
     });
 
   const cache = program
@@ -350,10 +373,10 @@ async function runCli(argv: string[]): Promise<void> {
       "  clear                    Delete workflow cache entries",
       "",
       "Examples:",
-      "  rig cache dev explain",
-      "  rig cache dev explain install-tooling",
-      "  rig cache dev invalidate install-tooling",
-      "  rig cache dev invalidate --all --yes",
+      "  stoke cache dev explain",
+      "  stoke cache dev explain install-tooling",
+      "  stoke cache dev invalidate install-tooling",
+      "  stoke cache dev invalidate --all --yes",
       "",
     ].join("\n"))
     .action(async (
@@ -390,8 +413,8 @@ async function runCli(argv: string[]): Promise<void> {
     });
 
   program
-    .command("projects")
-    .description("Discover Rigkit projects below the current directory")
+    .command("discover")
+    .description("Discover Stoke projects below the current directory")
     .option("--json", "Print machine-readable JSON")
     .action(async (options: { json?: boolean }) => {
       await runProjects(makeInvocation(rootOptions(program), options.json));
@@ -399,7 +422,7 @@ async function runCli(argv: string[]): Promise<void> {
 
   program
     .command("doctor")
-    .description("Show Rigkit runtime diagnostics")
+    .description("Show Stoke runtime diagnostics")
     .option("--cli", "Show CLI diagnostics without connecting to a project runtime")
     .option("--json", "Print machine-readable JSON")
     .action(async (options: { cli?: boolean; json?: boolean }) => {
@@ -408,7 +431,7 @@ async function runCli(argv: string[]): Promise<void> {
 
   program
     .command("version")
-    .description("Show Rigkit CLI version")
+    .description("Show Stoke CLI version")
     .option("--json", "Print machine-readable JSON")
     .action(async (options: { json?: boolean }) => {
       await runVersion(makeInvocation(rootOptions(program), options.json));
@@ -416,7 +439,7 @@ async function runCli(argv: string[]): Promise<void> {
 
   program
     .command("help")
-    .description("Show Rigkit CLI help")
+    .description("Show Stoke CLI help")
     .option("--json", "Print machine-readable JSON")
     .action(async (options: { json?: boolean }) => {
       await runHelp(makeInvocation(rootOptions(program), options.json));
@@ -526,11 +549,11 @@ function handleCliError(error: unknown): void {
 
 async function runInit(invocation: CliInvocation, options: InitOptions): Promise<void> {
   if (wantsJson(invocation) && options.packageManager && options.packageManager !== "skip") {
-    throw new Error(`rig init --json only supports --package-manager skip`);
+    throw new Error(`stoke init --json only supports --package-manager skip`);
   }
 
   if (!wantsJson(invocation)) {
-    console.log(`${ui.bold("rig")} ${ui.dim("· initialize")}`);
+    console.log(`${ui.bold("stoke")} ${ui.dim("· initialize")}`);
     console.log("");
   }
 
@@ -670,7 +693,7 @@ function printInitResult(result: InitProjectResult, install: InitInstallResult):
   if (install.skipped) {
     console.log(ui.hint(detectInstallCommand(result.packageJsonPath)));
   }
-  console.log(ui.hint("rig plan"));
+  console.log(ui.hint("stoke plan"));
 }
 
 function parsePackageManagerOption(value: string | undefined): PackageManager | undefined {
@@ -842,7 +865,7 @@ async function runRemove(
   options: { workspace?: string; workflow?: string; yes: boolean; all: boolean },
 ): Promise<void> {
   if (options.workspace && options.all) {
-    throw new Error(`rig rm accepts either a workspace name or --all, not both`);
+    throw new Error(`stoke rm accepts either a workspace name or --all, not both`);
   }
 
   if (options.workspace) {
@@ -875,14 +898,14 @@ async function runRemove(
       });
       if (!confirmed) throw new Error("Remove cancelled");
     } else if (!options.yes && !canPrompt()) {
-      throw new Error(`rig rm --all needs --yes when not running in an interactive terminal`);
+      throw new Error(`stoke rm --all needs --yes when not running in an interactive terminal`);
     }
     targets = workspaces
       .filter((workspace) => options.workflow === undefined || workspace.workflow === options.workflow)
       .map((workspace) => `${workspace.workflow}/${workspace.name}`);
   } else {
     if (wantsJson(invocation) || !canPrompt()) {
-      throw new Error(`rig rm needs a workspace name or --all when not running in an interactive terminal`);
+      throw new Error(`stoke rm needs a workspace name or --all when not running in an interactive terminal`);
     }
     targets = await promptWorkspaceRemoveSelection(workspaces, options.workflow);
     if (targets.length === 0) throw new Error("Nothing selected");
@@ -975,12 +998,12 @@ async function runDiscoveredProjectOperation(
     chdir: invocation.global.chdir,
   });
   if (projects.length === 0) {
-    throw new Error("No Rigkit projects found.");
+    throw new Error("No Stoke projects found.");
   }
   if (!options.all && projects.length > 1) {
     throw new Error([
-      "Multiple Rigkit projects found.",
-      "Use `rig projects` to list candidates, pass --chdir to select one, or pass --all to run every discovered project.",
+      "Multiple Stoke projects found.",
+      "Use `stoke discover` to list candidates, pass --chdir to select one, or pass --all to run every discovered project.",
       ...projects.map((project) => `- ${project.configPath}`),
     ].join("\n"));
   }
@@ -1036,7 +1059,7 @@ async function runProjects(invocation: CliInvocation): Promise<void> {
     return;
   }
   if (projects.length === 0) {
-    console.log(ui.dim("no Rigkit projects found"));
+    console.log(ui.dim("no Stoke projects found"));
     return;
   }
   const rows = projects.map((project) => [
@@ -1071,6 +1094,61 @@ async function runManagedAdd(
   ]));
 }
 
+async function runLogin(): Promise<void> {
+  const authorization = await requestDeviceAuthorization();
+  console.log(`${ui.bold("Stoke login")}\n`);
+  console.log(`Enter ${ui.bold(authorization.user_code)} at:`);
+  console.log(ui.accent(authorization.verification_uri));
+  await openExternalTarget(authorization.verification_uri_complete ?? authorization.verification_uri);
+
+  let interval = Math.max(1, authorization.interval);
+  const expiresAt = Date.now() + authorization.expires_in * 1_000;
+  while (Date.now() < expiresAt) {
+    await wait(interval * 1_000);
+    try {
+      const token = await exchangeDeviceAuthorization(authorization.device_code);
+      writeStokeCredential({
+        accessToken: token.accessToken,
+        expiresAt: new Date(Date.now() + token.expiresIn * 1_000).toISOString(),
+      });
+      const user = await managedClientFromEnvironment().currentUser();
+      console.log(`${ui.ok(ui.sym.ok)} authenticated as ${ui.bold(user.email)}`);
+      return;
+    } catch (error) {
+      if (error instanceof DeviceAuthorizationError && error.code === "authorization_pending") continue;
+      if (error instanceof DeviceAuthorizationError && error.code === "slow_down") {
+        interval += 5;
+        continue;
+      }
+      throw error;
+    }
+  }
+  throw new Error("Stoke login expired. Run `stoke login` to try again.");
+}
+
+async function runLogout(invocation: CliInvocation): Promise<void> {
+  const credential = readStokeCredential();
+  if (credential) await revokeStokeSession(credential);
+  clearStokeCredential();
+  if (wantsJson(invocation)) {
+    printJson({ ok: true });
+    return;
+  }
+  console.log(`${ui.ok(ui.sym.ok)} logged out`);
+}
+
+async function runWhoAmI(invocation: CliInvocation): Promise<void> {
+  const user = await managedClientFromEnvironment().currentUser();
+  if (wantsJson(invocation)) {
+    printJson({ user });
+    return;
+  }
+  console.log(ui.kvList([
+    ["name", user.name],
+    ["email", user.email],
+  ]));
+}
+
 async function runManagedProjects(invocation: CliInvocation): Promise<void> {
   const projects = await managedClientFromEnvironment().listProjects();
   if (wantsJson(invocation)) {
@@ -1098,60 +1176,8 @@ function formatManagedProjectSource(project: ManagedProject): string {
     : `${project.source.machineName} · ${project.source.path}`;
 }
 
-async function runList(invocation: CliInvocation, options: ListOptions): Promise<void> {
-  let target: "projects" | "workspaces" | "snapshots" | "config";
-  if (options.target) {
-    target = normalizeListTarget(options.target);
-  } else {
-    target = hasSelectedRigkitProject(invocation) ? "workspaces" : "projects";
-  }
-  if (target === "projects") {
-    await runManagedProjects(invocation);
-    return;
-  }
-  const runtime = await loadRuntime(invocation);
-
-  if (target === "workspaces") {
-    const workflows = await readWorkflowOverview(invocation, runtime, options.workflow);
-    if (wantsJson(invocation)) {
-      printJson({ workflows });
-      return;
-    }
-    printWorkflowWorkspaces(workflows);
-    return;
-  }
-
-  if (target === "snapshots") {
-    const { snapshots } = await runtime.control.snapshots();
-    const filtered = options.workflow
-      ? (snapshots as SnapshotRecord[]).filter((snapshot) => snapshot.workflow === options.workflow)
-      : snapshots as SnapshotRecord[];
-    if (wantsJson(invocation)) {
-      printJson({ snapshots: filtered });
-      return;
-    }
-    printSnapshots(filtered);
-    return;
-  }
-
-  const project = await readRuntimeProject(runtime);
-  if (wantsJson(invocation)) {
-    printJson(project);
-    return;
-  }
-  printConfig(project);
-}
-
-function hasSelectedRigkitProject(invocation: CliInvocation): boolean {
-  try {
-    resolveConfigPaths({
-      cwd: process.cwd(),
-      chdir: invocation.global.chdir,
-    });
-    return true;
-  } catch {
-    return false;
-  }
+function wait(milliseconds: number): Promise<void> {
+  return new Promise((resolveWait) => setTimeout(resolveWait, milliseconds));
 }
 
 async function runCacheCommand(
@@ -1181,7 +1207,7 @@ async function runCacheCommand(
     case "clear":
       assertNoCacheArgs(input.action, input.args);
       if (input.all) {
-        throw new Error(`rig cache <workflow> clear does not accept --all; omit flags to clear local and global cache for the workflow`);
+        throw new Error(`stoke cache <workflow> clear does not accept --all; omit flags to clear local and global cache for the workflow`);
       }
       await runCacheClear(invocation, {
         workflow: input.workflow,
@@ -1204,11 +1230,11 @@ async function runCacheCommand(
 }
 
 function assertNoCacheArgs(action: string, args: readonly string[]): void {
-  if (args.length > 0) throw new Error(`rig cache <workflow> ${action} does not accept positional arguments`);
+  if (args.length > 0) throw new Error(`stoke cache <workflow> ${action} does not accept positional arguments`);
 }
 
 function assertAtMostOneCacheArg(action: string, args: readonly string[]): void {
-  if (args.length > 1) throw new Error(`rig cache <workflow> ${action} accepts at most one task`);
+  if (args.length > 1) throw new Error(`stoke cache <workflow> ${action} accepts at most one task`);
 }
 
 async function runCacheList(invocation: CliInvocation, options: CacheListOptions): Promise<void> {
@@ -1284,7 +1310,7 @@ type CacheInvalidateOptions = {
 
 async function runCacheInvalidate(invocation: CliInvocation, options: CacheInvalidateOptions): Promise<void> {
   if (options.task && options.all) {
-    throw new Error(`rig cache <workflow> invalidate accepts either a task or --all, not both`);
+    throw new Error(`stoke cache <workflow> invalidate accepts either a task or --all, not both`);
   }
 
   const runtime = await loadRuntime(invocation);
@@ -1300,7 +1326,7 @@ async function runCacheInvalidate(invocation: CliInvocation, options: CacheInval
       });
       if (!confirmed) throw new Error("Invalidate cancelled");
     } else if (!options.yes && !canPrompt()) {
-      throw new Error(`rig cache <workflow> invalidate --all needs --yes when not running in an interactive terminal`);
+      throw new Error(`stoke cache <workflow> invalidate --all needs --yes when not running in an interactive terminal`);
     }
     targets = []; // empty = engine invalidates everything for the workflow
   } else {
@@ -1322,7 +1348,7 @@ async function runCacheInvalidate(invocation: CliInvocation, options: CacheInval
       return;
     }
     if (wantsJson(invocation) || !canPrompt()) {
-      throw new Error(`rig cache <workflow> invalidate needs a task name or --all when not running in an interactive terminal`);
+      throw new Error(`stoke cache <workflow> invalidate needs a task name or --all when not running in an interactive terminal`);
     }
     const picked = await promptCacheInvalidateSelection(candidates);
     if (picked.length === 0) throw new Error("Nothing selected");
@@ -1795,7 +1821,7 @@ async function renderOperationResult(
 
   if (operation.createsWorkspace && isWorkspaceRecord(result)) {
     // Only emit the bareword name when stdout is piped, so scripts can do
-    // `name=$(rig create)` while TTY users aren't shown a redundant line.
+    // `name=$(stoke create)` while TTY users aren't shown a redundant line.
     if (!process.stdout.isTTY) console.log(result.name);
     return;
   }
@@ -1822,7 +1848,7 @@ async function renderOperationResult(
 async function runDoctor(invocation: CliInvocation, options: DoctorOptions): Promise<void> {
   if (options.cli) {
     const diagnostics = {
-      cliVersion: RIGKIT_CLI_VERSION,
+      cliVersion: STOKE_CLI_VERSION,
       binary: process.argv[1] ? resolve(process.argv[1]) : undefined,
       node: process.version,
       bun: typeof Bun !== "undefined" ? Bun.version : undefined,
@@ -1847,12 +1873,12 @@ async function runDoctor(invocation: CliInvocation, options: DoctorOptions): Pro
     readRuntimeProject(runtime),
   ]);
   const compatibility = evaluateVersionCompatibility({
-    cliVersion: RIGKIT_CLI_VERSION,
+    cliVersion: STOKE_CLI_VERSION,
     runtimeVersion: runtimeInfo.runtimeVersion,
     engineVersion: runtimeInfo.engineVersion,
   });
   const diagnostics = {
-    cliVersion: RIGKIT_CLI_VERSION,
+    cliVersion: STOKE_CLI_VERSION,
     compatibility,
     project,
     daemon: {
@@ -1871,7 +1897,7 @@ async function runDoctor(invocation: CliInvocation, options: DoctorOptions): Pro
   }
 
   console.log(ui.kvList([
-    ["cli", RIGKIT_CLI_VERSION],
+    ["cli", STOKE_CLI_VERSION],
     ["project", project.projectDir],
     ["config", project.configPath],
     ["runtime handle", runtime.paths.handlePath],
@@ -1889,31 +1915,35 @@ async function runDoctor(invocation: CliInvocation, options: DoctorOptions): Pro
 
 async function runVersion(invocation: CliInvocation): Promise<void> {
   if (wantsJson(invocation)) {
-    printJson({ cliVersion: RIGKIT_CLI_VERSION });
+    printJson({ cliVersion: STOKE_CLI_VERSION });
     return;
   }
-  console.log(RIGKIT_CLI_VERSION);
+  console.log(STOKE_CLI_VERSION);
 }
 
 async function runHelp(invocation: CliInvocation): Promise<void> {
   if (wantsJson(invocation)) {
     printJson({
-      name: "rig",
-      version: RIGKIT_CLI_VERSION,
+      name: "stoke",
+      version: STOKE_CLI_VERSION,
       commands: [
-        { name: "help", description: "Show Rigkit CLI help" },
-        { name: "init", description: "Initialize a Rigkit project" },
+        { name: "help", description: "Show Stoke CLI help" },
+        { name: "init", description: "Initialize a Stoke project" },
+        { name: "login", description: "Authenticate this terminal with Stoke" },
+        { name: "logout", description: "Remove this terminal's Stoke session" },
+        { name: "whoami", description: "Show the current Stoke user" },
+        { name: "add", description: "Add a repository or local directory to Stoke" },
         { name: "plan", description: "Plan project workflow changes" },
         { name: "apply", description: "Apply project workflow changes" },
         { name: "create", description: "Create a workspace" },
         { name: "rm", description: "Remove a workspace" },
         { name: "run", description: "Run a workspace operation" },
-        { name: "ls", description: "List project workspaces" },
+        { name: "ls", description: "List managed projects" },
         { name: "cache", description: "Inspect and clear workflow cache" },
         { name: "providers", description: "Manage provider-owned local state" },
-        { name: "projects", description: "Discover Rigkit projects below the current directory" },
-        { name: "doctor", description: "Show Rigkit runtime diagnostics" },
-        { name: "version", description: "Show Rigkit CLI version" },
+        { name: "discover", description: "Discover Stoke projects below the current directory" },
+        { name: "doctor", description: "Show Stoke runtime diagnostics" },
+        { name: "version", description: "Show Stoke CLI version" },
         { name: "completion", description: "Generate shell completion script" },
       ],
     });
@@ -1925,26 +1955,29 @@ async function runHelp(invocation: CliInvocation): Promise<void> {
     `  ${ui.bold(flag.padEnd(17))}  ${description}`;
 
   console.log([
-    `${ui.bold("rig")} ${ui.dim(RIGKIT_CLI_VERSION)}`,
+    `${ui.bold("stoke")} ${ui.dim(STOKE_CLI_VERSION)}`,
     "",
     ui.dim("Usage:"),
-    `  ${ui.accent(ui.sym.prompt)} rig [global options] <command> [args]`,
+    `  ${ui.accent(ui.sym.prompt)} stoke [global options] <command> [args]`,
     "",
     ui.dim("Commands:"),
-    cmd("help",       "Show Rigkit CLI help"),
-    cmd("init",       "Initialize a Rigkit project"),
+    cmd("help",       "Show Stoke CLI help"),
+    cmd("init",       "Initialize a Stoke project"),
     cmd("plan",       "Plan project workflow changes"),
     cmd("apply",      "Apply project workflow changes"),
     cmd("create",     "Create a workspace"),
     cmd("rm",         "Remove a workspace"),
     cmd("run",        "Run a workspace operation"),
+    cmd("login",      "Authenticate this terminal with Stoke"),
+    cmd("logout",     "Remove this terminal's Stoke session"),
+    cmd("whoami",     "Show the current Stoke user"),
     cmd("add",        "Add a repository or local directory to Stoke"),
-    cmd("ls",         "List managed projects or runtime resources"),
+    cmd("ls",         "List managed projects"),
     cmd("cache",      "Inspect and clear workflow cache"),
     cmd("providers",  "Manage provider-owned local state"),
-    cmd("projects",   "Discover Rigkit projects below the current directory"),
-    cmd("doctor",     "Show Rigkit runtime diagnostics"),
-    cmd("version",    "Show Rigkit CLI version"),
+    cmd("discover",   "Discover Stoke projects below the current directory"),
+    cmd("doctor",     "Show Stoke runtime diagnostics"),
+    cmd("version",    "Show Stoke CLI version"),
     cmd("completion", "Generate shell completion script"),
     "",
     ui.dim("Options:"),
@@ -1977,7 +2010,7 @@ async function checkRuntimeCompatibility(invocation: CliInvocation, runtime: Run
   }
 
   const compatibility = evaluateVersionCompatibility({
-    cliVersion: RIGKIT_CLI_VERSION,
+    cliVersion: STOKE_CLI_VERSION,
     runtimeVersion: runtimeInfo.runtimeVersion,
     engineVersion: runtimeInfo.engineVersion,
   });
@@ -2130,7 +2163,7 @@ async function runRuntimeOperation<T>(
           transportVersion: 1,
           host: {
             name: "rigkit-cli",
-            version: RIGKIT_CLI_VERSION,
+            version: STOKE_CLI_VERSION,
           },
           hostMethods: CLI_HOST_METHODS,
           hostCapabilities: CLI_HOST_CAPABILITIES,
@@ -2208,7 +2241,7 @@ function printRunFailure(input: {
   }
 }
 
-// After a successful `rig create`, list the workspace's available operations so
+// After a successful `stoke create`, list the workspace's available operations so
 // the user doesn't have to guess what to do next. TTY-only — JSON consumers and
 // pipes get clean output.
 async function printWorkspaceNextSteps(runtime: RuntimeClient, workspaceName: string, workflow: string): Promise<void> {
@@ -2223,17 +2256,17 @@ async function printWorkspaceNextSteps(runtime: RuntimeClient, workspaceName: st
 
   const ops = (manifest.workspaceOperations ?? []).filter((op) => op.workflow === workflow && op.id !== "remove");
   const invocations: Array<{ command: string; description: string }> = ops.map((op) => ({
-    command: `rig run ${workspaceName} ${op.id}`,
+    command: `stoke run ${workspaceName} ${op.id}`,
     description: op.description ?? op.title ?? "",
   }));
-  invocations.push({ command: `rig rm ${workspaceName}`, description: "Remove this workspace" });
+  invocations.push({ command: `stoke rm ${workspaceName}`, description: "Remove this workspace" });
 
   const commandWidth = invocations.reduce((max, item) => Math.max(max, item.command.length), 0);
 
   process.stderr.write("\n");
   process.stderr.write(`${ui.bold("Next")}\n`);
   for (const item of invocations) {
-    const command = `${ui.bold("rig")}${item.command.slice("rig".length)}`;
+    const command = `${ui.bold("stoke")}${item.command.slice("stoke".length)}`;
     const padding = " ".repeat(Math.max(0, commandWidth - item.command.length));
     const tail = item.description ? `  ${ui.dim(item.description)}` : "";
     process.stderr.write(`${ui.dim(ui.sym.arrow)} ${command}${padding}${tail}\n`);
@@ -2772,7 +2805,7 @@ function printPlan(plan: WorkflowPlan): void {
 
   if (plan.nodes.some((node) => node.status === "pending")) {
     console.log("");
-    console.log(ui.dim(`For cache details, run: rig cache ${plan.workflow} explain`));
+    console.log(ui.dim(`For cache details, run: stoke cache ${plan.workflow} explain`));
   }
 }
 
@@ -2992,22 +3025,6 @@ function formatCreatedTimestamp(iso: string): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
-function printSnapshots(snapshots: SnapshotRecord[]): void {
-  if (snapshots.length === 0) {
-    console.log(ui.dim("no snapshots"));
-    return;
-  }
-
-  const rows = snapshots.map((snapshot) => [
-    { text: snapshot.id, style: ui.dim },
-    { text: snapshot.workflow },
-    { text: snapshot.nodePath, style: ui.bold },
-    { text: typeof snapshot.metadata.snapshotId === "string" ? snapshot.metadata.snapshotId : "" },
-    { text: formatCreatedTimestamp(snapshot.createdAt), style: ui.dim },
-  ]);
-  console.log(ui.columns(["run", "workflow", "node", "snapshot", "created"], rows));
-}
-
 function printCacheEntries(entries: ReadonlyArray<{
   scope: "local" | "global";
   workflow: string;
@@ -3074,16 +3091,6 @@ function printConfig(info: EngineProjectInfo): void {
     ["state", info.statePath ?? ""],
     ["workflows", info.workflows.map((workflow) => workflow.name).join(", ")],
   ]));
-}
-
-function normalizeListTarget(target: string | undefined): "projects" | "workspaces" | "snapshots" | "config" {
-  if (!target || target === "projects" || target === "project") return "projects";
-  if (target === "workspaces" || target === "workspace" || target === "vms" || target === "vm") {
-    return "workspaces";
-  }
-  if (target === "snapshots" || target === "snapshot") return "snapshots";
-  if (target === "config" || target === "machine" || target === "machines") return "config";
-  throw new Error(`Unknown ls target ${target}. Expected projects, workspaces, snapshots, or config.`);
 }
 
 function renderEvent(event: DevMachineEvent): void {

@@ -28,18 +28,18 @@ type UpdateCheckOptions = {
   stream?: NoticeStream;
 };
 
-const DEFAULT_UPDATE_URL = "https://www.rigkit.dev/latest.json";
-const DEFAULT_INSTALL_URL = "https://www.rigkit.dev/install";
+const DEFAULT_UPDATE_URL = "https://usestoke.dev/latest.json";
+const DEFAULT_INSTALL_URL = "https://usestoke.dev/install";
 const UPDATE_AVAILABLE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const NO_UPDATE_CHECK_INTERVAL_MS = 5 * 60 * 1000;
 const DEFAULT_TIMEOUT_MS = 900;
 
 export async function maybePrintUpdateNotice(options: UpdateCheckOptions): Promise<void> {
   const stream = options.stream ?? process.stderr;
-  const mode = normalizeUpdateCheckMode(process.env.RIGKIT_UPDATE_CHECK);
+  const mode = normalizeUpdateCheckMode(process.env.STOKE_UPDATE_CHECK ?? process.env.RIGKIT_UPDATE_CHECK);
   if (!shouldCheckForUpdates(options, stream, mode)) return;
 
-  const updateUrl = process.env.RIGKIT_UPDATE_URL?.trim() || DEFAULT_UPDATE_URL;
+  const updateUrl = process.env.STOKE_UPDATE_URL?.trim() || process.env.RIGKIT_UPDATE_URL?.trim() || DEFAULT_UPDATE_URL;
   const latest = await resolveLatestRelease(updateUrl, options.currentVersion, {
     force: mode === "force",
   });
@@ -166,7 +166,7 @@ function updateCachePath(): string {
 }
 
 function updateTimeoutMs(): number {
-  const parsed = Number(process.env.RIGKIT_UPDATE_TIMEOUT_MS);
+  const parsed = Number(process.env.STOKE_UPDATE_TIMEOUT_MS ?? process.env.RIGKIT_UPDATE_TIMEOUT_MS);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_TIMEOUT_MS;
 }
 
@@ -174,7 +174,7 @@ function renderUpdateNotice(input: { currentVersion: string; latest: LatestRelea
   const installUrl = input.latest.installerUrl || DEFAULT_INSTALL_URL;
   return [
     "",
-    `${ui.warn("!")} ${ui.bold(`rig ${input.latest.version} is available`)} ${ui.dim(`(current ${input.currentVersion})`)}`,
+    `${ui.warn("!")} ${ui.bold(`stoke ${input.latest.version} is available`)} ${ui.dim(`(current ${input.currentVersion})`)}`,
     ui.hint(`update with: curl -fsSL ${installUrl} | sh`),
   ].join("\n") + "\n";
 }

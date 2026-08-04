@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { DEFAULT_CONFIG_PATH } from "./project.ts";
-import { RIGKIT_CLI_VERSION } from "./version.ts";
+import { STOKE_CLI_VERSION } from "./version.ts";
 
 export type InitProjectInput = {
   projectDir: string;
@@ -83,8 +83,8 @@ function ensureProjectPackageJson(projectDir: string): {
 
   const scripts = isRecord(pkg.scripts) ? pkg.scripts : {};
   for (const [key, value] of Object.entries({
-    apply: "rig apply",
-    plan: "rig plan",
+    apply: "stoke apply",
+    plan: "stoke plan",
   })) {
     if (scripts[key] !== value) {
       scripts[key] = value;
@@ -127,9 +127,9 @@ function upsertProjectDependency(pkg: Record<string, unknown>, name: string, ver
 
 function rigkitDevDependencies(): Record<string, string> {
   return {
-    "@rigkit/provider-cmux": RIGKIT_CLI_VERSION,
-    "@rigkit/provider-freestyle": RIGKIT_CLI_VERSION,
-    "@rigkit/sdk": RIGKIT_CLI_VERSION,
+    "@rigkit/provider-cmux": STOKE_CLI_VERSION,
+    "@rigkit/provider-freestyle": STOKE_CLI_VERSION,
+    "@rigkit/sdk": STOKE_CLI_VERSION,
   };
 }
 

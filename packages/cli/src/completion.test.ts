@@ -22,7 +22,7 @@ describe("CLI completion", () => {
     await withWorkspaceRuntime({ projectDir }, async () => {
       const items = await completeRig({
         cwd: projectDir,
-        words: ["rig", "run", ""],
+        words: ["stoke", "run", ""],
         currentIndex: 2,
       });
 
@@ -36,7 +36,7 @@ describe("CLI completion", () => {
     await withWorkspaceRuntime({ projectDir }, async () => {
       const items = await completeRig({
         cwd: projectDir,
-        words: ["rig", "run", "vm-"],
+        words: ["stoke", "run", "vm-"],
         currentIndex: 2,
       });
 
@@ -50,7 +50,7 @@ describe("CLI completion", () => {
     await withWorkspaceRuntime({ projectDir, cleanupDir: parentDir }, async () => {
       const items = await completeRig({
         cwd: parentDir,
-        words: ["rig", "--chdir=project", "run", ""],
+        words: ["stoke", "--chdir=project", "run", ""],
         currentIndex: 3,
       });
 
@@ -65,7 +65,7 @@ describe("CLI completion", () => {
     try {
       const roots = await completeRig({
         cwd,
-        words: ["rig", "--chdir="],
+        words: ["stoke", "--chdir="],
         currentIndex: 1,
       });
 
@@ -78,7 +78,7 @@ describe("CLI completion", () => {
 
       const nested = await completeRig({
         cwd,
-        words: ["rig", "--chdir=examples/g"],
+        words: ["stoke", "--chdir=examples/g"],
         currentIndex: 1,
       });
 
@@ -96,7 +96,7 @@ describe("CLI completion", () => {
   test("suggests conventional double-dash global flags by default", async () => {
     const items = await completeRig({
       cwd: process.cwd(),
-      words: ["rig", "--"],
+      words: ["stoke", "--"],
       currentIndex: 1,
     });
 
@@ -116,7 +116,7 @@ describe("CLI completion", () => {
     try {
       const roots = await completeRig({
         cwd,
-        words: ["rig", "--chdir="],
+        words: ["stoke", "--chdir="],
         currentIndex: 1,
       });
 
@@ -136,7 +136,7 @@ describe("CLI completion", () => {
     await withWorkspaceRuntime({ projectDir }, async () => {
       const roots = await completeRig({
         cwd: projectDir,
-        words: ["rig", "run", ""],
+        words: ["stoke", "run", ""],
         currentIndex: 2,
       });
       expect(roots.map((item) => item.value)).toEqual(["api", "web", "--workflow", "--json", "--help"]);
@@ -144,21 +144,21 @@ describe("CLI completion", () => {
 
       const exactWorkspace = await completeRig({
         cwd: projectDir,
-        words: ["rig", "run", "api"],
+        words: ["stoke", "run", "api"],
         currentIndex: 2,
       });
       expect(exactWorkspace.map((item) => item.value)).toEqual(["api"]);
 
       const workspaceAfterSpace = await completeRig({
         cwd: projectDir,
-        words: ["rig", "run", "api", ""],
+        words: ["stoke", "run", "api", ""],
         currentIndex: 3,
       });
       expect(workspaceAfterSpace.map((item) => item.value)).toEqual(["remove", "open-cmux", "--workflow", "--json", "--help"]);
 
       const operationPrefix = await completeRig({
         cwd: projectDir,
-        words: ["rig", "run", "api", "open"],
+        words: ["stoke", "run", "api", "open"],
         currentIndex: 3,
       });
       expect(operationPrefix.map((item) => item.value)).toEqual(["open-cmux"]);
@@ -170,14 +170,14 @@ describe("CLI completion", () => {
     await withWorkspaceRuntime({ projectDir }, async () => {
       const workspaces = await completeRig({
         cwd: projectDir,
-        words: ["rig", "rm", ""],
+        words: ["stoke", "rm", ""],
         currentIndex: 2,
       });
       expect(workspaces.map((item) => item.value)).toEqual(["api", "web", "-y", "--yes", "--all", "--workflow", "--json", "--help"]);
 
       const flags = await completeRig({
         cwd: projectDir,
-        words: ["rig", "rm", "api", "-"],
+        words: ["stoke", "rm", "api", "-"],
         currentIndex: 3,
       });
       expect(flags.map((item) => item.value)).toContain("-y");
@@ -190,35 +190,35 @@ describe("CLI completion", () => {
     await withWorkspaceRuntime({ projectDir, includeApiWorkflow: true }, async () => {
       const workflowValues = await completeRig({
         cwd: projectDir,
-        words: ["rig", "run", "--workflow", ""],
+        words: ["stoke", "run", "--workflow", ""],
         currentIndex: 3,
       });
       expect(workflowValues.map((item) => item.value)).toEqual(["smoke", "api"]);
 
       const workspaces = await completeRig({
         cwd: projectDir,
-        words: ["rig", "run", "--workflow", "api", ""],
+        words: ["stoke", "run", "--workflow", "api", ""],
         currentIndex: 4,
       });
       expect(workspaces.map((item) => item.value)).toEqual(["worker", "--workflow", "--json", "--help"]);
 
       const operations = await completeRig({
         cwd: projectDir,
-        words: ["rig", "run", "--workflow", "api", "worker", ""],
+        words: ["stoke", "run", "--workflow", "api", "worker", ""],
         currentIndex: 5,
       });
       expect(operations.map((item) => item.value)).toEqual(["remove", "tail-logs", "logs", "--workflow", "--json", "--help"]);
 
       const operationFlags = await completeRig({
         cwd: projectDir,
-        words: ["rig", "run", "--workflow", "api", "worker", "tail-logs", "--"],
+        words: ["stoke", "run", "--workflow", "api", "worker", "tail-logs", "--"],
         currentIndex: 6,
       });
       expect(operationFlags.map((item) => item.value)).toEqual(["--service", "--workflow", "--json", "--help"]);
 
       const removeTargets = await completeRig({
         cwd: projectDir,
-        words: ["rig", "rm", "--workflow=api", ""],
+        words: ["stoke", "rm", "--workflow=api", ""],
         currentIndex: 3,
       });
       expect(removeTargets.map((item) => item.value)).toEqual(["worker", "-y", "--yes", "--all", "--workflow", "--json", "--help"]);
@@ -230,18 +230,18 @@ describe("CLI completion", () => {
     await withWorkspaceRuntime({ projectDir }, async () => {
       const items = await completeRig({
         cwd: projectDir,
-        words: ["rig", "p"],
+        words: ["stoke", "p"],
         currentIndex: 1,
       });
 
-      expect(items.map((item) => item.value)).toEqual(["plan", "providers", "projects"]);
+      expect(items.map((item) => item.value)).toEqual(["plan", "providers"]);
     });
   });
 
   test("completes cache at the root command position after global options", async () => {
     const items = await completeRig({
       cwd: process.cwd(),
-      words: ["rig", "--chdir=.", "c"],
+      words: ["stoke", "--chdir=.", "c"],
       currentIndex: 2,
     });
 
@@ -253,7 +253,7 @@ describe("CLI completion", () => {
     await withWorkspaceRuntime({ projectDir }, async () => {
       const workflows = await completeRig({
         cwd: projectDir,
-        words: ["rig", "cache", ""],
+        words: ["stoke", "cache", ""],
         currentIndex: 2,
       });
 
@@ -261,7 +261,7 @@ describe("CLI completion", () => {
 
       const subcommands = await completeRig({
         cwd: projectDir,
-        words: ["rig", "cache", "smoke", ""],
+        words: ["stoke", "cache", "smoke", ""],
         currentIndex: 3,
       });
 
@@ -269,7 +269,7 @@ describe("CLI completion", () => {
 
       const clearFlags = await completeRig({
         cwd: projectDir,
-        words: ["rig", "cache", "smoke", "clear", "--"],
+        words: ["stoke", "cache", "smoke", "clear", "--"],
         currentIndex: 4,
       });
 
@@ -285,7 +285,7 @@ describe("CLI completion", () => {
   test("completes provider targets, subcommands, and flags", async () => {
     const targets = await completeRig({
       cwd: process.cwd(),
-      words: ["rig", "providers", ""],
+      words: ["stoke", "providers", ""],
       currentIndex: 2,
     });
 
@@ -293,7 +293,7 @@ describe("CLI completion", () => {
 
     const targetFlags = await completeRig({
       cwd: process.cwd(),
-      words: ["rig", "providers", "--"],
+      words: ["stoke", "providers", "--"],
       currentIndex: 2,
     });
 
@@ -301,7 +301,7 @@ describe("CLI completion", () => {
 
     const subcommands = await completeRig({
       cwd: process.cwd(),
-      words: ["rig", "providers", "freestyle", ""],
+      words: ["stoke", "providers", "freestyle", ""],
       currentIndex: 3,
     });
 
@@ -309,7 +309,7 @@ describe("CLI completion", () => {
 
     const clearFlags = await completeRig({
       cwd: process.cwd(),
-      words: ["rig", "providers", "freestyle", "clear", "--"],
+      words: ["stoke", "providers", "freestyle", "clear", "--"],
       currentIndex: 4,
     });
 
@@ -321,7 +321,7 @@ describe("CLI completion", () => {
     await withWorkspaceRuntime({ projectDir }, async () => {
       const flags = await completeRig({
         cwd: projectDir,
-        words: ["rig", "apply", "--"],
+        words: ["stoke", "apply", "--"],
         currentIndex: 2,
       });
 
@@ -336,14 +336,14 @@ describe("CLI completion", () => {
 
       const workflowValues = await completeRig({
         cwd: projectDir,
-        words: ["rig", "apply", "--workflow", ""],
+        words: ["stoke", "apply", "--workflow", ""],
         currentIndex: 3,
       });
       expect(workflowValues.map((item) => item.value)).toEqual(["smoke", "api"]);
 
       const inlineWorkflow = await completeRig({
         cwd: projectDir,
-        words: ["rig", "apply", "--workflow=s"],
+        words: ["stoke", "apply", "--workflow=s"],
         currentIndex: 2,
       });
       expect(inlineWorkflow.map((item) => item.value)).toEqual(["--workflow=smoke"]);
@@ -355,7 +355,7 @@ describe("CLI completion", () => {
     await withWorkspaceRuntime({ projectDir }, async () => {
       const flags = await completeRig({
         cwd: projectDir,
-        words: ["rig", "run", "api", "open-cmux", "--"],
+        words: ["stoke", "run", "api", "open-cmux", "--"],
         currentIndex: 4,
       });
 
@@ -363,7 +363,7 @@ describe("CLI completion", () => {
 
       const values = await completeRig({
         cwd: projectDir,
-        words: ["rig", "run", "api", "open-cmux", "--layout", ""],
+        words: ["stoke", "run", "api", "open-cmux", "--layout", ""],
         currentIndex: 5,
       });
       expect(values.map((item) => item.value)).toEqual(["tabs", "splits"]);
@@ -375,7 +375,7 @@ describe("CLI completion", () => {
     await withWorkspaceRuntime({ projectDir }, async () => {
       const targets = await completeRig({
         cwd: projectDir,
-        words: ["rig", "cache", "smoke", "invalidate", ""],
+        words: ["stoke", "cache", "smoke", "invalidate", ""],
         currentIndex: 4,
       });
 
@@ -392,14 +392,14 @@ describe("CLI completion", () => {
 
       const flags = await completeRig({
         cwd: projectDir,
-        words: ["rig", "cache", "smoke", "invalidate", "--"],
+        words: ["stoke", "cache", "smoke", "invalidate", "--"],
         currentIndex: 4,
       });
       expect(flags.map((item) => item.value)).toEqual(["--all", "--yes", "--json", "--help"]);
 
       const explainTargets = await completeRig({
         cwd: projectDir,
-        words: ["rig", "cache", "smoke", "explain", ""],
+        words: ["stoke", "cache", "smoke", "explain", ""],
         currentIndex: 4,
       });
       expect(explainTargets.map((item) => item.value)).toEqual(["install-tooling", "setup.build", "base", "--json", "--help"]);
@@ -409,7 +409,7 @@ describe("CLI completion", () => {
     await withWorkspaceRuntime({ projectDir: apiProjectDir, includeApiWorkflow: true }, async () => {
       const apiTargets = await completeRig({
         cwd: apiProjectDir,
-        words: ["rig", "cache", "api", "invalidate", ""],
+        words: ["stoke", "cache", "api", "invalidate", ""],
         currentIndex: 4,
       });
       expect(apiTargets.map((item) => item.value)).toEqual(["api.ready", "--all", "-y", "--yes", "--json", "--help"]);
@@ -419,21 +419,21 @@ describe("CLI completion", () => {
   test("completes static command flags and option values", async () => {
     const initFlags = await completeRig({
       cwd: process.cwd(),
-      words: ["rig", "init", "--"],
+      words: ["stoke", "init", "--"],
       currentIndex: 2,
     });
     expect(initFlags.map((item) => item.value)).toEqual(["--help"]);
 
     const doctorFlags = await completeRig({
       cwd: process.cwd(),
-      words: ["rig", "doctor", "--"],
+      words: ["stoke", "doctor", "--"],
       currentIndex: 2,
     });
     expect(doctorFlags.map((item) => item.value)).toEqual(["--cli", "--json", "--help"]);
 
     const completionShells = await completeRig({
       cwd: process.cwd(),
-      words: ["rig", "completion", ""],
+      words: ["stoke", "completion", ""],
       currentIndex: 2,
     });
     expect(completionShells.map((item) => item.value)).toEqual(["bash", "fish", "zsh", "--help"]);
@@ -450,10 +450,10 @@ describe("CLI completion", () => {
       [{ value: "api", description: "workspace smoke", noSpace: true, group: "Workspaces" }],
       "zsh",
     )).toBe("api\tworkspace smoke\tnospace\tWorkspaces");
-    expect(renderCompletionScript("zsh")).toContain("rig __complete");
+    expect(renderCompletionScript("zsh")).toContain("stoke __complete");
     expect(renderCompletionScript("zsh")).toContain("_describe");
-    expect(renderCompletionScript("zsh")).toContain(":completion:*:rig:*:descriptions");
-    expect(renderCompletionScript("zsh")).toContain("compdef _rig rig");
+    expect(renderCompletionScript("zsh")).toContain(":completion:*:stoke:*:descriptions");
+    expect(renderCompletionScript("zsh")).toContain("compdef _stoke stoke");
   });
 
   test("formats workspace ages", () => {
@@ -469,11 +469,11 @@ describe("CLI completion", () => {
   test("completes ls targets", async () => {
     const items = await completeRig({
       cwd: process.cwd(),
-      words: ["rig", "ls", ""],
+      words: ["stoke", "ls", ""],
       currentIndex: 2,
     });
 
-    expect(items.map((item) => item.value)).toEqual(["projects", "workspaces", "snapshots", "config", "--workflow", "--json", "--help"]);
+    expect(items.map((item) => item.value)).toEqual(["--json", "--help"]);
   });
 });
 

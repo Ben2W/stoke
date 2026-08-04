@@ -1,15 +1,19 @@
 import { randomUUID } from "node:crypto";
 import type { CreateProjectRequest, ManagedProject, ProjectSource } from "@stoke/managed";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { getDatabase } from "./db/client.ts";
 import { projects } from "./db/schema.ts";
 
-export async function listProjects(): Promise<ManagedProject[]> {
-  const rows = await getDatabase().select().from(projects).orderBy(desc(projects.updatedAt));
+export async function listProjects(userId: string): Promise<ManagedProject[]> {
+  const rows = await getDatabase()
+    .select()
+    .from(projects)
+    .where(eq(projects.userId, userId))
+    .orderBy(desc(projects.updatedAt));
   return rows.map(toManagedProject);
 }
 
-export async function createProject(input: CreateProjectRequest): Promise<ManagedProject> {
+export async function createProject(userId: string, input: CreateProjectRequest): Promise<ManagedProject> {
   const source = normalizeSource(input.source);
   const sourceKey = keyForSource(source);
   const now = new Date();
@@ -17,6 +21,7 @@ export async function createProject(input: CreateProjectRequest): Promise<Manage
     .insert(projects)
     .values({
       id: randomUUID(),
+      userId,
       slug: input.slug ?? defaultSlug(input.name, source),
       name: input.name,
       source,
@@ -25,7 +30,7 @@ export async function createProject(input: CreateProjectRequest): Promise<Manage
       updatedAt: now,
     })
     .onConflictDoUpdate({
-      target: projects.sourceKey,
+      target: [projects.userId, projects.sourceKey],
       set: { name: input.name, source, updatedAt: now },
     })
     .returning();
@@ -34,11 +39,14 @@ export async function createProject(input: CreateProjectRequest): Promise<Manage
   return toManagedProject(row);
 }
 
-export async function findProjectBySource(source: ProjectSource): Promise<ManagedProject | undefined> {
+export async function findProjectBySource(
+  userId: string,
+  source: ProjectSource,
+): Promise<ManagedProject | undefined> {
   const [row] = await getDatabase()
     .select()
     .from(projects)
-    .where(eq(projects.sourceKey, keyForSource(source)))
+    .where(and(eq(projects.userId, userId), eq(projects.sourceKey, keyForSource(source))))
     .limit(1);
   return row ? toManagedProject(row) : undefined;
 }

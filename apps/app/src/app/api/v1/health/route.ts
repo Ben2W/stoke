@@ -9,5 +9,6 @@ export function GET() {
     service: "stoke-control-plane",
     apiVersion: 1,
     databaseConfigured: Boolean(process.env.DATABASE_URL),
+    githubAuthConfigured: Boolean(process.env.GITHUB_CLIENT_ID && process.env.GITHUB_CLIENT_SECRET),
   });
 }

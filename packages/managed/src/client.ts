@@ -1,7 +1,9 @@
 import {
   type CreateProjectRequest,
   type ManagedProject,
+  type ManagedUser,
   CreateProjectRequestSchema,
+  CurrentUserResponseSchema,
   ProjectListResponseSchema,
   ProjectResponseSchema,
 } from "./contracts.ts";
@@ -18,6 +20,7 @@ export type ManagedFetch = (
 ) => Promise<Response>;
 
 export type ManagedClient = {
+  currentUser(): Promise<ManagedUser>;
   listProjects(): Promise<ManagedProject[]>;
   createProject(input: CreateProjectRequest): Promise<ManagedProject>;
 };
@@ -55,6 +58,10 @@ export function createManagedClient(options: ManagedClientOptions): ManagedClien
   }
 
   return {
+    async currentUser() {
+      const response = CurrentUserResponseSchema.parse(await request("/api/v1/auth/me"));
+      return response.user;
+    },
     async listProjects() {
       const response = ProjectListResponseSchema.parse(await request("/api/v1/projects"));
       return response.projects;

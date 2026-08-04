@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { initProject } from "./init.ts";
-import { RIGKIT_CLI_VERSION } from "./version.ts";
+import { STOKE_CLI_VERSION } from "./version.ts";
 
 describe("initProject", () => {
   test("creates the canonical Rigkit config and package metadata", () => {
@@ -37,13 +37,13 @@ describe("initProject", () => {
       private: true,
       type: "module",
       scripts: {
-        apply: "rig apply",
-        plan: "rig plan",
+        apply: "stoke apply",
+        plan: "stoke plan",
       },
       devDependencies: {
-        "@rigkit/provider-cmux": RIGKIT_CLI_VERSION,
-        "@rigkit/provider-freestyle": RIGKIT_CLI_VERSION,
-        "@rigkit/sdk": RIGKIT_CLI_VERSION,
+        "@rigkit/provider-cmux": STOKE_CLI_VERSION,
+        "@rigkit/provider-freestyle": STOKE_CLI_VERSION,
+        "@rigkit/sdk": STOKE_CLI_VERSION,
       },
     });
 
@@ -56,7 +56,7 @@ describe("initProject", () => {
     expect(config).toContain('.workspaceOperation("open-cmux"');
     expect(config).toContain('.workspaceOperation("open-vscode"');
     expect(config).toContain('.workspaceOperation("ssh"');
-    expect(config).not.toContain("rig.config.ts");
+    expect(config).not.toContain("stoke.config.ts");
   });
 
   test("updates existing package metadata without replacing unrelated fields", () => {
@@ -80,13 +80,13 @@ describe("initProject", () => {
     expect(pkg.name).toBe("custom-project");
     expect(pkg.private).toBe(true);
     expect(pkg.scripts).toEqual({
-      apply: "rig apply",
-      plan: "rig plan",
+      apply: "stoke apply",
+      plan: "stoke plan",
       test: "echo ok",
     });
-    expect(pkg.dependencies["@rigkit/sdk"]).toBe(RIGKIT_CLI_VERSION);
-    expect(pkg.devDependencies["@rigkit/provider-cmux"]).toBe(RIGKIT_CLI_VERSION);
-    expect(pkg.devDependencies["@rigkit/provider-freestyle"]).toBe(RIGKIT_CLI_VERSION);
+    expect(pkg.dependencies["@rigkit/sdk"]).toBe(STOKE_CLI_VERSION);
+    expect(pkg.devDependencies["@rigkit/provider-cmux"]).toBe(STOKE_CLI_VERSION);
+    expect(pkg.devDependencies["@rigkit/provider-freestyle"]).toBe(STOKE_CLI_VERSION);
   });
 
   test("rejects an existing canonical config", () => {
