@@ -348,6 +348,9 @@ importers:
       '@rigkit/runtime-client':
         specifier: workspace:*
         version: link:../runtime-client
+      '@stoke/managed':
+        specifier: workspace:*
+        version: link:../managed
       chalk:
         specifier: ^5.6.2
         version: 5.6.2

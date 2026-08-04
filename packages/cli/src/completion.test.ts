@@ -473,7 +473,7 @@ describe("CLI completion", () => {
       currentIndex: 2,
     });
 
-    expect(items.map((item) => item.value)).toEqual(["workspaces", "snapshots", "config", "--workflow", "--json", "--help"]);
+    expect(items.map((item) => item.value)).toEqual(["projects", "workspaces", "snapshots", "config", "--workflow", "--json", "--help"]);
   });
 });
 

@@ -21,6 +21,7 @@ type CompleteRigInput = {
 type CommandName =
   | "help"
   | "init"
+  | "add"
   | "plan"
   | "apply"
   | "create"
@@ -133,6 +134,7 @@ const GROUP_PROVIDERS = "Providers";
 const COMMANDS: CompletionItem[] = withGroup(GROUP_COMMANDS, [
   { value: "help", description: "show CLI help" },
   { value: "init", description: "initialize a Rigkit project" },
+  { value: "add", description: "add a repository or local directory to Stoke" },
   { value: "plan", description: "plan project workflow changes" },
   { value: "apply", description: "apply project workflow changes" },
   { value: "create", description: "create a workspace" },
@@ -185,6 +187,11 @@ const GLOBAL_OPTIONS: OptionDefinition[] = [
 
 const COMMAND_OPTIONS: Record<CommandName, OptionDefinition[]> = {
   init: [
+    HELP_OPTION,
+  ],
+  add: [
+    option(["--name"], "managed project name", { takesValue: true }),
+    JSON_OPTION,
     HELP_OPTION,
   ],
   plan: [
@@ -263,6 +270,7 @@ const CORE_OPERATION_OPTIONS: Partial<Record<CommandName, OptionDefinition[]>> =
 };
 
 const LIST_TARGETS: CompletionItem[] = withGroup(GROUP_TARGETS, [
+  { value: "projects", description: "list managed projects" },
   { value: "workspaces", description: "list workspaces" },
   { value: "snapshots", description: "list snapshots" },
   { value: "config", description: "show project config" },
@@ -577,6 +585,8 @@ async function completeCommand(context: CompletionContext): Promise<CompletionIt
     case "apply":
     case "create":
       return await completeProjectOperationCommand(context);
+    case "add":
+      return completeAddCommand(context);
     case "run":
       return await completeRunCommand(context);
     case "rm":
@@ -597,6 +607,18 @@ async function completeCommand(context: CompletionContext): Promise<CompletionIt
       return completeOptionsOnlyCommand(context, COMMAND_OPTIONS[context.command]);
   }
   return [];
+}
+
+function completeAddCommand(context: CompletionContext): CompletionItem[] {
+  const options = COMMAND_OPTIONS.add;
+  const positionals = positionalsFrom(context.argsBefore, options);
+  if (context.current.startsWith("-") || positionals.length > 0) {
+    return filterItems(optionItems(options), context.current);
+  }
+  return filterItems(
+    [...completeFilesystemPaths(context.cwd, context.current), ...optionItems(options)],
+    context.current,
+  );
 }
 
 async function completeProjectOperationCommand(context: CompletionContext): Promise<CompletionItem[]> {

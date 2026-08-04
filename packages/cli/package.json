@@ -26,6 +26,7 @@
     "test": "bun test"
   },
   "dependencies": {
+    "@stoke/managed": "workspace:*",
     "@rigkit/provider-cmux": "workspace:*",
     "@rigkit/engine": "workspace:*",
     "@rigkit/runtime-client": "workspace:*",

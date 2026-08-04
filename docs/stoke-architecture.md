@@ -39,10 +39,21 @@ Project endpoints require `STOKE_API_TOKEN`. `DATABASE_URL` must point at the
 pooled Neon connection string. The schema is in
 `apps/app/drizzle/0000_project_registry.sql`.
 
+The CLI uses the same contract:
+
+- `rig add owner/repository` registers a GitHub source.
+- `rig add ./local-directory` registers a machine-scoped local source.
+- `rig ls` lists managed projects when no Rigkit project is selected.
+- `rig ls projects` always lists managed projects; `rig ls workspaces` keeps
+  the existing project-runtime view.
+
+The private-preview client reads `STOKE_API_URL` (defaulting to
+`https://usestoke.dev`) and `STOKE_API_TOKEN` from the environment.
+
 ## Build order
 
-1. Project registry and typed managed client.
-2. CLI authentication, `rig add`, and managed project listing.
+1. Project registry, typed managed client, `rig add`, and project listing.
+2. Replace the preview token with CLI authentication.
 3. Vercel Sandbox provider for GitHub-backed projects.
 4. Managed workflow state and shared cache metadata, keeping large cache
    artifacts in object storage rather than Postgres.

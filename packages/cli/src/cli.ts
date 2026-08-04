@@ -17,6 +17,7 @@ import {
   type SnapshotRecord,
   type WorkspaceRecord,
 } from "@rigkit/engine";
+import type { ManagedProject } from "@stoke/managed";
 import {
   cmuxHostCapabilities,
   type CmuxHostCapabilityHandler,
@@ -41,6 +42,10 @@ import {
   type CompletionShell,
 } from "./completion.ts";
 import { generateWorkspaceName } from "./workspace-name.ts";
+import {
+  managedClientFromEnvironment,
+  resolveProjectSource,
+} from "./managed.ts";
 
 type GlobalOptions = {
   chdir?: string;
@@ -75,6 +80,10 @@ type RunOptions = {
 type ListOptions = {
   target?: string;
   workflow?: string;
+};
+
+type AddOptions = {
+  name?: string;
 };
 
 type CacheListOptions = {
@@ -304,8 +313,19 @@ async function runCli(argv: string[]): Promise<void> {
     });
 
   program
+    .command("add <source>")
+    .description("Add a GitHub repository or local directory to Stoke")
+    .option("--name <name>", "Managed project name")
+    .option("--json", "Print machine-readable JSON")
+    .action(async (source: string, options: { name?: string; json?: boolean }) => {
+      await runManagedAdd(makeInvocation(rootOptions(program), options.json), source, {
+        name: options.name,
+      });
+    });
+
+  program
     .command("ls [target]")
-    .description("List project workspaces")
+    .description("List managed projects or project runtime resources")
     .option("--workflow <workflow>", "Workflow name")
     .option("--json", "Print machine-readable JSON")
     .action(async (target: string | undefined, options: { workflow?: string; json?: boolean }) => {
@@ -1026,8 +1046,69 @@ async function runProjects(invocation: CliInvocation): Promise<void> {
   console.log(ui.columns(["project", "config"], rows));
 }
 
+async function runManagedAdd(
+  invocation: CliInvocation,
+  input: string,
+  options: AddOptions,
+): Promise<void> {
+  const resolved = resolveProjectSource(input, {
+    cwd: resolve(process.cwd(), invocation.global.chdir ?? "."),
+  });
+  const project = await managedClientFromEnvironment().createProject({
+    name: options.name?.trim() || resolved.name,
+    source: resolved.source,
+  });
+
+  if (wantsJson(invocation)) {
+    printJson({ project });
+    return;
+  }
+
+  console.log(`${ui.ok(ui.sym.ok)} added ${ui.bold(project.name)}`);
+  console.log(ui.kvList([
+    ["project", project.slug],
+    ["source", formatManagedProjectSource(project)],
+  ]));
+}
+
+async function runManagedProjects(invocation: CliInvocation): Promise<void> {
+  const projects = await managedClientFromEnvironment().listProjects();
+  if (wantsJson(invocation)) {
+    printJson({ projects });
+    return;
+  }
+  if (projects.length === 0) {
+    console.log(ui.dim("no managed projects"));
+    return;
+  }
+
+  console.log(ui.columns(
+    ["project", "source", "location"],
+    projects.map((project) => [
+      { text: project.name, style: ui.bold },
+      project.source.kind,
+      { text: formatManagedProjectSource(project), style: ui.dim },
+    ]),
+  ));
+}
+
+function formatManagedProjectSource(project: ManagedProject): string {
+  return project.source.kind === "github"
+    ? `${project.source.owner}/${project.source.repository}`
+    : `${project.source.machineName} · ${project.source.path}`;
+}
+
 async function runList(invocation: CliInvocation, options: ListOptions): Promise<void> {
-  const target = normalizeListTarget(options.target);
+  let target: "projects" | "workspaces" | "snapshots" | "config";
+  if (options.target) {
+    target = normalizeListTarget(options.target);
+  } else {
+    target = hasSelectedRigkitProject(invocation) ? "workspaces" : "projects";
+  }
+  if (target === "projects") {
+    await runManagedProjects(invocation);
+    return;
+  }
   const runtime = await loadRuntime(invocation);
 
   if (target === "workspaces") {
@@ -1059,6 +1140,18 @@ async function runList(invocation: CliInvocation, options: ListOptions): Promise
     return;
   }
   printConfig(project);
+}
+
+function hasSelectedRigkitProject(invocation: CliInvocation): boolean {
+  try {
+    resolveConfigPaths({
+      cwd: process.cwd(),
+      chdir: invocation.global.chdir,
+    });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 async function runCacheCommand(
@@ -1845,7 +1938,8 @@ async function runHelp(invocation: CliInvocation): Promise<void> {
     cmd("create",     "Create a workspace"),
     cmd("rm",         "Remove a workspace"),
     cmd("run",        "Run a workspace operation"),
-    cmd("ls",         "List project workspaces"),
+    cmd("add",        "Add a repository or local directory to Stoke"),
+    cmd("ls",         "List managed projects or runtime resources"),
     cmd("cache",      "Inspect and clear workflow cache"),
     cmd("providers",  "Manage provider-owned local state"),
     cmd("projects",   "Discover Rigkit projects below the current directory"),
@@ -2982,13 +3076,14 @@ function printConfig(info: EngineProjectInfo): void {
   ]));
 }
 
-function normalizeListTarget(target: string | undefined): "workspaces" | "snapshots" | "config" {
-  if (!target || target === "workspaces" || target === "workspace" || target === "vms" || target === "vm") {
+function normalizeListTarget(target: string | undefined): "projects" | "workspaces" | "snapshots" | "config" {
+  if (!target || target === "projects" || target === "project") return "projects";
+  if (target === "workspaces" || target === "workspace" || target === "vms" || target === "vm") {
     return "workspaces";
   }
   if (target === "snapshots" || target === "snapshot") return "snapshots";
   if (target === "config" || target === "machine" || target === "machines") return "config";
-  throw new Error(`Unknown ls target ${target}. Expected workspaces, snapshots, or config.`);
+  throw new Error(`Unknown ls target ${target}. Expected projects, workspaces, snapshots, or config.`);
 }
 
 function renderEvent(event: DevMachineEvent): void {
