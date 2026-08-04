@@ -84,9 +84,9 @@ function shouldSkipDiscoveryDir(name: string): boolean {
 }
 
 function formatConfigNotFoundAt(configPath: string): string {
-  return `No Rigkit config found at ${configPath}. Run "rig init".`;
+  return `No Rigkit config found at ${configPath}. Run "stoke init".`;
 }
 
 function formatConfigNotFoundFrom(start: string): string {
-  return `No Rigkit config found from ${start} upward. Run "rig init".`;
+  return `No Rigkit config found from ${start} upward. Run "stoke init".`;
 }

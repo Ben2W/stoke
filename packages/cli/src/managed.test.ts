@@ -78,7 +78,7 @@ describe("managed project source resolution", () => {
     try {
       const environment = {
         STOKE_API_URL: `http://127.0.0.1:${server.port}`,
-        STOKE_API_TOKEN: "test-secret",
+        STOKE_TOKEN: "test-secret",
       };
       const added = await runManagedCli(["add", "vercel/next.js", "--json"], cwd, environment);
       const listed = await runManagedCli(["ls", "--json"], cwd, environment);

@@ -12,10 +12,11 @@ in place while the managed product boundary is built.
 
 The first Stoke slice lives in:
 
-- `apps/app`: Next.js control plane for Vercel, with a Neon-compatible Postgres
-  project registry.
+- `apps/app`: Next.js control plane for Vercel, with Better Auth and a
+  Neon-backed Postgres project registry.
 - `packages/managed`: versioned API contracts and the client the CLI will use.
 - `apps/app/drizzle`: committed Postgres migrations.
+- `packages/cli`: the `stoke` CLI, including device login and managed projects.
 
 See [docs/stoke-architecture.md](docs/stoke-architecture.md) for the product
 boundary and intentionally cut scope.
@@ -24,8 +25,8 @@ boundary and intentionally cut scope.
 
 Declarative dev environments, in TypeScript.
 
-Rigkit lets you describe a development environment in `rigkit/index.ts`, run it
-through the `rig` CLI, and create isolated named workspaces from cached
+Rigkit lets you describe a development environment in `rigkit/index.ts`. Stoke
+runs that engine through the `stoke` CLI and creates isolated named workspaces from cached
 provider-owned artifacts. It is built for agent work, remote development, CI
 jobs, and tests where the same environment has to be prepared once and reused
 reliably.
@@ -45,28 +46,17 @@ reliably.
 - Keeps provider resources and credentials behind provider-owned boundaries
   instead of baking them into project state.
 
-Rigkit currently ships a Freestyle VM provider, a Freestyle browser-terminal
-provider, a cmux integration, a local Google Cloud CLI config provider, a VS
-Code host package, the `rig` CLI, and reusable workflow fragments.
+The inherited engine currently ships a Freestyle VM provider, a Freestyle
+browser-terminal provider, a cmux integration, a local Google Cloud CLI config
+provider, a VS Code host package, and reusable workflow fragments.
 
-## Install
+## Private-preview CLI
 
-Install the released CLI:
-
-```sh
-curl -fsSL https://www.rigkit.dev/install | sh
-```
-
-Open a new terminal, then verify the install:
+The Stoke CLI is currently run from this private monorepo:
 
 ```sh
-rig version
-```
-
-You can also install the npm package directly:
-
-```sh
-npm install -g @rigkit/cli
+pnpm --filter @rigkit/cli stoke -- version
+pnpm --filter @rigkit/cli stoke -- login
 ```
 
 ## Quickstart
@@ -77,22 +67,22 @@ Create a project:
 mkdir website
 cd website
 pnpm add -D @rigkit/sdk @rigkit/provider-freestyle @rigkit/provider-cmux freestyle
-rig init
+stoke init
 ```
 
 Plan and apply the workflow:
 
 ```sh
-rig plan
-rig apply
+stoke plan
+stoke apply
 ```
 
 Create and manage a workspace:
 
 ```sh
-rig create dev
-rig ls
-rig rm dev
+stoke create dev
+stoke ls
+stoke rm dev
 ```
 
 The generated config prepares a Node.js 22 Freestyle VM, installs GitHub CLI,
@@ -113,7 +103,7 @@ opt into API-key auth can pass `freestyle.provider({ apiKey })` or read
 packages/sdk/                  project authoring API and project-local runtime
 packages/engine/               workflow engine, provider contracts, and state
 packages/runtime-client/       shared runtime daemon client
-packages/cli/                  global `rig` command
+packages/cli/                  global `stoke` command
 packages/provider-freestyle/   Freestyle VM and terminal provider
 packages/provider-cmux/        cmux host capability and provider facade
 packages/provider-gcloud-cli/  local Google Cloud CLI config provider
@@ -121,7 +111,7 @@ packages/provider-vscode/      VS Code host extension package
 packages/fragments/            reusable workflow fragments
 apps/website/                  Astro website and install Worker
 apps/docs/                     Mintlify documentation site
-apps/app/                      placeholder for the future app
+apps/app/                      Vercel control plane and Better Auth server
 examples/                      runnable example Rigkit projects
 docs/                          design and release notes
 ```
@@ -152,13 +142,13 @@ pnpm build
 Run a local example with the workspace CLI:
 
 ```sh
-pnpm --dir examples/smoke exec rig plan
-pnpm --dir examples/smoke exec rig apply
-pnpm --dir examples/smoke exec rig create smoke-workspace
+pnpm --dir examples/smoke exec stoke plan
+pnpm --dir examples/smoke exec stoke apply
+pnpm --dir examples/smoke exec stoke create smoke-workspace
 ```
 
 The `examples/` directory also includes a shared `.envrc` for direnv users. Once
-allowed, plain `rig` inside an example resolves to that example's local CLI.
+allowed, plain `stoke` inside an example resolves to that example's local CLI.
 
 Run the website or docs locally:
 

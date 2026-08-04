@@ -43,8 +43,18 @@ export const CreateProjectRequestSchema = z.object({
 export const ProjectResponseSchema = z.object({ project: ManagedProjectSchema });
 export const ProjectListResponseSchema = z.object({ projects: z.array(ManagedProjectSchema) });
 
+export const ManagedUserSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  email: z.email(),
+  image: z.url().nullable().optional(),
+});
+
+export const CurrentUserResponseSchema = z.object({ user: ManagedUserSchema });
+
 export type GitHubProjectSource = z.infer<typeof GitHubProjectSourceSchema>;
 export type LocalProjectSource = z.infer<typeof LocalProjectSourceSchema>;
 export type ProjectSource = z.infer<typeof ProjectSourceSchema>;
 export type ManagedProject = z.infer<typeof ManagedProjectSchema>;
 export type CreateProjectRequest = z.infer<typeof CreateProjectRequestSchema>;
+export type ManagedUser = z.infer<typeof ManagedUserSchema>;

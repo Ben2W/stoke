@@ -12,7 +12,9 @@
     "db:migrate": "drizzle-kit migrate"
   },
   "dependencies": {
+    "@better-auth/drizzle-adapter": "1.6.25",
     "@stoke/managed": "workspace:*",
+    "better-auth": "1.6.25",
     "drizzle-orm": "^0.45.2",
     "next": "^16.1.6",
     "postgres": "^3.4.8",

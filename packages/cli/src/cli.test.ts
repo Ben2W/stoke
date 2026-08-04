@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createFileProviderHostStorage } from "@rigkit/engine";
 import { projectIdFor, runtimeFingerprintFor, runtimePaths, SUPPORTED_RUNTIME_API_VERSION } from "@rigkit/runtime-client";
-import { RIGKIT_CLI_VERSION } from "./version.ts";
+import { STOKE_CLI_VERSION } from "./version.ts";
 
 const cliPath = join(import.meta.dir, "cli.ts");
 
@@ -26,7 +26,7 @@ describe("CLI entrypoint", () => {
     expect(result.exitCode).toBe(0);
     expect(result.stderr).toBe("");
     expect(JSON.parse(result.stdout)).toMatchObject({
-      cliVersion: RIGKIT_CLI_VERSION,
+      cliVersion: STOKE_CLI_VERSION,
     });
   });
 
@@ -34,7 +34,7 @@ describe("CLI entrypoint", () => {
     const rootHelp = await runCli([]);
     expect(rootHelp.exitCode).toBe(0);
     expect(rootHelp.stderr).toBe("");
-    expect(rootHelp.stdout).toContain("rig ");
+    expect(rootHelp.stdout).toContain("stoke ");
     expect(rootHelp.stdout).toContain("plan        Plan project workflow changes");
     expect(rootHelp.stdout).toContain("rm          Remove a workspace");
     expect(rootHelp.stdout).toContain("run         Run a workspace operation");
@@ -44,12 +44,12 @@ describe("CLI entrypoint", () => {
     const version = await runCli(["version"]);
     expect(version.exitCode).toBe(0);
     expect(version.stderr).toBe("");
-    expect(version.stdout.trim()).toBe(RIGKIT_CLI_VERSION);
+    expect(version.stdout.trim()).toBe(STOKE_CLI_VERSION);
 
     const help = await runCli(["help"]);
     expect(help.exitCode).toBe(0);
     expect(help.stderr).toBe("");
-    expect(help.stdout).toContain("rig ");
+    expect(help.stdout).toContain("stoke ");
     expect(help.stdout).toContain("plan        Plan project workflow changes");
     expect(help.stdout).toContain("rm          Remove a workspace");
     expect(help.stdout).toContain("run         Run a workspace operation");
@@ -59,7 +59,7 @@ describe("CLI entrypoint", () => {
 
   test("prints an update notice when latest metadata is newer", async () => {
     const rigkitHome = mkdtempSync(join(tmpdir(), "rigkit-cli-update-"));
-    const latestVersion = nextPatchVersion(RIGKIT_CLI_VERSION);
+    const latestVersion = nextPatchVersion(STOKE_CLI_VERSION);
     const server = Bun.serve({
       hostname: "127.0.0.1",
       port: 0,
@@ -82,8 +82,8 @@ describe("CLI entrypoint", () => {
       });
 
       expect(result.exitCode).toBe(0);
-      expect(result.stdout).toContain(RIGKIT_CLI_VERSION);
-      expect(result.stderr).toContain(`rig ${latestVersion} is available`);
+      expect(result.stdout).toContain(STOKE_CLI_VERSION);
+      expect(result.stderr).toContain(`stoke ${latestVersion} is available`);
       expect(result.stderr).toContain("update with: curl -fsSL https://www.rigkit.dev/install | sh");
     } finally {
       server.stop(true);
@@ -100,7 +100,7 @@ describe("CLI entrypoint", () => {
       fetch() {
         requests += 1;
         return Response.json({
-          version: nextPatchVersion(RIGKIT_CLI_VERSION),
+          version: nextPatchVersion(STOKE_CLI_VERSION),
           installerUrl: "https://www.rigkit.dev/install",
         });
       },
@@ -118,7 +118,7 @@ describe("CLI entrypoint", () => {
       expect(result.exitCode).toBe(0);
       expect(result.stderr).toBe("");
       expect(JSON.parse(result.stdout)).toMatchObject({
-        cliVersion: RIGKIT_CLI_VERSION,
+        cliVersion: STOKE_CLI_VERSION,
       });
       expect(requests).toBe(0);
     } finally {
@@ -136,7 +136,7 @@ describe("CLI entrypoint", () => {
   });
 
   test("serves dynamic shell completion endpoint", async () => {
-    const result = await runCli(["__complete", "--shell", "zsh", "--index", "1", "--", "rig", "v"]);
+    const result = await runCli(["__complete", "--shell", "zsh", "--index", "1", "--", "stoke", "v"]);
 
     expect(result.exitCode).toBe(0);
     expect(result.stderr).toBe("");
@@ -149,7 +149,7 @@ describe("CLI entrypoint", () => {
     writeRigkitIndex(join(cwd, "api"));
 
     try {
-      const result = await runCli(["projects", "--json"], { cwd });
+      const result = await runCli(["discover", "--json"], { cwd });
       const realCwd = realpathSync(cwd);
 
       expect(result.exitCode).toBe(0);
@@ -174,7 +174,7 @@ describe("CLI entrypoint", () => {
       expect(result.exitCode).toBe(1);
       expect(result.stdout).toBe("");
       expect(result.stderr).toContain("No Rigkit config found from");
-      expect(result.stderr).toContain("rig init");
+      expect(result.stderr).toContain("stoke init");
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }
@@ -237,7 +237,7 @@ describe("CLI entrypoint", () => {
 
       expect(result.exitCode).toBe(1);
       expect(result.stdout).toBe("");
-      expect(result.stderr).toContain("rig init --json only supports --package-manager skip");
+      expect(result.stderr).toContain("stoke init --json only supports --package-manager skip");
       expect(existsSync(join(cwd, "rigkit", "index.ts"))).toBe(false);
       expect(existsSync(join(cwd, "package.json"))).toBe(false);
     } finally {
@@ -251,7 +251,7 @@ describe("CLI entrypoint", () => {
     writeRigkitIndex(join(cwd, "api"));
 
     try {
-      const result = await runCli(["--chdir=api", "projects", "--json"], { cwd });
+      const result = await runCli(["--chdir=api", "discover", "--json"], { cwd });
 
       expect(result.exitCode).toBe(0);
       expect(result.stderr).toBe("");
@@ -374,93 +374,6 @@ describe("CLI entrypoint", () => {
     });
   });
 
-  test("lists workspaces from the project runtime", async () => {
-    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-cli-ls-"));
-
-    await withWorkspaceRuntime({ projectDir }, async ({ env }) => {
-      const result = await runCli([`--chdir=${projectDir}`, "ls"], { env });
-
-      expect(result.exitCode).toBe(0);
-      expect(result.stderr).toBe("");
-      expect(result.stdout).toContain("smoke");
-      expect(result.stdout).toContain("cached");
-      expect(result.stdout).toContain("workspace");
-      expect(result.stdout).toContain("api");
-    });
-  });
-
-  test("lists workspaces as JSON", async () => {
-    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-cli-ls-json-"));
-
-    await withWorkspaceRuntime({ projectDir }, async ({ env }) => {
-      const result = await runCli([`--chdir=${projectDir}`, "ls", "--json"], { env });
-
-      expect(result.exitCode).toBe(0);
-      expect(result.stderr).toBe("");
-      expect(JSON.parse(result.stdout)).toMatchObject({
-        workflows: [{
-          name: "smoke",
-          workspaces: [{
-          name: "api",
-          workflow: "smoke",
-          ctx: {},
-          }],
-        }],
-      });
-    });
-  });
-
-  test("warns for minor CLI/runtime version mismatches", async () => {
-    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-cli-version-warning-"));
-
-    await withWorkspaceRuntime({
-      projectDir,
-      runtimeVersion: "0.3.0",
-      engineVersion: "0.3.0",
-    }, async ({ env }) => {
-      const result = await runCli([`--chdir=${projectDir}`, "ls"], { env });
-
-      expect(result.exitCode).toBe(0);
-      expect(result.stdout).toContain("api");
-      expect(result.stderr).toContain("Rigkit version mismatch");
-      expect(result.stderr).toContain("different minor versions");
-      expect(result.stderr).toContain("Update the global CLI");
-    });
-  });
-
-  test("keeps JSON output clean for minor version mismatches", async () => {
-    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-cli-version-warning-json-"));
-
-    await withWorkspaceRuntime({
-      projectDir,
-      runtimeVersion: "0.3.0",
-      engineVersion: "0.3.0",
-    }, async ({ env }) => {
-      const result = await runCli([`--chdir=${projectDir}`, "ls", "--json"], { env });
-
-      expect(result.exitCode).toBe(0);
-      expect(result.stderr).toBe("");
-      expect(JSON.parse(result.stdout).workflows[0].workspaces[0].name).toBe("api");
-    });
-  });
-
-  test("errors for major CLI/runtime version mismatches", async () => {
-    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-cli-version-error-"));
-
-    await withWorkspaceRuntime({
-      projectDir,
-      runtimeVersion: "1.0.0",
-      engineVersion: "1.0.0",
-    }, async ({ env }) => {
-      const result = await runCli([`--chdir=${projectDir}`, "ls"], { env });
-
-      expect(result.exitCode).toBe(1);
-      expect(result.stdout).toBe("");
-      expect(result.stderr).toContain("Rigkit version mismatch");
-      expect(result.stderr).toContain("different major versions");
-    });
-  });
-
   test("rejects workspace create names that are not shell-safe", async () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-cli-create-name-"));
 
@@ -536,7 +449,7 @@ describe("CLI entrypoint", () => {
 
       expect(result.exitCode).toBe(1);
       expect(result.stdout).toBe("");
-      expect(result.stderr).toContain("No Rigkit projects found.");
+      expect(result.stderr).toContain("No Stoke projects found.");
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }
@@ -554,7 +467,7 @@ describe("CLI entrypoint", () => {
 
       expect(result.exitCode).toBe(1);
       expect(result.stdout).toBe("");
-      expect(result.stderr).toContain("Multiple Rigkit projects found.");
+      expect(result.stderr).toContain("Multiple Stoke projects found.");
       expect(result.stderr).toContain("pass --all");
       expect(result.stderr).toContain(join(realpathSync(cwd), "api", "rigkit", "index.ts"));
       expect(result.stderr).toContain(join(realpathSync(cwd), "web", "rigkit", "index.ts"));

@@ -1,4 +1,4 @@
-// Minimal design system for the rig CLI.
+// Minimal design system for the stoke CLI.
 // Mirrors apps/website/src/components/CliShowcase.tsx: bold black for the thing
 // that matters, dim for muted, blue for prompts and active items, green for ok,
 // red for fail. No spinners, no log-update, no boxes. Append-only output that
