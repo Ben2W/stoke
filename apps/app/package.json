@@ -1,19 +1,30 @@
 {
-  "name": "@rigkit/app",
+  "name": "@stoke/control-plane",
   "version": "0.0.0",
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "bun src/index.ts",
-    "build": "tsc --noEmit",
+    "dev": "next dev",
+    "build": "next build",
     "typecheck": "tsc --noEmit",
-    "test": "echo no app tests yet"
+    "test": "bun test",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate"
   },
   "dependencies": {
-    "@rigkit/engine": "workspace:*"
+    "@stoke/managed": "workspace:*",
+    "drizzle-orm": "^0.45.2",
+    "next": "^16.1.6",
+    "postgres": "^3.4.8",
+    "react": "^19.2.5",
+    "react-dom": "^19.2.5"
   },
   "devDependencies": {
     "@types/bun": "latest",
+    "@types/node": "latest",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "drizzle-kit": "^0.31.10",
     "typescript": "latest"
   }
 }

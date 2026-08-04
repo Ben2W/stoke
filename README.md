@@ -1,4 +1,26 @@
-# Rigkit
+# Stoke
+
+Stoke is a managed development-environment control plane for local work, coding
+agents, and CI. It keeps Rigkit's typed TypeScript workflow model and cmux
+integration, while moving project registration, state, cache metadata, and
+cloud execution to a service deployed exclusively on Vercel.
+
+This private repository currently preserves the full history of
+[Rigkit](https://github.com/freestyle-sh/rigkit), the MIT-licensed project from
+which Stoke is derived. The original `@rigkit/*` internals intentionally remain
+in place while the managed product boundary is built.
+
+The first Stoke slice lives in:
+
+- `apps/app`: Next.js control plane for Vercel, with a Neon-compatible Postgres
+  project registry.
+- `packages/managed`: versioned API contracts and the client the CLI will use.
+- `apps/app/drizzle`: committed Postgres migrations.
+
+See [docs/stoke-architecture.md](docs/stoke-architecture.md) for the product
+boundary and intentionally cut scope.
+
+## Inherited Rigkit engine
 
 Declarative dev environments, in TypeScript.
 
