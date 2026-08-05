@@ -1,12 +1,12 @@
 import { createServer, type IncomingMessage } from "node:http";
 import { WebSocket, WebSocketServer, type RawData } from "ws";
-import { verifyRunSocketTicket, type RunSocketClaims } from "../src/server/run-tickets.ts";
+import { verifyRunSocketTicket, type RunSocketClaims } from "../src/server/run-tickets.js";
 import {
   appendRunEvent,
   getRun,
   heartbeatRun,
   listRunEvents,
-} from "../src/server/runs.ts";
+} from "../src/server/runs.js";
 
 type RunRequest = IncomingMessage & { runClaims?: RunSocketClaims };
 
