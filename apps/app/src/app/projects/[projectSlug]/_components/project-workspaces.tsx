@@ -6,6 +6,7 @@ import { AlertCircle, Box, ChevronRight, CircleDashed, LayoutDashboard, Laptop, 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { projectWorkspacesQuery, queryKeys, runsQuery } from "../../../../lib/queries.ts";
 import { CreateWorkspaceDialog } from "./create-workspace-dialog.tsx";
+import { unmatchedActiveRemovals, workspaceRemovalFor } from "./workspace-removals.ts";
 
 export function ProjectWorkspaces({ project, onSelect }: { project: ManagedProject; onSelect(workspaceId: string): void }) {
   const queryClient = useQueryClient();
@@ -21,7 +22,8 @@ export function ProjectWorkspaces({ project, onSelect }: { project: ManagedProje
   const visiblePending = pending.filter((item) =>
     !workspaces.data?.some((workspace) => workspace.name === item.name)
   );
-  const total = (workspaces.data?.length ?? 0) + visiblePending.length;
+  const pendingRemovals = unmatchedActiveRemovals(projectRuns, workspaces.data ?? []);
+  const total = (workspaces.data?.length ?? 0) + visiblePending.length + pendingRemovals.length;
 
   useEffect(() => {
     if (!workspaces.data) return;
@@ -31,11 +33,11 @@ export function ProjectWorkspaces({ project, onSelect }: { project: ManagedProje
   }, [workspaces.data]);
 
   useEffect(() => {
-    const completedRemovals = projectRuns.filter((run) =>
-      run.operation === "remove" && run.status === "completed" && !refreshedRemovals.current.has(run.id)
+    const terminalRemovals = projectRuns.filter((run) =>
+      run.operation === "remove" && run.status !== "running" && !refreshedRemovals.current.has(run.id)
     );
-    if (!completedRemovals.length) return;
-    for (const run of completedRemovals) refreshedRemovals.current.add(run.id);
+    if (!terminalRemovals.length) return;
+    for (const run of terminalRemovals) refreshedRemovals.current.add(run.id);
     void queryClient.invalidateQueries({ queryKey: queryKeys.projectWorkspaces(project.id) });
   }, [project.id, projectRuns, queryClient]);
 
@@ -53,10 +55,14 @@ export function ProjectWorkspaces({ project, onSelect }: { project: ManagedProje
       </div>
 
       {workspaces.isPending ? (
-        <div className="h-32 animate-pulse rounded-lg border border-zinc-200 bg-white" />
+        pendingRemovals.length ? (
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            {pendingRemovals.map((run) => <RemovingWorkspaceCard key={run.id} run={run} />)}
+          </div>
+        ) : <div className="h-32 animate-pulse rounded-lg border border-zinc-200 bg-white" />
       ) : workspaces.isError ? (
         <button className="grid h-32 w-full place-items-center rounded-lg border border-zinc-200 bg-white text-sm text-zinc-500" onClick={() => void workspaces.refetch()} type="button">Could not load workspaces. Try again.</button>
-      ) : workspaces.data.length || visiblePending.length ? (
+      ) : workspaces.data.length || visiblePending.length || pendingRemovals.length ? (
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {visiblePending.map((item) => (
             <PendingWorkspaceCard
@@ -66,11 +72,12 @@ export function ProjectWorkspaces({ project, onSelect }: { project: ManagedProje
               run={projectRuns.find((run) => run.id === item.runId)}
             />
           ))}
+          {pendingRemovals.map((run) => <RemovingWorkspaceCard key={run.id} run={run} />)}
           {workspaces.data.map((workspace) => (
             <WorkspaceCard
               key={workspace.id}
               onSelect={() => onSelect(workspace.id)}
-              removal={findWorkspaceRemoval(projectRuns, workspace)}
+              removal={workspaceRemovalFor(projectRuns, workspace)}
               workspace={workspace}
             />
           ))}
@@ -94,6 +101,22 @@ export function ProjectWorkspaces({ project, onSelect }: { project: ManagedProje
         project={project}
       />
     </section>
+  );
+}
+
+function RemovingWorkspaceCard({ run }: { run: ManagedRun }) {
+  return (
+    <article className="cursor-wait rounded-lg border border-zinc-200 bg-white p-4 text-left shadow-xs">
+      <div className="flex items-start gap-3">
+        <div className="grid size-8 shrink-0 place-items-center rounded-md bg-amber-50 text-amber-600"><LoaderCircle className="animate-spin" size={15} /></div>
+        <div className="min-w-0 flex-1">
+          <h3 className="truncate text-sm font-medium text-zinc-900">{run.workspace}</h3>
+          <p className="mt-0.5 truncate text-[11px] text-zinc-400">{run.workflow}</p>
+        </div>
+        <span className="shrink-0 text-[10px] font-medium text-amber-700">Removing…</span>
+      </div>
+      <div className="mt-4 border-t border-zinc-100 pt-3 text-[11px] text-zinc-500">Running workspace remove handler…</div>
+    </article>
   );
 }
 
@@ -176,15 +199,6 @@ function WorkspaceCard({ workspace, onSelect, removal }: {
         </div>
       )}
     </button>
-  );
-}
-
-function findWorkspaceRemoval(runs: ManagedRun[], workspace: ManagedWorkspace): ManagedRun | undefined {
-  const workspaceUpdatedAt = Date.parse(workspace.updatedAt);
-  return runs.find((run) =>
-    run.operation === "remove"
-    && run.workspace === workspace.name
-    && Date.parse(run.startedAt) >= workspaceUpdatedAt
   );
 }
 
