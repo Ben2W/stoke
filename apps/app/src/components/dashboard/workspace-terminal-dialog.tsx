@@ -11,6 +11,7 @@ export function WorkspaceTerminalDialog({ onClose, projectId, sandbox, title }: 
   title: string;
 }) {
   const container = useRef<HTMLDivElement>(null);
+  const terminalRef = useRef<import("@xterm/xterm").Terminal>(null);
   const [error, setError] = useState<string>();
   useEffect(() => {
     let disposed = false;
@@ -31,20 +32,25 @@ export function WorkspaceTerminalDialog({ onClose, projectId, sandbox, title }: 
           theme: { background: "#09090b", foreground: "#e4e4e7", cursor: "#fafafa" },
         });
         terminal.open(container.current);
+        terminalRef.current = terminal;
+        terminal.focus();
         const socketUrl = new URL(interactive.url);
         socketUrl.searchParams.set("token", interactive.token);
         socket = new WebSocket(socketUrl);
         socket.binaryType = "arraybuffer";
         terminal.onData((data) => socket?.readyState === WebSocket.OPEN && socket.send(data));
         terminal.onResize(({ cols, rows }) => socket?.readyState === WebSocket.OPEN && socket.send(JSON.stringify({ type: "resize", cols, rows })));
-        socket.addEventListener("open", () => socket?.send(JSON.stringify({
-          type: "start",
-          command: "bash",
-          args: ["-l"],
-          env: ["TERM=xterm-256color"],
-          cols: terminal?.cols ?? 80,
-          rows: terminal?.rows ?? 28,
-        })));
+        socket.addEventListener("open", () => {
+          socket?.send(JSON.stringify({
+            type: "start",
+            command: "bash",
+            args: ["-l"],
+            env: ["TERM=xterm-256color"],
+            cols: terminal?.cols ?? 80,
+            rows: terminal?.rows ?? 28,
+          }));
+          terminal?.focus();
+        });
         socket.addEventListener("message", async (event) => {
           if (typeof event.data === "string") {
             try {
@@ -67,6 +73,7 @@ export function WorkspaceTerminalDialog({ onClose, projectId, sandbox, title }: 
       disposed = true;
       socket?.close();
       terminal?.dispose();
+      terminalRef.current = null;
     };
   }, [projectId, sandbox]);
 
@@ -74,7 +81,7 @@ export function WorkspaceTerminalDialog({ onClose, projectId, sandbox, title }: 
     <div className="fixed inset-0 z-50 grid place-items-center bg-zinc-950/55 p-4 backdrop-blur-[2px]" role="presentation">
       <section aria-label={`${title} terminal`} aria-modal="true" className="w-full max-w-5xl overflow-hidden rounded-xl border border-zinc-700 bg-zinc-950 shadow-2xl" role="dialog">
         <header className="flex items-center justify-between border-b border-zinc-800 px-4 py-3 text-zinc-200"><div><p className="text-xs font-medium">{title}</p><p className="mt-0.5 font-mono text-[10px] text-zinc-500">{sandbox}</p></div><button aria-label="Close terminal" className="grid size-8 place-items-center rounded-md text-zinc-500 hover:bg-zinc-800 hover:text-white" onClick={onClose} type="button"><X size={16} /></button></header>
-        {error ? <div className="grid h-[28rem] place-items-center p-8 text-sm text-red-400">{error}</div> : <div className="h-[28rem] p-3" ref={container} />}
+        {error ? <div className="grid h-[28rem] place-items-center p-8 text-sm text-red-400">{error}</div> : <div className="h-[28rem] p-3" onMouseDown={() => terminalRef.current?.focus()} ref={container} />}
       </section>
     </div>
   );
