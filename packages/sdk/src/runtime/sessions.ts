@@ -35,12 +35,16 @@ export function runSessionSocketEffect(
 ): Effect.Effect<void, never, Scope.Scope> {
   return Effect.gen(function* () {
     const write = yield* socket.writer;
+    let writeQueue = Promise.resolve();
+    const enqueue = (message: string | Socket.CloseEvent) => {
+      writeQueue = writeQueue.then(() => Effect.runPromise(write(message).pipe(Effect.ignore)));
+    };
     const transport: RuntimeSessionTransport = {
       send(message) {
-        Effect.runFork(write(message).pipe(Effect.ignore));
+        enqueue(message);
       },
       close(code, reason) {
-        Effect.runFork(write(new Socket.CloseEvent(code, reason)).pipe(Effect.ignore));
+        enqueue(new Socket.CloseEvent(code, reason));
       },
     };
     const run = state.store.runs.get(runId);

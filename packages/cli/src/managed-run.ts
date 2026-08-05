@@ -63,6 +63,7 @@ export async function tryClaimManagedApply(
 export function createManagedRunPublisher(
   socketUrl: string,
   refreshSocketUrl?: () => Promise<string>,
+  required = false,
 ): ManagedRunPublisher {
   const queue: string[] = [];
   const pending = new Map<string, () => void>();
@@ -134,7 +135,11 @@ export function createManagedRunPublisher(
         acknowledgement = new Promise((resolve) => pending.set(id, resolve));
       }
       send(JSON.stringify({ type: "event", id, event }));
-      if (acknowledgement) await withTimeout(acknowledgement, EVENT_ACK_TIMEOUT_MS).catch(() => undefined);
+      if (acknowledgement) {
+        const acknowledged = withTimeout(acknowledgement, EVENT_ACK_TIMEOUT_MS);
+        if (required) await acknowledged;
+        else await acknowledged.catch(() => undefined);
+      }
     },
     close() {
       closed = true;

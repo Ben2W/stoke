@@ -2718,7 +2718,7 @@ async function runRuntimeOperation<T>(
   }
 
   const managedPublisher = externalManagedSocketUrl
-    ? createManagedRunPublisher(externalManagedSocketUrl)
+    ? createManagedRunPublisher(externalManagedSocketUrl, undefined, true)
     : managedClaim?.disposition === "created"
       ? createManagedRunPublisher(
         managedClaim.socketUrl,

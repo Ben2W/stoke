@@ -468,6 +468,10 @@ describe("runtime HTTP app", () => {
         id: "plan",
       });
       expect(messages.some((message) => message.type === "heartbeat.ack")).toBe(true);
+      expect(messages.find((message) => message.type === "run.event")?.event.type).toBe("definition.loaded");
+      expect(messages.some((message) =>
+        message.type === "run.event" && message.event.type === "plan.created"
+      )).toBe(true);
       expect(messages.some((message) => message.type === "run.completed")).toBe(true);
     } finally {
       server.stop();

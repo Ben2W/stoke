@@ -51,6 +51,7 @@ function connectSession(
 
   return createRuntimeWebSocket(url, token).then((ws) => new Promise((resolvePromise, rejectPromise) => {
     let settled = false;
+    let messageQueue = Promise.resolve();
 
     const connection: RuntimeSessionConnection = {
       send(message) {
@@ -77,17 +78,18 @@ function connectSession(
         settle(error);
       }
     });
-    ws.addEventListener("message", async (event) => {
-      try {
+    ws.addEventListener("message", (event) => {
+      messageQueue = messageQueue.then(async () => {
         const data = typeof event.data === "string" ? JSON.parse(event.data) : event.data;
         await handlers.onMessage(data, connection);
-      } catch (error) {
+      }).catch((error) => {
         ws.close(1011, error instanceof Error ? error.message : String(error));
         settle(error);
-      }
+      });
     });
     ws.addEventListener("close", async () => {
       try {
+        await messageQueue;
         await handlers.onClose?.();
         settle();
       } catch (error) {
