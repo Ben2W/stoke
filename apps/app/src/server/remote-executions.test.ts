@@ -105,4 +105,43 @@ describe("remote managed execution", () => {
       { type: "run.completed" },
     ]);
   });
+
+  test("records apply summaries from the nested plan", async () => {
+    const events: unknown[] = [];
+    const applyRun = { ...running, operation: "apply" as const };
+    await executeRemoteProject("user-1", project.id, { operation: "apply" }, {
+      getProject: async () => project,
+      registerDevice: async (_userId, input) => ({
+        ...input,
+        createdAt: "2026-08-04T00:00:00.000Z",
+        lastSeenAt: "2026-08-04T00:00:00.000Z",
+      }),
+      registerCheckout: async () => checkout,
+      claimRun: async () => ({ run: applyRun, disposition: "created" }),
+      getRun: async () => ({ ...applyRun, status: "completed" }),
+      appendRunEvent: async (_userId, _runId, event) => {
+        events.push(event);
+        return {
+          id: events.length,
+          runId: applyRun.id,
+          type: (event as { type: string }).type,
+          data: event as Record<string, unknown>,
+          createdAt: "2026-08-04T00:00:00.000Z",
+        };
+      },
+      heartbeatRun: async () => undefined,
+      findGitHubAccessToken: async () => undefined,
+      runSandbox: async () => ({
+        context: {},
+        plan: { workflow: "stoke-example", nodeCount: 3, cachedNodeCount: 0, nodes: [] },
+      }),
+    });
+
+    expect(events).toContainEqual({
+      type: "workflow.apply.completed",
+      workflow: "stoke-example",
+      nodeCount: 3,
+      cachedNodeCount: 0,
+    });
+  });
 });

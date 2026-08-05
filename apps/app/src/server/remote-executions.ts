@@ -153,7 +153,7 @@ function resultSummary(result: unknown): {
   cachedNodeCount: number;
 } | undefined {
   if (!isRecord(result)) return undefined;
-  const value = result.dryRun === true && isRecord(result.plan) ? result.plan : result;
+  const value = isRecord(result.plan) ? result.plan : result;
   if (
     typeof value.workflow !== "string"
     || typeof value.nodeCount !== "number"
