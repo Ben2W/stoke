@@ -381,10 +381,11 @@ async function runCli(argv: string[]): Promise<void> {
 
   program
     .command("ls")
-    .description("List managed projects")
+    .description("List workflows and workspaces for the selected project")
+    .option("--workflow <workflow>", "Workflow name")
     .option("--json", "Print machine-readable JSON")
-    .action(async (options: { json?: boolean }) => {
-      await runManagedProjects(makeInvocation(rootOptions(program), options.json));
+    .action(async (options: { workflow?: string; json?: boolean }) => {
+      await runSelectedProject(makeInvocation(rootOptions(program), options.json), options.workflow);
     });
 
   const projectCommand = program
@@ -392,7 +393,15 @@ async function runCli(argv: string[]): Promise<void> {
     .description("Manage Stoke projects");
 
   projectCommand
-    .command("remove <project>")
+    .command("ls")
+    .description("List managed projects")
+    .option("--json", "Print machine-readable JSON")
+    .action(async (options: { json?: boolean }) => {
+      await runManagedProjects(makeInvocation(rootOptions(program), options.json));
+    });
+
+  projectCommand
+    .command("rm <project>")
     .description("Remove a project from the Stoke control plane")
     .option("-y, --yes", "Remove without confirmation")
     .option("--json", "Print machine-readable JSON")
@@ -1345,6 +1354,27 @@ async function runManagedProjects(invocation: CliInvocation): Promise<void> {
   ));
 }
 
+async function runSelectedProject(invocation: CliInvocation, workflow: string | undefined): Promise<void> {
+  const { runtime, managedProject } = await loadRuntimeContext(invocation);
+  const workflows = await readWorkflowOverview(invocation, runtime, workflow);
+
+  if (wantsJson(invocation)) {
+    printJson({ project: managedProject ?? null, workflows });
+    return;
+  }
+
+  if (managedProject) {
+    console.log(`${ui.bold(managedProject.name)}  ${ui.dim(managedProject.slug)}`);
+    console.log(ui.dim(formatManagedProjectSource(managedProject)));
+  } else {
+    const project = await readRuntimeProject(runtime);
+    console.log(`${ui.bold(displayProjectDir(project.projectDir))}  ${ui.dim("local project")}`);
+    console.log(ui.dim(project.configPath));
+  }
+  console.log("");
+  printWorkflowWorkspaces(workflows);
+}
+
 async function runManagedProjectRemove(
   invocation: CliInvocation,
   selector: string,
@@ -2188,7 +2218,7 @@ async function runHelp(invocation: CliInvocation): Promise<void> {
         { name: "create", description: "Create a workspace" },
         { name: "rm", description: "Remove a workspace" },
         { name: "run", description: "Run a workspace operation" },
-        { name: "ls", description: "List managed projects" },
+        { name: "ls", description: "List selected project workflows and workspaces" },
         { name: "cache", description: "Inspect and clear workflow cache" },
         { name: "providers", description: "Manage provider-owned local state" },
         { name: "discover", description: "Discover Stoke projects below the current directory" },
@@ -2224,7 +2254,7 @@ async function runHelp(invocation: CliInvocation): Promise<void> {
     cmd("add",        "Add a repository or local directory to Stoke"),
     cmd("use",        "Select the default managed project"),
     cmd("project",    "Manage Stoke projects"),
-    cmd("ls",         "List managed projects"),
+    cmd("ls",         "List selected project workflows and workspaces"),
     cmd("cache",      "Inspect and clear workflow cache"),
     cmd("providers",  "Manage provider-owned local state"),
     cmd("discover",   "Discover Stoke projects below the current directory"),
@@ -2244,19 +2274,29 @@ async function loadRuntime(
   invocation: CliInvocation,
   options: { checkCompatibility?: boolean } = {},
 ): Promise<RuntimeClient> {
-  const managedSource = await resolveManagedRuntimeSource(invocation);
+  return (await loadRuntimeContext(invocation, options)).runtime;
+}
+
+async function loadRuntimeContext(
+  invocation: CliInvocation,
+  options: { checkCompatibility?: boolean } = {},
+): Promise<{ runtime: RuntimeClient; managedProject?: ManagedProject }> {
+  const managed = await resolveManagedRuntimeContext(invocation);
   const engineOptions = resolveEngineOptions(invocation);
-  if (managedSource) engineOptions.source = managedSource;
+  if (managed) engineOptions.source = managed.source;
   const runtime = await getOrStartRuntime(engineOptions);
   if (options.checkCompatibility !== false) {
     await checkRuntimeCompatibility(invocation, runtime);
   }
-  return runtime;
+  return { runtime, ...(managed ? { managedProject: managed.project } : {}) };
 }
 
-async function resolveManagedRuntimeSource(
+async function resolveManagedRuntimeContext(
   invocation: CliInvocation,
-): Promise<{ projectId: string; checkoutId: string; deviceId: string } | undefined> {
+): Promise<{
+  project: ManagedProject;
+  source: { projectId: string; checkoutId: string; deviceId: string };
+} | undefined> {
   const settings = readStokeSettings();
   const selector = invocation.global.project ?? process.env.STOKE_PROJECT ?? settings?.currentProjectId;
   if (!selector) return undefined;
@@ -2307,7 +2347,10 @@ async function resolveManagedRuntimeSource(
   process.env.STOKE_PROJECT_ID = project.id;
   process.env.STOKE_CHECKOUT_ID = checkout.id;
   process.env.STOKE_DEVICE_ID = device.id;
-  return { projectId: project.id, checkoutId: checkout.id, deviceId: device.id };
+  return {
+    project,
+    source: { projectId: project.id, checkoutId: checkout.id, deviceId: device.id },
+  };
 }
 
 function isPathWithin(path: string, parent: string): boolean {

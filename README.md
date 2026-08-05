@@ -80,6 +80,7 @@ Register the current checkout and select its managed project:
 ```sh
 stoke add .
 stoke use stoke
+stoke project ls
 stoke ls
 ```
 
@@ -90,7 +91,7 @@ for a one-command override without changing the saved selection.
 Remove a project from the managed control plane with:
 
 ```sh
-stoke project remove <id|slug|name|path>
+stoke project rm <id|slug|name|path>
 ```
 
 This removes managed checkouts and run history. It never deletes a local

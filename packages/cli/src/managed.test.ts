@@ -188,9 +188,9 @@ describe("managed project source resolution", () => {
         STOKE_DEVICE_NAME: "Benjamin's MacBook",
       };
       const added = await runManagedCli(["add", ".", "--json"], cwd, environment);
-      const listed = await runManagedCli(["ls", "--json"], cwd, environment);
+      const listed = await runManagedCli(["project", "ls", "--json"], cwd, environment);
       const removed = await runManagedCli(
-        ["project", "remove", project.slug, "--yes", "--json"],
+        ["project", "rm", project.slug, "--yes", "--json"],
         cwd,
         environment,
       );

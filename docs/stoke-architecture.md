@@ -102,8 +102,10 @@ server functions for product behavior.
 - Runtime commands resolve the selected project's checkout on the current
   device and run from that path. Multiple checkouts require an explicit path;
   a missing checkout produces an attach command instead of guessing.
-- `stoke ls` always lists managed projects, their checkout locations, and the
-  current selection. It does not double as a workspace listing command.
+- `stoke project ls` lists managed projects, their checkout locations, and the
+  current selection. `stoke project rm` removes one managed project.
+- `stoke ls` lists the selected project first, followed by its workflows,
+  cache status, and workspaces from the local runtime.
 - `stoke discover` finds local Stoke configurations when that lower-level view is
   needed.
 - Existing workspace commands (`stoke create`, `stoke run`, `stoke rm`) continue

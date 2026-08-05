@@ -359,7 +359,7 @@ export function resolveManagedProjectSelector(
       `Project name ${JSON.stringify(selector)} is ambiguous. Use one of: ${named.map((project) => project.slug).join(", ")}`,
     );
   }
-  throw new Error(`Managed project ${JSON.stringify(selector)} was not found. Run \`stoke ls\` to see projects.`);
+  throw new Error(`Managed project ${JSON.stringify(selector)} was not found. Run \`stoke project ls\` to see projects.`);
 }
 
 function readGitRemote(path: string): string | undefined {

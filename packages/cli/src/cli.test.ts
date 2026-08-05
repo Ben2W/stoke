@@ -355,6 +355,27 @@ describe("CLI entrypoint", () => {
     });
   });
 
+  test("lists the selected project's workflows and workspaces", async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-cli-list-"));
+
+    await withWorkspaceRuntime({ projectDir }, async ({ env }) => {
+      const result = await runCli([`--chdir=${projectDir}`, "ls", "--json"], { env });
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stderr).toBe("");
+      expect(JSON.parse(result.stdout)).toMatchObject({
+        project: null,
+        workflows: [{
+          name: "smoke",
+          cached: true,
+          cachedNodeCount: 1,
+          nodeCount: 1,
+          workspaces: [{ name: "api", workflow: "smoke" }],
+        }],
+      });
+    });
+  });
+
   test("explains workflow cache decisions", async () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-cli-cache-explain-"));
 
@@ -488,6 +509,7 @@ async function runCli(
     env: {
       ...process.env,
       RIGKIT_UPDATE_CHECK: "0",
+      STOKE_HOME: join(tmpdir(), `stoke-cli-tests-${process.pid}`),
       ...options.env,
       FORCE_COLOR: "0",
       NO_COLOR: "1",

@@ -151,7 +151,7 @@ const COMMANDS: CompletionItem[] = withGroup(GROUP_COMMANDS, [
   { value: "create", description: "create a workspace" },
   { value: "rm", description: "remove a workspace" },
   { value: "run", description: "run a workspace operation" },
-  { value: "ls", description: "list managed projects" },
+  { value: "ls", description: "list selected project workflows and workspaces" },
   { value: "cache", description: "inspect and clear workflow cache" },
   { value: "providers", description: "manage provider-owned local state" },
   { value: "discover", description: "discover Stoke projects" },
@@ -260,6 +260,7 @@ const COMMAND_OPTIONS: Record<CommandName, OptionDefinition[]> = {
     HELP_OPTION,
   ],
   ls: [
+    option(["--workflow"], "workflow name", { takesValue: true }),
     JSON_OPTION,
     HELP_OPTION,
   ],
@@ -367,10 +368,16 @@ const COMPLETION_SHELLS: CompletionItem[] = withGroup(GROUP_SHELLS, [
 ]);
 
 const PROJECT_SUBCOMMANDS: CompletionItem[] = withGroup(GROUP_SUBCOMMANDS, [
-  { value: "remove", description: "remove a project from the Stoke control plane" },
+  { value: "ls", description: "list managed projects" },
+  { value: "rm", description: "remove a project from the Stoke control plane" },
 ]);
 
-const PROJECT_REMOVE_OPTIONS: OptionDefinition[] = [
+const PROJECT_LS_OPTIONS: OptionDefinition[] = [
+  JSON_OPTION,
+  HELP_OPTION,
+];
+
+const PROJECT_RM_OPTIONS: OptionDefinition[] = [
   option(["-y", "--yes"], "remove without confirmation"),
   JSON_OPTION,
   HELP_OPTION,
@@ -563,7 +570,8 @@ async function optionsForCommandContext(context: CompletionContext): Promise<Opt
 
   if (context.command === "project") {
     const project = parseProjectArgs(context);
-    if (project.subcommand === "remove") return PROJECT_REMOVE_OPTIONS;
+    if (project.subcommand === "ls") return PROJECT_LS_OPTIONS;
+    if (project.subcommand === "rm") return PROJECT_RM_OPTIONS;
   }
 
   return COMMAND_OPTIONS[context.command] ?? [];
@@ -820,14 +828,17 @@ async function completeManagedProjectCommand(context: CompletionContext): Promis
     return filterItems(PROJECT_SUBCOMMANDS, context.current);
   }
 
-  if (project.subcommand !== "remove") return [];
+  if (project.subcommand === "ls") {
+    return completeOptionsOnlyCommand(context, PROJECT_LS_OPTIONS);
+  }
+  if (project.subcommand !== "rm") return [];
   if (context.current.startsWith("-") || project.args.length > 0) {
-    return filterItems(optionItems(PROJECT_REMOVE_OPTIONS), context.current);
+    return filterItems(optionItems(PROJECT_RM_OPTIONS), context.current);
   }
 
   return completeMixed({
     primary: await safeManagedProjectTargets(),
-    options: PROJECT_REMOVE_OPTIONS,
+    options: PROJECT_RM_OPTIONS,
     current: context.current,
   });
 }
@@ -1045,7 +1056,7 @@ function parseProvidersArgs(context: CompletionContext): { provider?: string; su
 }
 
 function parseProjectArgs(context: CompletionContext): { subcommand?: string; args: string[] } {
-  const positionals = positionalsFrom(context.argsBefore, PROJECT_REMOVE_OPTIONS);
+  const positionals = positionalsFrom(context.argsBefore, PROJECT_RM_OPTIONS);
   return {
     subcommand: positionals[0],
     args: positionals.slice(1),
