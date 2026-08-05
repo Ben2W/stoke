@@ -211,6 +211,8 @@ function runtimeWorkspace(workspace: WorkspaceRecord): {
   id: string;
   name: string;
   workflow: string;
+  sourceRevision?: string;
+  cacheEntryIds?: string[];
   ctx: WorkspaceRecord["ctx"];
   createdAt: string;
   updatedAt: string;
@@ -219,6 +221,8 @@ function runtimeWorkspace(workspace: WorkspaceRecord): {
     id: workspace.id,
     name: workspace.name,
     workflow: workspace.workflow,
+    ...(workspace.sourceRevision ? { sourceRevision: workspace.sourceRevision } : {}),
+    ...(workspace.cacheEntryIds ? { cacheEntryIds: [...workspace.cacheEntryIds] } : {}),
     ctx: workspace.ctx,
     createdAt: workspace.createdAt,
     updatedAt: workspace.updatedAt,

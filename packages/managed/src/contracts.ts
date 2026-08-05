@@ -84,6 +84,8 @@ export const ManagedWorkspaceSchema = z.object({
   projectId: z.uuid(),
   name: z.string().min(1),
   workflow: z.string().min(1),
+  sourceRevision: z.string().regex(/^[a-f0-9]{40}$/i).optional(),
+  cacheEntryIds: z.array(z.string().min(1)).optional(),
   ctx: z.record(z.string(), z.unknown()),
   operations: z.array(z.object({
     id: z.string().min(1),

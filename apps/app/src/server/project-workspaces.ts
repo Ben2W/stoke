@@ -38,6 +38,8 @@ export async function listProjectWorkspaces(
       projectId,
       name: workspace.name,
       workflow: workspace.workflow,
+      ...(workspace.sourceRevision ? { sourceRevision: workspace.sourceRevision } : {}),
+      ...(workspace.cacheEntryIds ? { cacheEntryIds: workspace.cacheEntryIds } : {}),
       ctx: workspace.ctx,
       operations: workspace.operations,
       createdFrom,
@@ -51,6 +53,8 @@ function parseWorkspace(value: unknown): {
   id: string;
   name: string;
   workflow: string;
+  sourceRevision?: string;
+  cacheEntryIds?: string[];
   ctx: Record<string, unknown>;
   operations: ManagedWorkspace["operations"];
   createdFrom: { kind: "checkout"; deviceId: string; checkoutId?: string } | { kind: "dashboard" };
@@ -97,6 +101,12 @@ function parseWorkspace(value: unknown): {
     id: value.id,
     name: value.name,
     workflow: value.workflow,
+    ...(typeof value.sourceRevision === "string" && /^[a-f0-9]{40}$/i.test(value.sourceRevision)
+      ? { sourceRevision: value.sourceRevision }
+      : {}),
+    ...(Array.isArray(value.cacheEntryIds) && value.cacheEntryIds.every((id) => typeof id === "string")
+      ? { cacheEntryIds: [...value.cacheEntryIds] as string[] }
+      : {}),
     ctx,
     operations,
     createdFrom: createdFrom.kind === "dashboard"

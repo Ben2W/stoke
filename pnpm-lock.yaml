@@ -112,28 +112,28 @@ importers:
   packages/cli:
     dependencies:
       '@usestoke/engine':
-        specifier: workspace:*
+        specifier: workspace:0.1.4
         version: link:../engine
       '@usestoke/managed':
-        specifier: workspace:*
+        specifier: workspace:0.1.6
         version: link:../managed
       '@usestoke/provider-browser':
-        specifier: workspace:*
-        version: link:../provider-browser
+        specifier: 0.1.3
+        version: 0.1.3
       '@usestoke/provider-cmux':
-        specifier: workspace:*
-        version: link:../provider-cmux
+        specifier: 0.1.3
+        version: 0.1.3
       '@usestoke/provider-vercel-sandbox':
-        specifier: workspace:*
-        version: link:../provider-vercel-sandbox
+        specifier: 0.1.10
+        version: 0.1.10
       '@usestoke/provider-vscode':
-        specifier: workspace:*
-        version: link:../provider-vscode
+        specifier: 0.1.2
+        version: 0.1.2
       '@usestoke/runtime-client':
-        specifier: workspace:*
+        specifier: workspace:0.1.2
         version: link:../runtime-client
       '@usestoke/sdk':
-        specifier: workspace:*
+        specifier: workspace:0.1.4
         version: link:../sdk
       chalk:
         specifier: ^5.6.2
@@ -297,13 +297,13 @@ importers:
         specifier: 0.18.1
         version: 0.18.1(@effect/experimental@0.60.0(@effect/platform@0.96.1(effect@3.21.2))(effect@3.21.2))(@effect/platform@0.96.1(effect@3.21.2))(@effect/rpc@0.75.1(@effect/platform@0.96.1(effect@3.21.2))(effect@3.21.2))(effect@3.21.2)
       '@usestoke/engine':
-        specifier: workspace:*
+        specifier: workspace:0.1.4
         version: link:../engine
       '@usestoke/managed':
-        specifier: workspace:*
+        specifier: workspace:0.1.6
         version: link:../managed
       '@usestoke/runtime-client':
-        specifier: workspace:*
+        specifier: workspace:0.1.2
         version: link:../runtime-client
       effect:
         specifier: ^3.21.2
@@ -1849,6 +1849,18 @@ packages:
 
   '@usestoke/managed@0.1.5':
     resolution: {integrity: sha512-YJgwdprinRnqPQpdnoC8QJiAQ1REhyQm4TrWqXD71Vnd5LDpSJeg86E20ETREOJVRVgq5i8bfO0ZqavBGmNwzA==}
+
+  '@usestoke/provider-browser@0.1.3':
+    resolution: {integrity: sha512-H4DRJNbj7p/hBdjeFRwZn4XAMOIJWPD4oOvKd1Bu81ToewRArS0+Ts2hqsMKEvQe+2zfMSmC5jMSY0vXeOPpMQ==}
+
+  '@usestoke/provider-cmux@0.1.3':
+    resolution: {integrity: sha512-5zTbJRkq7yABQ+F/dkWFuF1pqJuWaxw10oQT1YV34k3UFYcfzHTVHWZ4g2TQHWplNkvPxhvY6LbPbMuBD+zHAQ==}
+
+  '@usestoke/provider-vercel-sandbox@0.1.10':
+    resolution: {integrity: sha512-i81Gnw2FVjTGYJ1/D0qgxJUf+MdLXaogz2z/9SxWEu3PMeDRTPZ3wruYtPjD4WmFy+O3za9D0HTCkzr5hRF6Aw==}
+
+  '@usestoke/provider-vscode@0.1.2':
+    resolution: {integrity: sha512-TII4Rm9Uf6u45EpZbD2+DkMCUotYh1UF0QnR5f+nxmBmcy2BbekUakk+Pis/9OtQ5sWQy8ypn7s2HLmNxSs5hA==}
 
   '@usestoke/runtime-client@0.1.1':
     resolution: {integrity: sha512-IgCmD18cRMjdCog4SKybN7PFmQXYbe0M5i8QPIPURptNhIGaFZHM50/EVgx7Zz3i/KlL2H09J7eBX5xLRAvkNw==}
@@ -3827,6 +3839,48 @@ snapshots:
   '@usestoke/managed@0.1.5':
     dependencies:
       zod: 4.4.3
+
+  '@usestoke/provider-browser@0.1.3':
+    dependencies:
+      '@usestoke/engine': 0.1.3
+      '@usestoke/sdk': 0.1.3
+    transitivePeerDependencies:
+      - bufferutil
+      - ioredis
+      - lmdb
+      - utf-8-validate
+
+  '@usestoke/provider-cmux@0.1.3':
+    dependencies:
+      '@usestoke/engine': 0.1.3
+      '@usestoke/sdk': 0.1.3
+    transitivePeerDependencies:
+      - bufferutil
+      - ioredis
+      - lmdb
+      - utf-8-validate
+
+  '@usestoke/provider-vercel-sandbox@0.1.10':
+    dependencies:
+      '@usestoke/engine': 0.1.3
+      '@usestoke/managed': 0.1.5
+      '@usestoke/sdk': 0.1.3
+      ws: 8.20.0
+    transitivePeerDependencies:
+      - bufferutil
+      - ioredis
+      - lmdb
+      - utf-8-validate
+
+  '@usestoke/provider-vscode@0.1.2':
+    dependencies:
+      '@usestoke/engine': 0.1.3
+      '@usestoke/sdk': 0.1.3
+    transitivePeerDependencies:
+      - bufferutil
+      - ioredis
+      - lmdb
+      - utf-8-validate
 
   '@usestoke/runtime-client@0.1.1':
     dependencies:

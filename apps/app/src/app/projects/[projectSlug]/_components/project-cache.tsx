@@ -5,7 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Database, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { clearProjectCache, invalidateProjectCacheEntry } from "../../../../lib/api-client.ts";
-import { projectCacheQuery, queryKeys, runsQuery } from "../../../../lib/queries.ts";
+import { projectCacheQuery, projectWorkspacesQuery, queryKeys, runsQuery } from "../../../../lib/queries.ts";
 import { CacheActions } from "./cache-actions.tsx";
 import { CacheGraph, CacheGraphSkeleton } from "./cache-graph.tsx";
 import { projectRunTaskFlow } from "../runs/_components/run-task-flow.ts";
@@ -15,6 +15,7 @@ export function ProjectCache({ project }: { project: ManagedProject }) {
   const projectId = project.id;
   const queryClient = useQueryClient();
   const cache = useQuery(projectCacheQuery(projectId));
+  const workspaces = useQuery(projectWorkspacesQuery(projectId));
   const entries = cache.data?.entries ?? [];
   const runsResult = useQuery(runsQuery);
   const projectRuns = (runsResult.data ?? []).filter((run) => run.projectId === projectId);
@@ -25,16 +26,18 @@ export function ProjectCache({ project }: { project: ManagedProject }) {
   const executionRun = activeRun ?? projectRuns.find((run) => run.id === bridgingRunId);
   const latestPlan = projectRuns.find((run) => run.operation === "plan" && run.status === "completed");
   const latestApply = projectRuns.find((run) => run.operation === "apply" && run.status === "completed");
-  const plannedRun = latestPlan && (!latestApply || latestPlan.startedAt > latestApply.startedAt) ? latestPlan : undefined;
+  const headRun = latestPlan && latestApply
+    ? latestPlan.startedAt > latestApply.startedAt ? latestPlan : latestApply
+    : latestPlan ?? latestApply;
   const { eventsResult: executionEventsResult } = useRunObserver(executionRun?.id);
-  const { eventsResult: planEventsResult } = useRunObserver(plannedRun?.id);
+  const { eventsResult: headEventsResult } = useRunObserver(headRun?.id);
   const executionFlow = useMemo(
     () => executionRun ? projectRunTaskFlow(executionEventsResult.data ?? [], executionRun) : undefined,
     [executionRun, executionEventsResult.data],
   );
-  const plannedFlow = useMemo(
-    () => plannedRun ? projectRunTaskFlow(planEventsResult.data ?? [], plannedRun) : undefined,
-    [plannedRun, planEventsResult.data],
+  const headFlow = useMemo(
+    () => headRun ? projectRunTaskFlow(headEventsResult.data ?? [], headRun) : undefined,
+    [headRun, headEventsResult.data],
   );
 
   useEffect(() => {
@@ -43,7 +46,7 @@ export function ProjectCache({ project }: { project: ManagedProject }) {
 
   useEffect(() => {
     if (activeRun || !executionRun || !executionFlow) return;
-    if (executionRun.operation === "plan" && plannedRun?.id === executionRun.id) {
+    if (executionRun.operation === "plan" && headRun?.id === executionRun.id) {
       setBridgingRunId(undefined);
       return;
     }
@@ -58,7 +61,7 @@ export function ProjectCache({ project }: { project: ManagedProject }) {
         && entries.some((entry) => entry.id === task.runId)
       );
     if (materialized) setBridgingRunId(undefined);
-  }, [activeRun, entries, executionFlow, executionRun, plannedRun?.id]);
+  }, [activeRun, entries, executionFlow, executionRun, headRun?.id]);
   const [confirmClear, setConfirmClear] = useState(false);
   const refresh = () => queryClient.invalidateQueries({ queryKey: queryKeys.projectCache(projectId) });
   const invalidate = useMutation({
@@ -102,15 +105,16 @@ export function ProjectCache({ project }: { project: ManagedProject }) {
         <CacheGraphSkeleton />
       ) : cache.isError ? (
         <button className="grid h-28 w-full place-items-center rounded-lg border border-zinc-200 bg-white text-sm text-zinc-500" onClick={() => void cache.refetch()} type="button">Could not load cache. Try again.</button>
-      ) : entries.length || executionRun || plannedFlow?.tasks.length ? (
+      ) : entries.length || executionRun || headFlow?.tasks.length ? (
         <CacheGraph
           activeFlow={executionFlow}
           activeRun={executionRun}
           entries={entries}
           invalidatingId={invalidate.isPending ? invalidate.variables?.id : undefined}
           onInvalidate={(entry) => invalidate.mutate(entry)}
-          plannedFlow={plannedFlow}
-          plannedRun={plannedRun}
+          plannedFlow={headFlow}
+          plannedRun={headRun}
+          workspaces={workspaces.data ?? []}
         />
       ) : (
         <div className="rounded-lg border border-dashed border-zinc-300 bg-white px-5 py-7 text-center">

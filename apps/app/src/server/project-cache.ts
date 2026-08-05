@@ -41,23 +41,33 @@ export async function clearProjectCache(
 }
 
 export function projectCacheEntries(snapshot: ManagedProjectStateSnapshot): ManagedCacheEntry[] {
+  const workspaceEntryIds = new Set(Object.values(snapshot.scopes).flatMap((state) =>
+    state.workspaces.flatMap((value) => {
+      if (!isRecord(value) || !Array.isArray(value.cacheEntryIds)) return [];
+      return value.cacheEntryIds.filter((id): id is string => typeof id === "string");
+    })
+  ));
   const entries = Object.entries(snapshot.scopes).flatMap(([scope, state]) =>
     state.nodeRuns.flatMap((value) => {
       const entry = parseCacheEntry(value);
       return entry ? [{ scope, ...entry }] : [];
     })
-  ).filter((entry) => !entry.invalidated)
-    .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+  ).sort((left, right) => right.createdAt.localeCompare(left.createdAt));
 
   // nodeRuns is an append-only cache history. The dashboard graph represents
   // the reusable DAG, not that history, so keep only the newest live result for
   // each logical workflow node.
   const current = new Map<string, ManagedCacheEntry>();
   for (const entry of entries) {
+    if (entry.invalidated) continue;
     const key = `${entry.scope}\0${entry.workflow}\0${entry.nodePath}`;
     if (!current.has(key)) current.set(key, entry);
   }
-  return [...current.values()];
+  const visible = new Map([...current.values()].map((entry) => [entry.id, entry]));
+  for (const entry of entries) {
+    if (workspaceEntryIds.has(entry.id)) visible.set(entry.id, entry);
+  }
+  return [...visible.values()].sort((left, right) => right.createdAt.localeCompare(left.createdAt));
 }
 
 export function invalidateCacheSnapshot(

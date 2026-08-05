@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -2481,7 +2482,7 @@ async function startRuntimeContext(
   managed?: {
     project: ManagedProject;
     stateRevision: number;
-    source: { projectId: string; checkoutId: string; deviceId: string };
+    source: { projectId: string; checkoutId: string; deviceId: string; sourceRevision?: string };
   },
 ): Promise<{ runtime: RuntimeClient; managedProject?: ManagedProject }> {
   const engineOptions = resolveEngineOptions(invocation);
@@ -2508,11 +2509,12 @@ async function resolveManagedRuntimeContext(
 ): Promise<{
   project: ManagedProject;
   stateRevision: number;
-  source: { projectId: string; checkoutId: string; deviceId: string };
+  source: { projectId: string; checkoutId: string; deviceId: string; sourceRevision?: string };
 } | undefined> {
   const managed = await resolveManagedProjectContext(invocation, { requireCheckout: true });
   if (!managed) return undefined;
   const state = await managed.client.getProjectState(managed.project.id);
+  const revision = sourceRevision(resolveCommandConfigPaths(invocation).projectDir);
   return {
     project: managed.project,
     stateRevision: state.revision,
@@ -2520,6 +2522,7 @@ async function resolveManagedRuntimeContext(
       projectId: managed.project.id,
       checkoutId: managed.checkout!.id,
       deviceId: managed.device.id,
+      ...(revision ? { sourceRevision: revision } : {}),
     },
   };
 }
@@ -3026,8 +3029,24 @@ function resolveEngineOptions(invocation: CliInvocation): {
     configPath: paths.configPath,
     ...(process.env.STOKE_STATE_FILE ? { stateFile: resolve(process.env.STOKE_STATE_FILE) } : {}),
     ...(dashboardStateRevision ? { stateRevision: dashboardStateRevision } : {}),
-    ...(process.env.STOKE_WORKSPACE_ORIGIN === "dashboard" ? { source: { kind: "dashboard" } } : {}),
+    ...(process.env.STOKE_WORKSPACE_ORIGIN === "dashboard"
+      ? { source: { kind: "dashboard", sourceRevision: sourceRevision(paths.projectDir) } }
+      : {}),
   };
+}
+
+function sourceRevision(projectDir: string): string | undefined {
+  const environmentRevision = process.env.STOKE_SOURCE_REVISION?.trim();
+  if (environmentRevision && /^[a-f0-9]{40}$/i.test(environmentRevision)) return environmentRevision;
+  try {
+    const revision = execFileSync("git", ["-C", projectDir, "rev-parse", "HEAD"], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+    return /^[a-f0-9]{40}$/i.test(revision) ? revision : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function resolveCommandConfigPaths(invocation: CliInvocation): { projectDir: string; configPath: string } {

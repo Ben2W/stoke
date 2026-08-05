@@ -91,6 +91,8 @@ export const RuntimeControlWorkspaceEffectSchema = Schema.Struct({
   id: Schema.String,
   name: Schema.String,
   workflow: Schema.String,
+  sourceRevision: Schema.optional(Schema.String),
+  cacheEntryIds: Schema.optional(Schema.Array(Schema.String)),
   ctx: UnknownRecord,
   createdAt: Schema.String,
   updatedAt: Schema.String,

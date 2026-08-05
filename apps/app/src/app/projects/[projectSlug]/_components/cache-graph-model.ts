@@ -9,12 +9,14 @@ export type CacheGraphNodeActivity = {
 export type CacheGraphModel = {
   activities: Map<string, CacheGraphNodeActivity>;
   entries: ManagedCacheEntry[];
+  mainEntryIds: Set<string>;
 };
 
 export function projectCacheGraph(
   entries: ManagedCacheEntry[],
   planned?: { flow: RunTaskFlow; run: ManagedRun },
   active?: { flow: RunTaskFlow; run: ManagedRun },
+  workspaceEntryIds: Set<string> = new Set(),
 ): CacheGraphModel {
   const activities = new Map<string, CacheGraphNodeActivity>();
   const projected = planned?.flow.tasks.length
@@ -22,7 +24,11 @@ export function projectCacheGraph(
     : [...entries];
 
   if (active) mergeActiveTasks(projected, entries, active.flow.tasks, active.run, activities);
-  return { activities, entries: projected };
+  const mainEntryIds = new Set(projected.map((entry) => entry.id));
+  for (const entry of entries) {
+    if (workspaceEntryIds.has(entry.id) && !mainEntryIds.has(entry.id)) projected.push(entry);
+  }
+  return { activities, entries: projected, mainEntryIds };
 }
 
 function projectTasks(

@@ -4,7 +4,7 @@ import { DEFAULT_CONFIG_PATH } from "./project.ts";
 
 export const STOKE_INIT_DEV_DEPENDENCIES = {
   "@usestoke/provider-vercel-sandbox": "0.1.6",
-  "@usestoke/sdk": "0.1.3",
+  "@usestoke/sdk": "0.1.4",
 } as const;
 
 export type InitProjectInput = {

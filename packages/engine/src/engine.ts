@@ -75,6 +75,7 @@ export type CreateDevMachineEngineOptions = {
   };
   local?: LocalWorkspaceRuntimeOptions;
   workspaceCreatedFrom?: WorkspaceRecord["createdFrom"];
+  workspaceSourceRevision?: string;
 };
 
 export type { InteractionPresenter, InteractionPresentationRequest };
@@ -402,6 +403,7 @@ export class DevMachineEngine {
   private readonly interactionPresenter: InteractionPresenter;
   private readonly local: LocalWorkspaceRuntime;
   private readonly workspaceCreatedFrom?: WorkspaceRecord["createdFrom"];
+  private readonly workspaceSourceRevision?: string;
   private readonly handlers = new Set<EventHandler>();
   private workflows = new Map<string, LoadedWorkflow>();
   private definitionSources: DefinitionSourceFile[] = [];
@@ -422,6 +424,7 @@ export class DevMachineEngine {
     this.hostStorageFactory = options.hostStorageFactory ?? createFileProviderHostStorage;
     this.interactionPresenter = options.interaction?.present ?? defaultInteractionPresenter;
     this.workspaceCreatedFrom = options.workspaceCreatedFrom ? { ...options.workspaceCreatedFrom } : undefined;
+    this.workspaceSourceRevision = options.workspaceSourceRevision;
     this.local = {
       open: options.local?.open ?? openLocalTarget,
       prompt: {
@@ -476,8 +479,6 @@ export class DevMachineEngine {
     if (this.workflows.size !== loaded.length) {
       throw new Error(`Workflow names must be unique`);
     }
-    this.reconcileWorkspaceOperations();
-
     for (const item of loaded) {
       this.emit({ type: "definition.loaded", workflow: item.name });
     }
@@ -513,17 +514,6 @@ export class DevMachineEngine {
 
   listWorkspaces(): WorkspaceRecord[] {
     return this.getStateService().listWorkspaces();
-  }
-
-  private reconcileWorkspaceOperations(): void {
-    const state = this.getStateService();
-    for (const workspace of state.listWorkspaces()) {
-      const workflow = this.workflows.get(workspace.workflow);
-      if (!workflow) continue;
-      const operations = this.workspaceOperationsFor(workflow);
-      if (stableJson(workspace.operations) === stableJson(operations)) continue;
-      state.saveWorkspace({ ...workspace, operations });
-    }
   }
 
   private workspaceOperationsFor(workflow: LoadedWorkflow): WorkspaceOperationRecord[] {
@@ -1114,6 +1104,8 @@ export class DevMachineEngine {
       id: crypto.randomUUID(),
       name: input.name,
       workflow: workflow.name,
+      ...(this.workspaceSourceRevision ? { sourceRevision: this.workspaceSourceRevision } : {}),
+      cacheEntryIds: applied.plan.nodes.flatMap((node) => node.runId ? [node.runId] : []),
       workflowCtx: { ...applied.context },
       ctx: {},
       operations: this.workspaceOperationsFor(workflow),

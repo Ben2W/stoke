@@ -50,6 +50,20 @@ describe("project cache", () => {
     expect(entries.some((entry) => entry.invalidated)).toBe(false);
   });
 
+  test("retains historical cache nodes referenced by workspaces", () => {
+    const snapshot = cacheSnapshot();
+    snapshot.scopes.project!.nodeRuns.push(
+      { ...nodeRun("new-build"), nodePath: "build", createdAt: "2026-08-04T00:03:00.000Z" },
+    );
+    snapshot.scopes.project!.workspaces.push({ cacheEntryIds: ["build"] });
+
+    const entries = projectCacheEntries(snapshot);
+    expect(entries.filter((entry) => entry.nodePath === "build").map((entry) => entry.id)).toEqual([
+      "new-build",
+      "build",
+    ]);
+  });
+
   test("invalidates a target and all dependent results", () => {
     const snapshot = cacheSnapshot();
     expect(invalidateCacheSnapshot(snapshot, { scope: "project", entryId: "build" })).toBe(2);

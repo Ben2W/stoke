@@ -122,7 +122,9 @@ function WorkspaceCard({ workspace, onSelect }: { workspace: ManagedWorkspace; o
         <div className="grid size-8 shrink-0 place-items-center rounded-md bg-zinc-100 text-zinc-500"><Box size={15} /></div>
         <div className="min-w-0 flex-1">
           <h3 className="truncate text-sm font-medium text-zinc-900">{workspace.name}</h3>
-          <p className="mt-0.5 truncate text-[11px] text-zinc-400">{workspace.workflow}</p>
+          <p className="mt-0.5 truncate text-[11px] text-zinc-400">
+            {workspace.workflow}{workspace.sourceRevision ? ` · ${workspace.sourceRevision.slice(0, 7)}` : ""}
+          </p>
         </div>
         <time className="shrink-0 text-[10px] text-zinc-400">{relativeTime(workspace.updatedAt)}</time>
         <ChevronRight className="shrink-0 text-zinc-300 transition group-hover:translate-x-0.5 group-hover:text-zinc-500" size={14} />

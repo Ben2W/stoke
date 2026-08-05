@@ -83,7 +83,9 @@ export async function startRemoteProjectExecution(
     throw new Error("Remote execution currently requires a GitHub project source");
   }
 
-  const revision = await dependencies.resolveGitHubRevision(project.source);
+  const headRevision = await dependencies.resolveGitHubRevision(project.source);
+  const projectState = await dependencies.getProjectState(userId, project.id);
+  const revision = executionRevision(request, projectState, headRevision);
   const claimed = await dependencies.claimRemoteRun(userId, {
     projectId: project.id,
     operation: request.operation,
@@ -106,6 +108,7 @@ export async function startRemoteProjectExecution(
       project,
       request,
       revision,
+      projectState,
       claimed.run,
       dependencies,
     ),
@@ -117,11 +120,11 @@ async function completeRemoteProjectExecution(
   project: ManagedProject,
   request: RemoteExecutionRequest,
   revision: string,
+  projectState: Awaited<ReturnType<typeof getProjectState>>,
   run: ManagedRun,
   dependencies: RemoteExecutionDependencies,
 ): Promise<RemoteExecutionResponse> {
   try {
-    const projectState = await dependencies.getProjectState(userId, project.id);
     const heartbeat = setInterval(() => {
       void dependencies.heartbeatRun(userId, run.id).catch(() => undefined);
     }, HEARTBEAT_INTERVAL_MS);
@@ -173,6 +176,27 @@ async function completeRemoteProjectExecution(
   }
 }
 
+function executionRevision(
+  request: RemoteExecutionRequest,
+  state: Awaited<ReturnType<typeof getProjectState>>,
+  headRevision: string,
+): string {
+  if (request.operation !== "run" && request.operation !== "remove") return headRevision;
+  const workspace = Object.values(state.snapshot.scopes)
+    .flatMap((scope) => scope.workspaces)
+    .find((value) => isRecord(value)
+      && value.name === request.workspace
+      && value.workflow === request.workflow);
+  if (!isRecord(workspace)) throw new Error(`Workspace ${request.workspace} was not found`);
+  if (typeof workspace.sourceRevision === "string" && /^[a-f0-9]{40}$/i.test(workspace.sourceRevision)) {
+    return workspace.sourceRevision;
+  }
+  if (request.operation === "remove") return headRevision;
+  throw new WorkspaceRevisionRequiredError(
+    `Workspace ${request.workspace} predates versioned workflow definitions and cannot run remotely. Recreate it to pin its workflow revision.`,
+  );
+}
+
 async function appendPlanNodes(
   userId: string,
   runId: string,
@@ -202,6 +226,10 @@ export class RemoteExecutionError extends Error {
   constructor(message: string, readonly run: ManagedRun) {
     super(message);
   }
+}
+
+export class WorkspaceRevisionRequiredError extends Error {
+  override name = "WorkspaceRevisionRequiredError";
 }
 
 function remoteExecutionFingerprint(

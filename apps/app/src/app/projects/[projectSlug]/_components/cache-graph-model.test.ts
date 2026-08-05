@@ -29,6 +29,22 @@ describe("live cache graph", () => {
     expect(graph.activities.get(graph.entries[0]!.id)?.status).toBe("completed");
     expect(graph.activities.get(graph.entries[1]!.id)?.status).toBe("running");
   });
+
+  test("keeps historical cache nodes that are owned by a workspace", () => {
+    const historical = cacheEntry("old", "resolve");
+    const current = cacheEntry("current", "resolve");
+    const flow = taskFlow([task("resolve", "cached", "current")]);
+
+    const graph = projectCacheGraph(
+      [historical, current],
+      { flow, run: managedRun("plan", "completed") },
+      undefined,
+      new Set(["old"]),
+    );
+
+    expect(graph.entries.map((entry) => entry.id)).toEqual(["current", "old"]);
+    expect(graph.mainEntryIds).toEqual(new Set(["current"]));
+  });
 });
 
 function managedRun(operation: "plan" | "apply", status: "completed" | "running"): ManagedRun {

@@ -43,6 +43,7 @@ export async function loadEngine(input: EngineLoadOptions): Promise<DevMachineEn
     state: state.project,
     stateFactory: state.stateFactory,
     workspaceCreatedFrom: workspaceCreatedFromSource(input.source),
+    workspaceSourceRevision: workspaceSourceRevision(input.source),
   });
   await engine.load();
   return engine;
@@ -60,6 +61,7 @@ async function executeOperation(run: RunRecord, store: RunStore, options: Engine
     state: state.project,
     stateFactory: state.stateFactory,
     workspaceCreatedFrom: workspaceCreatedFromSource(options.source),
+    workspaceSourceRevision: workspaceSourceRevision(options.source),
     interaction: {
       present: async (request) => {
         await requestHost(store, run, "open.external", {
@@ -136,6 +138,13 @@ function workspaceCreatedFromSource(source: JsonValue | undefined): WorkspaceRec
     deviceId,
     ...(typeof checkoutId === "string" && checkoutId ? { checkoutId } : {}),
   };
+}
+
+function workspaceSourceRevision(source: JsonValue | undefined): string | undefined {
+  if (!source || typeof source !== "object" || Array.isArray(source)) return undefined;
+  return typeof source.sourceRevision === "string" && /^[a-f0-9]{40}$/i.test(source.sourceRevision)
+    ? source.sourceRevision
+    : undefined;
 }
 
 export function operationsFor(engine: DevMachineEngine): RuntimeOperation[] {

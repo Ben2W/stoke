@@ -25,6 +25,25 @@ const running: ManagedRun = {
 };
 
 const managedState = { revision: 0, snapshot: { version: 1 as const, scopes: {} } };
+const pinnedRevision = "597e6932ead77fbf8653705e168ea46601b3e285";
+const managedStateWithWorkspace = {
+  revision: 0,
+  snapshot: {
+    version: 1 as const,
+    scopes: {
+      project: {
+        workspaces: [{
+          name: "demo",
+          workflow: "stoke-example",
+          sourceRevision: pinnedRevision,
+        }],
+        workflowApplies: [],
+        nodeRuns: [],
+        providerState: [],
+      },
+    },
+  },
+};
 
 describe("remote managed execution", () => {
   test("does not rewrite unchanged project state for read-only operations", async () => {
@@ -52,16 +71,47 @@ describe("remote managed execution", () => {
         };
       },
       heartbeatRun: async () => undefined,
-      getProjectState: async () => managedState,
+      getProjectState: async () => managedStateWithWorkspace,
       updateProjectState: async (_userId, _projectId, input) => {
         stateWrites += 1;
         return { revision: input.expectedRevision + 1, snapshot: input.snapshot };
       },
       resolveGitHubRevision: async () => "e587a05a934ac7be12bf5233102939d4479f8625",
-      runSandbox: async () => ({ result: { ok: true }, state: structuredClone(managedState) }),
+      runSandbox: async (input) => {
+        expect(input.revision).toBe(pinnedRevision);
+        return { result: { ok: true }, state: structuredClone(managedStateWithWorkspace) };
+      },
     });
 
     expect(stateWrites).toBe(0);
+  });
+
+  test("does not run a pre-versioned workspace against the current workflow", async () => {
+    await expect(executeRemoteProject("user-1", project.id, {
+      operation: "run",
+      workflow: "stoke-example",
+      workspace: "demo",
+      workspaceOperation: "preview",
+      input: {},
+      origin: "dashboard",
+    }, {
+      getProject: async () => project,
+      getProjectState: async () => ({
+        revision: 0,
+        snapshot: {
+          version: 1,
+          scopes: {
+            project: {
+              workspaces: [{ name: "demo", workflow: "stoke-example" }],
+              workflowApplies: [],
+              nodeRuns: [],
+              providerState: [],
+            },
+          },
+        },
+      }),
+      resolveGitHubRevision: async () => "e587a05a934ac7be12bf5233102939d4479f8625",
+    })).rejects.toThrow("predates versioned workflow definitions");
   });
 
   test("returns a claimed run before the sandbox completes", async () => {

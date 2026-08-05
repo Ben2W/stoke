@@ -1,6 +1,6 @@
 {
   "name": "@usestoke/cli",
-  "version": "0.1.11",
+  "version": "0.1.12",
   "license": "MIT",
   "type": "module",
   "repository": {
@@ -26,14 +26,14 @@
     "test": "bun test"
   },
   "dependencies": {
-    "@usestoke/managed": "workspace:*",
-    "@usestoke/provider-browser": "workspace:*",
-    "@usestoke/provider-cmux": "workspace:*",
-    "@usestoke/provider-vercel-sandbox": "workspace:*",
-    "@usestoke/provider-vscode": "workspace:*",
-    "@usestoke/sdk": "workspace:*",
-    "@usestoke/engine": "workspace:*",
-    "@usestoke/runtime-client": "workspace:*",
+    "@usestoke/managed": "workspace:0.1.6",
+    "@usestoke/provider-browser": "0.1.3",
+    "@usestoke/provider-cmux": "0.1.3",
+    "@usestoke/provider-vercel-sandbox": "0.1.10",
+    "@usestoke/provider-vscode": "0.1.2",
+    "@usestoke/sdk": "workspace:0.1.4",
+    "@usestoke/engine": "workspace:0.1.4",
+    "@usestoke/runtime-client": "workspace:0.1.2",
     "chalk": "^5.6.2",
     "commander": "^14.0.3",
     "inquirer": "^13.4.3"

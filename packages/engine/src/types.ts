@@ -877,6 +877,8 @@ export type WorkspaceRecord = {
   id: string;
   name: string;
   workflow: string;
+  sourceRevision?: string;
+  cacheEntryIds?: string[];
   workflowCtx: Record<string, JsonValue>;
   ctx: Record<string, JsonValue>;
   operations: WorkspaceOperationRecord[];

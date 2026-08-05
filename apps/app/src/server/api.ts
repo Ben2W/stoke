@@ -52,6 +52,7 @@ import {
   executeRemoteProject,
   RemoteExecutionError,
   startRemoteProjectExecution,
+  WorkspaceRevisionRequiredError,
 } from "./remote-executions.ts";
 import { createRunSocketUrl } from "./run-tickets.ts";
 import { respondToRunCapability } from "./run-capabilities.ts";
@@ -451,6 +452,9 @@ export function createApi(overrides: Partial<ApiDependencies> = {}) {
     }
     if (error instanceof RemoteExecutionError) {
       return context.json({ error: "remote_execution_failed", message: error.message, run: error.run }, 422);
+    }
+    if (error instanceof WorkspaceRevisionRequiredError) {
+      return context.json({ error: "workspace_revision_required", message: error.message }, 409);
     }
     if (error instanceof PublicGitHubRepositoryRequiredError) {
       return context.json({ error: "public_github_repository_required", message: error.message }, 422);

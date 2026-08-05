@@ -504,6 +504,10 @@ describe("runtime HTTP app", () => {
       handlePath: join(projectDir, "runtime.json"),
       tokenPath: join(projectDir, "runtime.token"),
       token: "test-token",
+      source: {
+        kind: "dashboard",
+        sourceRevision: "597e6932ead77fbf8653705e168ea46601b3e285",
+      },
       idleMs: 60_000,
     });
 
@@ -521,8 +525,12 @@ describe("runtime HTTP app", () => {
 
       const { workspaces } = await fetch(new URL("/workspaces", server.url), {
         headers: { authorization: `Bearer ${server.token}` },
-      }).then((response) => response.json() as Promise<{ workspaces: Array<{ ctx: Record<string, unknown> }> }>);
+      }).then((response) => response.json() as Promise<{
+        workspaces: Array<{ sourceRevision?: string; cacheEntryIds?: string[]; ctx: Record<string, unknown> }>;
+      }>);
 
+      expect(workspaces[0]?.sourceRevision).toBe("597e6932ead77fbf8653705e168ea46601b3e285");
+      expect(workspaces[0]?.cacheEntryIds).toBeArray();
       expect(workspaces[0]?.ctx).toEqual({
         name: "demo",
         vmId: "vm-demo",

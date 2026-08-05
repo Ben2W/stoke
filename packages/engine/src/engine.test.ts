@@ -41,7 +41,7 @@ function createScopedTestState(projectDir: string) {
 }
 
 describe("DevMachineEngine workflow runtime", () => {
-  test("refreshes persisted workspace operations from the current workflow definition", async () => {
+  test("preserves persisted workspace operations when the current workflow definition changes", async () => {
     const projectDir = mkdtempSync(join(tmpdir(), "stoke-workspace-operations-"));
     const state = createStateStore({ projectDir });
     state.saveWorkspace({
@@ -69,10 +69,9 @@ describe("DevMachineEngine workflow runtime", () => {
     const engine = await createDevMachineEngine({ projectDir, state });
     await engine.load();
 
-    expect(engine.listWorkspaces()[0]?.operations).toMatchObject([{
-      id: "preview",
-      title: "Open preview",
-      inputSchema: { properties: { path: { type: "string", default: "/" } } },
+    expect(engine.listWorkspaces()[0]?.operations).toEqual([{
+      id: "old",
+      requiredCapabilities: [],
     }]);
   });
 
@@ -330,6 +329,7 @@ describe("DevMachineEngine workflow runtime", () => {
       projectDir,
       providerFactory: () => provider,
       workspaceCreatedFrom: { kind: "checkout", deviceId: "device-1", checkoutId: "checkout-1" },
+      workspaceSourceRevision: "597e6932ead77fbf8653705e168ea46601b3e285",
       local: {
         open: async (target) => {
           opened.push(target);
@@ -345,6 +345,8 @@ describe("DevMachineEngine workflow runtime", () => {
 
     const workspace = await engine.fork({ workflow: "create-test", name: "created" });
     expect(workspace.name).toBe("created");
+    expect(workspace.sourceRevision).toBe("597e6932ead77fbf8653705e168ea46601b3e285");
+    expect(workspace.cacheEntryIds).toEqual([]);
     expect(workspace.createdFrom).toEqual({ kind: "checkout", deviceId: "device-1", checkoutId: "checkout-1" });
     expect(workspace.ctx).toMatchObject({
       name: "created",

@@ -1,6 +1,6 @@
 "use client";
 
-import type { ManagedCacheEntry, ManagedRun } from "@usestoke/managed";
+import type { ManagedCacheEntry, ManagedRun, ManagedWorkspace } from "@usestoke/managed";
 import { Check, CircleDashed, Database, RotateCcw, Waypoints } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { shortFingerprint } from "../../../../lib/fingerprint.ts";
@@ -21,6 +21,7 @@ export function CacheGraph({
   onInvalidate,
   plannedFlow,
   plannedRun,
+  workspaces,
 }: {
   activeFlow?: RunTaskFlow;
   activeRun?: ManagedRun;
@@ -29,13 +30,20 @@ export function CacheGraph({
   onInvalidate(entry: ManagedCacheEntry): void;
   plannedFlow?: RunTaskFlow;
   plannedRun?: ManagedRun;
+  workspaces: ManagedWorkspace[];
 }) {
+  const workspaceEntryIds = useMemo(
+    () => new Set(workspaces.flatMap((workspace) => workspace.cacheEntryIds ?? [])),
+    [workspaces],
+  );
   const model = useMemo(() => projectCacheGraph(
     entries,
     plannedFlow && plannedRun ? { flow: plannedFlow, run: plannedRun } : undefined,
     activeFlow && activeRun ? { flow: activeFlow, run: activeRun } : undefined,
-  ), [activeFlow, activeRun, entries, plannedFlow, plannedRun]);
+    workspaceEntryIds,
+  ), [activeFlow, activeRun, entries, plannedFlow, plannedRun, workspaceEntryIds]);
   const graph = useMemo(() => layoutCacheGraph(model.entries), [model.entries]);
+  const workspaceGroups = useMemo(() => groupWorkspacesByCache(workspaces), [workspaces]);
   const [selectedId, setSelectedId] = useState<string>();
   const [hoveredId, setHoveredId] = useState<string>();
   const previewId = hoveredId ?? selectedId;
@@ -75,6 +83,8 @@ export function CacheGraph({
           </div>
         </div>
         <div className="flex items-center gap-3 text-[10px] text-zinc-400">
+          <span className="inline-flex items-center gap-1.5"><span className="size-2 rounded-sm border border-blue-300 bg-blue-50" /> Main</span>
+          <span className="inline-flex items-center gap-1.5"><span className="size-2 rounded-sm border border-violet-300 bg-violet-50" /> Workspace version</span>
           <span className="inline-flex items-center gap-1 text-emerald-700"><Check size={11} /> Cached</span>
           <span className="inline-flex items-center gap-1.5"><span className="size-2 rounded-full border border-amber-300 bg-amber-50" /> Invalidated next</span>
         </div>
@@ -82,6 +92,22 @@ export function CacheGraph({
 
       <div className="overflow-x-auto bg-zinc-50/50">
         <div className="relative" style={{ height: graph.height, width: graph.width }}>
+          <GraphBoundary
+            graph={graph}
+            ids={model.mainEntryIds}
+            label="main workflow"
+            tone="main"
+          />
+          {workspaceGroups.map((group, index) => (
+            <GraphBoundary
+              graph={graph}
+              ids={group.entryIds}
+              key={group.key}
+              label={`${group.names.join(", ")}${group.revision ? ` · ${group.revision.slice(0, 7)}` : ""}`}
+              offset={index * 4}
+              tone="workspace"
+            />
+          ))}
           <svg aria-hidden="true" className="pointer-events-none absolute inset-0" height={graph.height} width={graph.width}>
             <defs>
               <marker id="cache-arrow" markerHeight="6" markerWidth="6" orient="auto" refX="5" refY="3">
@@ -116,12 +142,12 @@ export function CacheGraph({
             const live = activity?.status === "running";
             const planned = activity?.status === "pending";
             const completed = activity?.status === "completed";
-            const cached = activity?.status === "cached" || !activity;
+            const cached = !entry.invalidated && (activity?.status === "cached" || !activity);
             return (
               <article
                 aria-label={`${entry.nodePath} cache entry`}
-                className={`absolute flex flex-col rounded-lg border p-3 shadow-sm transition-all ${live ? "border-blue-400 bg-blue-50/60 ring-2 ring-blue-100" : completed ? "border-emerald-300 bg-emerald-50/40" : planned ? "border-dashed border-amber-300 bg-amber-50/50" : target ? "border-amber-400 bg-amber-50 ring-2 ring-amber-100" : affected ? "border-amber-200 bg-amber-50/70" : cached ? "border-emerald-300 bg-emerald-50/40" : "border-zinc-200 bg-white"} ${dimmed ? "opacity-40" : "opacity-100"}`}
-                key={`${entry.workflow}:${entry.nodePath}`}
+                className={`absolute flex flex-col rounded-lg border p-3 shadow-sm transition-all ${live ? "border-blue-400 bg-blue-50/60 ring-2 ring-blue-100" : completed ? "border-emerald-300 bg-emerald-50/40" : planned ? "border-dashed border-amber-300 bg-amber-50/50" : target ? "border-amber-400 bg-amber-50 ring-2 ring-amber-100" : affected ? "border-amber-200 bg-amber-50/70" : cached ? "border-emerald-300 bg-emerald-50/40" : entry.invalidated ? "border-dashed border-zinc-300 bg-zinc-50" : "border-zinc-200 bg-white"} ${dimmed ? "opacity-40" : "opacity-100"}`}
+                key={entry.id}
                 style={{ height: CACHE_NODE_HEIGHT, left: x, top: y, width: CACHE_NODE_WIDTH }}
               >
                 <div className="flex items-start gap-2.5">
@@ -136,6 +162,8 @@ export function CacheGraph({
                 <div className="mt-auto flex items-center justify-between gap-2">
                   {activity ? (
                     <NodeActivity status={activity.status} />
+                  ) : entry.invalidated ? (
+                    <span className="text-[10px] font-medium text-zinc-400">Invalidated</span>
                   ) : (
                     <button
                       aria-pressed={selectedId === entry.id}
@@ -168,6 +196,61 @@ export function CacheGraph({
       </div>
     </div>
   );
+}
+
+function GraphBoundary({
+  graph,
+  ids,
+  label,
+  offset = 0,
+  tone,
+}: {
+  graph: ReturnType<typeof layoutCacheGraph>;
+  ids: Set<string>;
+  label: string;
+  offset?: number;
+  tone: "main" | "workspace";
+}) {
+  const nodes = graph.nodes.filter((node) => ids.has(node.entry.id));
+  if (!nodes.length) return null;
+  const padding = tone === "main" ? 18 : 10 + offset;
+  const left = Math.min(...nodes.map((node) => node.x)) - padding;
+  const top = Math.min(...nodes.map((node) => node.y)) - padding;
+  const right = Math.max(...nodes.map((node) => node.x + CACHE_NODE_WIDTH)) + padding;
+  const bottom = Math.max(...nodes.map((node) => node.y + CACHE_NODE_HEIGHT)) + padding;
+  return (
+    <div
+      aria-label={label}
+      className={`pointer-events-none absolute rounded-xl border ${tone === "main" ? "border-blue-300 bg-blue-50/20" : "border-violet-300 bg-violet-50/15"}`}
+      style={{ height: bottom - top, left, top, width: right - left }}
+    >
+      <span className={`absolute -top-2.5 left-3 rounded border bg-white px-1.5 py-0.5 text-[9px] font-medium shadow-xs ${tone === "main" ? "border-blue-200 text-blue-700" : "border-violet-200 text-violet-700"}`}>
+        {label}
+      </span>
+    </div>
+  );
+}
+
+function groupWorkspacesByCache(workspaces: ManagedWorkspace[]): Array<{
+  key: string;
+  entryIds: Set<string>;
+  names: string[];
+  revision?: string;
+}> {
+  const groups = new Map<string, { entryIds: Set<string>; names: string[]; revision?: string }>();
+  for (const workspace of workspaces) {
+    if (!workspace.cacheEntryIds?.length) continue;
+    const ids = [...workspace.cacheEntryIds].sort();
+    const key = `${workspace.sourceRevision ?? "unknown"}:${ids.join(",")}`;
+    const group = groups.get(key) ?? {
+      entryIds: new Set(ids),
+      names: [],
+      ...(workspace.sourceRevision ? { revision: workspace.sourceRevision } : {}),
+    };
+    group.names.push(workspace.name);
+    groups.set(key, group);
+  }
+  return [...groups.entries()].map(([key, value]) => ({ key, ...value }));
 }
 
 export function CacheGraphSkeleton() {
