@@ -1,6 +1,6 @@
 import { readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { getOrStartRuntime } from "@stoke/runtime-client";
+import { getOrStartRuntime } from "@usestoke/runtime-client";
 import { managedClientFromEnvironment } from "./managed.ts";
 import { DEFAULT_CONFIG_PATH } from "./project.ts";
 

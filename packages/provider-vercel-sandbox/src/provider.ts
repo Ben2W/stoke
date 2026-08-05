@@ -3,8 +3,8 @@ import {
   defineProvider,
   type LocalWorkspaceRuntime,
   type WorkflowProviderDefinition,
-} from "@stoke/sdk";
-import type { BaseProviderPlugin, WorkflowProviderController } from "@stoke/engine";
+} from "@usestoke/sdk";
+import type { BaseProviderPlugin, WorkflowProviderController } from "@usestoke/engine";
 import {
   SSH_CAPABILITY,
   SSH_CAPABILITY_ID,

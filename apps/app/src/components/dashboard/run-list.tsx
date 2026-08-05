@@ -1,4 +1,4 @@
-import type { ManagedProject, ManagedRun } from "@stoke/managed";
+import type { ManagedProject, ManagedRun } from "@usestoke/managed";
 import { CheckCircle2, CircleDashed, XCircle } from "lucide-react";
 import { shortFingerprint } from "../../lib/fingerprint.ts";
 import { runOriginLabel } from "./run-origin.ts";

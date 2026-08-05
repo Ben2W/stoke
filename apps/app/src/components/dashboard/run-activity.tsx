@@ -1,6 +1,6 @@
 "use client";
 
-import type { ManagedProject } from "@stoke/managed";
+import type { ManagedProject } from "@usestoke/managed";
 import { Activity } from "lucide-react";
 import { useEffect, useState } from "react";
 import { RunEventListSkeleton } from "./run-event-list-skeleton.tsx";

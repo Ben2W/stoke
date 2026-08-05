@@ -5,7 +5,7 @@ import type {
   ManagedRunEvent,
   ManagedRunOperation,
   ManagedRunOrigin,
-} from "@stoke/managed";
+} from "@usestoke/managed";
 import { runs } from "./db/schema.ts";
 import {
   runRepository,

@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  transpilePackages: ["@stoke/managed"],
+  transpilePackages: ["@usestoke/managed"],
 };
 
 export default nextConfig;

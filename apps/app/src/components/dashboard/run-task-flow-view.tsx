@@ -1,4 +1,4 @@
-import type { ManagedRun } from "@stoke/managed";
+import type { ManagedRun } from "@usestoke/managed";
 import { Check, CircleDashed, Cloud, RotateCcw, X } from "lucide-react";
 import type { RunTask, RunTaskFlow, RunTaskStatus } from "./run-task-flow.ts";
 import { TaskConsoleOutput } from "./task-console-output.tsx";

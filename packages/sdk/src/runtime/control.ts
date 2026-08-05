@@ -1,4 +1,4 @@
-import { RIGKIT_ENGINE_VERSION, type WorkspaceRecord } from "@stoke/engine";
+import { RIGKIT_ENGINE_VERSION, type WorkspaceRecord } from "@usestoke/engine";
 import { RIGKIT_RUNTIME_VERSION } from "./version.ts";
 import { RuntimeHostRequestError } from "./errors.ts";
 import { loadEngine, operationManifestFor, runOperation } from "./operations.ts";

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { ManagedCacheEntry, ManagedRun } from "@stoke/managed";
+import type { ManagedCacheEntry, ManagedRun } from "@usestoke/managed";
 import { projectCacheGraph } from "./cache-graph-model.ts";
 import type { RunTaskFlow } from "./run-task-flow.ts";
 

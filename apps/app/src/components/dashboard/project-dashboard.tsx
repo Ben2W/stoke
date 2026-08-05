@@ -1,6 +1,6 @@
 "use client";
 
-import type { ManagedCheckout, ManagedProject, ManagedRun } from "@stoke/managed";
+import type { ManagedCheckout, ManagedProject, ManagedRun } from "@usestoke/managed";
 import { Activity, Box, FolderKanban, Laptop } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { DashboardHeader } from "./dashboard-header.tsx";

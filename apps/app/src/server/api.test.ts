@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { ManagedCheckout, ManagedProject, ManagedRun, ManagedRunEvent } from "@stoke/managed";
+import type { ManagedCheckout, ManagedProject, ManagedRun, ManagedRunEvent } from "@usestoke/managed";
 import { AuthenticationError } from "./auth.ts";
 import { createApi } from "./api.ts";
 import { ManagedResourceConflictError } from "./devices.ts";

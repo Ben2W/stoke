@@ -1,5 +1,5 @@
 {
-  "name": "@stoke/control-plane",
+  "name": "@usestoke/control-plane",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -14,7 +14,7 @@
   },
   "dependencies": {
     "@better-auth/drizzle-adapter": "1.6.25",
-    "@stoke/managed": "workspace:*",
+    "@usestoke/managed": "workspace:*",
     "@tanstack/react-query": "^5.101.4",
     "@vercel/functions": "^3.7.7",
     "@vercel/sandbox": "2.9.2",
@@ -29,8 +29,8 @@
     "ws": "8.20.0"
   },
   "devDependencies": {
-    "@stoke/cli": "workspace:*",
-    "@stoke/sdk": "workspace:*",
+    "@usestoke/cli": "workspace:*",
+    "@usestoke/sdk": "workspace:*",
     "@tailwindcss/postcss": "4.3.0",
     "@types/bun": "latest",
     "@types/node": "latest",

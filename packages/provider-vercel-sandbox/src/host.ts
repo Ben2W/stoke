@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { defineHostCapability, type HostCapabilityHandler } from "@stoke/sdk/host";
+import { defineHostCapability, type HostCapabilityHandler } from "@usestoke/sdk/host";
 import {
   SSH_CAPABILITY,
   parseVercelSandboxSshInput,

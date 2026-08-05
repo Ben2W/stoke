@@ -6,7 +6,7 @@ import {
   type HttpServerRequest,
 } from "@effect/platform";
 import { Cause, Context, Effect, Layer } from "effect";
-import { RIGKIT_ENGINE_VERSION } from "@stoke/engine";
+import { RIGKIT_ENGINE_VERSION } from "@usestoke/engine";
 import { RIGKIT_RUNTIME_VERSION } from "./version.ts";
 import { runtimeControlApi } from "./api.ts";
 import {

@@ -1,4 +1,4 @@
-import type { ProjectSource } from "@stoke/managed";
+import type { ProjectSource } from "@usestoke/managed";
 import { and, desc, eq } from "drizzle-orm";
 import { getDatabase } from "../db/client.ts";
 import { projects } from "../db/schema.ts";

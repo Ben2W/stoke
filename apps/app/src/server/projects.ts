@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { CreateProjectRequest, ManagedProject, ProjectSource } from "@stoke/managed";
+import type { CreateProjectRequest, ManagedProject, ProjectSource } from "@usestoke/managed";
 import { requirePublicGitHubRepository } from "./github-repository.ts";
 import { projectRepository, type ProjectRow } from "./repositories/project-repository.ts";
 

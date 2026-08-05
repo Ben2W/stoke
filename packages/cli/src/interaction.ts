@@ -1,4 +1,4 @@
-import type { InteractionPresenter } from "@stoke/engine";
+import type { InteractionPresenter } from "@usestoke/engine";
 
 export function createLocalInteractionPresenter(): InteractionPresenter {
   return async (request) => {

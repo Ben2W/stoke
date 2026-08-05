@@ -9,8 +9,8 @@ export {
   sequence,
   workflow,
   z,
-} from "@stoke/engine";
-export type * from "@stoke/engine";
+} from "@usestoke/engine";
+export type * from "@usestoke/engine";
 
 export {
   createRuntimeControlApiHandler,

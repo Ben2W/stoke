@@ -1,7 +1,7 @@
 import {
   EngineOperationNotFoundError,
   EngineOperationValidationError,
-} from "@stoke/engine";
+} from "@usestoke/engine";
 
 export type RuntimeFailureCode =
   | "ENGINE_FAILED"

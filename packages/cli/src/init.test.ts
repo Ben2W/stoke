@@ -41,8 +41,8 @@ describe("initProject", () => {
         plan: "stoke plan",
       },
       devDependencies: {
-        "@stoke/provider-vercel-sandbox": STOKE_CLI_VERSION,
-        "@stoke/sdk": STOKE_CLI_VERSION,
+        "@usestoke/provider-vercel-sandbox": STOKE_CLI_VERSION,
+        "@usestoke/sdk": STOKE_CLI_VERSION,
       },
     });
 
@@ -63,7 +63,7 @@ describe("initProject", () => {
         test: "echo ok",
       },
       dependencies: {
-        "@stoke/sdk": "0.0.1",
+        "@usestoke/sdk": "0.0.1",
       },
     }, null, 2)}\n`);
 
@@ -79,8 +79,8 @@ describe("initProject", () => {
       plan: "stoke plan",
       test: "echo ok",
     });
-    expect(pkg.dependencies["@stoke/sdk"]).toBe(STOKE_CLI_VERSION);
-    expect(pkg.devDependencies["@stoke/provider-vercel-sandbox"]).toBe(STOKE_CLI_VERSION);
+    expect(pkg.dependencies["@usestoke/sdk"]).toBe(STOKE_CLI_VERSION);
+    expect(pkg.devDependencies["@usestoke/provider-vercel-sandbox"]).toBe(STOKE_CLI_VERSION);
   });
 
   test("rejects an existing canonical config", () => {

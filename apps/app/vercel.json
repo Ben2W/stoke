@@ -1,5 +1,5 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "nextjs",
-  "installCommand": "pnpm install --filter @stoke/control-plane... --frozen-lockfile"
+  "installCommand": "pnpm install --filter @usestoke/control-plane... --frozen-lockfile"
 }

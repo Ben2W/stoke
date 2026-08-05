@@ -98,8 +98,8 @@ function upsertProjectDependency(
 
 function stokeDevDependencies(): Record<string, string> {
   return {
-    "@stoke/provider-vercel-sandbox": STOKE_CLI_VERSION,
-    "@stoke/sdk": STOKE_CLI_VERSION,
+    "@usestoke/provider-vercel-sandbox": STOKE_CLI_VERSION,
+    "@usestoke/sdk": STOKE_CLI_VERSION,
   };
 }
 
@@ -126,8 +126,8 @@ function sortObject<T>(value: Record<string, T>): Record<string, T> {
 }
 
 export function starterConfig(): string {
-  return `import { workflow } from "@stoke/sdk";
-import { vercelSandbox } from "@stoke/provider-vercel-sandbox";
+  return `import { workflow } from "@usestoke/sdk";
+import { vercelSandbox } from "@usestoke/provider-vercel-sandbox";
 
 const sandbox = vercelSandbox.provider();
 const terminal = vercelSandbox.terminal();

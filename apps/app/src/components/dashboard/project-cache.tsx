@@ -1,6 +1,6 @@
 "use client";
 
-import type { ManagedCacheEntry, ManagedProject } from "@stoke/managed";
+import type { ManagedCacheEntry, ManagedProject } from "@usestoke/managed";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Database, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";

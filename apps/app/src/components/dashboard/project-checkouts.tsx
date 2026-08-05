@@ -1,4 +1,4 @@
-import type { ManagedCheckout } from "@stoke/managed";
+import type { ManagedCheckout } from "@usestoke/managed";
 import { GitBranch, Laptop, MapPin } from "lucide-react";
 
 export function ProjectCheckouts({ checkouts }: { checkouts: ManagedCheckout[] }) {

@@ -1,7 +1,6 @@
 {
-  "name": "@stoke/provider-vercel-sandbox",
-  "version": "0.0.0",
-  "private": true,
+  "name": "@usestoke/provider-vercel-sandbox",
+  "version": "0.1.0",
   "license": "MIT",
   "type": "module",
   "repository": {
@@ -24,12 +23,15 @@
     "test": "bun test"
   },
   "dependencies": {
-    "@stoke/engine": "workspace:*",
-    "@stoke/sdk": "workspace:*",
+    "@usestoke/engine": "workspace:*",
+    "@usestoke/sdk": "workspace:*",
     "@vercel/sandbox": "2.9.2"
   },
   "devDependencies": {
     "@types/bun": "latest",
     "typescript": "latest"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

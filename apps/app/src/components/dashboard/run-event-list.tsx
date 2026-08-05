@@ -1,4 +1,4 @@
-import type { ManagedRun, ManagedRunEvent } from "@stoke/managed";
+import type { ManagedRun, ManagedRunEvent } from "@usestoke/managed";
 import { CircleDashed } from "lucide-react";
 import { useEffect, useRef } from "react";
 import { shortFingerprint } from "../../lib/fingerprint.ts";

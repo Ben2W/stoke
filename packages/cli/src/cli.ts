@@ -9,12 +9,12 @@ import {
   getOrStartRuntime,
   type RuntimeClient,
   type RuntimeControlCacheExplanation,
-} from "@stoke/runtime-client";
+} from "@usestoke/runtime-client";
 import {
   type DevMachineEvent,
   type WorkflowPlan,
   type WorkspaceRecord,
-} from "@stoke/engine";
+} from "@usestoke/engine";
 import type {
   ManagedCheckout,
   ManagedClient,
@@ -22,7 +22,7 @@ import type {
   ManagedRun,
   ProjectSource,
   RemoteExecutionRequest,
-} from "@stoke/managed";
+} from "@usestoke/managed";
 import {
   assertHostCapabilities,
   CLI_HOST_CAPABILITY_HANDLERS,
@@ -218,7 +218,7 @@ if (process.argv[2] === "__complete") {
 
 function bundledRuntimeBin(): string | undefined {
   try {
-    return fileURLToPath(new URL("./src/cli.ts", import.meta.resolve("@stoke/sdk/package.json")));
+    return fileURLToPath(new URL("./src/cli.ts", import.meta.resolve("@usestoke/sdk/package.json")));
   } catch {
     return undefined;
   }

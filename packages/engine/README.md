@@ -1,4 +1,4 @@
-# @stoke/engine
+# @usestoke/engine
 
 Runtime engine for Stoke workflows.
 

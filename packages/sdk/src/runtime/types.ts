@@ -1,4 +1,4 @@
-import type { JsonValue } from "@stoke/engine";
+import type { JsonValue } from "@usestoke/engine";
 
 export type ServeRuntimeOptions = {
   projectId: string;

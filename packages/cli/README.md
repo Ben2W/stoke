@@ -1,4 +1,4 @@
-# @stoke/cli
+# @usestoke/cli
 
 The private Stoke command-line application.
 
@@ -12,7 +12,7 @@ stoke ls
 ```
 
 `stoke init` writes the project workflow entrypoint and installs the matching
-`@stoke/sdk` and `@stoke/provider-vercel-sandbox` versions. The starter creates
+`@usestoke/sdk` and `@usestoke/provider-vercel-sandbox` versions. The starter creates
 Vercel Sandbox workspaces and exposes a typed `ssh` operation.
 
 The CLI evaluates TypeScript project workflows, synchronizes state with the

@@ -1,4 +1,4 @@
-import type { ManagedRun, ManagedRunEvent } from "@stoke/managed";
+import type { ManagedRun, ManagedRunEvent } from "@usestoke/managed";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { createRunTicket } from "../../lib/api-client.ts";

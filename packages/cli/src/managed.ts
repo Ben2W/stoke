@@ -18,7 +18,7 @@ import {
   type ManagedClient,
   type ManagedProject,
   type ProjectSource,
-} from "@stoke/managed";
+} from "@usestoke/managed";
 
 export const DEFAULT_STOKE_API_URL = "https://usestoke.dev";
 

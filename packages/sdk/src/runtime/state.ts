@@ -4,7 +4,7 @@ import {
   type StateService,
   type StateServiceFactory,
   type StateSnapshot,
-} from "@stoke/engine";
+} from "@usestoke/engine";
 
 export type RuntimeStateSnapshot = {
   version: 1;

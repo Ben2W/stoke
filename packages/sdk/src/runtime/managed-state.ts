@@ -3,7 +3,7 @@ import {
   createManagedClient,
   ManagedProjectStateSnapshotSchema,
   type ManagedProjectStateSnapshot,
-} from "@stoke/managed";
+} from "@usestoke/managed";
 import {
   createRuntimeStateCoordinator,
   emptyRuntimeStateSnapshot,

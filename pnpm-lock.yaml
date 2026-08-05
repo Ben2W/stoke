@@ -26,7 +26,7 @@ importers:
       '@better-auth/drizzle-adapter':
         specifier: 1.6.25
         version: 1.6.25(@better-auth/core@1.6.25(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)(@cloudflare/workers-types@5.20260804.1)(better-call@1.3.7(zod@4.4.3))(jose@6.2.8)(kysely@0.29.4)(nanostores@1.4.2))(@better-auth/utils@0.4.2)(drizzle-orm@0.45.2(@cloudflare/workers-types@5.20260804.1)(bun-types@1.3.14)(kysely@0.29.4)(postgres@3.4.9)(sql.js@1.14.1))
-      '@stoke/managed':
+      '@usestoke/managed':
         specifier: workspace:*
         version: link:../../packages/managed
       '@tanstack/react-query':
@@ -66,10 +66,10 @@ importers:
         specifier: 8.20.0
         version: 8.20.0
     devDependencies:
-      '@stoke/cli':
+      '@usestoke/cli':
         specifier: workspace:*
         version: link:../../packages/cli
-      '@stoke/sdk':
+      '@usestoke/sdk':
         specifier: workspace:*
         version: link:../../packages/sdk
       '@tailwindcss/postcss':
@@ -108,22 +108,22 @@ importers:
 
   packages/cli:
     dependencies:
-      '@stoke/engine':
+      '@usestoke/engine':
         specifier: workspace:*
         version: link:../engine
-      '@stoke/managed':
+      '@usestoke/managed':
         specifier: workspace:*
         version: link:../managed
-      '@stoke/provider-cmux':
+      '@usestoke/provider-cmux':
         specifier: workspace:*
         version: link:../provider-cmux
-      '@stoke/provider-vercel-sandbox':
+      '@usestoke/provider-vercel-sandbox':
         specifier: workspace:*
         version: link:../provider-vercel-sandbox
-      '@stoke/runtime-client':
+      '@usestoke/runtime-client':
         specifier: workspace:*
         version: link:../runtime-client
-      '@stoke/sdk':
+      '@usestoke/sdk':
         specifier: workspace:*
         version: link:../sdk
       chalk:
@@ -171,10 +171,10 @@ importers:
 
   packages/provider-cmux:
     dependencies:
-      '@stoke/engine':
+      '@usestoke/engine':
         specifier: workspace:*
         version: link:../engine
-      '@stoke/sdk':
+      '@usestoke/sdk':
         specifier: workspace:*
         version: link:../sdk
     devDependencies:
@@ -187,10 +187,10 @@ importers:
 
   packages/provider-vercel-sandbox:
     dependencies:
-      '@stoke/engine':
+      '@usestoke/engine':
         specifier: workspace:*
         version: link:../engine
-      '@stoke/sdk':
+      '@usestoke/sdk':
         specifier: workspace:*
         version: link:../sdk
       '@vercel/sandbox':
@@ -249,13 +249,13 @@ importers:
       '@effect/workflow':
         specifier: 0.18.1
         version: 0.18.1(@effect/experimental@0.60.0(@effect/platform@0.96.1(effect@3.21.2))(effect@3.21.2))(@effect/platform@0.96.1(effect@3.21.2))(@effect/rpc@0.75.1(@effect/platform@0.96.1(effect@3.21.2))(effect@3.21.2))(effect@3.21.2)
-      '@stoke/engine':
+      '@usestoke/engine':
         specifier: workspace:*
         version: link:../engine
-      '@stoke/managed':
+      '@usestoke/managed':
         specifier: workspace:*
         version: link:../managed
-      '@stoke/runtime-client':
+      '@usestoke/runtime-client':
         specifier: workspace:*
         version: link:../runtime-client
       effect:

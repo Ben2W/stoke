@@ -21,7 +21,7 @@ import {
   RunListResponseSchema,
   RunResponseSchema,
   RunSocketTicketResponseSchema,
-} from "@stoke/managed";
+} from "@usestoke/managed";
 import { waitUntil } from "@vercel/functions";
 import { Hono } from "hono";
 import { authenticateRequest } from "./auth.ts";

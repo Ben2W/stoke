@@ -1,4 +1,4 @@
-import type { ManagedCheckout, ManagedProject, ManagedRun } from "@stoke/managed";
+import type { ManagedCheckout, ManagedProject, ManagedRun } from "@usestoke/managed";
 import { ArrowUpRight, Check, GitBranch, Laptop, MapPin } from "lucide-react";
 import { shortFingerprint } from "../../lib/fingerprint.ts";
 

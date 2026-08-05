@@ -5,7 +5,7 @@ import type {
   ManagedProjectStateSnapshot,
   ProjectCacheMutationResponse,
   ProjectCacheResponse,
-} from "@stoke/managed";
+} from "@usestoke/managed";
 import {
   getProjectState,
   ProjectStateConflictError,

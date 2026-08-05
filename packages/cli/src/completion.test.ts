@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { projectIdFor, runtimeFingerprintFor, runtimePaths, SUPPORTED_RUNTIME_API_VERSION } from "@stoke/runtime-client";
+import { projectIdFor, runtimeFingerprintFor, runtimePaths, SUPPORTED_RUNTIME_API_VERSION } from "@usestoke/runtime-client";
 import { completeRig, formatCompletionItems, formatWorkspaceAge, renderCompletionScript } from "./completion.ts";
 
 function rigkitIndexPath(projectDir: string): string {

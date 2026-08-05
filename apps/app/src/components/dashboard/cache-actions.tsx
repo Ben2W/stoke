@@ -1,6 +1,6 @@
 "use client";
 
-import type { ManagedProject, ManagedRun, ManagedRunOperation } from "@stoke/managed";
+import type { ManagedProject, ManagedRun, ManagedRunOperation } from "@usestoke/managed";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { CircleDashed, ListChecks, Play } from "lucide-react";
 import { executeProject } from "../../lib/api-client.ts";

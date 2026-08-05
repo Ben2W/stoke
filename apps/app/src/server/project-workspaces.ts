@@ -1,4 +1,4 @@
-import type { ManagedWorkspace } from "@stoke/managed";
+import type { ManagedWorkspace } from "@usestoke/managed";
 import { listCheckouts } from "./devices.ts";
 import { getProjectState } from "./project-state.ts";
 

@@ -4,7 +4,7 @@ import {
   type ProjectStateResponse,
   type ManagedProject,
   type RemoteExecutionRequest,
-} from "@stoke/managed";
+} from "@usestoke/managed";
 
 const SANDBOX_TIMEOUT_MS = 5 * 60_000;
 const COMMAND_TIMEOUT_MS = 4 * 60_000;

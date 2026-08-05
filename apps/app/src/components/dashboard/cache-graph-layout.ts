@@ -1,4 +1,4 @@
-import type { ManagedCacheEntry } from "@stoke/managed";
+import type { ManagedCacheEntry } from "@usestoke/managed";
 
 export const CACHE_NODE_WIDTH = 224;
 export const CACHE_NODE_HEIGHT = 92;

@@ -1,6 +1,6 @@
 "use client";
 
-import type { ManagedProject, ManagedWorkspace } from "@stoke/managed";
+import type { ManagedProject, ManagedWorkspace } from "@usestoke/managed";
 import { useQuery } from "@tanstack/react-query";
 import { Box, LayoutDashboard, Laptop, MapPin } from "lucide-react";
 import { projectWorkspacesQuery } from "../../lib/queries.ts";

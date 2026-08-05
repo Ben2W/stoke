@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { ManagedProject, ManagedRun } from "@stoke/managed";
+import type { ManagedProject, ManagedRun } from "@usestoke/managed";
 import { executeRemoteProject, startRemoteProjectExecution } from "./remote-executions.ts";
 
 const project: ManagedProject = {

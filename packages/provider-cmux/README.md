@@ -1,9 +1,9 @@
-# @stoke/provider-cmux
+# @usestoke/provider-cmux
 
 Small SDK and Stoke provider facade for driving local `cmux`.
 
 ```ts
-import { createCmuxClient } from "@stoke/provider-cmux";
+import { createCmuxClient } from "@usestoke/provider-cmux";
 
 const cmux = createCmuxClient();
 
@@ -48,5 +48,5 @@ await providers.cmux.send({
 await providers.cmux.selectWorkspace(workspace.workspaceId);
 ```
 
-Local hosts can import `@stoke/provider-cmux/host` to register the trusted
+Local hosts can import `@usestoke/provider-cmux/host` to register the trusted
 `cmux.call` handler. The Stoke CLI registers this handler automatically.

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { ManagedCacheEntry } from "@stoke/managed";
+import type { ManagedCacheEntry } from "@usestoke/managed";
 import { cacheInvalidationIds, layoutCacheGraph } from "./cache-graph-layout.ts";
 
 const entries: ManagedCacheEntry[] = [

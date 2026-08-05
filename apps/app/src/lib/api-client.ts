@@ -20,7 +20,7 @@ import {
   type ProjectCacheMutationResponse,
   type ProjectCacheResponse,
   type RemoteExecutionResponse,
-} from "@stoke/managed";
+} from "@usestoke/managed";
 
 export class StokeApiError extends Error {
   override name = "StokeApiError";

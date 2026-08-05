@@ -1,4 +1,4 @@
-import type { ManagedCacheEntry, ManagedRun } from "@stoke/managed";
+import type { ManagedCacheEntry, ManagedRun } from "@usestoke/managed";
 import type { RunTask, RunTaskFlow, RunTaskStatus } from "./run-task-flow.ts";
 
 export type CacheGraphNodeActivity = {

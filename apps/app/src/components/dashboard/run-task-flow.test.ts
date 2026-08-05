@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { ManagedRun, ManagedRunEvent } from "@stoke/managed";
+import type { ManagedRun, ManagedRunEvent } from "@usestoke/managed";
 import { projectRunTaskFlow } from "./run-task-flow.ts";
 
 describe("managed run task flow", () => {

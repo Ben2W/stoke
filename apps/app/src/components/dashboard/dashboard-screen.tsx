@@ -1,6 +1,6 @@
 "use client";
 
-import type { ManagedUser } from "@stoke/managed";
+import type { ManagedUser } from "@usestoke/managed";
 import { useQueries } from "@tanstack/react-query";
 import { checkoutsQuery, projectsQuery, runsQuery } from "../../lib/queries.ts";
 import { ProjectDashboard } from "./project-dashboard.tsx";

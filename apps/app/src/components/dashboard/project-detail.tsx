@@ -1,6 +1,6 @@
 "use client";
 
-import type { ManagedCheckout, ManagedProject } from "@stoke/managed";
+import type { ManagedCheckout, ManagedProject } from "@usestoke/managed";
 import { ArrowLeft, ExternalLink, GitBranch } from "lucide-react";
 import { ProjectCache } from "./project-cache.tsx";
 import { ProjectCheckouts } from "./project-checkouts.tsx";

@@ -1,4 +1,4 @@
-import type { ManagedProjectStateSnapshot, ProjectSource } from "@stoke/managed";
+import type { ManagedProjectStateSnapshot, ProjectSource } from "@usestoke/managed";
 import { relations, sql } from "drizzle-orm";
 import {
   boolean,

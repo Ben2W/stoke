@@ -7,7 +7,7 @@ import {
   HttpServerResponse,
 } from "@effect/platform";
 import * as BunHttpServer from "@effect/platform-bun/BunHttpServer";
-import { RIGKIT_ENGINE_VERSION } from "@stoke/engine";
+import { RIGKIT_ENGINE_VERSION } from "@usestoke/engine";
 import { Effect, Exit, Scope } from "effect";
 import { RIGKIT_RUNTIME_VERSION } from "./version.ts";
 import { runtimeJsonError, sessionRunIdFor } from "./app.ts";

@@ -2,7 +2,7 @@ import type {
   ManagedProjectStateSnapshot,
   ProjectStateResponse,
   UpdateProjectStateRequest,
-} from "@stoke/managed";
+} from "@usestoke/managed";
 import { getProject } from "./projects.ts";
 import { projectStateRepository } from "./repositories/project-state-repository.ts";
 

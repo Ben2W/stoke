@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { ManagedProjectStateSnapshot } from "@stoke/managed";
+import type { ManagedProjectStateSnapshot } from "@usestoke/managed";
 import {
   clearCacheSnapshot,
   invalidateCacheSnapshot,

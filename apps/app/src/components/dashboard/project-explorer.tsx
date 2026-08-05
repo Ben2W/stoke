@@ -1,6 +1,6 @@
 "use client";
 
-import type { ManagedCheckout, ManagedProject, ManagedRun } from "@stoke/managed";
+import type { ManagedCheckout, ManagedProject, ManagedRun } from "@usestoke/managed";
 import { Grid2X2, List, Plus, Search } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ProjectCard } from "./project-card.tsx";

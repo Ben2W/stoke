@@ -1,10 +1,10 @@
-# @stoke/provider-vercel-sandbox
+# @usestoke/provider-vercel-sandbox
 
 Stoke provider for the official `@vercel/sandbox` SDK.
 
 ```ts
-import { vercelSandbox } from "@stoke/provider-vercel-sandbox";
-import { workflow } from "@stoke/sdk";
+import { vercelSandbox } from "@usestoke/provider-vercel-sandbox";
+import { workflow } from "@usestoke/sdk";
 
 const app = workflow("website");
 const sandbox = vercelSandbox.provider();

@@ -76,8 +76,8 @@ function compareCliRuntime(cliVersion: string, runtimeVersion: string): VersionC
       subject: "cli-runtime",
       message: `Global CLI ${cliVersion} and project runtime ${runtimeVersion} use different major versions.`,
       recommendation: cli.major < runtime.major
-        ? `Update the global CLI with: pnpm add -g @stoke/cli@${runtimeVersion}`
-        : `Update project @stoke/* packages to match CLI ${cliVersion}.`,
+        ? `Update the global CLI with: pnpm add -g @usestoke/cli@${runtimeVersion}`
+        : `Update project @usestoke/* packages to match CLI ${cliVersion}.`,
     };
   }
   if (cli.minor !== runtime.minor) {
@@ -86,8 +86,8 @@ function compareCliRuntime(cliVersion: string, runtimeVersion: string): VersionC
       subject: "cli-runtime",
       message: `Global CLI ${cliVersion} and project runtime ${runtimeVersion} use different minor versions.`,
       recommendation: cli.minor < runtime.minor
-        ? `Update the global CLI with: pnpm add -g @stoke/cli@${runtimeVersion}`
-        : `Update project @stoke/* packages to match CLI ${cliVersion}.`,
+        ? `Update the global CLI with: pnpm add -g @usestoke/cli@${runtimeVersion}`
+        : `Update project @usestoke/* packages to match CLI ${cliVersion}.`,
     };
   }
   return undefined;
@@ -102,7 +102,7 @@ function compareRuntimeEngine(runtimeVersion: string, engineVersion: string): Ve
       severity: "error",
       subject: "runtime-engine",
       message: `Project runtime ${runtimeVersion} and engine ${engineVersion} use different major versions.`,
-      recommendation: "Install matching @stoke/sdk and @stoke/engine versions in the project.",
+      recommendation: "Install matching @usestoke/sdk and @usestoke/engine versions in the project.",
     };
   }
   if (runtime.minor !== engine.minor) {
@@ -110,7 +110,7 @@ function compareRuntimeEngine(runtimeVersion: string, engineVersion: string): Ve
       severity: "warning",
       subject: "runtime-engine",
       message: `Project runtime ${runtimeVersion} and engine ${engineVersion} use different minor versions.`,
-      recommendation: "Install matching @stoke/sdk and @stoke/engine versions in the project.",
+      recommendation: "Install matching @usestoke/sdk and @usestoke/engine versions in the project.",
     };
   }
   return undefined;

@@ -1,6 +1,6 @@
-import { cmuxHostCapabilities } from "@stoke/provider-cmux/host";
-import { vercelSandboxHostCapabilities } from "@stoke/provider-vercel-sandbox/host";
-import type { HostCapabilityHandler } from "@stoke/sdk/host";
+import { cmuxHostCapabilities } from "@usestoke/provider-cmux/host";
+import { vercelSandboxHostCapabilities } from "@usestoke/provider-vercel-sandbox/host";
+import type { HostCapabilityHandler } from "@usestoke/sdk/host";
 
 export type HostCapabilityDescriptor = { id: string; schemaHash?: string };
 

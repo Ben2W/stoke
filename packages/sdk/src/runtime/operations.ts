@@ -5,7 +5,7 @@ import {
   type JsonValue,
   type LocalHostCapabilityRequestOptions,
   type WorkspaceRecord,
-} from "@stoke/engine";
+} from "@usestoke/engine";
 import { normalizeRuntimeRunError } from "./errors.ts";
 import {
   HostCommandResultSchema,

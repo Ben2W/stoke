@@ -1,10 +1,10 @@
 import { createHash, randomUUID } from "node:crypto";
-import type { RuntimeClient } from "@stoke/runtime-client";
+import type { RuntimeClient } from "@usestoke/runtime-client";
 import type {
   ManagedClient,
   ManagedRun,
   ManagedRunEvent,
-} from "@stoke/managed";
+} from "@usestoke/managed";
 import { managedClientFromEnvironment } from "./managed.ts";
 
 const CLAIM_TIMEOUT_MS = 2_500;

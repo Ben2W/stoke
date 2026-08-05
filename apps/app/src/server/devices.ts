@@ -5,7 +5,7 @@ import type {
   ManagedDevice,
   RegisterCheckoutRequest,
   RegisterDeviceRequest,
-} from "@stoke/managed";
+} from "@usestoke/managed";
 import { checkoutRepository, type CheckoutRow } from "./repositories/checkout-repository.ts";
 import { deviceRepository, type DeviceRow } from "./repositories/device-repository.ts";
 import { githubSourceFromRemote, requirePublicGitHubRepository } from "./github-repository.ts";

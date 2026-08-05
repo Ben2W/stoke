@@ -404,7 +404,7 @@ function resolveRuntimeBin(projectDir: string): string {
     path: local,
     message: [
       `No project-local Stoke runtime found at ${local}.`,
-      `Install project dependencies so @stoke/sdk provides the stoke-project-runtime binary.`,
+      `Install project dependencies so @usestoke/sdk provides the stoke-project-runtime binary.`,
     ].join("\n"),
   });
 }
@@ -592,7 +592,7 @@ function updateProjectSurfaceFingerprint(hash: ReturnType<typeof createHash>, pr
 function updateStokePackageFingerprint(hash: ReturnType<typeof createHash>, scopeDir: string): void {
   // Walk every @rigkit scope reachable from the project's node_modules. We
   // recurse into each package's own `node_modules/@rigkit` so that nested
-  // installs (e.g. @stoke/engine living under @stoke/sdk/node_modules) are
+  // installs (e.g. @usestoke/engine living under @usestoke/sdk/node_modules) are
   // hashed too. Without this, edits to a transitive @rigkit package wouldn't
   // shift the runtime fingerprint and the daemon wouldn't auto-restart.
   const visited = new Set<string>();

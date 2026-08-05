@@ -1,4 +1,4 @@
-import type { ManagedRun } from "@stoke/managed";
+import type { ManagedRun } from "@usestoke/managed";
 
 export function runOriginLabel(run: ManagedRun): string {
   if (run.origin === "dashboard") return "Stoke dashboard · Vercel Sandbox";

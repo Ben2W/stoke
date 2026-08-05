@@ -16,7 +16,7 @@ plane stores projects, runs, events, workspaces, and cache state in Postgres.
 - `packages/provider-cmux` — trusted local cmux capability
 - `packages/provider-vercel-sandbox` — Vercel Sandbox SDK and SSH capability
 
-Every internal package is under the `@stoke/*` scope. The removed Rigkit
+Every internal package is under the `@usestoke/*` scope. The removed Rigkit
 website, Cloudflare deployment, public-package release automation, Freestyle,
 Google Cloud, VS Code, fragments, and legacy examples are intentionally not
 part of this interview project.
@@ -30,8 +30,8 @@ pnpm typecheck
 pnpm build
 ```
 
-Run the dashboard with `pnpm --filter @stoke/control-plane dev` and the CLI
-from source with `pnpm --filter @stoke/cli stoke -- --help`.
+Run the dashboard with `pnpm --filter @usestoke/control-plane dev` and the CLI
+from source with `pnpm --filter @usestoke/cli stoke -- --help`.
 
 The control plane expects `DATABASE_URL` and the Better Auth environment
 variables documented in `apps/app/.env.example`. Vercel Sandbox uses Vercel

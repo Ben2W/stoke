@@ -4,7 +4,7 @@ import type {
   ManagedRun,
   RemoteExecutionRequest,
   RemoteExecutionResponse,
-} from "@stoke/managed";
+} from "@usestoke/managed";
 import { getProject } from "./projects.ts";
 import { resolvePublicGitHubRevision } from "./github-repository.ts";
 import { getProjectState, updateProjectState } from "./project-state.ts";

@@ -3,8 +3,8 @@ import { createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
-import type { ProviderStorage, ProviderStorageRecord } from "@stoke/engine";
-import type { JsonValue } from "@stoke/sdk";
+import type { ProviderStorage, ProviderStorageRecord } from "@usestoke/engine";
+import type { JsonValue } from "@usestoke/sdk";
 import {
   CmuxCommandError,
   cmux,

@@ -1,7 +1,6 @@
 {
-  "name": "@stoke/sdk",
-  "version": "0.2.17",
-  "private": true,
+  "name": "@usestoke/sdk",
+  "version": "0.1.0",
   "license": "MIT",
   "type": "module",
   "repository": {
@@ -27,7 +26,7 @@
     "test": "bun test"
   },
   "dependencies": {
-    "@stoke/managed": "workspace:*",
+    "@usestoke/managed": "workspace:*",
     "@effect/cluster": "0.58.2",
     "@effect/experimental": "0.60.0",
     "@effect/platform": "0.96.1",
@@ -35,12 +34,15 @@
     "@effect/rpc": "0.75.1",
     "@effect/sql": "0.51.1",
     "@effect/workflow": "0.18.1",
-    "@stoke/engine": "workspace:*",
-    "@stoke/runtime-client": "workspace:*",
+    "@usestoke/engine": "workspace:*",
+    "@usestoke/runtime-client": "workspace:*",
     "effect": "^3.21.2"
   },
   "devDependencies": {
     "@types/bun": "latest",
     "typescript": "latest"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

@@ -15,7 +15,7 @@ import {
   defineHostCapability,
   type HostCapabilityContext,
   type HostCapabilityHandler,
-} from "@stoke/sdk/host";
+} from "@usestoke/sdk/host";
 import {
   CMUX_CALL_CAPABILITY,
   type CmuxCallInput,

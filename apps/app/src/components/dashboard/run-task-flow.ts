@@ -1,4 +1,4 @@
-import type { ManagedRun, ManagedRunEvent } from "@stoke/managed";
+import type { ManagedRun, ManagedRunEvent } from "@usestoke/managed";
 
 export type RunTaskStatus = "cached" | "completed" | "failed" | "pending" | "running";
 

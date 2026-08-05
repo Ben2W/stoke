@@ -1,5 +1,5 @@
 import { and, eq } from "drizzle-orm";
-import type { ManagedProjectStateSnapshot } from "@stoke/managed";
+import type { ManagedProjectStateSnapshot } from "@usestoke/managed";
 import { getDatabase } from "../db/client.ts";
 import { projectStates } from "../db/schema.ts";
 

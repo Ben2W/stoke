@@ -1,4 +1,4 @@
-import type { ManagedCacheEntry, ManagedRun } from "@stoke/managed";
+import type { ManagedCacheEntry, ManagedRun } from "@usestoke/managed";
 import { Check, CircleDashed, Database, RotateCcw, Waypoints } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { shortFingerprint } from "../../lib/fingerprint.ts";

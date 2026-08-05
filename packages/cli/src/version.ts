@@ -1,1 +1,1 @@
-export const STOKE_CLI_VERSION = "0.2.17";
+export const STOKE_CLI_VERSION = "0.1.0";

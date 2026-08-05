@@ -13,9 +13,9 @@ import {
 } from "./index.ts";
 import { defineHostCapabilities, defineHostCapability } from "./host.ts";
 
-describe("@stoke/sdk package boundary", () => {
+describe("@usestoke/sdk package boundary", () => {
   test("exports authoring API and project runtime entrypoints", () => {
-    expect(RIGKIT_SDK_VERSION).toBe("0.2.17");
+    expect(RIGKIT_SDK_VERSION).toBe("0.1.0");
     expect(env).toBeTypeOf("function");
     expect(env.secret).toBeTypeOf("function");
     expect(sequence).toBeTypeOf("function");

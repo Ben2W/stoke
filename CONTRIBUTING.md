@@ -15,8 +15,8 @@ pnpm typecheck
 pnpm build
 ```
 
-Run the CLI from source with `pnpm --filter @stoke/cli stoke -- --help` and the
-dashboard with `pnpm --filter @stoke/control-plane dev`.
+Run the CLI from source with `pnpm --filter @usestoke/cli stoke -- --help` and the
+dashboard with `pnpm --filter @usestoke/control-plane dev`.
 
 ## Boundaries
 

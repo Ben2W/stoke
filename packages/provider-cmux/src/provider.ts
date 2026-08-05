@@ -2,8 +2,8 @@ import {
   defineProvider,
   type LocalWorkspaceRuntime,
   type WorkflowProviderDefinition,
-} from "@stoke/sdk";
-import type { BaseProviderPlugin, WorkflowProviderController } from "@stoke/engine";
+} from "@usestoke/sdk";
+import type { BaseProviderPlugin, WorkflowProviderController } from "@usestoke/engine";
 import {
   CMUX_CALL_CAPABILITY,
   CMUX_CALL_CAPABILITY_ID,
