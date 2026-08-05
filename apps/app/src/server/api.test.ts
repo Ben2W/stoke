@@ -272,6 +272,7 @@ describe("Hono control-plane API", () => {
         nodePath: "build",
         nodeName: "Build",
         nodeKind: "task",
+        upstreamRunIds: [],
         invalidated: false,
         createdAt: "2026-08-04T00:00:00.000Z",
       }],

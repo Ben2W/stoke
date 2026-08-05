@@ -13,7 +13,7 @@ export function RunEventList({ events, run }: { events: ManagedRunEvent[]; run: 
   const nodeCount = run.nodeCount ?? Math.max(completeNodes, 1);
   const progress = run.status === "completed" ? 100 : Math.min(100, Math.round((completeNodes / nodeCount) * 100));
   return (
-    <div className="flex min-h-72 flex-col">
+    <div className="flex h-[32rem] flex-col">
       <div className="border-b border-zinc-100 px-5 py-3">
         <div className="flex items-center justify-between">
           <div className="min-w-0">

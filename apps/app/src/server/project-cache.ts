@@ -122,6 +122,7 @@ function parseCacheEntry(value: unknown): {
   nodePath: string;
   nodeName: string;
   nodeKind: string;
+  upstreamRunIds: string[];
   invalidated: boolean;
   createdAt: string;
 } | undefined {
@@ -135,6 +136,7 @@ function parseCacheEntry(value: unknown): {
     nodePath: run.nodePath,
     nodeName: run.nodeName,
     nodeKind: run.nodeKind,
+    upstreamRunIds: run.upstreamRunIds,
     invalidated: run.invalidated,
     createdAt: run.createdAt,
   };

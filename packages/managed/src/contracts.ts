@@ -187,6 +187,7 @@ export const ManagedCacheEntrySchema = z.object({
   nodePath: z.string().min(1),
   nodeName: z.string().min(1),
   nodeKind: z.string().min(1),
+  upstreamRunIds: z.array(z.string().min(1)),
   invalidated: z.boolean(),
   createdAt: z.iso.datetime(),
 });

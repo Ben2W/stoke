@@ -6,6 +6,7 @@ import { Activity } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { createRunTicket } from "../../lib/api-client.ts";
 import { queryKeys, runEventsQuery, runsQuery } from "../../lib/queries.ts";
+import { RunEventListSkeleton } from "./run-event-list-skeleton.tsx";
 import { RunEventList } from "./run-event-list.tsx";
 import { RunList } from "./run-list.tsx";
 
@@ -102,9 +103,9 @@ export function RunActivity({ project }: { project: ManagedProject }) {
             <RunList onSelect={setSelectedRunId} projects={[project]} runs={runs} selectedRunId={selectedRunId} />
           </div>
           {eventsResult.isPending ? (
-            <div className="grid min-h-72 place-items-center text-xs text-zinc-400">Loading run events…</div>
+            <RunEventListSkeleton />
           ) : eventsResult.isError ? (
-            <button className="min-h-72 text-sm text-zinc-500" onClick={() => void eventsResult.refetch()} type="button">Could not load events. Try again.</button>
+            <button className="h-[32rem] text-sm text-zinc-500" onClick={() => void eventsResult.refetch()} type="button">Could not load events. Try again.</button>
           ) : (
             <RunEventList events={eventsResult.data} run={selectedRun} />
           )}
