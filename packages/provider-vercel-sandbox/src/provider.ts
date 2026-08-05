@@ -205,6 +205,15 @@ function createVercelSandboxTerminalRuntime(
 }
 
 export function readStokeAccessToken(): string | undefined {
+  const tokenFile = process.env.STOKE_TOKEN_FILE?.trim();
+  if (tokenFile) {
+    try {
+      const token = readFileSync(tokenFile, "utf8").trim();
+      if (token) return token;
+    } catch {
+      // Fall through to the environment and the local Stoke credential.
+    }
+  }
   const environmentToken = process.env.STOKE_TOKEN?.trim();
   if (environmentToken) return environmentToken;
   try {

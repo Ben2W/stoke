@@ -20,7 +20,7 @@ export function RunLogsDialog({ events, loading = false, onClose, run }: {
   };
 
   return (
-    <div className="fixed inset-0 z-[60] grid place-items-center bg-zinc-950/50 px-4 backdrop-blur-[2px]" role="presentation">
+    <div className="fixed inset-0 z-[60] grid place-items-center bg-zinc-950/50 px-4 backdrop-blur-[2px]" onMouseDown={(event) => event.currentTarget === event.target && onClose()} role="presentation">
       <section aria-labelledby="run-logs-title" aria-modal="true" className="flex h-[min(44rem,calc(100vh-2rem))] w-full max-w-4xl flex-col overflow-hidden rounded-xl border border-zinc-700 bg-zinc-950 shadow-2xl" role="dialog">
         <header className="flex items-start justify-between gap-4 border-b border-zinc-800 px-5 py-4">
           <div className="min-w-0">

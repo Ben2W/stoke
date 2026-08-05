@@ -16,7 +16,7 @@ export function WorkspaceOperationRunDialog({ error, events, onClose, operation,
   run?: ManagedRun;
 }) {
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-zinc-950/40 px-4 backdrop-blur-[2px]" role="presentation">
+    <div className="fixed inset-0 z-50 grid place-items-center bg-zinc-950/40 px-4 backdrop-blur-[2px]" onMouseDown={(event) => event.currentTarget === event.target && onClose()} role="presentation">
       <section aria-labelledby="workspace-operation-run-title" aria-modal="true" className="w-full max-w-3xl overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-2xl" role="dialog">
         <header className="flex items-start justify-between border-b border-zinc-100 px-5 py-4">
           <div className="min-w-0">

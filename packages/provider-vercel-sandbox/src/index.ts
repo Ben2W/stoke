@@ -9,6 +9,7 @@ export {
   VERCEL_SANDBOX_PROVIDER_ID,
   VERCEL_SANDBOX_TERMINAL_PROVIDER_ID,
   createVercelSandboxRuntime,
+  readStokeAccessToken,
   provider as defineVercelSandboxProvider,
   terminal as defineVercelSandboxTerminalProvider,
   vercelSandbox,

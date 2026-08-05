@@ -62,16 +62,18 @@ describe("persistent remote evaluator", () => {
       }
       return sandbox as any;
     };
+    let sandboxToken = "sandbox-token-one";
     const run = () => runRemoteSandbox({
       project,
       request: { operation: "plan", origin: "dashboard" },
       state,
       producerSocketUrl: "wss://usestoke.dev/runs/test",
       revision: "e587a05a934ac7be12bf5233102939d4479f8625",
-      sandboxToken: "sandbox-token",
+      sandboxToken,
     }, { getOrCreate });
 
     const first = await run();
+    sandboxToken = "sandbox-token-two";
     const second = await run();
 
     expect(first.result).toMatchObject({ workflow: "stoke-example" });
@@ -83,8 +85,10 @@ describe("persistent remote evaluator", () => {
     expect(commands.filter((command) => command.cmd === "bun" && command.args?.includes("plan"))).toHaveLength(2);
     expect(commands.at(-1)?.env).toMatchObject({
       STOKE_RUNTIME_STATE_REVISION: "3",
+      STOKE_TOKEN_FILE: "/tmp/stoke-sandbox-token",
       STOKE_WORKSPACE_ORIGIN: "dashboard",
     });
+    expect(files.get("/tmp/stoke-sandbox-token")?.toString()).toBe("sandbox-token-two\n");
   });
 
   test("refreshes source and dependencies when the repository revision changes", async () => {

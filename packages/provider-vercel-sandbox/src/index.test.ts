@@ -1,12 +1,24 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   SSH_CAPABILITY,
   parseVercelSandboxSshInput,
   vercelSandbox,
   vercelSandboxTerminalProviderPlugin,
+  readStokeAccessToken,
   type VercelSandboxTerminalRuntime,
 } from "./index.ts";
 import { createVercelSandboxSshHostCapability } from "./host.ts";
+
+const originalToken = process.env.STOKE_TOKEN;
+const originalTokenFile = process.env.STOKE_TOKEN_FILE;
+
+afterEach(() => {
+  restoreEnvironment("STOKE_TOKEN", originalToken);
+  restoreEnvironment("STOKE_TOKEN_FILE", originalTokenFile);
+});
 
 describe("Vercel Sandbox provider", () => {
   test("keeps SDK and terminal providers separate", () => {
@@ -17,6 +29,21 @@ describe("Vercel Sandbox provider", () => {
 
   test("does not expose a direct Vercel credential mode", () => {
     expect(vercelSandbox.provider().config).toEqual({});
+  });
+
+  test("reads a refreshed sandbox token file before the inherited environment", () => {
+    const directory = mkdtempSync(join(tmpdir(), "stoke-token-"));
+    const tokenFile = join(directory, "token");
+    try {
+      process.env.STOKE_TOKEN = "expired-token";
+      process.env.STOKE_TOKEN_FILE = tokenFile;
+      writeFileSync(tokenFile, "fresh-token\n");
+      expect(readStokeAccessToken()).toBe("fresh-token");
+      writeFileSync(tokenFile, "newer-token\n");
+      expect(readStokeAccessToken()).toBe("newer-token");
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
   });
 
   test("parses only Vercel Sandbox ssh requests", () => {
@@ -103,3 +130,8 @@ describe("Vercel Sandbox provider", () => {
     await expect(opening).resolves.toEqual({ finished: true });
   });
 });
+
+function restoreEnvironment(name: string, value: string | undefined): void {
+  if (value === undefined) delete process.env[name];
+  else process.env[name] = value;
+}

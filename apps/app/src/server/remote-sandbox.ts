@@ -13,6 +13,7 @@ const MAX_ERROR_OUTPUT_LENGTH = 4_000;
 const MAX_FAILURE_LOG_LENGTH = 256_000;
 const FAILURE_LOG_CHUNK_LENGTH = 6_000;
 const STATE_FILE = "/tmp/stoke-managed-state.json";
+const SANDBOX_TOKEN_FILE = "/tmp/stoke-sandbox-token";
 const STOKE_CLI_PATH = "/tmp/stoke-cli.js";
 const STOKE_RUNTIME_PATH = "/tmp/stoke-runtime.js";
 const EVALUATOR_MARKER_PATH = "/tmp/stoke-evaluator.json";
@@ -113,7 +114,10 @@ export async function runRemoteSandbox(
   });
   await input.onStage?.({ type: "remote.sandbox.created", sandboxName: sandbox.name });
   let marker = await prepareEvaluator(sandbox, input, runtimeRevision);
-  await sandbox.writeFiles([{ path: STATE_FILE, content: JSON.stringify(input.state) }]);
+  await sandbox.writeFiles([
+    { path: STATE_FILE, content: JSON.stringify(input.state) },
+    { path: SANDBOX_TOKEN_FILE, content: `${input.sandboxToken}\n` },
+  ]);
 
   const baseCommandEnvironment = {
     NO_COLOR: "1",
@@ -121,6 +125,7 @@ export async function runRemoteSandbox(
     STOKE_STATE_FILE: STATE_FILE,
     STOKE_RUNTIME_BIN: STOKE_RUNTIME_PATH,
     STOKE_TOKEN: input.sandboxToken,
+    STOKE_TOKEN_FILE: SANDBOX_TOKEN_FILE,
     STOKE_PROJECT_ID: input.project.id,
     STOKE_API_URL: controlPlaneUrl(),
     STOKE_RUNTIME_STATE_REVISION: String(input.state.revision),
