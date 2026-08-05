@@ -48,7 +48,7 @@ export function AddProjectDialog({
         <div className="flex items-start justify-between border-b border-zinc-100 px-6 py-5">
           <div>
             <h2 className="text-base font-semibold tracking-tight" id="add-project-title">Add a project</h2>
-            <p className="mt-1 text-sm text-zinc-500">Connect a GitHub repository to Stoke.</p>
+            <p className="mt-1 text-sm text-zinc-500">Connect a public GitHub repository to Stoke.</p>
           </div>
           <button aria-label="Close dialog" className="grid size-8 place-items-center rounded-md text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-700" disabled={addProject.isPending} onClick={onClose} type="button"><X size={17} /></button>
         </div>
@@ -57,7 +57,7 @@ export function AddProjectDialog({
           event.preventDefault();
           addProject.mutate({ url });
         }}>
-          <label className="text-xs font-medium text-zinc-700" htmlFor="github-repository-url">GitHub repository URL</label>
+          <label className="text-xs font-medium text-zinc-700" htmlFor="github-repository-url">Public GitHub repository URL</label>
           <div className="mt-2 flex h-11 items-center gap-2.5 rounded-md border border-zinc-300 px-3 focus-within:border-zinc-500 focus-within:ring-2 focus-within:ring-zinc-100">
             <GitBranch className="shrink-0 text-zinc-400" size={16} />
             <input autoFocus className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-zinc-400" id="github-repository-url" onChange={(event) => setUrl(event.target.value)} placeholder="https://github.com/owner/repository" spellCheck={false} type="url" value={url} />

@@ -22,7 +22,7 @@ remain in the fork only while the product surface is extracted.
 
 ## Project identity
 
-A managed project is the durable identity for a codebase. A GitHub repository is
+A managed project is the durable identity for a codebase. A public GitHub repository is
 the canonical source when one is available; it is not tied to any particular
 filesystem path.
 
@@ -36,6 +36,9 @@ A Vercel Sandbox is an ephemeral executor, not a device or checkout. Remote runs
 record whether they were initiated by the CLI or dashboard, but never create a
 durable machine record. Git remains the source of truth for cloud execution;
 the control plane clones the project's GitHub repository for each remote run.
+Private repository access is deliberately out of interview scope: URL-based
+registration verifies public visibility, and each remote run pins the public
+repository's current default-branch commit.
 
 Managed projects, devices, and checkouts belong to a Better Auth user. Project
 slugs and source identities are unique within that user, while checkout paths

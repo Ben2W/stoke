@@ -25,6 +25,7 @@ import {
 import { Hono } from "hono";
 import { authenticateRequest } from "./auth.ts";
 import { listCheckouts, registerCheckout, registerDevice } from "./devices.ts";
+import { PublicGitHubRepositoryRequiredError } from "./github-repository.ts";
 import { createProject, deleteProject, listProjects } from "./projects.ts";
 import { clearProjectCache, invalidateProjectCache, listProjectCache } from "./project-cache.ts";
 import { getProjectState, ProjectStateConflictError, updateProjectState } from "./project-state.ts";
@@ -298,6 +299,9 @@ export function createApi(overrides: Partial<ApiDependencies> = {}) {
     }
     if (error instanceof RemoteExecutionError) {
       return context.json({ error: "remote_execution_failed", message: error.message, run: error.run }, 422);
+    }
+    if (error instanceof PublicGitHubRepositoryRequiredError) {
+      return context.json({ error: "public_github_repository_required", message: error.message }, 422);
     }
     if (error instanceof ProjectStateConflictError) {
       return context.json({

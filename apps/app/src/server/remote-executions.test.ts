@@ -71,9 +71,9 @@ describe("remote managed execution", () => {
         revision: input.expectedRevision + 1,
         snapshot: input.snapshot,
       }),
-      findGitHubAccessToken: async () => "github-token",
+      resolveGitHubRevision: async () => "e587a05a934ac7be12bf5233102939d4479f8625",
       runSandbox: async (input) => {
-        expect(input.githubToken).toBe("github-token");
+        expect(input.revision).toBe("e587a05a934ac7be12bf5233102939d4479f8625");
         await input.onStage?.({ type: "remote.sandbox.created", sandboxName: "test-sandbox" });
         return { result: plan, state: managedState };
       },
@@ -115,7 +115,7 @@ describe("remote managed execution", () => {
         revision: input.expectedRevision + 1,
         snapshot: input.snapshot,
       }),
-      findGitHubAccessToken: async () => undefined,
+      resolveGitHubRevision: async () => "e587a05a934ac7be12bf5233102939d4479f8625",
       runSandbox: async () => ({
         result: {
           context: {},

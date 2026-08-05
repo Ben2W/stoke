@@ -26,7 +26,7 @@ export type RunRemoteSandboxInput = {
   request: RemoteExecutionRequest;
   state: ProjectStateResponse;
   producerSocketUrl: string;
-  githubToken?: string;
+  revision: string;
   onStage?: (stage: RemoteSandboxStage) => Promise<void> | void;
 };
 
@@ -44,9 +44,7 @@ export async function runRemoteSandbox(input: RunRemoteSandboxInput): Promise<Re
     type: "git" as const,
     url: `https://github.com/${input.project.source.owner}/${input.project.source.repository}.git`,
     depth: 1,
-    ...(input.githubToken
-      ? { username: "x-access-token", password: input.githubToken }
-      : {}),
+    revision: input.revision,
   };
   await using sandbox = await Sandbox.create({
     source,

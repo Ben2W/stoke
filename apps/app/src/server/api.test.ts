@@ -3,6 +3,7 @@ import type { ManagedCheckout, ManagedProject, ManagedRun, ManagedRunEvent } fro
 import { AuthenticationError } from "./auth.ts";
 import { createApi } from "./api.ts";
 import { ManagedResourceConflictError } from "./devices.ts";
+import { PublicGitHubRepositoryRequiredError } from "./github-repository.ts";
 
 const user = {
   id: "user-1",
@@ -169,6 +170,28 @@ describe("Hono control-plane API", () => {
     expect(response.status).toBe(201);
     expect(await response.json()).toMatchObject({
       project: { name: "stoke-preview", slug: "ben2w-stoke-2" },
+    });
+  });
+
+  test("returns a clear error for private GitHub project registration", async () => {
+    const api = createApi({
+      authenticate: async () => user,
+      createProject: async () => {
+        throw new PublicGitHubRepositoryRequiredError(
+          "Only public GitHub repositories can be added to Stoke. Ben2W/stoke is private or unavailable.",
+        );
+      },
+    });
+    const response = await api.request("http://localhost/api/v1/projects", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "stoke", source: project.source }),
+    });
+
+    expect(response.status).toBe(422);
+    expect(await response.json()).toEqual({
+      error: "public_github_repository_required",
+      message: "Only public GitHub repositories can be added to Stoke. Ben2W/stoke is private or unavailable.",
     });
   });
 

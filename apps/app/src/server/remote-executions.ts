@@ -6,7 +6,7 @@ import type {
   RemoteExecutionResponse,
 } from "@stoke/managed";
 import { getProject } from "./projects.ts";
-import { accountRepository } from "./repositories/account-repository.ts";
+import { resolvePublicGitHubRevision } from "./github-repository.ts";
 import { getProjectState, updateProjectState } from "./project-state.ts";
 import { createRunSocketUrl } from "./run-tickets.ts";
 import {
@@ -28,7 +28,7 @@ export type RemoteExecutionDependencies = {
   heartbeatRun: typeof heartbeatRun;
   getProjectState: typeof getProjectState;
   updateProjectState: typeof updateProjectState;
-  findGitHubAccessToken: typeof accountRepository.findGitHubAccessToken;
+  resolveGitHubRevision: typeof resolvePublicGitHubRevision;
   runSandbox: (input: RunRemoteSandboxInput) => Promise<RemoteSandboxResult>;
 };
 
@@ -40,7 +40,7 @@ const defaultDependencies: RemoteExecutionDependencies = {
   heartbeatRun,
   getProjectState,
   updateProjectState,
-  findGitHubAccessToken: accountRepository.findGitHubAccessToken,
+  resolveGitHubRevision: resolvePublicGitHubRevision,
   runSandbox: runRemoteSandbox,
 };
 
@@ -57,11 +57,12 @@ export async function executeRemoteProject(
     throw new Error("Remote execution currently requires a GitHub project source");
   }
 
+  const revision = await dependencies.resolveGitHubRevision(project.source);
   const claimed = await dependencies.claimRemoteRun(userId, {
     projectId: project.id,
     operation: request.operation,
     workflow: request.workflow ?? "default",
-    fingerprint: remoteExecutionFingerprint(project, request),
+    fingerprint: remoteExecutionFingerprint(project, request, revision),
     origin: request.origin,
   });
 
@@ -73,7 +74,6 @@ export async function executeRemoteProject(
   }
 
   try {
-    const githubToken = await dependencies.findGitHubAccessToken(userId);
     const projectState = await dependencies.getProjectState(userId, project.id);
     const heartbeat = setInterval(() => {
       void dependencies.heartbeatRun(userId, claimed.run.id).catch(() => undefined);
@@ -89,7 +89,7 @@ export async function executeRemoteProject(
           userId,
           role: "producer",
         }),
-        githubToken,
+        revision,
         onStage: async (stage) => {
           await dependencies.appendRunEvent(userId, claimed.run.id, stage);
         },
@@ -138,11 +138,15 @@ export class RemoteExecutionError extends Error {
   }
 }
 
-function remoteExecutionFingerprint(project: ManagedProject, request: RemoteExecutionRequest): string {
+function remoteExecutionFingerprint(
+  project: ManagedProject,
+  request: RemoteExecutionRequest,
+  revision: string,
+): string {
   return `remote:${createHash("sha256")
     .update(JSON.stringify({
       projectId: project.id,
-      updatedAt: project.updatedAt,
+      revision,
       operation: request.operation,
       workflow: request.workflow,
       ...(request.operation === "apply" ? { dryRun: request.dryRun } : {}),

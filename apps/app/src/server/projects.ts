@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { CreateProjectRequest, ManagedProject, ProjectSource } from "@stoke/managed";
+import { requirePublicGitHubRepository } from "./github-repository.ts";
 import { projectRepository, type ProjectRow } from "./repositories/project-repository.ts";
 
 export async function listProjects(userId: string): Promise<ManagedProject[]> {
@@ -9,6 +10,7 @@ export async function listProjects(userId: string): Promise<ManagedProject[]> {
 
 export async function createProject(userId: string, input: CreateProjectRequest): Promise<ManagedProject> {
   const source = normalizeProjectSource(input.source);
+  if (source.kind === "github") await requirePublicGitHubRepository(source);
   const sourceKey = keyForProjectSource(source);
   if (!input.forceNew) {
     const existing = await findProjectBySource(userId, source);

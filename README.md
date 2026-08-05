@@ -99,7 +99,7 @@ selected project and its last managed workflow activity; richer local workflow,
 cache, and workspace details appear when a checkout is available.
 
 `stoke plan` and `stoke apply` also work without a local checkout for a
-GitHub-backed project. Stoke checks the repository out in an ephemeral Vercel
+public GitHub-backed project. Stoke checks the repository out in an ephemeral Vercel
 Sandbox, evaluates its typed workflow there, and records the run in the managed
 control plane. Pass `--workflow <name>` for a repository with multiple
 workflows; a single workflow is selected automatically.
