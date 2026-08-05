@@ -66,6 +66,10 @@ export function ProjectWorkspaces({ project, onSelect }: { project: ManagedProje
         </div>
       )}
       <CreateWorkspaceDialog
+        existingNames={[
+          ...(workspaces.data ?? []).map((workspace) => workspace.name),
+          ...visiblePending.map((workspace) => workspace.name),
+        ]}
         onClose={() => setCreating(false)}
         onStarted={(item) => setPending((current) => [item, ...current.filter((candidate) => candidate.runId !== item.runId)])}
         open={creating}

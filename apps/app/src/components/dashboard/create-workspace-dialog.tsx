@@ -6,15 +6,35 @@ import { Box, Check, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { executeProjectRequest } from "../../lib/api-client.ts";
 import { queryKeys } from "../../lib/queries.ts";
+import { generateWorkspaceName } from "../../lib/workspace-name.ts";
 
-export function CreateWorkspaceDialog({ open, onClose, onStarted, project }: {
+export function CreateWorkspaceDialog({ existingNames, open, onClose, onStarted, project }: {
+  existingNames: Iterable<string>;
   open: boolean;
   onClose(): void;
   onStarted(input: { name: string; runId: string }): void;
   project: ManagedProject;
 }) {
+  if (!open) return null;
+
+  return (
+    <CreateWorkspaceDialogContent
+      existingNames={existingNames}
+      onClose={onClose}
+      onStarted={onStarted}
+      project={project}
+    />
+  );
+}
+
+function CreateWorkspaceDialogContent({ existingNames, onClose, onStarted, project }: {
+  existingNames: Iterable<string>;
+  onClose(): void;
+  onStarted(input: { name: string; runId: string }): void;
+  project: ManagedProject;
+}) {
   const queryClient = useQueryClient();
-  const [name, setName] = useState("");
+  const [name, setName] = useState(() => generateWorkspaceName(existingNames));
   const creation = useMutation({
     mutationFn: () => executeProjectRequest(project.id, {
       operation: "create",
@@ -32,12 +52,10 @@ export function CreateWorkspaceDialog({ open, onClose, onStarted, project }: {
     },
   });
   useEffect(() => {
-    if (!open) return;
     const onKeyDown = (event: KeyboardEvent) => event.key === "Escape" && !creation.isPending && onClose();
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [creation.isPending, onClose, open]);
-  if (!open) return null;
+  }, [creation.isPending, onClose]);
   const valid = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(name.trim());
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-zinc-950/35 px-4 backdrop-blur-[2px]" onMouseDown={(event) => event.currentTarget === event.target && !creation.isPending && onClose()} role="presentation">
@@ -47,7 +65,7 @@ export function CreateWorkspaceDialog({ open, onClose, onStarted, project }: {
           <button aria-label="Close" className="grid size-8 place-items-center rounded-md text-zinc-400 hover:bg-zinc-100" disabled={creation.isPending} onClick={onClose} type="button"><X size={17} /></button>
         </div>
         <form className="p-6" onSubmit={(event) => { event.preventDefault(); if (valid) creation.mutate(); }}>
-          <label className="block text-xs font-medium text-zinc-700">Workspace name<input autoFocus className="mt-2 h-10 w-full rounded-md border border-zinc-300 px-3 text-sm outline-none focus:border-zinc-500 focus:ring-2 focus:ring-zinc-100" onChange={(event) => setName(event.target.value.toLowerCase().replace(/\s+/g, "-"))} placeholder="sunny-ridge" value={name} /></label>
+          <label className="block text-xs font-medium text-zinc-700">Workspace name<input autoFocus className="mt-2 h-10 w-full rounded-md border border-zinc-300 px-3 text-sm outline-none focus:border-zinc-500 focus:ring-2 focus:ring-zinc-100" onChange={(event) => setName(event.target.value.toLowerCase().replace(/\s+/g, "-"))} value={name} /></label>
           {name && !valid ? <p className="text-xs text-amber-700">Use lowercase letters, numbers, and hyphens.</p> : null}
           {creation.isError ? <p className="text-xs text-red-600" role="alert">{creation.error.message}</p> : null}
           <button className="mt-4 inline-flex h-10 w-full items-center justify-center gap-2 rounded-md bg-zinc-950 text-sm font-medium text-white disabled:opacity-50" disabled={!valid || creation.isPending} type="submit">{creation.isPending ? <span className="size-3.5 animate-spin rounded-full border-2 border-white/30 border-t-white" /> : <Check size={15} />}{creation.isPending ? "Starting…" : "Create workspace"}</button>
