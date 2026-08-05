@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { EventEmitter } from "node:events";
 import {
   SSH_CAPABILITY,
   parseVercelSandboxSshInput,
@@ -16,14 +15,8 @@ describe("Vercel Sandbox provider", () => {
     expect(vercelSandboxTerminalProviderPlugin.capabilities).toEqual([SSH_CAPABILITY]);
   });
 
-  test("requires complete explicit credentials", () => {
-    expect(() => vercelSandbox.provider({ token: "token" }))
-      .toThrow("token, projectId, and teamId together");
-    expect(() => vercelSandbox.provider({
-      token: "token",
-      projectId: "project",
-      teamId: "team",
-    })).not.toThrow();
+  test("does not expose a direct Vercel credential mode", () => {
+    expect(vercelSandbox.provider().config).toEqual({});
   });
 
   test("parses only Vercel Sandbox ssh requests", () => {
@@ -36,12 +29,15 @@ describe("Vercel Sandbox provider", () => {
   });
 
   test("runs the provider-owned host implementation locally", async () => {
-    const child = new EventEmitter() as any;
     const requested: string[] = [];
+    let close!: () => void;
+    const closed = new Promise<void>((resolve) => {
+      close = resolve;
+    });
     const handler = createVercelSandboxSshHostCapability({
-      spawn(sandbox) {
+      open(sandbox) {
         requested.push(sandbox);
-        return child;
+        return closed;
       },
     });
 
@@ -51,7 +47,7 @@ describe("Vercel Sandbox provider", () => {
     }) as { attached: true; closed: Promise<void> };
     expect(result.attached).toBe(true);
     expect(requested).toEqual(["demo"]);
-    child.emit("exit", 0, null);
+    close();
     await expect(result.closed).resolves.toBeUndefined();
   });
 

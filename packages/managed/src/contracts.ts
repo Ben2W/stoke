@@ -111,6 +111,47 @@ export const ManagedUserSchema = z.object({
 
 export const CurrentUserResponseSchema = z.object({ user: ManagedUserSchema });
 
+export const CreateManagedSandboxRequestSchema = z.object({
+  projectId: z.uuid(),
+  runtime: z.string().trim().min(1).default("node24"),
+  revision: z.string().trim().min(1).max(255).optional(),
+  ports: z.array(z.number().int().min(1).max(65_535)).max(4).default([]),
+  timeout: z.number().int().min(60_000).max(3_600_000).optional(),
+  resources: z.object({ vcpus: z.number().int().min(1).max(8) }).optional(),
+});
+
+export const ManagedSandboxSchema = z.object({
+  name: z.string().min(1),
+  domains: z.record(z.string(), z.url()),
+});
+
+export const ManagedSandboxResponseSchema = z.object({ sandbox: ManagedSandboxSchema });
+
+export const RunManagedSandboxCommandRequestSchema = z.object({
+  projectId: z.uuid(),
+  cmd: z.string().trim().min(1),
+  args: z.array(z.string()).default([]),
+  cwd: z.string().min(1).optional(),
+  env: z.record(z.string(), z.string()).optional(),
+  detached: z.boolean().default(false),
+  timeoutMs: z.number().int().positive().max(600_000).optional(),
+});
+
+export const ManagedSandboxCommandResponseSchema = z.object({
+  exitCode: z.number().int().nullable(),
+  stdout: z.string(),
+  stderr: z.string(),
+});
+
+export const OpenManagedSandboxInteractiveRequestSchema = z.object({
+  projectId: z.uuid(),
+});
+
+export const ManagedSandboxInteractiveResponseSchema = z.object({
+  url: z.url(),
+  token: z.string().min(1),
+});
+
 export const ManagedRunStatusSchema = z.enum([
   "running",
   "completed",
@@ -242,6 +283,11 @@ export type ProjectSource = z.infer<typeof ProjectSourceSchema>;
 export type ManagedProject = z.infer<typeof ManagedProjectSchema>;
 export type CreateProjectRequest = z.infer<typeof CreateProjectRequestSchema>;
 export type ManagedUser = z.infer<typeof ManagedUserSchema>;
+export type CreateManagedSandboxRequest = z.infer<typeof CreateManagedSandboxRequestSchema>;
+export type ManagedSandbox = z.infer<typeof ManagedSandboxSchema>;
+export type RunManagedSandboxCommandRequest = z.infer<typeof RunManagedSandboxCommandRequestSchema>;
+export type ManagedSandboxCommandResponse = z.infer<typeof ManagedSandboxCommandResponseSchema>;
+export type ManagedSandboxInteractiveResponse = z.infer<typeof ManagedSandboxInteractiveResponseSchema>;
 export type ManagedDevice = z.infer<typeof ManagedDeviceSchema>;
 export type RegisterDeviceRequest = z.infer<typeof RegisterDeviceRequestSchema>;
 export type ManagedCheckout = z.infer<typeof ManagedCheckoutSchema>;

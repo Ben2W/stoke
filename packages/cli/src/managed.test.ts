@@ -395,7 +395,7 @@ describe("managed project source resolution", () => {
     }
   });
 
-  test("requires an explicit choice when a local checkout matches an existing project", async () => {
+  test("automatically links a local checkout to the project with the same GitHub upstream", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "stoke-cli-conflict-"));
     expect(Bun.spawnSync(["git", "init", "-q"], { cwd }).exitCode).toBe(0);
     expect(Bun.spawnSync(
@@ -473,16 +473,7 @@ describe("managed project source resolution", () => {
         STOKE_DEVICE_ID: "device-1",
         STOKE_DEVICE_NAME: "Benjamin's MacBook",
       };
-      const ambiguous = await runManagedCli(["add", ".", "--json"], cwd, environment);
-      expect(ambiguous.exitCode).toBe(1);
-      expect(ambiguous.stderr).toContain("--project vercel-next-js");
-      expect(ambiguous.stderr).toContain("--new --name <name>");
-
-      const linked = await runManagedCli(
-        ["add", ".", "--project", existing.slug, "--json"],
-        cwd,
-        environment,
-      );
+      const linked = await runManagedCli(["add", ".", "--json"], cwd, environment);
       expect(linked.exitCode).toBe(0);
       expect(JSON.parse(linked.stdout)).toMatchObject({ project: existing, created: false });
       expect(requests).toContainEqual({
@@ -493,7 +484,7 @@ describe("managed project source resolution", () => {
           deviceId: "device-1",
           path: realpathSync(cwd),
           gitRemote: "git@github.com:vercel/next.js.git",
-          relink: true,
+          relink: false,
         },
       });
 

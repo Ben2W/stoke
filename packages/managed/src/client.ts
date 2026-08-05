@@ -13,6 +13,10 @@ import {
   type RemoteExecutionRequest,
   type RemoteExecutionResponse,
   type ManagedProjectStateSnapshot,
+  type CreateManagedSandboxRequest,
+  type ManagedSandbox,
+  type RunManagedSandboxCommandRequest,
+  type ManagedSandboxCommandResponse,
   type ProjectStateResponse,
   CheckoutListResponseSchema,
   CheckoutResponseSchema,
@@ -33,11 +37,18 @@ import {
   RemoteExecutionResponseSchema,
   ProjectStateResponseSchema,
   UpdateProjectStateRequestSchema,
+  CreateManagedSandboxRequestSchema,
+  ManagedSandboxResponseSchema,
+  RunManagedSandboxCommandRequestSchema,
+  ManagedSandboxCommandResponseSchema,
+  ManagedSandboxInteractiveResponseSchema,
+  OpenManagedSandboxInteractiveRequestSchema,
 } from "./contracts.ts";
 
 export type ManagedClientOptions = {
   baseUrl: string;
-  token: string;
+  token: string | (() => string | undefined);
+  onUnauthorized?: () => Promise<string | undefined>;
   fetch?: ManagedFetch;
 };
 
@@ -67,6 +78,16 @@ export type ManagedClient = {
     expectedRevision: number,
     snapshot: ManagedProjectStateSnapshot,
   ): Promise<ProjectStateResponse>;
+  createSandbox(input: CreateManagedSandboxRequest): Promise<ManagedSandbox>;
+  runSandboxCommand(
+    sandboxName: string,
+    input: RunManagedSandboxCommandRequest,
+  ): Promise<ManagedSandboxCommandResponse>;
+  stopSandbox(sandboxName: string, projectId: string): Promise<void>;
+  openSandboxInteractive(sandboxName: string, projectId: string): Promise<{
+    url: string;
+    token: string;
+  }>;
 };
 
 export class ManagedApiError extends Error {
@@ -84,16 +105,43 @@ export class ManagedApiError extends Error {
 export function createManagedClient(options: ManagedClientOptions): ManagedClient {
   const fetchImplementation = options.fetch ?? globalThis.fetch;
   const baseUrl = options.baseUrl.replace(/\/+$/, "");
+  let authentication: Promise<string | undefined> | undefined;
 
-  async function request(path: string, init?: RequestInit): Promise<unknown> {
-    const response = await fetchImplementation(`${baseUrl}${path}`, {
+  function currentToken(): string | undefined {
+    return typeof options.token === "function" ? options.token() : options.token;
+  }
+
+  async function authenticate(): Promise<string | undefined> {
+    if (!options.onUnauthorized) return undefined;
+    authentication ??= options.onUnauthorized().finally(() => {
+      authentication = undefined;
+    });
+    return await authentication;
+  }
+
+  async function send(path: string, init: RequestInit | undefined, token: string): Promise<Response> {
+    return await fetchImplementation(`${baseUrl}${path}`, {
       ...init,
       headers: {
-        authorization: `Bearer ${options.token}`,
+        authorization: `Bearer ${token}`,
         "content-type": "application/json",
         ...init?.headers,
       },
     });
+  }
+
+  async function request(path: string, init?: RequestInit): Promise<unknown> {
+    let token = currentToken();
+    if (!token) token = await authenticate();
+    if (!token) throw new ManagedApiError("Stoke authentication is required", 401, undefined);
+
+    let response = await send(path, init, token);
+    if (response.status === 401 && options.onUnauthorized) {
+      const refreshed = currentToken();
+      token = refreshed && refreshed !== token ? refreshed : await authenticate();
+      if (token) response = await send(path, init, token);
+    }
+
     const body = await response.json().catch(() => undefined);
     if (!response.ok) {
       const message = typeof body === "object" && body !== null && "message" in body && typeof body.message === "string"
@@ -194,6 +242,36 @@ export function createManagedClient(options: ManagedClientOptions): ManagedClien
       return ProjectStateResponseSchema.parse(
         await request(`/api/v1/projects/${encodeURIComponent(projectId)}/state`, {
           method: "PUT",
+          body: JSON.stringify(payload),
+        }),
+      );
+    },
+    async createSandbox(input) {
+      const payload = CreateManagedSandboxRequestSchema.parse(input);
+      return ManagedSandboxResponseSchema.parse(
+        await request("/api/v1/sandboxes", { method: "POST", body: JSON.stringify(payload) }),
+      ).sandbox;
+    },
+    async runSandboxCommand(sandboxName, input) {
+      const payload = RunManagedSandboxCommandRequestSchema.parse(input);
+      return ManagedSandboxCommandResponseSchema.parse(
+        await request(`/api/v1/sandboxes/${encodeURIComponent(sandboxName)}/commands`, {
+          method: "POST",
+          body: JSON.stringify(payload),
+        }),
+      );
+    },
+    async stopSandbox(sandboxName, projectId) {
+      await request(
+        `/api/v1/sandboxes/${encodeURIComponent(sandboxName)}?projectId=${encodeURIComponent(projectId)}`,
+        { method: "DELETE" },
+      );
+    },
+    async openSandboxInteractive(sandboxName, projectId) {
+      const payload = OpenManagedSandboxInteractiveRequestSchema.parse({ projectId });
+      return ManagedSandboxInteractiveResponseSchema.parse(
+        await request(`/api/v1/sandboxes/${encodeURIComponent(sandboxName)}/interactive`, {
+          method: "POST",
           body: JSON.stringify(payload),
         }),
       );

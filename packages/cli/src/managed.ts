@@ -68,15 +68,17 @@ export class DeviceAuthorizationError extends Error {
 
 export function managedClientFromEnvironment(
   environment: ManagedEnvironment = process.env,
+  options: { onUnauthorized?: () => Promise<string | undefined> } = {},
 ): ManagedClient {
-  const token = environment.STOKE_TOKEN?.trim() || readStokeCredential(environment)?.accessToken;
-  if (!token) {
+  const token = () => environment.STOKE_TOKEN?.trim() || readStokeCredential(environment)?.accessToken;
+  if (!token() && !options.onUnauthorized) {
     throw new Error("Stoke is not authenticated. Run `stoke login` first.");
   }
 
   return createManagedClient({
     baseUrl: stokeApiUrl(environment),
     token,
+    onUnauthorized: options.onUnauthorized,
   });
 }
 

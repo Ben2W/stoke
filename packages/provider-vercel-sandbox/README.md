@@ -1,6 +1,6 @@
 # @usestoke/provider-vercel-sandbox
 
-Stoke provider for the official `@vercel/sandbox` SDK.
+Managed Vercel Sandbox provider for Stoke.
 
 ```ts
 import { vercelSandbox } from "@usestoke/provider-vercel-sandbox";
@@ -21,9 +21,9 @@ export const website = app
   });
 ```
 
-The SDK uses Vercel OIDC or the standard Vercel environment variables by
-default. Explicit `token`, `projectId`, and `teamId` values must be supplied
-together.
+The provider always calls Stoke's authenticated control plane. The control
+plane owns the Vercel project and OIDC identity; workflow code never receives
+Vercel credentials and does not need a locally linked Vercel project.
 
 Interactive access is deliberately a separate provider so operation capability
 requirements remain scoped:
@@ -39,6 +39,7 @@ requirements remain scoped:
 })
 ```
 
-The runtime sends a typed `ssh` capability request. Stoke CLI executes the
-locally installed host handler using `vercel sandbox connect`; remote code is
-never evaluated on the developer machine.
+The runtime sends a typed `ssh` capability request. Stoke obtains a short-lived
+interactive session from its control plane and bridges that session to the
+local terminal; remote workflow code is never evaluated on the developer
+machine.

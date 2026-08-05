@@ -55,6 +55,42 @@ describe("managed client", () => {
     );
   });
 
+  test("authenticates lazily and retries one unauthorized request", async () => {
+    let token: string | undefined;
+    let authentications = 0;
+    const requests: Request[] = [];
+    const client = createManagedClient({
+      baseUrl: "https://usestoke.dev",
+      token: () => token,
+      onUnauthorized: async () => {
+        authentications += 1;
+        token = "fresh";
+        return token;
+      },
+      fetch: async (input, init) => {
+        const request = new Request(input, init);
+        requests.push(request);
+        return request.headers.get("authorization") === "Bearer fresh"
+          ? Response.json({ projects: [project] })
+          : Response.json({ error: "unauthorized" }, { status: 401 });
+      },
+    });
+
+    expect(await client.listProjects()).toEqual([project]);
+    expect(authentications).toBe(1);
+    expect(requests.map((request) => request.headers.get("authorization"))).toEqual([
+      "Bearer fresh",
+    ]);
+
+    token = "expired";
+    expect(await client.listProjects()).toEqual([project]);
+    expect(authentications).toBe(2);
+    expect(requests.slice(1).map((request) => request.headers.get("authorization"))).toEqual([
+      "Bearer expired",
+      "Bearer fresh",
+    ]);
+  });
+
   test("verifies and deletes a managed project", async () => {
     const requests: Request[] = [];
     const client = createManagedClient({

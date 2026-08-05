@@ -3,9 +3,14 @@ import {
   CheckoutResponseSchema,
   ClaimRunRequestSchema,
   ClaimRunResponseSchema,
+  CreateManagedSandboxRequestSchema,
   CreateProjectRequestSchema,
   DeviceResponseSchema,
   InvalidateProjectCacheRequestSchema,
+  ManagedSandboxCommandResponseSchema,
+  ManagedSandboxInteractiveResponseSchema,
+  ManagedSandboxResponseSchema,
+  OpenManagedSandboxInteractiveRequestSchema,
   ProjectCacheMutationResponseSchema,
   ProjectCacheResponseSchema,
   ProjectListResponseSchema,
@@ -18,6 +23,7 @@ import {
   ProjectWorkspaceListResponseSchema,
   UpdateProjectStateRequestSchema,
   RunEventsResponseSchema,
+  RunManagedSandboxCommandRequestSchema,
   RunListResponseSchema,
   RunResponseSchema,
   RunSocketTicketResponseSchema,
@@ -28,6 +34,12 @@ import { authenticateRequest } from "./auth.ts";
 import { listCheckouts, registerCheckout, registerDevice } from "./devices.ts";
 import { PublicGitHubRepositoryRequiredError } from "./github-repository.ts";
 import { createProject, deleteProject, listProjects, verifyProjectSource } from "./projects.ts";
+import {
+  createManagedSandbox,
+  openManagedSandboxInteractive,
+  runManagedSandboxCommand,
+  stopManagedSandbox,
+} from "./managed-sandboxes.ts";
 import { clearProjectCache, invalidateProjectCache, listProjectCache } from "./project-cache.ts";
 import { getProjectState, ProjectStateConflictError, updateProjectState } from "./project-state.ts";
 import { listProjectWorkspaces } from "./project-workspaces.ts";
@@ -62,6 +74,10 @@ type ApiDependencies = {
   listProjectCache: typeof listProjectCache;
   invalidateProjectCache: typeof invalidateProjectCache;
   clearProjectCache: typeof clearProjectCache;
+  createManagedSandbox: typeof createManagedSandbox;
+  runManagedSandboxCommand: typeof runManagedSandboxCommand;
+  stopManagedSandbox: typeof stopManagedSandbox;
+  openManagedSandboxInteractive: typeof openManagedSandboxInteractive;
 };
 
 const defaultDependencies: ApiDependencies = {
@@ -85,6 +101,10 @@ const defaultDependencies: ApiDependencies = {
   listProjectCache,
   invalidateProjectCache,
   clearProjectCache,
+  createManagedSandbox,
+  runManagedSandboxCommand,
+  stopManagedSandbox,
+  openManagedSandboxInteractive,
 };
 
 export function createApi(overrides: Partial<ApiDependencies> = {}) {
@@ -254,6 +274,54 @@ export function createApi(overrides: Partial<ApiDependencies> = {}) {
     }
     const checkout = await dependencies.registerCheckout(context.get("user").id, parsed.data);
     return context.json(CheckoutResponseSchema.parse({ checkout }));
+  });
+
+  managed.post("/sandboxes", async (context) => {
+    const parsed = CreateManagedSandboxRequestSchema.safeParse(await readJson(context.req.raw));
+    if (!parsed.success) {
+      return context.json({ error: "invalid_request", issues: parsed.error.issues }, 400);
+    }
+    const sandbox = await dependencies.createManagedSandbox(context.get("user").id, parsed.data);
+    return context.json(ManagedSandboxResponseSchema.parse({ sandbox }), 201);
+  });
+
+  managed.post("/sandboxes/:sandboxName/commands", async (context) => {
+    const parsed = RunManagedSandboxCommandRequestSchema.safeParse(await readJson(context.req.raw));
+    if (!parsed.success) {
+      return context.json({ error: "invalid_request", issues: parsed.error.issues }, 400);
+    }
+    const result = await dependencies.runManagedSandboxCommand(
+      context.get("user").id,
+      context.req.param("sandboxName"),
+      parsed.data,
+    );
+    return context.json(ManagedSandboxCommandResponseSchema.parse(result));
+  });
+
+  managed.delete("/sandboxes/:sandboxName", async (context) => {
+    const projectId = context.req.query("projectId");
+    if (!projectId) {
+      return context.json({ error: "invalid_request", message: "projectId is required" }, 400);
+    }
+    await dependencies.stopManagedSandbox(
+      context.get("user").id,
+      context.req.param("sandboxName"),
+      projectId,
+    );
+    return context.json({ ok: true });
+  });
+
+  managed.post("/sandboxes/:sandboxName/interactive", async (context) => {
+    const parsed = OpenManagedSandboxInteractiveRequestSchema.safeParse(await readJson(context.req.raw));
+    if (!parsed.success) {
+      return context.json({ error: "invalid_request", issues: parsed.error.issues }, 400);
+    }
+    const interactive = await dependencies.openManagedSandboxInteractive(
+      context.get("user").id,
+      context.req.param("sandboxName"),
+      parsed.data.projectId,
+    );
+    return context.json(ManagedSandboxInteractiveResponseSchema.parse(interactive));
   });
 
   managed.post("/runs/claim", async (context) => {

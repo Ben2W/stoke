@@ -1182,7 +1182,7 @@ async function runManagedAdd(
   if (options.project && options.newProject) {
     throw new Error("--project and --new cannot be used together");
   }
-  const client = managedClientFromEnvironment();
+  const client = managedClientForCommand(invocation);
   const device = ensureStokeDevice();
   await client.registerDevice({ id: device.id, name: device.name });
   const [projects, checkouts] = await Promise.all([
@@ -1206,7 +1206,7 @@ async function runManagedAdd(
       })
     : existingCheckout && !options.newProject
       ? projects.find((candidate) => candidate.id === existingCheckout.projectId)
-      : !resolved.checkout && !options.newProject
+      : !options.newProject
         ? sourceProject
         : undefined;
   let created = false;
@@ -1346,7 +1346,7 @@ async function runUse(
     return;
   }
 
-  const client = managedClientFromEnvironment();
+  const client = managedClientForCommand(invocation);
   const device = ensureStokeDevice();
   await client.registerDevice({ id: device.id, name: device.name });
   const [projects, checkouts] = await Promise.all([
@@ -1373,6 +1373,25 @@ async function runUse(
     ["project", project.slug],
     ["source", formatManagedProjectSource(project)],
   ]));
+}
+
+function managedClientForCommand(invocation: CliInvocation): ManagedClient {
+  return managedClientFromEnvironment(process.env, {
+    onUnauthorized: async () => {
+      if (process.env.STOKE_TOKEN?.trim()) {
+        throw new Error("The STOKE_TOKEN environment variable was rejected by Stoke.");
+      }
+      if (wantsJson(invocation) || !canPrompt()) {
+        throw new Error("Stoke authentication is required. Run `stoke login` in an interactive terminal.");
+      }
+
+      clearStokeCredential();
+      console.log(ui.warn("Stoke authentication is required."));
+      console.log("");
+      await runLogin();
+      return readStokeCredential()?.accessToken;
+    },
+  });
 }
 
 async function runLogin(): Promise<void> {
@@ -1424,7 +1443,7 @@ async function runLogout(invocation: CliInvocation): Promise<void> {
 }
 
 async function runWhoAmI(invocation: CliInvocation): Promise<void> {
-  const user = await managedClientFromEnvironment().currentUser();
+  const user = await managedClientForCommand(invocation).currentUser();
   if (wantsJson(invocation)) {
     printJson({ user });
     return;
@@ -1436,7 +1455,7 @@ async function runWhoAmI(invocation: CliInvocation): Promise<void> {
 }
 
 async function runManagedProjects(invocation: CliInvocation): Promise<void> {
-  const client = managedClientFromEnvironment();
+  const client = managedClientForCommand(invocation);
   const device = ensureStokeDevice();
   await client.registerDevice({ id: device.id, name: device.name });
   const [projects, checkouts] = await Promise.all([
@@ -1576,7 +1595,7 @@ async function runManagedProjectRemove(
   selector: string,
   options: ProjectRemoveOptions,
 ): Promise<void> {
-  const client = managedClientFromEnvironment();
+  const client = managedClientForCommand(invocation);
   const device = ensureStokeDevice();
   const [projects, checkouts] = await Promise.all([
     client.listProjects(),
@@ -2515,7 +2534,7 @@ async function resolveManagedProjectContext(
   const selector = invocation.global.project ?? process.env.STOKE_PROJECT ?? settings?.currentProjectId;
   if (!selector) return undefined;
 
-  const client = managedClientFromEnvironment();
+  const client = managedClientForCommand(invocation);
   const device = ensureStokeDevice();
   await client.registerDevice({ id: device.id, name: device.name });
   const [projects, checkouts] = await Promise.all([

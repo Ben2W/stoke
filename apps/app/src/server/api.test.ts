@@ -142,6 +142,55 @@ describe("Hono control-plane API", () => {
     expect(await response.json()).toEqual({ project });
   });
 
+  test("routes managed Sandbox lifecycle through the authenticated user", async () => {
+    const calls: unknown[] = [];
+    const api = createApi({
+      authenticate: async () => user,
+      createManagedSandbox: async (userId, input) => {
+        calls.push(["create", userId, input.projectId]);
+        return { name: "quiet-otter", domains: { "3000": "https://quiet-otter.example" } };
+      },
+      runManagedSandboxCommand: async (userId, name, input) => {
+        calls.push(["command", userId, name, input.cmd]);
+        return { exitCode: 0, stdout: "ok\n", stderr: "" };
+      },
+      stopManagedSandbox: async (userId, name, projectId) => {
+        calls.push(["stop", userId, name, projectId]);
+      },
+      openManagedSandboxInteractive: async (userId, name, projectId) => {
+        calls.push(["interactive", userId, name, projectId]);
+        return { url: "wss://pty.example", token: "ticket" };
+      },
+    });
+    const created = await api.request("http://localhost/api/v1/sandboxes", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ projectId: project.id, runtime: "node24", ports: [3000] }),
+    });
+    const command = await api.request("http://localhost/api/v1/sandboxes/quiet-otter/commands", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ projectId: project.id, cmd: "pwd" }),
+    });
+    const interactive = await api.request("http://localhost/api/v1/sandboxes/quiet-otter/interactive", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ projectId: project.id }),
+    });
+    const stopped = await api.request(
+      `http://localhost/api/v1/sandboxes/quiet-otter?projectId=${project.id}`,
+      { method: "DELETE" },
+    );
+
+    expect([created.status, command.status, interactive.status, stopped.status]).toEqual([201, 200, 200, 200]);
+    expect(calls).toEqual([
+      ["create", user.id, project.id],
+      ["command", user.id, "quiet-otter", "pwd"],
+      ["interactive", user.id, "quiet-otter", project.id],
+      ["stop", user.id, "quiet-otter", project.id],
+    ]);
+  });
+
   test("returns structured validation and authentication failures", async () => {
     const authenticated = createApi({ authenticate: async () => user });
     const invalid = await authenticated.request("http://localhost/api/v1/projects", {

@@ -1,4 +1,3 @@
-export { Sandbox, Snapshot, Session } from "@vercel/sandbox";
 export {
   SSH_CAPABILITY,
   SSH_CAPABILITY_ID,
@@ -16,6 +15,8 @@ export {
   vercelSandboxProviderPlugin,
   vercelSandboxTerminalProviderPlugin,
   type VercelSandboxClient,
+  type VercelSandboxCreateInput,
+  type VercelSandboxHandle,
   type VercelSandboxProviderConfig,
   type VercelSandboxProviderDefinition,
   type VercelSandboxRuntime,

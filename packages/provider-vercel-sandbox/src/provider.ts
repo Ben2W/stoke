@@ -1,4 +1,7 @@
-import { Sandbox } from "@vercel/sandbox";
+import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { createManagedClient } from "@usestoke/managed";
 import {
   defineProvider,
   type LocalWorkspaceRuntime,
@@ -15,26 +18,49 @@ export const VERCEL_SANDBOX_PROVIDER_ID = "vercel-sandbox";
 export const VERCEL_SANDBOX_TERMINAL_PROVIDER_ID = "vercel-sandbox-terminal";
 
 export type VercelSandboxProviderConfig = {
-  token?: string;
+  baseUrl?: string;
+  accessToken?: string;
   projectId?: string;
-  teamId?: string;
 };
 
-type SandboxCreateInput = NonNullable<Parameters<typeof Sandbox.create>[0]>;
-type SandboxGetInput = Parameters<typeof Sandbox.get>[0];
-type SandboxGetOrCreateInput = NonNullable<Parameters<typeof Sandbox.getOrCreate>[0]>;
-type SandboxListInput = Parameters<typeof Sandbox.list>[0];
+export type VercelSandboxCreateInput = {
+  runtime?: string;
+  revision?: string;
+  ports?: number[];
+  timeout?: number;
+  resources?: { vcpus: number };
+};
+
+type RunCommandOptions = {
+  cwd?: string;
+  env?: Record<string, string>;
+  detached?: boolean;
+  timeoutMs?: number;
+};
+type RunCommandInput = RunCommandOptions & { cmd: string; args?: string[] };
+
+export type VercelSandboxCommandResult = {
+  readonly exitCode: number | null;
+  stdout(): Promise<string>;
+  stderr(): Promise<string>;
+};
+
+export type VercelSandboxHandle = {
+  readonly name: string;
+  runCommand(command: string, args?: string[], options?: RunCommandOptions): Promise<VercelSandboxCommandResult>;
+  runCommand(input: RunCommandInput): Promise<VercelSandboxCommandResult>;
+  domain(port: number): string;
+  stop(): Promise<void>;
+};
 
 export type VercelSandboxClient = {
-  create(input?: SandboxCreateInput): ReturnType<typeof Sandbox.create>;
-  get(input: SandboxGetInput): ReturnType<typeof Sandbox.get>;
-  getOrCreate(input?: SandboxGetOrCreateInput): ReturnType<typeof Sandbox.getOrCreate>;
-  list(input?: SandboxListInput): ReturnType<typeof Sandbox.list>;
+  create(input?: VercelSandboxCreateInput): Promise<VercelSandboxHandle>;
+  get(input: { name: string }): Promise<VercelSandboxHandle>;
 };
 
 export type VercelSandboxRuntime = {
   readonly client: VercelSandboxClient;
-  ref(name: string): ReturnType<typeof Sandbox.get>;
+  ref(name: string): Promise<VercelSandboxHandle>;
 };
 
 export type VercelSandboxTerminalRuntime = {
@@ -53,10 +79,7 @@ export type VercelSandboxTerminalProviderDefinition = WorkflowProviderDefinition
   VercelSandboxTerminalRuntime
 >;
 
-export function provider(
-  config: VercelSandboxProviderConfig = {},
-): VercelSandboxProviderDefinition {
-  assertCredentialConfig(config);
+export function provider(config: VercelSandboxProviderConfig = {}): VercelSandboxProviderDefinition {
   return defineProvider(VERCEL_SANDBOX_PROVIDER_ID, config, vercelSandboxProviderPlugin);
 }
 
@@ -73,12 +96,10 @@ export const vercelSandbox = { provider, terminal };
 export const vercelSandboxProviderPlugin: BaseProviderPlugin = {
   providerId: VERCEL_SANDBOX_PROVIDER_ID,
   createProvider({ provider }): WorkflowProviderController<VercelSandboxRuntime> {
-    const config = provider.config as VercelSandboxProviderConfig;
-    assertCredentialConfig(config);
     return {
       providerId: VERCEL_SANDBOX_PROVIDER_ID,
       runtime() {
-        return createVercelSandboxRuntime(config);
+        return createVercelSandboxRuntime(provider.config as VercelSandboxProviderConfig);
       },
     };
   },
@@ -100,17 +121,66 @@ export const vercelSandboxTerminalProviderPlugin: BaseProviderPlugin = {
 export function createVercelSandboxRuntime(
   config: VercelSandboxProviderConfig = {},
 ): VercelSandboxRuntime {
-  const credentials = credentialFields(config);
-  const client: VercelSandboxClient = {
-    create: (input = {}) => Sandbox.create({ ...input, ...credentials } as SandboxCreateInput),
-    get: (input) => Sandbox.get({ ...input, ...credentials } as SandboxGetInput),
-    getOrCreate: (input = {}) =>
-      Sandbox.getOrCreate({ ...input, ...credentials } as SandboxGetOrCreateInput),
-    list: (input = {}) => Sandbox.list({ ...input, ...credentials } as SandboxListInput),
+  const projectId = config.projectId ?? process.env.STOKE_PROJECT_ID;
+  if (!projectId) throw new Error("A managed Stoke project must be selected before using Vercel Sandbox");
+  const client = createManagedClient({
+    baseUrl: config.baseUrl ?? process.env.STOKE_API_URL ?? "https://usestoke.dev",
+    token: () => config.accessToken ?? readStokeAccessToken(),
+  });
+  const sandboxClient: VercelSandboxClient = {
+    async create(input = {}) {
+      const sandbox = await client.createSandbox({
+        projectId,
+        runtime: input.runtime ?? "node24",
+        revision: input.revision,
+        ports: input.ports ?? [],
+        timeout: input.timeout,
+        resources: input.resources,
+      });
+      return managedHandle(client, projectId, sandbox.name, sandbox.domains);
+    },
+    async get(input) {
+      return managedHandle(client, projectId, input.name, {});
+    },
   };
+  return { client: sandboxClient, ref: (name) => sandboxClient.get({ name }) };
+}
+
+function managedHandle(
+  client: ReturnType<typeof createManagedClient>,
+  projectId: string,
+  name: string,
+  domains: Record<string, string>,
+): VercelSandboxHandle {
   return {
-    client,
-    ref: (name) => client.get({ name }),
+    name,
+    async runCommand(commandOrInput: string | RunCommandInput, args?: string[], options?: RunCommandOptions) {
+      const input = typeof commandOrInput === "string"
+        ? { cmd: commandOrInput, args: args ?? [], ...options }
+        : commandOrInput;
+      const result = await client.runSandboxCommand(name, {
+        projectId,
+        cmd: input.cmd,
+        args: input.args ?? [],
+        cwd: input.cwd,
+        env: input.env,
+        detached: input.detached ?? false,
+        timeoutMs: input.timeoutMs,
+      });
+      return {
+        exitCode: result.exitCode,
+        stdout: async () => result.stdout,
+        stderr: async () => result.stderr,
+      };
+    },
+    domain(port) {
+      const domain = domains[String(port)];
+      if (!domain) throw new Error(`Port ${port} is not exposed by Vercel Sandbox ${name}`);
+      return domain;
+    },
+    async stop() {
+      await client.stopSandbox(name, projectId);
+    },
   };
 }
 
@@ -134,21 +204,18 @@ function createVercelSandboxTerminalRuntime(
   };
 }
 
-function assertCredentialConfig(config: VercelSandboxProviderConfig): void {
-  const fields = [config.token, config.projectId, config.teamId];
-  const configured = fields.filter((value) => typeof value === "string" && value.length > 0).length;
-  if (configured !== 0 && configured !== fields.length) {
-    throw new Error(
-      "Vercel Sandbox credentials require token, projectId, and teamId together",
-    );
+export function readStokeAccessToken(): string | undefined {
+  const environmentToken = process.env.STOKE_TOKEN?.trim();
+  if (environmentToken) return environmentToken;
+  try {
+    const stokeDirectory = process.env.STOKE_HOME?.trim() || join(homedir(), ".stoke");
+    const parsed = JSON.parse(readFileSync(join(stokeDirectory, "credentials.json"), "utf8")) as unknown;
+    return isRecord(parsed) && typeof parsed.accessToken === "string" ? parsed.accessToken : undefined;
+  } catch {
+    return undefined;
   }
 }
 
-function credentialFields(config: VercelSandboxProviderConfig): VercelSandboxProviderConfig {
-  if (!config.token || !config.projectId || !config.teamId) return {};
-  return {
-    token: config.token,
-    projectId: config.projectId,
-    teamId: config.teamId,
-  };
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

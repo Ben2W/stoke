@@ -23,7 +23,7 @@ describe("managed project identity", () => {
     expect(keyForProjectSource(source)).toBe("github:ben2w/stoke");
   });
 
-  test("keeps legacy local identities scoped to a device and path", () => {
+  test("keeps local identities scoped to a device and path", () => {
     expect(
       keyForProjectSource({
         kind: "local",
