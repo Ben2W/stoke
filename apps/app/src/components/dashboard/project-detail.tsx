@@ -51,8 +51,8 @@ export function ProjectDetail({
         ) : (
           <>
             <ProjectWorkspaces onSelect={onWorkspaceSelect} project={project} />
-            <ProjectCheckouts checkouts={checkouts} />
             <ProjectCache project={project} />
+            <ProjectCheckouts checkouts={checkouts} />
             <RunActivity project={project} />
             <ProjectDangerZone onDeleted={onBack} project={project} />
           </>

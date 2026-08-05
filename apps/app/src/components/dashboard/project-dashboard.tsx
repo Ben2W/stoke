@@ -1,10 +1,10 @@
 "use client";
 
 import type { ManagedCheckout, ManagedProject, ManagedRun } from "@usestoke/managed";
-import { Activity, Box, FolderKanban, Laptop } from "lucide-react";
+import { Braces, Construction, KeyRound } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { DashboardHeader } from "./dashboard-header.tsx";
-import { DashboardSidebar } from "./dashboard-sidebar.tsx";
+import { DashboardSidebar, type DashboardPage } from "./dashboard-sidebar.tsx";
 import { ProjectExplorer } from "./project-explorer.tsx";
 import { ProjectDetail } from "./project-detail.tsx";
 
@@ -16,18 +16,18 @@ type ProjectDashboardProps = {
 };
 
 export function ProjectDashboard({ user, projects, checkouts, runs }: ProjectDashboardProps) {
+  const [activePage, setActivePage] = useState<DashboardPage>("projects");
   const [selectedProjectId, setSelectedProjectId] = useState<string>();
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string>();
   const selectedProject = useMemo(
     () => projects.find((project) => project.id === selectedProjectId || project.slug === selectedProjectId),
     [projects, selectedProjectId],
   );
-  const deviceCount = new Set(checkouts.map((checkout) => checkout.deviceId)).size;
-  const activeRunCount = runs.filter((run) => run.status === "running").length;
-
   useEffect(() => {
     const selectFromUrl = () => {
       const params = new URLSearchParams(window.location.search);
+      const page = params.get("view");
+      setActivePage(page === "environment-variables" || page === "api-keys" ? page : "projects");
       setSelectedProjectId(params.get("project") ?? undefined);
       setSelectedWorkspaceId(params.get("workspace") ?? undefined);
     };
@@ -38,6 +38,7 @@ export function ProjectDashboard({ user, projects, checkouts, runs }: ProjectDas
 
   const selectProject = (project: ManagedProject) => {
     window.history.pushState(null, "", `/?project=${encodeURIComponent(project.slug)}`);
+    setActivePage("projects");
     setSelectedProjectId(project.id);
     setSelectedWorkspaceId(undefined);
   };
@@ -53,6 +54,13 @@ export function ProjectDashboard({ user, projects, checkouts, runs }: ProjectDas
   };
   const showProjects = () => {
     window.history.pushState(null, "", "/");
+    setActivePage("projects");
+    setSelectedProjectId(undefined);
+    setSelectedWorkspaceId(undefined);
+  };
+  const navigate = (page: DashboardPage) => {
+    window.history.pushState(null, "", page === "projects" ? "/" : `/?view=${page}`);
+    setActivePage(page);
     setSelectedProjectId(undefined);
     setSelectedWorkspaceId(undefined);
   };
@@ -60,10 +68,14 @@ export function ProjectDashboard({ user, projects, checkouts, runs }: ProjectDas
   return (
     <main className="min-h-screen bg-white text-zinc-950">
       <DashboardHeader user={user} />
-      <div className="flex min-h-[calc(100vh-4rem)]">
-        <DashboardSidebar />
+      <div className="flex min-h-[calc(100vh-4rem)] flex-col md:flex-row">
+        <DashboardSidebar activePage={activePage} onNavigate={navigate} />
         <section className="min-w-0 flex-1 bg-zinc-50/40">
-          {selectedProject ? (
+          {activePage === "environment-variables" ? (
+            <UnderConstructionPage description="Manage shared configuration for your Stoke projects." icon={Braces} title="Environment Variables" />
+          ) : activePage === "api-keys" ? (
+            <UnderConstructionPage description="Create and revoke credentials for Stoke automation." icon={KeyRound} title="API Keys" />
+          ) : selectedProject ? (
             <ProjectDetail
               checkouts={checkouts.filter((checkout) => checkout.projectId === selectedProject.id)}
               onBack={showProjects}
@@ -77,25 +89,13 @@ export function ProjectDashboard({ user, projects, checkouts, runs }: ProjectDas
               <div className="border-b border-zinc-200 bg-white px-5 py-5 sm:px-8">
                 <div className="mx-auto flex max-w-7xl items-center justify-between">
                   <div>
-                    <p className="text-xs text-zinc-500">Overview</p>
-                    <h1 className="mt-1 text-xl font-semibold tracking-tight">All Projects</h1>
+                    <h1 className="text-xl font-semibold tracking-tight">Projects</h1>
                   </div>
-                  <span className="hidden text-xs text-zinc-400 sm:block">Managed by Stoke</span>
                 </div>
               </div>
 
               <div className="mx-auto max-w-7xl px-5 py-6 sm:px-8 sm:py-8">
                 <ProjectExplorer checkouts={checkouts} now={Date.now()} onProjectSelect={selectProject} projects={projects} runs={runs} />
-
-                <section className="mt-8" aria-labelledby="usage-heading">
-                  <h2 className="mb-3 text-sm font-medium" id="usage-heading">Workspace</h2>
-                  <div className="grid overflow-hidden rounded-lg border border-zinc-200 bg-white sm:grid-cols-2 lg:grid-cols-4">
-                    <Metric icon={FolderKanban} label="Projects" value={projects.length} />
-                    <Metric border icon={Laptop} label="Devices" value={deviceCount} />
-                    <Metric border icon={Box} label="Checkouts" value={checkouts.length} />
-                    <Metric border icon={Activity} label="Active runs" value={activeRunCount} />
-                  </div>
-                </section>
               </div>
             </>
           )}
@@ -105,11 +105,26 @@ export function ProjectDashboard({ user, projects, checkouts, runs }: ProjectDas
   );
 }
 
-function Metric({ border = false, icon: Icon, label, value }: { border?: boolean; icon: typeof Box; label: string; value: number }) {
+function UnderConstructionPage({ description, icon: Icon, title }: { description: string; icon: typeof Braces; title: string }) {
   return (
-    <div className={`flex items-center gap-3 p-5 ${border ? "border-t border-zinc-200 sm:border-l sm:border-t-0" : ""}`}>
-      <div className="grid size-9 place-items-center rounded-md bg-zinc-100 text-zinc-500"><Icon size={16} strokeWidth={1.8} /></div>
-      <div><strong className="block text-lg font-semibold tabular-nums">{value}</strong><span className="text-xs text-zinc-500">{label}</span></div>
+    <div>
+      <div className="border-b border-zinc-200 bg-white px-5 py-5 sm:px-8">
+        <div className="mx-auto max-w-7xl">
+          <h1 className="text-xl font-semibold tracking-tight">{title}</h1>
+        </div>
+      </div>
+      <div className="mx-auto max-w-7xl px-5 py-8 sm:px-8">
+        <div className="flex max-w-xl items-start gap-4 rounded-lg border border-zinc-200 bg-white p-6">
+          <div className="grid size-10 shrink-0 place-items-center rounded-md bg-zinc-100 text-zinc-500"><Icon size={18} strokeWidth={1.8} /></div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h2 className="text-sm font-medium">Under construction</h2>
+              <Construction className="text-zinc-400" size={14} />
+            </div>
+            <p className="mt-2 text-sm leading-6 text-zinc-500">{description}</p>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

@@ -1,44 +1,46 @@
 # Stoke
 
-Stoke is a managed development-environment orchestrator built for Vercel. A
-TypeScript workflow defines cached setup work, workspaces, and operations. The
-CLI evaluates that workflow locally or in Vercel Sandbox while the control
-plane stores projects, runs, events, workspaces, and cache state in Postgres.
+Stoke manages typed development workflows and runs them locally or in Vercel
+Sandbox.
 
-## Workspace
+## Try it
 
-- `apps/app` — the Vercel-hosted control plane and SPA dashboard
-- `packages/cli` — the `stoke` command
-- `packages/engine` — workflow authoring and execution
-- `packages/sdk` — project runtime and public workflow API
-- `packages/runtime-client` — CLI-to-runtime transport
-- `packages/managed` — shared control-plane API contracts
-- `packages/provider-cmux` — trusted local cmux capability
-- `packages/provider-vercel-sandbox` — Vercel Sandbox SDK and SSH capability
+1. Open [usestoke.dev](https://usestoke.dev) and sign in with GitHub.
+2. Add the public example project:
+   [github.com/Ben2W/stoke-example](https://github.com/Ben2W/stoke-example).
+3. Select the project, then create a workspace.
+4. Run the workspace operations from the dashboard.
 
-Every internal package is under the `@usestoke/*` scope. The removed Rigkit
-website, Cloudflare deployment, public-package release automation, Freestyle,
-Google Cloud, VS Code, fragments, and legacy examples are intentionally not
-part of this interview project.
+Use the public example above for the demo—not this source repository.
 
-## Development
+## Why it's interesting
+
+The [Ben2W/stoke-example](https://github.com/Ben2W/stoke-example) project has a
+Stoke configuration at
+[`stoke/index.ts`](https://github.com/Ben2W/stoke-example/blob/main/stoke/index.ts).
+
+This configuration defines the project's development, agent, and CI/CD
+environments.
+
+## CLI
+
+The CLI controls the same projects, workflows, and Vercel Sandbox workspaces
+from your terminal or an agent. To try the full workflow with the public
+example:
 
 ```bash
-pnpm install
-pnpm test
-pnpm typecheck
-pnpm build
+git clone https://github.com/Ben2W/stoke-example.git
+cd stoke-example
+npm install
+
+stoke login
+stoke add .
+stoke plan stoke-example
+stoke create demo stoke-example
+stoke run demo ssh
+stoke rm demo
 ```
 
-Run the dashboard with `pnpm --filter @usestoke/control-plane dev` and the CLI
-from source with `pnpm --filter @usestoke/cli stoke -- --help`.
-
-The control plane expects `DATABASE_URL` and the Better Auth environment
-variables documented in `apps/app/.env.example`. Vercel Sandbox uses Vercel
-OIDC in deployments or the standard Vercel SDK credentials locally.
-
-## Origin
-
-Stoke is derived from the MIT-licensed Rigkit project. The original copyright
-notice remains in `LICENSE`; the active package namespace and product surface
-are Stoke-owned.
+`login` connects the terminal to Stoke, `add` links and selects the project,
+`plan` previews the workflow, `create` starts a Vercel Sandbox workspace, `run`
+executes an operation in that workspace, and `rm` removes it.

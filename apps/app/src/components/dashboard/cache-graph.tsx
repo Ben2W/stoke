@@ -73,7 +73,7 @@ export function CacheGraph({
           </div>
         </div>
         <div className="flex items-center gap-3 text-[10px] text-zinc-400">
-          <span className="inline-flex items-center gap-1.5"><span className="size-2 rounded-full border border-zinc-300 bg-white" /> Cached</span>
+          <span className="inline-flex items-center gap-1 text-emerald-700"><Check size={11} /> Cached</span>
           <span className="inline-flex items-center gap-1.5"><span className="size-2 rounded-full border border-amber-300 bg-amber-50" /> Invalidated next</span>
         </div>
       </div>
@@ -114,15 +114,16 @@ export function CacheGraph({
             const live = activity?.status === "running";
             const planned = activity?.status === "pending";
             const completed = activity?.status === "completed";
+            const cached = activity?.status === "cached" || !activity;
             return (
               <article
                 aria-label={`${entry.nodePath} cache entry`}
-                className={`absolute flex flex-col rounded-lg border p-3 shadow-sm transition-all ${live ? "border-blue-400 bg-blue-50/60 ring-2 ring-blue-100" : completed ? "border-emerald-300 bg-emerald-50/40" : planned ? "border-dashed border-amber-300 bg-amber-50/50" : target ? "border-amber-400 bg-amber-50 ring-2 ring-amber-100" : affected ? "border-amber-200 bg-amber-50/70" : "border-zinc-200 bg-white"} ${dimmed ? "opacity-40" : "opacity-100"}`}
+                className={`absolute flex flex-col rounded-lg border p-3 shadow-sm transition-all ${live ? "border-blue-400 bg-blue-50/60 ring-2 ring-blue-100" : completed ? "border-emerald-300 bg-emerald-50/40" : planned ? "border-dashed border-amber-300 bg-amber-50/50" : target ? "border-amber-400 bg-amber-50 ring-2 ring-amber-100" : affected ? "border-amber-200 bg-amber-50/70" : cached ? "border-emerald-300 bg-emerald-50/40" : "border-zinc-200 bg-white"} ${dimmed ? "opacity-40" : "opacity-100"}`}
                 key={`${entry.workflow}:${entry.nodePath}`}
                 style={{ height: CACHE_NODE_HEIGHT, left: x, top: y, width: CACHE_NODE_WIDTH }}
               >
                 <div className="flex items-start gap-2.5">
-                  {live ? <CircleDashed className="animate-spin text-blue-600" size={14} /> : completed ? <Check className="text-emerald-600" size={14} /> : <Database className={planned ? "text-amber-500" : affected ? "text-amber-600" : "text-zinc-400"} size={14} />}
+                  {live ? <CircleDashed className="animate-spin text-blue-600" size={14} /> : completed || cached ? <Check className="text-emerald-600" size={14} /> : <Database className={planned ? "text-amber-500" : affected ? "text-amber-600" : "text-zinc-400"} size={14} />}
                   <div className="min-w-0 flex-1">
                     <h3 className="truncate text-xs font-medium text-zinc-800">{entry.nodePath}</h3>
                     <p className="mt-0.5 truncate text-[10px] text-zinc-400">
@@ -219,7 +220,7 @@ function NodeActivity({ status }: { status: RunTaskStatus }) {
     ? "text-blue-700"
     : status === "pending"
       ? "text-amber-700"
-      : status === "completed"
+      : status === "completed" || status === "cached"
         ? "text-emerald-700"
         : status === "failed"
           ? "text-red-700"

@@ -1,8 +1,7 @@
 import { Check, GitBranch, Laptop, MoreHorizontal } from "lucide-react";
 
 const projects = [
-  { name: "stoke", repo: "ben2w/stoke", initial: "S", checkouts: "2 checkouts" },
-  { name: "acme-web", repo: "acme/web", initial: "A", checkouts: "4 checkouts" },
+  { name: "stoke-example", repo: "Ben2W/stoke-example", initial: "S", checkouts: "1 checkout" },
 ];
 
 export function ProductPreview() {
@@ -19,7 +18,7 @@ export function ProductPreview() {
         <div className="mb-4 rounded-md border border-zinc-200 bg-white px-3 py-2.5 text-xs text-zinc-400">
           Search projects…
         </div>
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid gap-3">
           {projects.map((project) => (
             <article className="rounded-lg border border-zinc-200 bg-white p-4 shadow-xs" key={project.name}>
               <div className="flex items-start gap-3">

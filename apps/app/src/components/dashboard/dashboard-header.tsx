@@ -1,4 +1,3 @@
-import { ChevronsUpDown } from "lucide-react";
 import { SignOutButton } from "../auth/auth-buttons.tsx";
 import { StokeLogo } from "../brand/stoke-logo.tsx";
 
@@ -10,7 +9,6 @@ export function DashboardHeader({ user }: { user: { name: string; email: string;
         <span>Stoke</span>
         <span className="hidden font-normal text-zinc-300 sm:inline">/</span>
         <span className="hidden max-w-40 truncate font-normal text-zinc-600 sm:inline">{user.name}</span>
-        <ChevronsUpDown className="hidden text-zinc-400 sm:block" size={14} />
       </a>
       <div className="flex items-center gap-4">
         <span className="hidden text-xs text-zinc-500 md:block">{user.email}</span>
