@@ -45,6 +45,34 @@ describe("live cache graph", () => {
     expect(graph.entries.map((entry) => entry.id)).toEqual(["current", "old"]);
     expect(graph.mainEntryIds).toEqual(new Set(["current"]));
   });
+
+  test("does not label every retained workspace flow as main while the remote flow is unavailable", () => {
+    const first = cacheEntry("first", "resolve");
+    const second = cacheEntry("second", "verify");
+    const graph = projectCacheGraph(
+      [first, second],
+      undefined,
+      undefined,
+      new Set(["first", "second"]),
+    );
+
+    expect(graph.entries.map((entry) => entry.id)).toEqual(["first", "second"]);
+    expect(graph.mainEntryIds).toEqual(new Set());
+  });
+
+  test("keeps a checkout cache branch separate from the remote main flow", () => {
+    const remote = cacheEntry("remote", "verify");
+    const checkout = cacheEntry("checkout", "verify");
+    const graph = projectCacheGraph(
+      [remote, checkout],
+      { flow: taskFlow([task("verify", "cached", "remote")]), run: managedRun("plan", "completed") },
+      { flow: taskFlow([task("verify", "cached", "checkout")]), run: machineRun("apply", "running") },
+      new Set(["checkout"]),
+    );
+
+    expect(graph.entries.map((entry) => entry.id)).toEqual(["remote", "checkout"]);
+    expect(graph.mainEntryIds).toEqual(new Set(["remote"]));
+  });
 });
 
 function managedRun(operation: "plan" | "apply", status: "completed" | "running"): ManagedRun {
@@ -59,6 +87,10 @@ function managedRun(operation: "plan" | "apply", status: "completed" | "running"
     startedAt: "2026-08-05T00:00:00.000Z",
     updatedAt: "2026-08-05T00:00:10.000Z",
   };
+}
+
+function machineRun(operation: "plan" | "apply", status: "completed" | "running"): ManagedRun {
+  return { ...managedRun(operation, status), origin: "machine" };
 }
 
 function task(nodePath: string, status: "cached" | "completed" | "pending" | "running", runId?: string) {

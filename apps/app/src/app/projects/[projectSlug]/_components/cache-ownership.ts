@@ -1,12 +1,20 @@
 import type { ManagedWorkspace } from "@usestoke/managed";
 
-type WorkspaceCacheOwner = Pick<ManagedWorkspace, "cacheEntryIds" | "id" | "name" | "sourceRevision">;
+type WorkspaceCacheOwner = Pick<
+  ManagedWorkspace,
+  "cacheEntryIds" | "createdFrom" | "id" | "name" | "sourceRevision"
+>;
 
 export type CacheOwnershipGroup = {
   entryIds: Set<string>;
   key: string;
   main: boolean;
-  workspaces: Array<{ id: string; name: string; revision?: string }>;
+  workspaces: Array<{
+    createdFrom: ManagedWorkspace["createdFrom"];
+    id: string;
+    name: string;
+    revision?: string;
+  }>;
 };
 
 export function groupCacheOwnership(
@@ -35,6 +43,7 @@ export function groupCacheOwnership(
       workspaces: [],
     };
     group.workspaces.push({
+      createdFrom: workspace.createdFrom,
       id: workspace.id,
       name: workspace.name,
       ...(workspace.sourceRevision ? { revision: workspace.sourceRevision } : {}),
@@ -51,10 +60,25 @@ export function groupCacheOwnership(
 export function cacheOwnershipLabel(group: CacheOwnershipGroup): string {
   const workspaceCount = group.workspaces.length;
   if (group.main && workspaceCount) {
-    return `main · ${workspaceCount} ${workspaceCount === 1 ? "workspace" : "workspaces"}`;
+    return `remote main · ${workspaceCount} ${workspaceCount === 1 ? "workspace" : "workspaces"}`;
   }
-  if (group.main) return "main";
-  return `${workspaceCount} ${workspaceCount === 1 ? "workspace" : "workspaces"}`;
+  if (group.main) return "remote main";
+  const provenance = workspaceProvenanceLabel(group);
+  return `${provenance} · ${workspaceCount} ${workspaceCount === 1 ? "workspace" : "workspaces"}`;
+}
+
+function workspaceProvenanceLabel(group: CacheOwnershipGroup): string {
+  const checkoutSources = group.workspaces
+    .map((workspace) => workspace.createdFrom)
+    .filter((source): source is Extract<ManagedWorkspace["createdFrom"], { kind: "checkout" }> =>
+      source.kind === "checkout"
+    );
+  if (checkoutSources.length === group.workspaces.length) {
+    const devices = new Set(checkoutSources.map((source) => source.deviceName));
+    return devices.size === 1 ? [...devices][0]! : "local checkouts";
+  }
+  if (checkoutSources.length === 0) return "dashboard";
+  return "mixed sources";
 }
 
 function cacheEntrySetKey(entryIds: Set<string>): string | undefined {

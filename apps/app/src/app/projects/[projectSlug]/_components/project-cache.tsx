@@ -8,6 +8,7 @@ import { clearProjectCache, invalidateProjectCacheEntry } from "../../../../lib/
 import { projectCacheQuery, projectWorkspacesQuery, queryKeys, runsQuery } from "../../../../lib/queries.ts";
 import { CacheActions } from "./cache-actions.tsx";
 import { CacheGraph, CacheGraphSkeleton } from "./cache-graph.tsx";
+import { latestRemoteMainRun } from "./cache-main-run.ts";
 import { projectRunTaskFlow } from "../runs/_components/run-task-flow.ts";
 import { useRunObserver } from "../runs/_components/use-run-observer.ts";
 
@@ -24,11 +25,7 @@ export function ProjectCache({ project }: { project: ManagedProject }) {
   );
   const [bridgingRunId, setBridgingRunId] = useState<string>();
   const executionRun = activeRun ?? projectRuns.find((run) => run.id === bridgingRunId);
-  const latestPlan = projectRuns.find((run) => run.operation === "plan" && run.status === "completed");
-  const latestApply = projectRuns.find((run) => run.operation === "apply" && run.status === "completed");
-  const headRun = latestPlan && latestApply
-    ? latestPlan.startedAt > latestApply.startedAt ? latestPlan : latestApply
-    : latestPlan ?? latestApply;
+  const headRun = latestRemoteMainRun(projectRuns);
   const { eventsResult: executionEventsResult } = useRunObserver(executionRun?.id);
   const { eventsResult: headEventsResult } = useRunObserver(headRun?.id);
   const executionFlow = useMemo(
@@ -46,12 +43,12 @@ export function ProjectCache({ project }: { project: ManagedProject }) {
 
   useEffect(() => {
     if (activeRun || !executionRun || !executionFlow) return;
-    if (executionRun.operation === "plan" && headRun?.id === executionRun.id) {
+    const completeFlowLoaded = executionRun.nodeCount !== undefined
+      && executionFlow.tasks.length >= executionRun.nodeCount;
+    if (executionRun.operation === "plan" && executionRun.status !== "running" && completeFlowLoaded) {
       setBridgingRunId(undefined);
       return;
     }
-    const completeFlowLoaded = executionRun.nodeCount !== undefined
-      && executionFlow.tasks.length >= executionRun.nodeCount;
     const materialized = executionRun.operation === "apply"
       && executionRun.status === "completed"
       && completeFlowLoaded
@@ -61,7 +58,7 @@ export function ProjectCache({ project }: { project: ManagedProject }) {
         && entries.some((entry) => entry.id === task.runId)
       );
     if (materialized) setBridgingRunId(undefined);
-  }, [activeRun, entries, executionFlow, executionRun, headRun?.id]);
+  }, [activeRun, entries, executionFlow, executionRun]);
   const [confirmClear, setConfirmClear] = useState(false);
   const refresh = () => queryClient.invalidateQueries({ queryKey: queryKeys.projectCache(projectId) });
   const invalidate = useMutation({

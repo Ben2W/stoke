@@ -92,8 +92,8 @@ export function CacheGraph({
           </div>
         </div>
         <div className="flex items-center gap-3 text-[10px] text-zinc-400">
-          <span className="inline-flex items-center gap-1.5"><span className="size-2 rounded-sm border border-blue-300 bg-blue-50" /> Main</span>
-          <span className="inline-flex items-center gap-1.5"><span className="size-2 rounded-sm border border-violet-300 bg-violet-50" /> Workspace version</span>
+          <span className="inline-flex items-center gap-1.5"><span className="size-2 rounded-sm border border-blue-300 bg-blue-50" /> Remote main</span>
+          <span className="inline-flex items-center gap-1.5"><span className="size-2 rounded-sm border border-violet-300 bg-violet-50" /> Checkout version</span>
           <span className="inline-flex items-center gap-1 text-emerald-700"><Check size={11} /> Cached</span>
           <span className="inline-flex items-center gap-1.5"><span className="size-2 rounded-full border border-amber-300 bg-amber-50" /> Invalidated next</span>
         </div>

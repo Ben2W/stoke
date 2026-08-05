@@ -21,13 +21,17 @@ export function projectCacheGraph(
   const activities = new Map<string, CacheGraphNodeActivity>();
   const projected = planned?.flow.tasks.length
     ? projectTasks(planned.flow.tasks, planned.run, entries, activities)
-    : [...entries];
-
-  if (active) mergeActiveTasks(projected, entries, active.flow.tasks, active.run, activities);
+    : [];
   const mainEntryIds = new Set(projected.map((entry) => entry.id));
+  if (active) mergeActiveTasks(projected, entries, active.flow.tasks, active.run, activities);
+  const projectedIds = new Set(projected.map((entry) => entry.id));
   for (const entry of entries) {
-    if (workspaceEntryIds.has(entry.id) && !mainEntryIds.has(entry.id)) projected.push(entry);
+    if (workspaceEntryIds.has(entry.id) && !projectedIds.has(entry.id)) {
+      projected.push(entry);
+      projectedIds.add(entry.id);
+    }
   }
+  if (!projected.length && !workspaceEntryIds.size) projected.push(...entries);
   return { activities, entries: projected, mainEntryIds };
 }
 
@@ -63,8 +67,10 @@ function mergeActiveTasks(
   const sourceById = new Map(sourceEntries.map((entry) => [entry.id, entry]));
   let previousId: string | undefined;
   for (const task of tasks) {
-    const existing = projected.find((entry) => entry.nodePath === task.nodePath);
     const cached = task.runId ? sourceById.get(task.runId) : undefined;
+    const existing = cached
+      ? projected.find((entry) => entry.id === cached.id)
+      : projected.find((entry) => entry.nodePath === task.nodePath);
     const entry = existing ?? cached ?? syntheticEntry(task, run, task.upstreamRunIds.length ? task.upstreamRunIds : previousId ? [previousId] : []);
     if (!existing) projected.push(entry);
     activities.set(entry.id, { status: task.status, synthetic: !sourceEntries.some((candidate) => candidate.id === entry.id) });
