@@ -35,10 +35,6 @@ function WorkspaceDetailContent({ project, workspace }: { project: ManagedProjec
         response.run,
         ...runs.filter((run) => run.id !== response.run.id),
       ]);
-      queryClient.setQueryData<ManagedWorkspace[]>(
-        queryKeys.projectWorkspaces(project.id),
-        (workspaces = []) => workspaces.filter((candidate) => candidate.id !== workspace.id),
-      );
       router.push(dashboardRoutes.project(project.slug));
     },
     onSettled: () => void queryClient.invalidateQueries({ queryKey: queryKeys.runs }),

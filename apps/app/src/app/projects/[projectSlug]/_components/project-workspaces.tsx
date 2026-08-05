@@ -1,17 +1,19 @@
 "use client";
 
 import type { ManagedProject, ManagedRun, ManagedWorkspace } from "@usestoke/managed";
-import { useQuery } from "@tanstack/react-query";
-import { Box, ChevronRight, CircleDashed, LayoutDashboard, Laptop, MapPin, Plus, X } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
-import { projectWorkspacesQuery, runsQuery } from "../../../../lib/queries.ts";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { AlertCircle, Box, ChevronRight, CircleDashed, LayoutDashboard, Laptop, LoaderCircle, MapPin, Plus, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { projectWorkspacesQuery, queryKeys, runsQuery } from "../../../../lib/queries.ts";
 import { CreateWorkspaceDialog } from "./create-workspace-dialog.tsx";
 
 export function ProjectWorkspaces({ project, onSelect }: { project: ManagedProject; onSelect(workspaceId: string): void }) {
+  const queryClient = useQueryClient();
   const workspaces = useQuery(projectWorkspacesQuery(project.id));
   const runs = useQuery(runsQuery);
   const [creating, setCreating] = useState(false);
   const [pending, setPending] = useState<PendingWorkspace[]>([]);
+  const refreshedRemovals = useRef(new Set<string>());
   const projectRuns = useMemo(
     () => (runs.data ?? []).filter((run) => run.projectId === project.id),
     [project.id, runs.data],
@@ -27,6 +29,15 @@ export function ProjectWorkspaces({ project, onSelect }: { project: ManagedProje
       !workspaces.data.some((workspace) => workspace.name === item.name)
     ));
   }, [workspaces.data]);
+
+  useEffect(() => {
+    const completedRemovals = projectRuns.filter((run) =>
+      run.operation === "remove" && run.status === "completed" && !refreshedRemovals.current.has(run.id)
+    );
+    if (!completedRemovals.length) return;
+    for (const run of completedRemovals) refreshedRemovals.current.add(run.id);
+    void queryClient.invalidateQueries({ queryKey: queryKeys.projectWorkspaces(project.id) });
+  }, [project.id, projectRuns, queryClient]);
 
   return (
     <section aria-labelledby="workspaces-heading">
@@ -55,7 +66,14 @@ export function ProjectWorkspaces({ project, onSelect }: { project: ManagedProje
               run={projectRuns.find((run) => run.id === item.runId)}
             />
           ))}
-          {workspaces.data.map((workspace) => <WorkspaceCard key={workspace.id} onSelect={() => onSelect(workspace.id)} workspace={workspace} />)}
+          {workspaces.data.map((workspace) => (
+            <WorkspaceCard
+              key={workspace.id}
+              onSelect={() => onSelect(workspace.id)}
+              removal={findWorkspaceRemoval(projectRuns, workspace)}
+              workspace={workspace}
+            />
+          ))}
         </div>
       ) : (
         <div className="rounded-lg border border-dashed border-zinc-300 bg-white px-6 py-10 text-center">
@@ -108,35 +126,65 @@ function PendingWorkspaceCard({ onDismiss, pending, run }: {
   );
 }
 
-function WorkspaceCard({ workspace, onSelect }: { workspace: ManagedWorkspace; onSelect(): void }) {
+function WorkspaceCard({ workspace, onSelect, removal }: {
+  workspace: ManagedWorkspace;
+  onSelect(): void;
+  removal?: ManagedRun;
+}) {
   const provenance = workspace.createdFrom;
   const fromDashboard = provenance.kind === "dashboard";
+  const removing = removal?.status === "running" || removal?.status === "completed";
+  const removalFailed = removal?.status === "failed" || removal?.status === "orphaned";
   const title = fromDashboard
     ? "Created from Stoke dashboard"
     : `Created from ${provenance.deviceName}`;
   const detail = !fromDashboard ? provenance.checkoutPath : undefined;
 
   return (
-    <button className="group rounded-lg border border-zinc-200 bg-white p-4 text-left shadow-xs transition hover:border-zinc-300 hover:shadow-sm" onClick={onSelect} type="button">
+    <button
+      className={`group rounded-lg border bg-white p-4 text-left shadow-xs transition ${
+        removalFailed ? "border-red-200 hover:border-red-300" : removing ? "cursor-wait border-zinc-200" : "border-zinc-200 hover:border-zinc-300 hover:shadow-sm"
+      }`}
+      disabled={removing}
+      onClick={onSelect}
+      type="button"
+    >
       <div className="flex items-start gap-3">
-        <div className="grid size-8 shrink-0 place-items-center rounded-md bg-zinc-100 text-zinc-500"><Box size={15} /></div>
+        <div className={`grid size-8 shrink-0 place-items-center rounded-md ${removalFailed ? "bg-red-50 text-red-500" : removing ? "bg-amber-50 text-amber-600" : "bg-zinc-100 text-zinc-500"}`}>
+          {removalFailed ? <AlertCircle size={15} /> : removing ? <LoaderCircle className="animate-spin" size={15} /> : <Box size={15} />}
+        </div>
         <div className="min-w-0 flex-1">
           <h3 className="truncate text-sm font-medium text-zinc-900">{workspace.name}</h3>
           <p className="mt-0.5 truncate text-[11px] text-zinc-400">
             {workspace.workflow}{workspace.sourceRevision ? ` · ${workspace.sourceRevision.slice(0, 7)}` : ""}
           </p>
         </div>
-        <time className="shrink-0 text-[10px] text-zinc-400">{relativeTime(workspace.updatedAt)}</time>
-        <ChevronRight className="shrink-0 text-zinc-300 transition group-hover:translate-x-0.5 group-hover:text-zinc-500" size={14} />
+        {removing ? <span className="shrink-0 text-[10px] font-medium text-amber-700">Removing…</span> : <time className="shrink-0 text-[10px] text-zinc-400">{relativeTime(workspace.updatedAt)}</time>}
+        {!removing ? <ChevronRight className="shrink-0 text-zinc-300 transition group-hover:translate-x-0.5 group-hover:text-zinc-500" size={14} /> : null}
       </div>
-      <div className="mt-4 flex min-w-0 items-start gap-2 border-t border-zinc-100 pt-3 text-[11px] text-zinc-500">
-        {fromDashboard ? <LayoutDashboard className="mt-0.5 shrink-0" size={12} /> : <Laptop className="mt-0.5 shrink-0" size={12} />}
-        <span className="min-w-0">
-          <span className="block truncate">{title}</span>
-          {detail ? <span className="mt-0.5 flex items-center gap-1 truncate text-zinc-400"><MapPin size={10} /> {detail}</span> : null}
-        </span>
-      </div>
+      {removalFailed ? (
+        <div className="mt-4 border-t border-red-100 pt-3 text-[11px] text-red-600">
+          <span className="font-medium">Removal failed.</span> {removal.error ?? "Open the workspace to try again."}
+        </div>
+      ) : (
+        <div className="mt-4 flex min-w-0 items-start gap-2 border-t border-zinc-100 pt-3 text-[11px] text-zinc-500">
+          {fromDashboard ? <LayoutDashboard className="mt-0.5 shrink-0" size={12} /> : <Laptop className="mt-0.5 shrink-0" size={12} />}
+          <span className="min-w-0">
+            <span className="block truncate">{removing ? "Running workspace remove handler…" : title}</span>
+            {!removing && detail ? <span className="mt-0.5 flex items-center gap-1 truncate text-zinc-400"><MapPin size={10} /> {detail}</span> : null}
+          </span>
+        </div>
+      )}
     </button>
+  );
+}
+
+function findWorkspaceRemoval(runs: ManagedRun[], workspace: ManagedWorkspace): ManagedRun | undefined {
+  const workspaceUpdatedAt = Date.parse(workspace.updatedAt);
+  return runs.find((run) =>
+    run.operation === "remove"
+    && run.workspace === workspace.name
+    && Date.parse(run.startedAt) >= workspaceUpdatedAt
   );
 }
 
