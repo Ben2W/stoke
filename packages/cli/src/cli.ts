@@ -2737,6 +2737,11 @@ async function runRuntimeOperation<T>(
       }
     }
     if (isHostRequestEvent(event)) {
+      if (externalManagedSocketUrl) {
+        await managedPublisher?.publish(event, true);
+        await answerDashboardHostRequest(runtime, event, respond);
+        return;
+      }
       const suspendPresenter = hostRequestNeedsTerminal(event);
       if (suspendPresenter) presenter?.pause();
       try {
@@ -2751,6 +2756,11 @@ async function runRuntimeOperation<T>(
       return;
     }
     if (isHostCapabilityRequestEvent(event)) {
+      if (externalManagedSocketUrl) {
+        await managedPublisher?.publish(event, true);
+        await answerDashboardHostCapability(runtime, event, respond, sendSession);
+        return;
+      }
       const suspendPresenter = hostCapabilityNeedsTerminal(event);
       const logger = createHostCapabilityLogger(event, presenter);
       if (suspendPresenter) presenter?.pause();
@@ -3016,6 +3026,46 @@ type HostCapabilityLogOptions = {
 type HostCapabilityRequestHandlingOptions = {
   logger?: (data: string, options?: HostCapabilityLogOptions) => void;
 };
+
+async function answerDashboardHostRequest(
+  runtime: RuntimeClient,
+  event: HostRequestEvent,
+  respond?: (id: string, response: unknown) => void | Promise<void>,
+): Promise<void> {
+  const id = event.id ?? event.requestId;
+  if (!id) throw new Error("Dashboard host request is missing id");
+  const response = event.method === "open.external"
+    ? { result: null }
+    : { error: { message: `Dashboard does not support host method ${event.method}` } };
+  if (respond) await respond(id, response);
+  else await runtime.control.hostResponse(id, response);
+}
+
+async function answerDashboardHostCapability(
+  runtime: RuntimeClient,
+  event: HostCapabilityRequestEvent,
+  respond?: (id: string, response: unknown) => void | Promise<void>,
+  sendSession?: (message: unknown) => void | Promise<void>,
+): Promise<void> {
+  const id = event.id ?? event.requestId;
+  if (!id) throw new Error("Dashboard host capability request is missing id");
+  const result = event.capability === "browser.open"
+    ? { opened: true }
+    : event.capability === "ssh"
+      ? { attached: true }
+      : undefined;
+  const response = result
+    ? { result }
+    : { error: { message: `Dashboard does not support host capability ${event.capability}` } };
+  if (sendSession) {
+    await sendSession({ type: "response", id, ...response });
+    if (result) await sendSession({ type: "host.capability.closed", id });
+  } else if (respond) {
+    await respond(id, response);
+  } else {
+    await runtime.control.hostResponse(id, response);
+  }
+}
 
 class UnsupportedHostCapabilityError extends Error {
   constructor(capability: string) {

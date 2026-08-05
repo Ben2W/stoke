@@ -1,11 +1,13 @@
+import { browserHostCapabilities } from "@usestoke/provider-browser/host";
 import { cmuxHostCapabilities } from "@usestoke/provider-cmux/host";
 import { vercelSandboxHostCapabilities } from "@usestoke/provider-vercel-sandbox/host";
+import { vscodeHostCapabilities } from "@usestoke/provider-vscode/host";
 import type { HostCapabilityHandler } from "@usestoke/sdk/host";
 
 export type HostCapabilityDescriptor = { id: string; schemaHash?: string };
 
 export const CLI_HOST_CAPABILITY_HANDLERS = new Map<string, HostCapabilityHandler>(
-  [...cmuxHostCapabilities, ...vercelSandboxHostCapabilities]
+  [...browserHostCapabilities, ...cmuxHostCapabilities, ...vercelSandboxHostCapabilities, ...vscodeHostCapabilities]
     .map((capability) => [capability.id, capability]),
 );
 
@@ -19,9 +21,10 @@ const CLI_HOST_CAPABILITIES: HostCapabilityDescriptor[] = [
 export function effectiveCliHostCapabilities(
   environment: Record<string, string | undefined> = process.env,
 ): HostCapabilityDescriptor[] {
-  return environment.STOKE_WORKSPACE_ORIGIN === "dashboard"
-    ? []
-    : CLI_HOST_CAPABILITIES;
+  if (environment.STOKE_WORKSPACE_ORIGIN !== "dashboard") return CLI_HOST_CAPABILITIES;
+  return CLI_HOST_CAPABILITIES.filter((capability) =>
+    capability.id === "browser.open" || capability.id === "ssh"
+  );
 }
 
 export function assertHostCapabilities(

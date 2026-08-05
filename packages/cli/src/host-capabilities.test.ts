@@ -7,11 +7,12 @@ import {
 describe("CLI host capabilities", () => {
   test("loads locally trusted provider handlers", () => {
     expect(effectiveCliHostCapabilities({}).map((capability) => capability.id))
-      .toEqual(["cmux.call", "ssh"]);
+      .toEqual(["browser.open", "cmux.call", "ssh", "vscode.open"]);
   });
 
-  test("does not claim local device capabilities from a dashboard runner", () => {
-    expect(effectiveCliHostCapabilities({ STOKE_WORKSPACE_ORIGIN: "dashboard" })).toEqual([]);
+  test("claims only dashboard-owned capabilities from a dashboard runner", () => {
+    expect(effectiveCliHostCapabilities({ STOKE_WORKSPACE_ORIGIN: "dashboard" }).map((capability) => capability.id))
+      .toEqual(["browser.open", "ssh"]);
   });
 
   test("rejects missing and incompatible capabilities before execution", () => {

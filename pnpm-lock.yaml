@@ -117,12 +117,18 @@ importers:
       '@usestoke/managed':
         specifier: workspace:*
         version: link:../managed
+      '@usestoke/provider-browser':
+        specifier: workspace:*
+        version: link:../provider-browser
       '@usestoke/provider-cmux':
         specifier: workspace:*
         version: link:../provider-cmux
       '@usestoke/provider-vercel-sandbox':
         specifier: workspace:*
         version: link:../provider-vercel-sandbox
+      '@usestoke/provider-vscode':
+        specifier: workspace:*
+        version: link:../provider-vscode
       '@usestoke/runtime-client':
         specifier: workspace:*
         version: link:../runtime-client
@@ -172,6 +178,22 @@ importers:
         specifier: 6.0.3
         version: 6.0.3
 
+  packages/provider-browser:
+    dependencies:
+      '@usestoke/engine':
+        specifier: workspace:*
+        version: link:../engine
+      '@usestoke/sdk':
+        specifier: workspace:*
+        version: link:../sdk
+    devDependencies:
+      '@types/bun':
+        specifier: latest
+        version: 1.3.14
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
+
   packages/provider-cmux:
     dependencies:
       '@usestoke/engine':
@@ -209,6 +231,22 @@ importers:
       '@types/ws':
         specifier: 8.18.1
         version: 8.18.1
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
+
+  packages/provider-vscode:
+    dependencies:
+      '@usestoke/engine':
+        specifier: workspace:*
+        version: link:../engine
+      '@usestoke/sdk':
+        specifier: workspace:*
+        version: link:../sdk
+    devDependencies:
+      '@types/bun':
+        specifier: latest
+        version: 1.3.14
       typescript:
         specifier: 6.0.3
         version: 6.0.3

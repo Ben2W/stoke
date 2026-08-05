@@ -1,7 +1,11 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { DEFAULT_CONFIG_PATH } from "./project.ts";
-import { STOKE_CLI_VERSION } from "./version.ts";
+
+export const STOKE_INIT_DEV_DEPENDENCIES = {
+  "@usestoke/provider-vercel-sandbox": "0.1.4",
+  "@usestoke/sdk": "0.1.2",
+} as const;
 
 export type InitProjectInput = {
   projectDir: string;
@@ -97,10 +101,7 @@ function upsertProjectDependency(
 }
 
 function stokeDevDependencies(): Record<string, string> {
-  return {
-    "@usestoke/provider-vercel-sandbox": STOKE_CLI_VERSION,
-    "@usestoke/sdk": STOKE_CLI_VERSION,
-  };
+  return STOKE_INIT_DEV_DEPENDENCIES;
 }
 
 function defaultPackageName(projectDir: string): string {

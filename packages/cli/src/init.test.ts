@@ -2,8 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { initProject } from "./init.ts";
-import { STOKE_CLI_VERSION } from "./version.ts";
+import { initProject, STOKE_INIT_DEV_DEPENDENCIES } from "./init.ts";
 
 describe("initProject", () => {
   test("creates the canonical Stoke config and package metadata", () => {
@@ -41,8 +40,7 @@ describe("initProject", () => {
         plan: "stoke plan",
       },
       devDependencies: {
-        "@usestoke/provider-vercel-sandbox": STOKE_CLI_VERSION,
-        "@usestoke/sdk": STOKE_CLI_VERSION,
+        ...STOKE_INIT_DEV_DEPENDENCIES,
       },
     });
 
@@ -79,8 +77,8 @@ describe("initProject", () => {
       plan: "stoke plan",
       test: "echo ok",
     });
-    expect(pkg.dependencies["@usestoke/sdk"]).toBe(STOKE_CLI_VERSION);
-    expect(pkg.devDependencies["@usestoke/provider-vercel-sandbox"]).toBe(STOKE_CLI_VERSION);
+    expect(pkg.dependencies["@usestoke/sdk"]).toBe(STOKE_INIT_DEV_DEPENDENCIES["@usestoke/sdk"]);
+    expect(pkg.devDependencies["@usestoke/provider-vercel-sandbox"]).toBe(STOKE_INIT_DEV_DEPENDENCIES["@usestoke/provider-vercel-sandbox"]);
   });
 
   test("rejects an existing canonical config", () => {

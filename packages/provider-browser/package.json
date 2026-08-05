@@ -1,22 +1,19 @@
 {
-  "name": "@usestoke/provider-vercel-sandbox",
-  "version": "0.1.4",
+  "name": "@usestoke/provider-browser",
+  "version": "0.1.1",
   "license": "MIT",
   "type": "module",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Ben2W/stoke.git",
-    "directory": "packages/provider-vercel-sandbox"
+    "directory": "packages/provider-browser"
   },
   "exports": {
     ".": "./src/index.ts",
     "./host": "./src/host.ts",
     "./package.json": "./package.json"
   },
-  "files": [
-    "src",
-    "README.md"
-  ],
+  "files": ["src", "README.md"],
   "scripts": {
     "build": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
@@ -24,16 +21,11 @@
   },
   "dependencies": {
     "@usestoke/engine": "workspace:*",
-    "@usestoke/managed": "workspace:*",
-    "@usestoke/sdk": "workspace:*",
-    "ws": "8.20.0"
+    "@usestoke/sdk": "workspace:*"
   },
   "devDependencies": {
     "@types/bun": "latest",
-    "@types/ws": "8.18.1",
     "typescript": "latest"
   },
-  "publishConfig": {
-    "access": "public"
-  }
+  "publishConfig": { "access": "public" }
 }

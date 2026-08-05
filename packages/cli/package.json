@@ -1,6 +1,6 @@
 {
   "name": "@usestoke/cli",
-  "version": "0.1.5",
+  "version": "0.1.7",
   "license": "MIT",
   "type": "module",
   "repository": {
@@ -27,8 +27,10 @@
   },
   "dependencies": {
     "@usestoke/managed": "workspace:*",
+    "@usestoke/provider-browser": "workspace:*",
     "@usestoke/provider-cmux": "workspace:*",
     "@usestoke/provider-vercel-sandbox": "workspace:*",
+    "@usestoke/provider-vscode": "workspace:*",
     "@usestoke/sdk": "workspace:*",
     "@usestoke/engine": "workspace:*",
     "@usestoke/runtime-client": "workspace:*",
