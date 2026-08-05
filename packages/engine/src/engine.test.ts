@@ -346,7 +346,7 @@ describe("DevMachineEngine workflow runtime", () => {
     const workspace = await engine.fork({ workflow: "create-test", name: "created" });
     expect(workspace.name).toBe("created");
     expect(workspace.sourceRevision).toBe("597e6932ead77fbf8653705e168ea46601b3e285");
-    expect(workspace.cacheEntryIds).toEqual([]);
+    expect(workspace.cacheEntryIds).toEqual(engine.listNodeRuns().map((run) => run.id));
     expect(workspace.createdFrom).toEqual({ kind: "checkout", deviceId: "device-1", checkoutId: "checkout-1" });
     expect(workspace.ctx).toMatchObject({
       name: "created",

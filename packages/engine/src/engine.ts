@@ -1523,14 +1523,15 @@ export class DevMachineEngine {
     });
     input.cacheExplanations.push(cacheExplanation);
 
-    input.planNodes.push({
+    const planNode: WorkflowPlanNode = {
       index: planIndex,
       path: nodePath,
       name: input.node.name,
       status: "pending",
       reason: cacheExplanation.reason.message,
       upstreamRunIds,
-    });
+    };
+    input.planNodes.push(planNode);
 
     if (input.mode === "plan") {
       return {
@@ -1614,6 +1615,7 @@ export class DevMachineEngine {
     };
 
     input.cache.state.saveNodeRun(record);
+    planNode.runId = record.id;
     for (const artifact of artifacts) {
       const providerId = providerIdOf(artifact);
       this.emit({
