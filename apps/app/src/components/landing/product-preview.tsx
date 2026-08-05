@@ -1,3 +1,5 @@
+"use client";
+
 import { Check, GitBranch, Laptop, MoreHorizontal } from "lucide-react";
 
 const projects = [

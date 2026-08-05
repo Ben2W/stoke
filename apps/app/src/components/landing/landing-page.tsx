@@ -1,3 +1,5 @@
+"use client";
+
 import { ArrowRight } from "lucide-react";
 import { SignInButton } from "../auth/auth-buttons.tsx";
 import { CliInstallCommand } from "../cli-install-command.tsx";

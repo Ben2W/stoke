@@ -1,3 +1,5 @@
+"use client";
+
 import { StokeLogo } from "../brand/stoke-logo.tsx";
 import { SignInButton } from "../auth/auth-buttons.tsx";
 

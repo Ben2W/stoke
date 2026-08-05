@@ -1,3 +1,5 @@
+"use client";
+
 export function StokeLogo({ className = "" }: { className?: string }) {
   return (
     <img

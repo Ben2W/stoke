@@ -1,3 +1,5 @@
+"use client";
+
 import { CircleDashed, Terminal } from "lucide-react";
 import { StokeLogo } from "../brand/stoke-logo.tsx";
 import { WorkspaceTerminal } from "./workspace-terminal.tsx";

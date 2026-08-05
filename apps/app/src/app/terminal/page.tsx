@@ -1,3 +1,5 @@
+"use client";
+
 import { WorkspaceTerminalPage } from "../../components/terminal/workspace-terminal-page.tsx";
 
 export default async function TerminalPage({ searchParams }: {
