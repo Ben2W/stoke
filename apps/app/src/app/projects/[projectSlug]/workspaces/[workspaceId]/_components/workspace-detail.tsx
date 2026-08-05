@@ -2,12 +2,12 @@
 
 import type { ManagedProject, ManagedRun, ManagedWorkspace } from "@usestoke/managed";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Activity, ArrowLeft, Box, LayoutDashboard, Laptop, Trash2 } from "lucide-react";
+import { Activity, ArrowLeft, Box, CircleDashed, LayoutDashboard, Laptop, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { executeProjectRequest } from "../../../../../../lib/api-client.ts";
-import { projectWorkspacesQuery, queryKeys } from "../../../../../../lib/queries.ts";
+import { projectWorkspacesQuery, queryKeys, runsQuery } from "../../../../../../lib/queries.ts";
 import { dashboardRoutes } from "../../../../../../lib/routes.ts";
 import { WorkspaceOperations } from "./workspace-operations.tsx";
 
@@ -23,7 +23,13 @@ export function WorkspaceDetail({ project, workspaceId }: { project: ManagedProj
 function WorkspaceDetailContent({ project, workspace }: { project: ManagedProject; workspace: ManagedWorkspace }) {
   const router = useRouter();
   const queryClient = useQueryClient();
+  const runs = useQuery(runsQuery);
   const [confirmRemove, setConfirmRemove] = useState(false);
+  const runningCount = (runs.data ?? []).filter((run) =>
+    run.projectId === project.id
+    && run.workspace === workspace.name
+    && run.status === "running"
+  ).length;
   const removeWorkspace = useMutation({
     mutationFn: () => executeProjectRequest(project.id, {
       operation: "remove",
@@ -46,7 +52,10 @@ function WorkspaceDetailContent({ project, workspace }: { project: ManagedProjec
       <div className="mt-4 overflow-hidden rounded-xl border border-zinc-200 bg-white">
         <div className="flex flex-col justify-between gap-5 p-6 sm:flex-row sm:items-start">
           <div className="flex gap-3"><div className="grid size-10 place-items-center rounded-lg bg-zinc-100 text-zinc-500"><Box size={18} /></div><div><h2 className="text-lg font-semibold">{workspace.name}</h2><p className="mt-1 text-xs text-zinc-500">Workflow {workspace.workflow}</p></div></div>
-          <Link className="inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-md border border-zinc-200 bg-white px-3 text-xs font-medium text-zinc-700 shadow-xs transition hover:border-zinc-300 hover:bg-zinc-50" href={dashboardRoutes.workspaceRuns(project.slug, workspace.id)}><Activity size={14} /> View runs</Link>
+          <Link className={`inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-md border px-3 text-xs font-medium shadow-xs transition ${runningCount ? "border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100" : "border-zinc-200 bg-white text-zinc-700 hover:border-zinc-300 hover:bg-zinc-50"}`} href={dashboardRoutes.workspaceRuns(project.slug, workspace.id)}>
+            {runningCount ? <CircleDashed className="animate-spin" size={14} /> : <Activity size={14} />}
+            {runningCount ? `${runningCount} running` : "View runs"}
+          </Link>
         </div>
         <div className="grid border-t border-zinc-100 sm:grid-cols-3">
           <Metadata label="Created from" value={workspace.createdFrom.kind === "dashboard" ? "Stoke dashboard" : workspace.createdFrom.deviceName} icon={workspace.createdFrom.kind === "dashboard" ? LayoutDashboard : Laptop} />

@@ -169,6 +169,7 @@ function sessionEvent(event: unknown): Record<string, unknown> {
       type: "host.capability.request",
       id: typeof event.id === "string" ? event.id : event.requestId,
       ...(typeof event.nodePath === "string" ? { nodePath: event.nodePath } : {}),
+      ...(typeof event.expiresAt === "string" ? { expiresAt: event.expiresAt } : {}),
       capability: event.capability,
       params: event.params,
     };

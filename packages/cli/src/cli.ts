@@ -3067,6 +3067,7 @@ type HostCapabilityRequestEvent = {
   requestId?: string;
   id?: string;
   nodePath?: string;
+  expiresAt?: string;
   capability: string;
   params: unknown;
 };
@@ -3497,6 +3498,7 @@ function isHostCapabilityRequestEvent(value: unknown): value is HostCapabilityRe
     value.type === "host.capability.request" &&
     (typeof value.requestId === "string" || typeof value.id === "string") &&
     (value.nodePath === undefined || typeof value.nodePath === "string") &&
+    (value.expiresAt === undefined || typeof value.expiresAt === "string") &&
     typeof value.capability === "string";
 }
 

@@ -39,6 +39,12 @@ export async function respondToRunCapability(
   if (!request || typeof request.data.capability !== "string") {
     throw new Error("Host capability request was not found");
   }
+  if (
+    typeof request.data.expiresAt === "string"
+    && Date.parse(request.data.expiresAt) <= Date.now()
+  ) {
+    throw new Error("Host capability request has expired");
+  }
 
   return await dependencies.appendRunEvent(userId, runId, {
     type: "host.capability.response",

@@ -112,7 +112,7 @@ importers:
   packages/cli:
     dependencies:
       '@usestoke/engine':
-        specifier: workspace:0.1.5
+        specifier: workspace:0.1.6
         version: link:../engine
       '@usestoke/managed':
         specifier: workspace:0.1.6
@@ -133,7 +133,7 @@ importers:
         specifier: workspace:0.1.2
         version: link:../runtime-client
       '@usestoke/sdk':
-        specifier: workspace:0.1.5
+        specifier: workspace:0.1.6
         version: link:../sdk
       chalk:
         specifier: ^5.6.2
@@ -297,7 +297,7 @@ importers:
         specifier: 0.18.1
         version: 0.18.1(@effect/experimental@0.60.0(@effect/platform@0.96.1(effect@3.21.2))(effect@3.21.2))(@effect/platform@0.96.1(effect@3.21.2))(@effect/rpc@0.75.1(@effect/platform@0.96.1(effect@3.21.2))(effect@3.21.2))(effect@3.21.2)
       '@usestoke/engine':
-        specifier: workspace:0.1.5
+        specifier: workspace:0.1.6
         version: link:../engine
       '@usestoke/managed':
         specifier: workspace:0.1.6

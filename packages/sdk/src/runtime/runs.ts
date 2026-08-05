@@ -24,6 +24,7 @@ export type HostCapabilitySessionResult<Result = unknown> = {
 
 export type HostCapabilityRequestOptions = {
   nodePath?: string;
+  timeoutMs?: number;
 };
 
 export type RunRecord = {
@@ -62,6 +63,7 @@ export type RunStore = {
 };
 
 const encoder = new TextEncoder();
+const DEFAULT_HOST_CAPABILITY_TIMEOUT_MS = 60_000;
 
 export function createRunStore(): RunStore {
   return {
@@ -204,8 +206,8 @@ export function requestHostCapability(
   params: unknown,
   options: HostCapabilityRequestOptions = {},
 ): Promise<unknown> {
-  const { requestId } = emitHostCapabilityRequest(run, capability, params, options);
-  return waitForHostResponse(store, requestId);
+  const request = emitHostCapabilityRequest(run, capability, params, options);
+  return waitForHostResponse(store, run, request.requestId, request.timeoutMs, capability);
 }
 
 export async function requestHostCapabilitySession<Result = unknown>(
@@ -215,12 +217,12 @@ export async function requestHostCapabilitySession<Result = unknown>(
   params: unknown,
   options: HostCapabilityRequestOptions = {},
 ): Promise<HostCapabilitySessionResult<Result>> {
-  const { requestId } = emitHostCapabilityRequest(run, capability, params, options);
+  const { requestId, timeoutMs } = emitHostCapabilityRequest(run, capability, params, options);
   const closed = new Promise<void>((resolveClosed, rejectClosed) => {
     store.hostCapabilityResources.set(requestId, { resolveClosed, rejectClosed });
     run.pendingHostCapabilityResourceIds.add(requestId);
   });
-  const result = await waitForHostResponse(store, requestId).catch((error) => {
+  const result = await waitForHostResponse(store, run, requestId, timeoutMs, capability).catch((error) => {
     closeHostCapabilityResource(store, requestId, error instanceof Error ? error : new Error(String(error)));
     throw error;
   });
@@ -242,7 +244,7 @@ function emitHostCapabilityRequest(
   capability: string,
   params: unknown,
   options: HostCapabilityRequestOptions = {},
-): { requestId: string } {
+): { requestId: string; timeoutMs: number } {
   if (run.status !== "running") {
     throw new RuntimeHostRequestError({
       message: `Run ${run.id} is ${run.status}`,
@@ -250,22 +252,55 @@ function emitHostCapabilityRequest(
     });
   }
   const requestId = `cap_req_${crypto.randomUUID()}`;
+  const timeoutMs = capabilityTimeoutMs(options.timeoutMs);
   run.pendingHostRequestIds.add(requestId);
   emitRunEvent(run, {
     type: "host.capability.request",
     requestId,
     id: requestId,
     ...(options.nodePath ? { nodePath: options.nodePath } : {}),
+    expiresAt: new Date(Date.now() + timeoutMs).toISOString(),
     capability,
     params,
   });
-  return { requestId };
+  return { requestId, timeoutMs };
 }
 
-function waitForHostResponse(store: RunStore, requestId: string): Promise<unknown> {
+function waitForHostResponse(
+  store: RunStore,
+  run: RunRecord,
+  requestId: string,
+  timeoutMs: number,
+  capability: string,
+): Promise<unknown> {
   return new Promise<unknown>((resolve, reject) => {
-    store.hostResponses.set(requestId, { resolve, reject });
+    const timeout = setTimeout(() => {
+      if (!store.hostResponses.delete(requestId)) return;
+      run.pendingHostRequestIds.delete(requestId);
+      reject(new RuntimeHostRequestError({
+        requestId,
+        message: `Host capability ${capability} timed out after ${Math.max(1, Math.round(timeoutMs / 1_000))} seconds`,
+      }));
+    }, timeoutMs);
+    store.hostResponses.set(requestId, {
+      resolve(value) {
+        clearTimeout(timeout);
+        resolve(value);
+      },
+      reject(error) {
+        clearTimeout(timeout);
+        reject(error);
+      },
+    });
   });
+}
+
+function capabilityTimeoutMs(value: number | undefined): number {
+  if (value === undefined) return DEFAULT_HOST_CAPABILITY_TIMEOUT_MS;
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new Error("Host capability timeoutMs must be a positive finite number");
+  }
+  return value;
 }
 
 export function subscribeRunEvents(run: RunRecord, handler: (event: RuntimeEvent) => void): () => void {

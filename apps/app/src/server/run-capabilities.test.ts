@@ -66,4 +66,16 @@ describe("dashboard run capabilities", () => {
       listRunEvents: async () => [],
     })).rejects.toThrow("not found");
   });
+
+  test("rejects an acknowledgement after the request expires", async () => {
+    expect(respondToRunCapability("user-1", run.id, "cap_req_preview", {
+      result: { opened: true },
+    }, {
+      getRun: async () => run,
+      listRunEvents: async () => [{
+        ...request,
+        data: { ...request.data, expiresAt: "2026-08-05T09:59:59.000Z" },
+      }],
+    })).rejects.toThrow("expired");
+  });
 });

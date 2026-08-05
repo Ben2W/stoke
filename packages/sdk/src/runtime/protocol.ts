@@ -100,6 +100,7 @@ export type HostCapabilityRequestEvent = {
   requestId: string;
   id: string;
   nodePath?: string;
+  expiresAt: string;
   capability: string;
   params: unknown;
 };

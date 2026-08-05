@@ -102,6 +102,7 @@ export type LocalSelectRequest = {
 
 export type LocalHostCapabilityRequestOptions = {
   nodePath?: string;
+  timeoutMs?: number;
 };
 
 export type HostCapabilitySession<Result = unknown> = {

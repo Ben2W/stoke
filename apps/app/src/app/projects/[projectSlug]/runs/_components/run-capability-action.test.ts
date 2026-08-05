@@ -16,6 +16,7 @@ describe("run capability action", () => {
   test("shows a named browser link until it is acknowledged", () => {
     const request = event(1, "host.capability.request", {
       id: "cap_req_preview",
+      expiresAt: "2026-08-05T10:01:01.000Z",
       capability: "browser.open",
       params: {
         url: "https://preview.example",
@@ -27,6 +28,7 @@ describe("run capability action", () => {
       requestId: "cap_req_preview",
       url: "https://preview.example",
       displayName: "Open development preview",
+      expiresAt: "2026-08-05T10:01:01.000Z",
     });
     expect(pendingBrowserOpen([
       request,

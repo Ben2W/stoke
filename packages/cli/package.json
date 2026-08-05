@@ -1,6 +1,6 @@
 {
   "name": "@usestoke/cli",
-  "version": "0.1.13",
+  "version": "0.1.14",
   "license": "MIT",
   "type": "module",
   "repository": {
@@ -31,8 +31,8 @@
     "@usestoke/provider-cmux": "0.1.3",
     "@usestoke/provider-vercel-sandbox": "0.1.10",
     "@usestoke/provider-vscode": "0.1.2",
-    "@usestoke/sdk": "workspace:0.1.5",
-    "@usestoke/engine": "workspace:0.1.5",
+    "@usestoke/sdk": "workspace:0.1.6",
+    "@usestoke/engine": "workspace:0.1.6",
     "@usestoke/runtime-client": "workspace:0.1.2",
     "chalk": "^5.6.2",
     "commander": "^14.0.3",
