@@ -326,10 +326,12 @@ function evaluatorSandboxName(projectId: string): string {
   return `stoke-evaluator-${createHash("sha256").update(`${environment}:${projectId}`).digest("hex").slice(0, 24)}`;
 }
 
-function evaluatorRuntimeRevision(): string {
-  return process.env.VERCEL_GIT_COMMIT_SHA
-    ?? process.env.VERCEL_DEPLOYMENT_ID
-    ?? process.env.VERCEL_URL
+export function evaluatorRuntimeRevision(
+  environment: Readonly<Record<string, string | undefined>> = process.env,
+): string {
+  return environment.VERCEL_DEPLOYMENT_ID
+    ?? environment.VERCEL_GIT_COMMIT_SHA
+    ?? environment.VERCEL_URL
     ?? "development";
 }
 

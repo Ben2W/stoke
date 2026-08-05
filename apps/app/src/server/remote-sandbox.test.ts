@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { ManagedProject, ProjectStateResponse } from "@usestoke/managed";
-import { runRemoteSandbox } from "./remote-sandbox.ts";
+import { evaluatorRuntimeRevision, runRemoteSandbox } from "./remote-sandbox.ts";
 
 const project: ManagedProject = {
   id: "f95df42b-48da-4a02-926b-60def0ee77cf",
@@ -17,6 +17,13 @@ const state: ProjectStateResponse = {
 };
 
 describe("persistent remote evaluator", () => {
+  test("refreshes runtime artifacts for every Vercel deployment", () => {
+    expect(evaluatorRuntimeRevision({
+      VERCEL_DEPLOYMENT_ID: "deployment-new",
+      VERCEL_GIT_COMMIT_SHA: "commit-old",
+      VERCEL_URL: "stoke.example",
+    })).toBe("deployment-new");
+  });
   test("bootstraps once and reuses the evaluator and discovered workflow", async () => {
     const files = new Map<string, Buffer>();
     const commands: Array<{ cmd: string; args?: string[]; env?: Record<string, string> }> = [];
