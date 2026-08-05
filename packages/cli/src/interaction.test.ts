@@ -3,8 +3,8 @@ import { createLocalInteractionPresenter } from "./interaction.ts";
 
 describe("local interaction presenter", () => {
   test("presents provider-owned URLs without waiting for completion", async () => {
-    const previousNoBrowser = process.env.RIGKIT_NO_BROWSER;
-    process.env.RIGKIT_NO_BROWSER = "1";
+    const previousNoBrowser = process.env.STOKE_NO_BROWSER;
+    process.env.STOKE_NO_BROWSER = "1";
 
     try {
       const presenter = createLocalInteractionPresenter();
@@ -19,9 +19,9 @@ describe("local interaction presenter", () => {
       expect(true).toBe(true);
     } finally {
       if (previousNoBrowser === undefined) {
-        delete process.env.RIGKIT_NO_BROWSER;
+        delete process.env.STOKE_NO_BROWSER;
       } else {
-        process.env.RIGKIT_NO_BROWSER = previousNoBrowser;
+        process.env.STOKE_NO_BROWSER = previousNoBrowser;
       }
     }
   });

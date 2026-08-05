@@ -23,7 +23,7 @@ export function runtimeStreamEffect(
 }
 
 export function assertSupportedApiVersion(response: Response): void {
-  assertSupportedApiVersionHeader(response.headers.get("x-rigkit-api-version"));
+  assertSupportedApiVersionHeader(response.headers.get("x-stoke-api-version"));
 }
 
 export function assertSupportedApiVersionHeader(version: string | null | undefined): void {

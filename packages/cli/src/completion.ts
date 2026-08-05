@@ -1206,7 +1206,7 @@ function completePathEntries(
 function shouldSkipCompletionDirectory(name: string, namePrefix: string): boolean {
   if (
     name === ".git" ||
-    name === ".rigkit" ||
+    name === ".stoke" ||
     name === ".turbo" ||
     name === "node_modules" ||
     name === "dist" ||

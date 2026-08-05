@@ -133,7 +133,7 @@ function defaultHello(): RuntimeSessionHello {
     type: "hello",
     transportVersion: 1,
     host: {
-      name: "rigkit-runtime-client",
+      name: "stoke-runtime-client",
       version: "0.0.0",
     },
     hostMethods: [],

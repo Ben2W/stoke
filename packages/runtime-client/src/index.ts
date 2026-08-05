@@ -98,7 +98,7 @@ export {
   type RuntimeClientError,
   type RuntimeStartupErrorReason,
 } from "./errors.ts";
-export { RIGKIT_RUNTIME_CLIENT_VERSION } from "./version.ts";
+export { STOKE_RUNTIME_CLIENT_VERSION } from "./version.ts";
 export {
   RuntimeClientSchemaError,
   RuntimeErrorResponseEffectSchema,

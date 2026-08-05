@@ -59,7 +59,7 @@ export type RemoteRuntimeOptions = {
 };
 
 export type GetOrStartRuntimeOptions = RuntimeProjectOptions & {
-  rigkitHome?: string;
+  stokeHome?: string;
   idleMs?: number;
 };
 
@@ -90,7 +90,7 @@ export function getOrStartRuntimeEffect(options: GetOrStartRuntimeOptions): Effe
 async function getOrStartRuntimeUnsafe(options: GetOrStartRuntimeOptions): Promise<RuntimeClient> {
   const projectDir = resolve(options.projectDir);
   const configPath = resolve(options.configPath);
-  const canonicalConfigPath = join(projectDir, "rigkit", "index.ts");
+  const canonicalConfigPath = join(projectDir, "stoke", "index.ts");
   if (configPath !== canonicalConfigPath) {
     throw new RuntimeStartupError({
       reason: "missing-runtime",
@@ -113,7 +113,7 @@ async function getOrStartRuntimeUnsafe(options: GetOrStartRuntimeOptions): Promi
     stateFile: options.stateFile,
     source: options.source,
   });
-  const paths = runtimePaths(projectId, options.rigkitHome);
+  const paths = runtimePaths(projectId, options.stokeHome);
 
   const existing = await tryExistingRuntime(paths, projectId, runtimeFingerprint);
   if (existing) return existing;
@@ -179,13 +179,13 @@ export function runtimeFingerprintFor(options: RuntimeProjectOptions): string {
   for (const file of dotenvFilesFor(projectDir)) updateFileFingerprint(hash, "dotenv", file);
   for (const file of projectFingerprintFiles(projectDir)) updateFileFingerprint(hash, "project-file", file);
   updateProjectSurfaceFingerprint(hash, projectDir);
-  updateStokePackageFingerprint(hash, join(projectDir, "node_modules", "@rigkit"));
+  updateStokePackageFingerprint(hash, join(projectDir, "node_modules", "@usestoke"));
 
   return `sha256-${hash.digest("hex")}`;
 }
 
-export function runtimePaths(projectId: string, rigkitHome = defaultStokeHome()): RuntimePaths {
-  const root = join(rigkitHome, "runtimes");
+export function runtimePaths(projectId: string, stokeHome = defaultStokeHome()): RuntimePaths {
+  const root = join(stokeHome, "runtimes");
   return {
     root,
     handlePath: join(root, `${projectId}.json`),
@@ -196,7 +196,7 @@ export function runtimePaths(projectId: string, rigkitHome = defaultStokeHome())
 }
 
 export function defaultStokeHome(): string {
-  return process.env.RIGKIT_HOME ? resolve(process.env.RIGKIT_HOME) : join(homedir(), ".rigkit");
+  return process.env.STOKE_HOME ? resolve(process.env.STOKE_HOME) : join(homedir(), ".stoke");
 }
 
 async function tryExistingRuntime(
@@ -426,7 +426,7 @@ function readToken(path: string): string | undefined {
 
 function createToken(path: string): string {
   mkdirSync(dirname(path), { recursive: true });
-  const token = `rigkit_${randomUUID().replaceAll("-", "")}`;
+  const token = `stoke_${randomUUID().replaceAll("-", "")}`;
   writeFileSync(path, `${token}\n`);
   try {
     chmodSync(path, 0o600);
@@ -580,7 +580,7 @@ function projectFingerprintFiles(projectDir: string): string[] {
 
 function updateProjectSurfaceFingerprint(hash: ReturnType<typeof createHash>, projectDir: string): void {
   if (!existsSync(projectDir)) return;
-  const ignored = new Set([".git", ".rigkit", "node_modules", "dist", "build", ".next", ".astro"]);
+  const ignored = new Set([".git", ".stoke", "node_modules", "dist", "build", ".next", ".astro"]);
   const entries = readdirSync(projectDir, { withFileTypes: true })
     .filter((entry) => !ignored.has(entry.name))
     .map((entry) => `${entry.name}:${entry.isDirectory() ? "dir" : entry.isFile() ? "file" : "other"}`)
@@ -590,10 +590,10 @@ function updateProjectSurfaceFingerprint(hash: ReturnType<typeof createHash>, pr
 }
 
 function updateStokePackageFingerprint(hash: ReturnType<typeof createHash>, scopeDir: string): void {
-  // Walk every @rigkit scope reachable from the project's node_modules. We
-  // recurse into each package's own `node_modules/@rigkit` so that nested
+  // Walk every @usestoke scope reachable from the project's node_modules. We
+  // recurse into each package's own `node_modules/@usestoke` so that nested
   // installs (e.g. @usestoke/engine living under @usestoke/sdk/node_modules) are
-  // hashed too. Without this, edits to a transitive @rigkit package wouldn't
+  // hashed too. Without this, edits to a transitive @usestoke package wouldn't
   // shift the runtime fingerprint and the daemon wouldn't auto-restart.
   const visited = new Set<string>();
   const stack: string[] = [scopeDir];
@@ -616,12 +616,12 @@ function updateStokePackageFingerprint(hash: ReturnType<typeof createHash>, scop
       .sort();
 
     for (const packageDir of packageDirs) {
-      updateFileFingerprint(hash, "rigkit-package", join(packageDir, "package.json"));
+      updateFileFingerprint(hash, "stoke-package", join(packageDir, "package.json"));
       for (const file of collectFiles(join(packageDir, "src"))) {
-        updateFileFingerprint(hash, "rigkit-source", file);
+        updateFileFingerprint(hash, "stoke-source", file);
       }
-      // Recurse into this package's own @rigkit scope, if it has nested deps.
-      stack.push(join(packageDir, "node_modules", "@rigkit"));
+      // Recurse into this package's own @usestoke scope, if it has nested deps.
+      stack.push(join(packageDir, "node_modules", "@usestoke"));
     }
   }
 }

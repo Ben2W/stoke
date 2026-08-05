@@ -240,7 +240,7 @@ async function runCli(argv: string[]): Promise<void> {
     .addHelpText("after", [
       "",
       "Global Options:",
-      "  --chdir <dir>     Switch to a directory containing rigkit/index.ts before running the command",
+      "  --chdir <dir>     Switch to a directory containing stoke/index.ts before running the command",
       "  --project <ref>   Override the current managed project",
       "  --json            Print machine-readable JSON where supported",
       "",
@@ -2024,7 +2024,7 @@ function inputPromptMessage(name: string, property: JsonSchemaProperty): string 
 }
 
 function isWorkspaceInputProperty(property: JsonSchemaProperty): boolean {
-  const input = property["x-rigkit-input"];
+  const input = property["x-stoke-input"];
   return Boolean(input && typeof input === "object" && (input as { kind?: unknown }).kind === "workspace");
 }
 
@@ -2430,7 +2430,7 @@ async function runHelp(invocation: CliInvocation): Promise<void> {
     cmd("completion", "Generate shell completion script"),
     "",
     ui.dim("Options:"),
-    opt("--chdir <dir>",   "Switch to a directory containing rigkit/index.ts before running the command"),
+    opt("--chdir <dir>",   "Switch to a directory containing stoke/index.ts before running the command"),
     opt("--project <ref>", "Override the current managed project"),
     opt("--json",          "Print machine-readable JSON where supported"),
   ].join("\n"));
@@ -2783,7 +2783,7 @@ async function runRuntimeOperation<T>(
           type: "hello",
           transportVersion: 1,
           host: {
-            name: "rigkit-cli",
+            name: "stoke-cli",
             version: STOKE_CLI_VERSION,
           },
           hostMethods: CLI_HOST_METHODS,
@@ -3147,7 +3147,7 @@ function createHostCapabilityLogger(
 }
 
 function isTrustedCaptureHostCommand(params: unknown): boolean {
-  return process.env.RIGKIT_TRUST_HOST_COMMANDS === "1" &&
+  return process.env.STOKE_TRUST_HOST_COMMANDS === "1" &&
     isRecord(params) &&
     params.mode !== "interactive";
 }
@@ -3291,7 +3291,7 @@ async function runHostCommand(params: unknown): Promise<{ exitCode: number; stdo
     : undefined;
   const stdin = params.stdin === null || typeof params.stdin === "string" ? params.stdin : undefined;
 
-  if (process.env.RIGKIT_TRUST_HOST_COMMANDS !== "1") {
+  if (process.env.STOKE_TRUST_HOST_COMMANDS !== "1") {
     const allowed = await confirmHostCommand({ argv, cwd, env, mode, reason });
     if (!allowed) throw new Error(`Host command denied`);
   }

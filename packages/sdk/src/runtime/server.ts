@@ -7,9 +7,9 @@ import {
   HttpServerResponse,
 } from "@effect/platform";
 import * as BunHttpServer from "@effect/platform-bun/BunHttpServer";
-import { RIGKIT_ENGINE_VERSION } from "@usestoke/engine";
+import { STOKE_ENGINE_VERSION } from "@usestoke/engine";
 import { Effect, Exit, Scope } from "effect";
-import { RIGKIT_RUNTIME_VERSION } from "./version.ts";
+import { STOKE_RUNTIME_VERSION } from "./version.ts";
 import { runtimeJsonError, sessionRunIdFor } from "./app.ts";
 import { createRuntimeControlApiHandler } from "./api-handlers.ts";
 import type { RuntimeAppState } from "./control.ts";
@@ -73,8 +73,8 @@ export async function serveRuntime(options: ServeRuntimeOptions): Promise<Runtim
         pid: process.pid,
         url,
         tokenPath: options.tokenPath,
-        engineVersion: RIGKIT_ENGINE_VERSION,
-        runtimeVersion: RIGKIT_RUNTIME_VERSION,
+        engineVersion: STOKE_ENGINE_VERSION,
+        runtimeVersion: STOKE_RUNTIME_VERSION,
         startedAt,
         expiresAt,
       }, null, 2)}\n`,

@@ -21,19 +21,19 @@ describe("runtime manager", () => {
   test("computes stable ids from project and config paths", () => {
     const first = projectIdFor({
       projectDir: "/tmp/project",
-      configPath: "/tmp/project/rigkit/index.ts",
+      configPath: "/tmp/project/stoke/index.ts",
     });
     const second = projectIdFor({
       projectDir: "/tmp/project",
-      configPath: "/tmp/project/rigkit/index.ts",
+      configPath: "/tmp/project/stoke/index.ts",
     });
     const differentConfig = projectIdFor({
       projectDir: "/tmp/project",
-      configPath: "/tmp/project/rigkit/other.ts",
+      configPath: "/tmp/project/stoke/other.ts",
     });
     const differentSource = projectIdFor({
       projectDir: "/tmp/project",
-      configPath: "/tmp/project/rigkit/index.ts",
+      configPath: "/tmp/project/stoke/index.ts",
       source: { kind: "github", commitSha: "abc" },
     });
 
@@ -44,30 +44,30 @@ describe("runtime manager", () => {
   });
 
   test("rejects non-canonical config paths before starting a runtime", async () => {
-    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-runtime-manager-config-"));
+    const projectDir = mkdtempSync(join(tmpdir(), "stoke-runtime-manager-config-"));
     const configPath = join(projectDir, "rig.config.ts");
-    const rigkitHome = mkdtempSync(join(tmpdir(), "rigkit-runtime-manager-home-"));
+    const stokeHome = mkdtempSync(join(tmpdir(), "stoke-runtime-manager-home-"));
 
     try {
       await expect(getOrStartRuntime({
         projectDir,
         configPath,
-        rigkitHome,
+        stokeHome,
       })).rejects.toThrow(
-        `Stoke config must be ${join(projectDir, "rigkit", "index.ts")}; ${configPath} is not supported.`,
+        `Stoke config must be ${join(projectDir, "stoke", "index.ts")}; ${configPath} is not supported.`,
       );
     } finally {
       rmSync(projectDir, { recursive: true, force: true });
-      rmSync(rigkitHome, { recursive: true, force: true });
+      rmSync(stokeHome, { recursive: true, force: true });
     }
   });
 
   test("keeps project ids stable while config fingerprints change", () => {
-    const root = mkdtempSync(join(tmpdir(), "rigkit-runtime-client-id-"));
+    const root = mkdtempSync(join(tmpdir(), "stoke-runtime-client-id-"));
     try {
       const projectDir = join(root, "project");
-      const configPath = join(projectDir, "rigkit", "index.ts");
-      mkdirSync(join(projectDir, "rigkit"), { recursive: true });
+      const configPath = join(projectDir, "stoke", "index.ts");
+      mkdirSync(join(projectDir, "stoke"), { recursive: true });
       writeFileSync(configPath, "export default { name: 'one' }\n");
 
       const first = projectIdFor({ projectDir, configPath });
@@ -88,7 +88,7 @@ describe("runtime manager", () => {
   test("keeps project ids stable while managed state revisions restart the runtime", () => {
     const base = {
       projectDir: "/tmp/project",
-      configPath: "/tmp/project/rigkit/index.ts",
+      configPath: "/tmp/project/stoke/index.ts",
       managedState: {
         projectId: "managed-project",
         apiUrl: "https://usestoke.dev",
@@ -105,13 +105,13 @@ describe("runtime manager", () => {
     expect(runtimeFingerprintFor(changed)).not.toBe(runtimeFingerprintFor(base));
   });
 
-  test("changes runtime fingerprints when rigkit helper files change", () => {
-    const root = mkdtempSync(join(tmpdir(), "rigkit-runtime-client-helper-fingerprint-"));
+  test("changes runtime fingerprints when Stoke helper files change", () => {
+    const root = mkdtempSync(join(tmpdir(), "stoke-runtime-client-helper-fingerprint-"));
     try {
       const projectDir = join(root, "project");
-      const configPath = join(projectDir, "rigkit", "index.ts");
-      const helperPath = join(projectDir, "rigkit", "shared", "inputs.ts");
-      mkdirSync(join(projectDir, "rigkit", "shared"), { recursive: true });
+      const configPath = join(projectDir, "stoke", "index.ts");
+      const helperPath = join(projectDir, "stoke", "shared", "inputs.ts");
+      mkdirSync(join(projectDir, "stoke", "shared"), { recursive: true });
       writeFileSync(configPath, "export { workflow } from './shared/inputs.ts'\n");
       writeFileSync(helperPath, "export const scope = 'test:unit'\n");
 
@@ -126,22 +126,22 @@ describe("runtime manager", () => {
   });
 
   test("restarts local runtimes when the runtime fingerprint changes", async () => {
-    const root = mkdtempSync(join(tmpdir(), "rigkit-runtime-client-restart-"));
+    const root = mkdtempSync(join(tmpdir(), "stoke-runtime-client-restart-"));
     let first: Awaited<ReturnType<typeof getOrStartRuntime>> | undefined;
     let second: Awaited<ReturnType<typeof getOrStartRuntime>> | undefined;
 
     try {
       const projectDir = join(root, "project");
-      const rigkitHome = join(root, "home");
-      const configPath = join(projectDir, "rigkit", "index.ts");
-      mkdirSync(join(projectDir, "rigkit"), { recursive: true });
+      const stokeHome = join(root, "home");
+      const configPath = join(projectDir, "stoke", "index.ts");
+      mkdirSync(join(projectDir, "stoke"), { recursive: true });
       writeFileSync(configPath, "export default { name: 'one' }\n");
       writeFakeRuntimeBin(projectDir);
 
       first = await getOrStartRuntime({
         projectDir,
         configPath,
-        rigkitHome,
+        stokeHome,
         idleMs: 60_000,
       });
       const firstHealth = await first.control.health();
@@ -150,7 +150,7 @@ describe("runtime manager", () => {
       second = await getOrStartRuntime({
         projectDir,
         configPath,
-        rigkitHome,
+        stokeHome,
         idleMs: 60_000,
       });
       const secondHealth = await second.control.health();
@@ -168,17 +168,17 @@ describe("runtime manager", () => {
     }
   });
 
-  test("restarts local runtimes when nested rigkit files change", async () => {
-    const root = mkdtempSync(join(tmpdir(), "rigkit-runtime-client-helper-restart-"));
+  test("restarts local runtimes when nested Stoke files change", async () => {
+    const root = mkdtempSync(join(tmpdir(), "stoke-runtime-client-helper-restart-"));
     let first: Awaited<ReturnType<typeof getOrStartRuntime>> | undefined;
     let second: Awaited<ReturnType<typeof getOrStartRuntime>> | undefined;
 
     try {
       const projectDir = join(root, "project");
-      const rigkitHome = join(root, "home");
-      const configPath = join(projectDir, "rigkit", "index.ts");
-      const helperPath = join(projectDir, "rigkit", "shared", "inputs.ts");
-      mkdirSync(join(projectDir, "rigkit", "shared"), { recursive: true });
+      const stokeHome = join(root, "home");
+      const configPath = join(projectDir, "stoke", "index.ts");
+      const helperPath = join(projectDir, "stoke", "shared", "inputs.ts");
+      mkdirSync(join(projectDir, "stoke", "shared"), { recursive: true });
       writeFileSync(configPath, "export { workflow } from './shared/inputs.ts'\n");
       writeFileSync(helperPath, "export const scope = 'test:unit'\n");
       writeFakeRuntimeBin(projectDir);
@@ -186,7 +186,7 @@ describe("runtime manager", () => {
       first = await getOrStartRuntime({
         projectDir,
         configPath,
-        rigkitHome,
+        stokeHome,
         idleMs: 60_000,
       });
 
@@ -194,7 +194,7 @@ describe("runtime manager", () => {
       second = await getOrStartRuntime({
         projectDir,
         configPath,
-        rigkitHome,
+        stokeHome,
         idleMs: 60_000,
       });
 
@@ -208,13 +208,13 @@ describe("runtime manager", () => {
     }
   });
 
-  test("derives handle, token, and lock paths from rigkit home", () => {
-    const paths = runtimePaths("sha256-test", "/tmp/rigkit-home");
+  test("derives handle, token, and lock paths from stoke home", () => {
+    const paths = runtimePaths("sha256-test", "/tmp/stoke-home");
 
-    expect(paths.root).toBe(join("/tmp/rigkit-home", "runtimes"));
-    expect(paths.handlePath).toBe(join("/tmp/rigkit-home", "runtimes", "sha256-test.json"));
-    expect(paths.tokenPath).toBe(join("/tmp/rigkit-home", "runtimes", "sha256-test.token"));
-    expect(paths.lockPath).toBe(join("/tmp/rigkit-home", "runtimes", "sha256-test.lock"));
+    expect(paths.root).toBe(join("/tmp/stoke-home", "runtimes"));
+    expect(paths.handlePath).toBe(join("/tmp/stoke-home", "runtimes", "sha256-test.json"));
+    expect(paths.tokenPath).toBe(join("/tmp/stoke-home", "runtimes", "sha256-test.token"));
+    expect(paths.lockPath).toBe(join("/tmp/stoke-home", "runtimes", "sha256-test.lock"));
   });
 
   test("remote run event clients reject unsupported runtime API versions", async () => {
@@ -225,7 +225,7 @@ describe("runtime manager", () => {
       fetch: (request) => {
         path = new URL(request.url).pathname;
         return new Response("", {
-          headers: { "x-rigkit-api-version": String(SUPPORTED_RUNTIME_API_VERSION + 1) },
+          headers: { "x-stoke-api-version": String(SUPPORTED_RUNTIME_API_VERSION + 1) },
         });
       },
     });
@@ -260,7 +260,7 @@ describe("runtime manager", () => {
         authorization = request.headers.get("authorization") ?? "";
         path = new URL(request.url).pathname;
         return Response.json(metadata, {
-          headers: { "x-rigkit-api-version": String(SUPPORTED_RUNTIME_API_VERSION) },
+          headers: { "x-stoke-api-version": String(SUPPORTED_RUNTIME_API_VERSION) },
         });
       },
     });
@@ -290,7 +290,7 @@ describe("runtime manager", () => {
           runtimeVersion: "runtime-test",
           protocolHash: "sha256:test",
         },
-        { headers: { "x-rigkit-api-version": String(SUPPORTED_RUNTIME_API_VERSION + 1) } },
+        { headers: { "x-stoke-api-version": String(SUPPORTED_RUNTIME_API_VERSION + 1) } },
       ),
     });
 
@@ -315,7 +315,7 @@ describe("runtime manager", () => {
         { error: { message: "bad token" } },
         {
           status: 401,
-          headers: { "x-rigkit-api-version": String(SUPPORTED_RUNTIME_API_VERSION) },
+          headers: { "x-stoke-api-version": String(SUPPORTED_RUNTIME_API_VERSION) },
         },
       ),
     });
@@ -338,7 +338,7 @@ describe("runtime manager", () => {
       hostname: "127.0.0.1",
       port: 0,
       fetch: () => new Response("{", {
-        headers: { "x-rigkit-api-version": String(SUPPORTED_RUNTIME_API_VERSION) },
+        headers: { "x-stoke-api-version": String(SUPPORTED_RUNTIME_API_VERSION) },
       }),
     });
 
@@ -355,20 +355,20 @@ describe("runtime manager", () => {
   });
 
   test("local manager exposes typed missing runtime failures", async () => {
-    const root = mkdtempSync(join(tmpdir(), "rigkit-runtime-client-"));
+    const root = mkdtempSync(join(tmpdir(), "stoke-runtime-client-"));
     try {
       const projectDir = join(root, "project");
-      const rigkitHome = join(root, "home");
+      const stokeHome = join(root, "home");
 
       await expect(getOrStartRuntime({
         projectDir,
-        configPath: join(projectDir, "rigkit", "index.ts"),
-        rigkitHome,
+        configPath: join(projectDir, "stoke", "index.ts"),
+        stokeHome,
       })).rejects.toBeInstanceOf(RuntimeStartupError);
       await expect(getOrStartRuntime({
         projectDir,
-        configPath: join(projectDir, "rigkit", "index.ts"),
-        rigkitHome,
+        configPath: join(projectDir, "stoke", "index.ts"),
+        stokeHome,
       })).rejects.toMatchObject({ reason: "missing-runtime" });
     } finally {
       rmSync(root, { recursive: true, force: true });
@@ -412,14 +412,14 @@ server = Bun.serve({
         engineVersion: "engine-test",
         runtimeVersion: "runtime-test",
         expiresAt: new Date(Date.now() + 60_000).toISOString(),
-      }, { headers: { "x-rigkit-api-version": "${SUPPORTED_RUNTIME_API_VERSION}" } });
+      }, { headers: { "x-stoke-api-version": "${SUPPORTED_RUNTIME_API_VERSION}" } });
     }
     if (url.pathname === "/shutdown") {
       setTimeout(() => {
         server.stop(true);
         process.exit(0);
       }, 0);
-      return Response.json({ ok: true }, { headers: { "x-rigkit-api-version": "${SUPPORTED_RUNTIME_API_VERSION}" } });
+      return Response.json({ ok: true }, { headers: { "x-stoke-api-version": "${SUPPORTED_RUNTIME_API_VERSION}" } });
     }
     return Response.json({ error: { message: "Not found" } }, { status: 404 });
   },

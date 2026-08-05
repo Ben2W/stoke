@@ -25,7 +25,7 @@ import {
   type RunStore,
 } from "./runs.ts";
 import { createRuntimeStateCoordinator, type RuntimeStateCoordinator } from "./state.ts";
-import { RIGKIT_RUNTIME_VERSION } from "./version.ts";
+import { STOKE_RUNTIME_VERSION } from "./version.ts";
 
 export type EngineLoadOptions = {
   projectId?: string;
@@ -193,7 +193,7 @@ function jsonSchemaForField(
     Object.assign(schema, workflowJsonSchema(workflows));
   }
   if (field.kind === "workspace") {
-    schema["x-rigkit-input"] = {
+    schema["x-stoke-input"] = {
       kind: "workspace",
       workflow: operation.workflow,
       resolve: "data",

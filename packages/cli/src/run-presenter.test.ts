@@ -36,7 +36,7 @@ function captureStderr(fn: () => void, options: { columns?: number } = {}): stri
   const chunks: string[] = [];
   const previousWrite = process.stderr.write;
   const previousColumns = process.stderr.columns;
-  const previousRender = process.env.RIGKIT_RENDER;
+  const previousRender = process.env.STOKE_RENDER;
   process.stderr.write = ((chunk: string | Uint8Array) => {
     chunks.push(String(chunk));
     return true;
@@ -44,16 +44,16 @@ function captureStderr(fn: () => void, options: { columns?: number } = {}): stri
   if (options.columns !== undefined) {
     process.stderr.columns = options.columns;
   }
-  delete process.env.RIGKIT_RENDER;
+  delete process.env.STOKE_RENDER;
   try {
     fn();
   } finally {
     process.stderr.write = previousWrite;
     process.stderr.columns = previousColumns;
     if (previousRender === undefined) {
-      delete process.env.RIGKIT_RENDER;
+      delete process.env.STOKE_RENDER;
     } else {
-      process.env.RIGKIT_RENDER = previousRender;
+      process.env.STOKE_RENDER = previousRender;
     }
   }
   return chunks.join("");

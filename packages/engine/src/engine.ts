@@ -352,11 +352,11 @@ type DefinitionSourceFile = {
 
 function projectDirForConfigPath(configPath: string): string {
   const configDir = dirname(configPath);
-  return basename(configDir) === "rigkit" ? dirname(configDir) : configDir;
+  return basename(configDir) === "stoke" ? dirname(configDir) : configDir;
 }
 
 function canonicalConfigPath(projectDir: string): string {
-  return join(projectDir, "rigkit", "index.ts");
+  return join(projectDir, "stoke", "index.ts");
 }
 
 function definitionSourcesFor(configPath: string): DefinitionSourceFile[] {
@@ -457,7 +457,7 @@ export class DevMachineEngine {
     const roots = normalizeDefinitions(mod);
     const loaded = await Promise.all(roots.map((root) => this.resolveWorkflow(root)));
     if (loaded.length === 0) {
-      throw new Error(`rigkit/index.ts must export at least one workflow`);
+      throw new Error(`stoke/index.ts must export at least one workflow`);
     }
     this.providers = mergeProviderPlugins([
       ...this.providers,
@@ -2505,10 +2505,10 @@ async function resolveConfigValue(value: unknown): Promise<unknown> {
 function normalizeDefinitions(mod: Record<string, unknown>): WorkflowNodeDefinition<any, any, any>[] {
   if (isPlainObject(mod.workflows)) {
     const workflows = Object.entries(mod.workflows);
-    if (workflows.length === 0) throw new Error(`rigkit/index.ts workflows export must not be empty`);
+    if (workflows.length === 0) throw new Error(`stoke/index.ts workflows export must not be empty`);
     return workflows.map(([name, value]) => {
       if (!isWorkflowNode(value)) {
-        throw new Error(`rigkit/index.ts workflows.${name} must be a workflow node`);
+        throw new Error(`stoke/index.ts workflows.${name} must be a workflow node`);
       }
       return value;
     });
@@ -2518,7 +2518,7 @@ function normalizeDefinitions(mod: Record<string, unknown>): WorkflowNodeDefinit
     .filter(([name, value]) => name !== "default" && name !== "workflow" && isWorkflowNode(value))
     .map(([, value]) => value as WorkflowNodeDefinition<any, any, any>);
   if (workflows.length === 0) {
-    throw new Error(`rigkit/index.ts must export workflow nodes, for example: export const dev = workflow("dev", ...).step(...)`);
+    throw new Error(`stoke/index.ts must export workflow nodes, for example: export const dev = workflow("dev", ...).step(...)`);
   }
   return workflows;
 }

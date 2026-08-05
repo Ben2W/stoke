@@ -11,13 +11,13 @@ import type {
 } from "./provider/types.ts";
 import type { DevMachineEvent, ExecResult, JsonValue, WorkflowProviderCheckResult } from "./types.ts";
 
-function rigkitIndexPath(projectDir: string): string {
-  return join(projectDir, "rigkit", "index.ts");
+function stokeIndexPath(projectDir: string): string {
+  return join(projectDir, "stoke", "index.ts");
 }
 
 function writeStokeIndex(projectDir: string, contents: string): string {
-  const configPath = rigkitIndexPath(projectDir);
-  mkdirSync(join(projectDir, "rigkit"), { recursive: true });
+  const configPath = stokeIndexPath(projectDir);
+  mkdirSync(join(projectDir, "stoke"), { recursive: true });
   writeFileSync(configPath, contents);
   return configPath;
 }
@@ -42,7 +42,7 @@ function createScopedTestState(projectDir: string) {
 
 describe("DevMachineEngine workflow runtime", () => {
   test("infers operation host capabilities from the captured provider scope", async () => {
-    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-capability-manifest-"));
+    const projectDir = mkdtempSync(join(tmpdir(), "stoke-capability-manifest-"));
     writeStokeIndex(projectDir, `
       import { defineProvider, workflow } from "${import.meta.dir}/index.ts";
 
@@ -70,17 +70,17 @@ describe("DevMachineEngine workflow runtime", () => {
   });
 
   test("rejects non-canonical config paths", async () => {
-    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-noncanonical-config-"));
+    const projectDir = mkdtempSync(join(tmpdir(), "stoke-noncanonical-config-"));
     const configPath = join(projectDir, "rig.config.ts");
     writeFileSync(configPath, "export const dev = {}\n");
 
     await expect(createDevMachineEngine({ projectDir, configPath })).rejects.toThrow(
-      `Stoke config must be ${rigkitIndexPath(projectDir)}; ${configPath} is not supported.`,
+      `Stoke config must be ${stokeIndexPath(projectDir)}; ${configPath} is not supported.`,
     );
   });
 
   test("plans, applies graph nodes, reuses graph cache, and forks workspaces", async () => {
-    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-"));
+    const projectDir = mkdtempSync(join(tmpdir(), "stoke-"));
     writeStokeIndex(projectDir,
       `
         import { defineProvider, workflow, z } from "${import.meta.dir}/index.ts";
@@ -234,7 +234,7 @@ describe("DevMachineEngine workflow runtime", () => {
   });
 
   test("creates workspaces from workspace definitions and exposes persisted workspace context", async () => {
-    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-"));
+    const projectDir = mkdtempSync(join(tmpdir(), "stoke-"));
     writeStokeIndex(projectDir,
       `
         import { defineProvider, workflow } from "${import.meta.dir}/index.ts";
@@ -332,7 +332,7 @@ describe("DevMachineEngine workflow runtime", () => {
   });
 
   test("runs workspace operations with scalar inputs", async () => {
-    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-"));
+    const projectDir = mkdtempSync(join(tmpdir(), "stoke-"));
     writeStokeIndex(projectDir,
       `
         import { sequence, z } from "${import.meta.dir}/index.ts";
@@ -420,7 +420,7 @@ describe("DevMachineEngine workflow runtime", () => {
   });
 
   test("rejects workspace names that are not shell-safe", async () => {
-    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-"));
+    const projectDir = mkdtempSync(join(tmpdir(), "stoke-"));
     writeStokeIndex(projectDir,
       `
         import { sequence } from "${import.meta.dir}/index.ts";
@@ -446,7 +446,7 @@ describe("DevMachineEngine workflow runtime", () => {
   });
 
   test("loads multiple named workflow exports", async () => {
-    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-"));
+    const projectDir = mkdtempSync(join(tmpdir(), "stoke-"));
     writeStokeIndex(projectDir,
       `
         import { sequence } from "${import.meta.dir}/index.ts";
@@ -469,7 +469,7 @@ describe("DevMachineEngine workflow runtime", () => {
   });
 
   test("creates state through an injectable state service factory", async () => {
-    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-"));
+    const projectDir = mkdtempSync(join(tmpdir(), "stoke-"));
     writeStokeIndex(projectDir,
       `
         import { sequence } from "${import.meta.dir}/index.ts";
@@ -478,7 +478,7 @@ describe("DevMachineEngine workflow runtime", () => {
       `,
     );
 
-    const configPath = rigkitIndexPath(projectDir);
+    const configPath = stokeIndexPath(projectDir);
     const calls: Array<{ projectDir: string; configPath?: string; scope?: string }> = [];
     const engine = await createDevMachineEngine({
       projectDir,
@@ -512,7 +512,7 @@ describe("DevMachineEngine workflow runtime", () => {
   });
 
   test("invalidates task cache when handler source changes", async () => {
-    const rootDir = mkdtempSync(join(tmpdir(), "rigkit-handler-cache-"));
+    const rootDir = mkdtempSync(join(tmpdir(), "stoke-handler-cache-"));
     const firstProjectDir = join(rootDir, "one");
     const secondProjectDir = join(rootDir, "two");
     const state = createStateStore({ projectDir: rootDir });
@@ -561,7 +561,7 @@ describe("DevMachineEngine workflow runtime", () => {
   });
 
   test("invalidates task cache when closed-over config source changes", async () => {
-    const rootDir = mkdtempSync(join(tmpdir(), "rigkit-closed-over-cache-"));
+    const rootDir = mkdtempSync(join(tmpdir(), "stoke-closed-over-cache-"));
     const firstProjectDir = join(rootDir, "one");
     const secondProjectDir = join(rootDir, "two");
     const state = createStateStore({ projectDir: rootDir });
@@ -604,7 +604,7 @@ describe("DevMachineEngine workflow runtime", () => {
   });
 
   test("keeps upstream task cache when adding a new downstream task", async () => {
-    const rootDir = mkdtempSync(join(tmpdir(), "rigkit-insert-task-cache-"));
+    const rootDir = mkdtempSync(join(tmpdir(), "stoke-insert-task-cache-"));
     const firstProjectDir = join(rootDir, "one");
     const secondProjectDir = join(rootDir, "two");
     const state = createStateStore({ projectDir: rootDir });
@@ -648,11 +648,11 @@ describe("DevMachineEngine workflow runtime", () => {
   });
 
   test("invalidates task cache when task version changes", async () => {
-    const rootDir = mkdtempSync(join(tmpdir(), "rigkit-task-version-cache-"));
+    const rootDir = mkdtempSync(join(tmpdir(), "stoke-task-version-cache-"));
     const firstProjectDir = join(rootDir, "one");
     const secondProjectDir = join(rootDir, "two");
     const state = createStateStore({ projectDir: rootDir });
-    const previous = process.env.RIGKIT_TASK_VERSION;
+    const previous = process.env.STOKE_TASK_VERSION;
     const writeConfig = (projectDir: string) => writeStokeIndex(projectDir,
       `
         import { workflow } from "${import.meta.dir}/index.ts";
@@ -661,8 +661,8 @@ describe("DevMachineEngine workflow runtime", () => {
 
         export const root = app.sequence("root").task(
           "value",
-          { version: process.env.RIGKIT_TASK_VERSION },
-          async () => ({ ctx: { value: process.env.RIGKIT_TASK_VERSION } }),
+          { version: process.env.STOKE_TASK_VERSION },
+          async () => ({ ctx: { value: process.env.STOKE_TASK_VERSION } }),
         );
       `,
     );
@@ -670,7 +670,7 @@ describe("DevMachineEngine workflow runtime", () => {
     writeConfig(secondProjectDir);
 
     try {
-      process.env.RIGKIT_TASK_VERSION = "one";
+      process.env.STOKE_TASK_VERSION = "one";
       const first = await createDevMachineEngine({
         projectDir: firstProjectDir,
         state,
@@ -680,7 +680,7 @@ describe("DevMachineEngine workflow runtime", () => {
       expect(applied.context.value).toBe("one");
       expect((await first.plan({ workflow: "task-version-cache" })).cachedNodeCount).toBe(1);
 
-      process.env.RIGKIT_TASK_VERSION = "two";
+      process.env.STOKE_TASK_VERSION = "two";
       const second = await createDevMachineEngine({
         projectDir: secondProjectDir,
         state,
@@ -692,12 +692,12 @@ describe("DevMachineEngine workflow runtime", () => {
       const reapplied = await second.apply({ workflow: "task-version-cache" });
       expect(reapplied.context.value).toBe("two");
     } finally {
-      restoreEnv("RIGKIT_TASK_VERSION", previous);
+      restoreEnv("STOKE_TASK_VERSION", previous);
     }
   });
 
   test("stores globally scoped sequence runs in fragment state and busts downstream local cache", async () => {
-    const rootDir = mkdtempSync(join(tmpdir(), "rigkit-global-fragment-"));
+    const rootDir = mkdtempSync(join(tmpdir(), "stoke-global-fragment-"));
     const firstProjectDir = join(rootDir, "one");
     const secondProjectDir = join(rootDir, "two");
     const managedState = createScopedTestState(rootDir);
@@ -753,7 +753,7 @@ describe("DevMachineEngine workflow runtime", () => {
   });
 
   test("lists cache entries in workflow plan order", async () => {
-    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-cache-order-"));
+    const projectDir = mkdtempSync(join(tmpdir(), "stoke-cache-order-"));
 
     writeStokeIndex(projectDir,
       `
@@ -786,7 +786,7 @@ describe("DevMachineEngine workflow runtime", () => {
   });
 
   test("explains cached and changed task cache decisions", async () => {
-    const rootDir = mkdtempSync(join(tmpdir(), "rigkit-cache-explain-"));
+    const rootDir = mkdtempSync(join(tmpdir(), "stoke-cache-explain-"));
     const firstProjectDir = join(rootDir, "one");
     const secondProjectDir = join(rootDir, "two");
     const state = createStateStore({ projectDir: rootDir });
@@ -828,7 +828,7 @@ describe("DevMachineEngine workflow runtime", () => {
   });
 
   test("invalidates global cache entries by plan display path", async () => {
-    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-global-cache-invalidate-"));
+    const projectDir = mkdtempSync(join(tmpdir(), "stoke-global-cache-invalidate-"));
     const managedState = createScopedTestState(projectDir);
 
     writeStokeIndex(projectDir,
@@ -864,21 +864,21 @@ describe("DevMachineEngine workflow runtime", () => {
   });
 
   test("allows a later local task to invalidate an earlier global fragment task", async () => {
-    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-global-invalidates-"));
+    const projectDir = mkdtempSync(join(tmpdir(), "stoke-global-invalidates-"));
     const managedState = createScopedTestState(projectDir);
 
     const previous = {
-      installCount: process.env.RIGKIT_GLOBAL_INSTALL_COUNT,
-      authCount: process.env.RIGKIT_GLOBAL_AUTH_COUNT,
-      repoCount: process.env.RIGKIT_LOCAL_REPO_COUNT,
-      checkCount: process.env.RIGKIT_LOCAL_CHECK_COUNT,
-      forceReauth: process.env.RIGKIT_FORCE_GLOBAL_REAUTH,
+      installCount: process.env.STOKE_GLOBAL_INSTALL_COUNT,
+      authCount: process.env.STOKE_GLOBAL_AUTH_COUNT,
+      repoCount: process.env.STOKE_LOCAL_REPO_COUNT,
+      checkCount: process.env.STOKE_LOCAL_CHECK_COUNT,
+      forceReauth: process.env.STOKE_FORCE_GLOBAL_REAUTH,
     };
-    process.env.RIGKIT_GLOBAL_INSTALL_COUNT = "0";
-    process.env.RIGKIT_GLOBAL_AUTH_COUNT = "0";
-    process.env.RIGKIT_LOCAL_REPO_COUNT = "0";
-    process.env.RIGKIT_LOCAL_CHECK_COUNT = "0";
-    process.env.RIGKIT_FORCE_GLOBAL_REAUTH = "0";
+    process.env.STOKE_GLOBAL_INSTALL_COUNT = "0";
+    process.env.STOKE_GLOBAL_AUTH_COUNT = "0";
+    process.env.STOKE_LOCAL_REPO_COUNT = "0";
+    process.env.STOKE_LOCAL_CHECK_COUNT = "0";
+    process.env.STOKE_FORCE_GLOBAL_REAUTH = "0";
 
     writeStokeIndex(projectDir,
       `
@@ -886,21 +886,21 @@ describe("DevMachineEngine workflow runtime", () => {
 
         const base = sequence("base")
           .task("install", async () => {
-            const count = Number(process.env.RIGKIT_GLOBAL_INSTALL_COUNT ?? "0") + 1;
-            process.env.RIGKIT_GLOBAL_INSTALL_COUNT = String(count);
+            const count = Number(process.env.STOKE_GLOBAL_INSTALL_COUNT ?? "0") + 1;
+            process.env.STOKE_GLOBAL_INSTALL_COUNT = String(count);
             return { ctx: { installed: "install-" + count } };
           })
           .task("auth", async ({ step }) => {
-            const count = Number(process.env.RIGKIT_GLOBAL_AUTH_COUNT ?? "0") + 1;
-            process.env.RIGKIT_GLOBAL_AUTH_COUNT = String(count);
+            const count = Number(process.env.STOKE_GLOBAL_AUTH_COUNT ?? "0") + 1;
+            process.env.STOKE_GLOBAL_AUTH_COUNT = String(count);
             return { ctx: { ...step.ctx, token: "token-" + count } };
           })
           .global();
 
         const repo = sequence("repo")
           .task("clone", async ({ step }) => {
-            const count = Number(process.env.RIGKIT_LOCAL_REPO_COUNT ?? "0") + 1;
-            process.env.RIGKIT_LOCAL_REPO_COUNT = String(count);
+            const count = Number(process.env.STOKE_LOCAL_REPO_COUNT ?? "0") + 1;
+            process.env.STOKE_LOCAL_REPO_COUNT = String(count);
             return { ctx: { ...step.ctx, repoToken: step.ctx.token, repoCount: count } };
           });
 
@@ -908,10 +908,10 @@ describe("DevMachineEngine workflow runtime", () => {
           .add(base)
           .add(repo)
           .task("check-auth", { cacheTTL: 0 }, async ({ step }) => {
-            const count = Number(process.env.RIGKIT_LOCAL_CHECK_COUNT ?? "0") + 1;
-            process.env.RIGKIT_LOCAL_CHECK_COUNT = String(count);
-            if (process.env.RIGKIT_FORCE_GLOBAL_REAUTH === "1") {
-              process.env.RIGKIT_FORCE_GLOBAL_REAUTH = "0";
+            const count = Number(process.env.STOKE_LOCAL_CHECK_COUNT ?? "0") + 1;
+            process.env.STOKE_LOCAL_CHECK_COUNT = String(count);
+            if (process.env.STOKE_FORCE_GLOBAL_REAUTH === "1") {
+              process.env.STOKE_FORCE_GLOBAL_REAUTH = "0";
               return step.invalidate("auth");
             }
             return { ctx: step.ctx };
@@ -930,31 +930,31 @@ describe("DevMachineEngine workflow runtime", () => {
       const first = await engine.apply({ workflow: "root" });
       expect(first.context.token).toBe("token-1");
       expect(first.context.repoToken).toBe("token-1");
-      expect(process.env.RIGKIT_GLOBAL_INSTALL_COUNT).toBe("1");
-      expect(process.env.RIGKIT_GLOBAL_AUTH_COUNT).toBe("1");
-      expect(process.env.RIGKIT_LOCAL_REPO_COUNT).toBe("1");
-      expect(process.env.RIGKIT_LOCAL_CHECK_COUNT).toBe("1");
+      expect(process.env.STOKE_GLOBAL_INSTALL_COUNT).toBe("1");
+      expect(process.env.STOKE_GLOBAL_AUTH_COUNT).toBe("1");
+      expect(process.env.STOKE_LOCAL_REPO_COUNT).toBe("1");
+      expect(process.env.STOKE_LOCAL_CHECK_COUNT).toBe("1");
 
-      process.env.RIGKIT_FORCE_GLOBAL_REAUTH = "1";
+      process.env.STOKE_FORCE_GLOBAL_REAUTH = "1";
       const second = await engine.apply({ workflow: "root" });
       expect(second.context.token).toBe("token-2");
       expect(second.context.repoToken).toBe("token-2");
-      expect(process.env.RIGKIT_GLOBAL_INSTALL_COUNT).toBe("1");
-      expect(process.env.RIGKIT_GLOBAL_AUTH_COUNT).toBe("2");
-      expect(process.env.RIGKIT_LOCAL_REPO_COUNT).toBe("2");
-      expect(process.env.RIGKIT_LOCAL_CHECK_COUNT).toBe("3");
+      expect(process.env.STOKE_GLOBAL_INSTALL_COUNT).toBe("1");
+      expect(process.env.STOKE_GLOBAL_AUTH_COUNT).toBe("2");
+      expect(process.env.STOKE_LOCAL_REPO_COUNT).toBe("2");
+      expect(process.env.STOKE_LOCAL_CHECK_COUNT).toBe("3");
       expect([...managedState.scopes.keys()].filter((scope) => scope.startsWith("fragment:"))).toHaveLength(1);
     } finally {
-      restoreEnv("RIGKIT_GLOBAL_INSTALL_COUNT", previous.installCount);
-      restoreEnv("RIGKIT_GLOBAL_AUTH_COUNT", previous.authCount);
-      restoreEnv("RIGKIT_LOCAL_REPO_COUNT", previous.repoCount);
-      restoreEnv("RIGKIT_LOCAL_CHECK_COUNT", previous.checkCount);
-      restoreEnv("RIGKIT_FORCE_GLOBAL_REAUTH", previous.forceReauth);
+      restoreEnv("STOKE_GLOBAL_INSTALL_COUNT", previous.installCount);
+      restoreEnv("STOKE_GLOBAL_AUTH_COUNT", previous.authCount);
+      restoreEnv("STOKE_LOCAL_REPO_COUNT", previous.repoCount);
+      restoreEnv("STOKE_LOCAL_CHECK_COUNT", previous.checkCount);
+      restoreEnv("STOKE_FORCE_GLOBAL_REAUTH", previous.forceReauth);
     }
   });
 
   test("stores provider JSON state in Stoke-owned provider storage", async () => {
-    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-"));
+    const projectDir = mkdtempSync(join(tmpdir(), "stoke-"));
     const state = createStateStore({ projectDir });
     const plugin: BaseProviderPlugin = {
       providerId: "test",
@@ -990,7 +990,7 @@ describe("DevMachineEngine workflow runtime", () => {
   });
 
   test("stores provider host JSON state outside project state", async () => {
-    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-"));
+    const projectDir = mkdtempSync(join(tmpdir(), "stoke-"));
     const state = createStateStore({ projectDir });
     const hostStorageDir = join(projectDir, ".host-storage");
     const opened: string[] = [];
@@ -999,7 +999,7 @@ describe("DevMachineEngine workflow runtime", () => {
       async createProvider({ storage, hostStorage, local }) {
         storage.set("project", { value: "state" });
         hostStorage.set("token", { value: "secret" });
-        await local.open("rigkit://provider-auth");
+        await local.open("stoke://provider-auth");
         return new FakeWorkflowProvider();
       },
     };
@@ -1031,7 +1031,7 @@ describe("DevMachineEngine workflow runtime", () => {
     await engine.load();
     await engine.plan({ workflow: "provider-host-storage" });
 
-    expect(opened).toEqual(["rigkit://provider-auth"]);
+    expect(opened).toEqual(["stoke://provider-auth"]);
 
     const files = readdirSync(hostStorageDir);
     expect(files).toHaveLength(1);
@@ -1043,7 +1043,7 @@ describe("DevMachineEngine workflow runtime", () => {
   });
 
   test("includes provider checks in workflow plans", async () => {
-    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-provider-status-"));
+    const projectDir = mkdtempSync(join(tmpdir(), "stoke-provider-status-"));
     writeStokeIndex(projectDir,
       `
         import { defineProvider, workflow } from "${import.meta.dir}/index.ts";
@@ -1084,7 +1084,7 @@ describe("DevMachineEngine workflow runtime", () => {
   });
 
   test("requires provider checks before applying workflow tasks", async () => {
-    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-provider-check-required-"));
+    const projectDir = mkdtempSync(join(tmpdir(), "stoke-provider-check-required-"));
     writeStokeIndex(projectDir,
       `
         import { defineProvider, workflow } from "${import.meta.dir}/index.ts";
@@ -1122,7 +1122,7 @@ describe("DevMachineEngine workflow runtime", () => {
   });
 
   test("rejects task outputs that are not JSON serializable", async () => {
-    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-"));
+    const projectDir = mkdtempSync(join(tmpdir(), "stoke-"));
     writeStokeIndex(projectDir,
       `
         import { workflow } from "${import.meta.dir}/index.ts";
@@ -1145,7 +1145,7 @@ describe("DevMachineEngine workflow runtime", () => {
   });
 
   test("routes terminal interactions through provider runtimes", async () => {
-    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-"));
+    const projectDir = mkdtempSync(join(tmpdir(), "stoke-"));
     writeStokeIndex(projectDir,
       `
         import { defineProvider, workflow } from "${import.meta.dir}/index.ts";
@@ -1188,7 +1188,7 @@ describe("DevMachineEngine workflow runtime", () => {
   });
 
   test("waits for provider-owned interaction completion before resuming tasks", async () => {
-    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-"));
+    const projectDir = mkdtempSync(join(tmpdir(), "stoke-"));
     writeStokeIndex(projectDir,
       `
         import { defineProvider, workflow } from "${import.meta.dir}/index.ts";
@@ -1237,9 +1237,9 @@ describe("DevMachineEngine workflow runtime", () => {
   });
 
   test("provider config contributes to the scoped task cache fingerprint", async () => {
-    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-"));
+    const projectDir = mkdtempSync(join(tmpdir(), "stoke-"));
     const state = createStateStore({ projectDir });
-    const previousToken = process.env.RIGKIT_TEST_PROVIDER_TOKEN;
+    const previousToken = process.env.STOKE_TEST_PROVIDER_TOKEN;
     writeStokeIndex(projectDir,
       `
         import { defineProvider, workflow } from "${import.meta.dir}/index.ts";
@@ -1247,7 +1247,7 @@ describe("DevMachineEngine workflow runtime", () => {
         const app = workflow("test");
 
         export const setup = app.sequence("setup")
-          .addProvider("test", defineProvider("test", { token: () => process.env.RIGKIT_TEST_PROVIDER_TOKEN }))
+          .addProvider("test", defineProvider("test", { token: () => process.env.STOKE_TEST_PROVIDER_TOKEN }))
           .task("touch", async ({ providers }) => {
           const vm = await providers.test.createVm();
           await vm.exec("touch /tmp/setup", { name: "touch setup" });
@@ -1258,7 +1258,7 @@ describe("DevMachineEngine workflow runtime", () => {
 
     try {
       const provider = new FakeWorkflowProvider();
-      process.env.RIGKIT_TEST_PROVIDER_TOKEN = "one";
+      process.env.STOKE_TEST_PROVIDER_TOKEN = "one";
       const first = await createDevMachineEngine({
         projectDir,
         state,
@@ -1268,7 +1268,7 @@ describe("DevMachineEngine workflow runtime", () => {
       await first.apply({ workflow: "test" });
       expect((await first.plan({ workflow: "test" })).cachedNodeCount).toBe(1);
 
-      process.env.RIGKIT_TEST_PROVIDER_TOKEN = "two";
+      process.env.STOKE_TEST_PROVIDER_TOKEN = "two";
       const second = await createDevMachineEngine({
         projectDir,
         state,
@@ -1278,17 +1278,17 @@ describe("DevMachineEngine workflow runtime", () => {
       expect((await second.plan({ workflow: "test" })).cachedNodeCount).toBe(0);
     } finally {
       if (previousToken === undefined) {
-        delete process.env.RIGKIT_TEST_PROVIDER_TOKEN;
+        delete process.env.STOKE_TEST_PROVIDER_TOKEN;
       } else {
-        process.env.RIGKIT_TEST_PROVIDER_TOKEN = previousToken;
+        process.env.STOKE_TEST_PROVIDER_TOKEN = previousToken;
       }
     }
   });
 
   test("provider config changes only invalidate tasks after addProvider", async () => {
-    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-scoped-provider-cache-"));
+    const projectDir = mkdtempSync(join(tmpdir(), "stoke-scoped-provider-cache-"));
     const state = createStateStore({ projectDir });
-    const previousToken = process.env.RIGKIT_TEST_PROVIDER_TOKEN;
+    const previousToken = process.env.STOKE_TEST_PROVIDER_TOKEN;
     writeStokeIndex(projectDir,
       `
         import { defineProvider, workflow } from "${import.meta.dir}/index.ts";
@@ -1297,7 +1297,7 @@ describe("DevMachineEngine workflow runtime", () => {
 
         export const setup = app.sequence("setup")
           .task("pure-before", async () => ({ ctx: { before: true } }))
-          .addProvider("test", defineProvider("test", { token: () => process.env.RIGKIT_TEST_PROVIDER_TOKEN }))
+          .addProvider("test", defineProvider("test", { token: () => process.env.STOKE_TEST_PROVIDER_TOKEN }))
           .task("uses-provider", async ({ providers, step }) => {
             const vm = await providers.test.createVm();
             await vm.exec("touch /tmp/scoped", { name: "touch scoped" });
@@ -1309,7 +1309,7 @@ describe("DevMachineEngine workflow runtime", () => {
 
     try {
       const provider = new FakeWorkflowProvider();
-      process.env.RIGKIT_TEST_PROVIDER_TOKEN = "one";
+      process.env.STOKE_TEST_PROVIDER_TOKEN = "one";
       const first = await createDevMachineEngine({
         projectDir,
         state,
@@ -1319,7 +1319,7 @@ describe("DevMachineEngine workflow runtime", () => {
       await first.apply({ workflow: "scoped-provider-cache" });
       expect((await first.plan({ workflow: "scoped-provider-cache" })).cachedNodeCount).toBe(3);
 
-      process.env.RIGKIT_TEST_PROVIDER_TOKEN = "two";
+      process.env.STOKE_TEST_PROVIDER_TOKEN = "two";
       const second = await createDevMachineEngine({
         projectDir,
         state,
@@ -1330,12 +1330,12 @@ describe("DevMachineEngine workflow runtime", () => {
       expect(changed.nodes.map((node) => node.status)).toEqual(["cached", "pending", "pending"]);
       expect(changed.cachedNodeCount).toBe(1);
     } finally {
-      restoreEnv("RIGKIT_TEST_PROVIDER_TOKEN", previousToken);
+      restoreEnv("STOKE_TEST_PROVIDER_TOKEN", previousToken);
     }
   });
 
   test("child provider scopes can override parent provider definitions", async () => {
-    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-provider-override-"));
+    const projectDir = mkdtempSync(join(tmpdir(), "stoke-provider-override-"));
     writeStokeIndex(projectDir,
       `
         import { defineProvider, workflow } from "${import.meta.dir}/index.ts";
@@ -1381,7 +1381,7 @@ describe("DevMachineEngine workflow runtime", () => {
   });
 
   test("generic fragments can consume providers from the parent chain", async () => {
-    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-parent-provider-fragment-"));
+    const projectDir = mkdtempSync(join(tmpdir(), "stoke-parent-provider-fragment-"));
     writeStokeIndex(projectDir,
       `
         import { defineProvider, sequence, workflow } from "${import.meta.dir}/index.ts";
@@ -1415,9 +1415,9 @@ describe("DevMachineEngine workflow runtime", () => {
   });
 
   test("providers added only for workspace operations do not affect setup cache", async () => {
-    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-operation-provider-cache-"));
+    const projectDir = mkdtempSync(join(tmpdir(), "stoke-operation-provider-cache-"));
     const state = createStateStore({ projectDir });
-    const previousToken = process.env.RIGKIT_TEST_PROVIDER_TOKEN;
+    const previousToken = process.env.STOKE_TEST_PROVIDER_TOKEN;
     writeStokeIndex(projectDir,
       `
         import { defineProvider, workflow } from "${import.meta.dir}/index.ts";
@@ -1430,7 +1430,7 @@ describe("DevMachineEngine workflow runtime", () => {
             create: async ({ workspace }) => ({ name: workspace.name }),
             remove: async () => {},
           })
-          .addProvider("test", defineProvider("test", { token: () => process.env.RIGKIT_TEST_PROVIDER_TOKEN }))
+          .addProvider("test", defineProvider("test", { token: () => process.env.STOKE_TEST_PROVIDER_TOKEN }))
           .workspaceOperation("touch-provider", {
             run: async ({ providers }) => {
               const vm = await providers.test.createVm();
@@ -1442,7 +1442,7 @@ describe("DevMachineEngine workflow runtime", () => {
 
     try {
       const provider = new FakeWorkflowProvider();
-      process.env.RIGKIT_TEST_PROVIDER_TOKEN = "one";
+      process.env.STOKE_TEST_PROVIDER_TOKEN = "one";
       const first = await createDevMachineEngine({
         projectDir,
         state,
@@ -1452,7 +1452,7 @@ describe("DevMachineEngine workflow runtime", () => {
       await first.apply({ workflow: "operation-provider-cache" });
       expect((await first.plan({ workflow: "operation-provider-cache" })).cachedNodeCount).toBe(1);
 
-      process.env.RIGKIT_TEST_PROVIDER_TOKEN = "two";
+      process.env.STOKE_TEST_PROVIDER_TOKEN = "two";
       const second = await createDevMachineEngine({
         projectDir,
         state,
@@ -1461,13 +1461,13 @@ describe("DevMachineEngine workflow runtime", () => {
       await second.load();
       expect((await second.plan({ workflow: "operation-provider-cache" })).cachedNodeCount).toBe(1);
     } finally {
-      restoreEnv("RIGKIT_TEST_PROVIDER_TOKEN", previousToken);
+      restoreEnv("STOKE_TEST_PROVIDER_TOKEN", previousToken);
     }
   });
 
   test("treats cached output schema failures as cache misses", async () => {
-    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-"));
-    const previousMode = process.env.RIGKIT_SCHEMA_MODE;
+    const projectDir = mkdtempSync(join(tmpdir(), "stoke-"));
+    const previousMode = process.env.STOKE_SCHEMA_MODE;
     writeStokeIndex(projectDir,
       `
         import { workflow } from "${import.meta.dir}/index.ts";
@@ -1477,7 +1477,7 @@ describe("DevMachineEngine workflow runtime", () => {
         const schema = {
           parse(value) {
             if (!value || typeof value !== "object") throw new Error("not an object");
-            if (process.env.RIGKIT_SCHEMA_MODE === "next" && value.next !== true) {
+            if (process.env.STOKE_SCHEMA_MODE === "next" && value.next !== true) {
               throw new Error("missing next");
             }
             return value;
@@ -1485,7 +1485,7 @@ describe("DevMachineEngine workflow runtime", () => {
         };
 
         export const schemaWorkflow = app.sequence("schema").task("value", { output: schema }, async () => {
-          return process.env.RIGKIT_SCHEMA_MODE === "next"
+          return process.env.STOKE_SCHEMA_MODE === "next"
             ? { ctx: { value: "ok", next: true } }
             : { ctx: { value: "ok" } };
         });
@@ -1493,7 +1493,7 @@ describe("DevMachineEngine workflow runtime", () => {
     );
 
     try {
-      process.env.RIGKIT_SCHEMA_MODE = "old";
+      process.env.STOKE_SCHEMA_MODE = "old";
       const first = await createDevMachineEngine({
         projectDir,
         providerFactory: () => new FakeWorkflowProvider(),
@@ -1502,7 +1502,7 @@ describe("DevMachineEngine workflow runtime", () => {
       await first.apply({ workflow: "test" });
       expect((await first.plan({ workflow: "test" })).cachedNodeCount).toBe(1);
 
-      process.env.RIGKIT_SCHEMA_MODE = "next";
+      process.env.STOKE_SCHEMA_MODE = "next";
       const second = await createDevMachineEngine({
         projectDir,
         providerFactory: () => new FakeWorkflowProvider(),
@@ -1513,15 +1513,15 @@ describe("DevMachineEngine workflow runtime", () => {
       expect(plan.nodes[0]?.status).toBe("pending");
     } finally {
       if (previousMode === undefined) {
-        delete process.env.RIGKIT_SCHEMA_MODE;
+        delete process.env.STOKE_SCHEMA_MODE;
       } else {
-        process.env.RIGKIT_SCHEMA_MODE = previousMode;
+        process.env.STOKE_SCHEMA_MODE = previousMode;
       }
     }
   });
 
   test("expires task cache when cacheTTL has elapsed", async () => {
-    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-cache-ttl-"));
+    const projectDir = mkdtempSync(join(tmpdir(), "stoke-cache-ttl-"));
     const state = createStateStore({ projectDir });
     writeStokeIndex(projectDir,
       `
@@ -1550,15 +1550,15 @@ describe("DevMachineEngine workflow runtime", () => {
   });
 
   test("step.invalidate invalidates a previous task and replays from that point", async () => {
-    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-invalidate-"));
+    const projectDir = mkdtempSync(join(tmpdir(), "stoke-invalidate-"));
     const previous = {
-      authCount: process.env.RIGKIT_AUTH_COUNT,
-      checkCount: process.env.RIGKIT_CHECK_COUNT,
-      forceReauth: process.env.RIGKIT_FORCE_REAUTH,
+      authCount: process.env.STOKE_AUTH_COUNT,
+      checkCount: process.env.STOKE_CHECK_COUNT,
+      forceReauth: process.env.STOKE_FORCE_REAUTH,
     };
-    process.env.RIGKIT_AUTH_COUNT = "0";
-    process.env.RIGKIT_CHECK_COUNT = "0";
-    process.env.RIGKIT_FORCE_REAUTH = "0";
+    process.env.STOKE_AUTH_COUNT = "0";
+    process.env.STOKE_CHECK_COUNT = "0";
+    process.env.STOKE_FORCE_REAUTH = "0";
 
     writeStokeIndex(projectDir,
       `
@@ -1567,15 +1567,15 @@ describe("DevMachineEngine workflow runtime", () => {
         export const reauth = sequence("reauth")
           .task("prepare", async () => ({ ctx: { prepared: true } }))
           .task("github-auth", async () => {
-            const count = Number(process.env.RIGKIT_AUTH_COUNT ?? "0") + 1;
-            process.env.RIGKIT_AUTH_COUNT = String(count);
+            const count = Number(process.env.STOKE_AUTH_COUNT ?? "0") + 1;
+            process.env.STOKE_AUTH_COUNT = String(count);
             return { ctx: { token: "token-" + count } };
           })
           .task("check-auth", { cacheTTL: 0 }, async ({ step }) => {
-            const count = Number(process.env.RIGKIT_CHECK_COUNT ?? "0") + 1;
-            process.env.RIGKIT_CHECK_COUNT = String(count);
-            if (process.env.RIGKIT_FORCE_REAUTH === "1") {
-              process.env.RIGKIT_FORCE_REAUTH = "0";
+            const count = Number(process.env.STOKE_CHECK_COUNT ?? "0") + 1;
+            process.env.STOKE_CHECK_COUNT = String(count);
+            if (process.env.STOKE_FORCE_REAUTH === "1") {
+              process.env.STOKE_FORCE_REAUTH = "0";
               return step.invalidate("github-auth");
             }
             return { ctx: step.ctx };
@@ -1589,21 +1589,21 @@ describe("DevMachineEngine workflow runtime", () => {
 
       const first = await engine.apply({ workflow: "reauth" });
       expect(first.context.token).toBe("token-1");
-      expect(process.env.RIGKIT_AUTH_COUNT).toBe("1");
-      expect(process.env.RIGKIT_CHECK_COUNT).toBe("1");
+      expect(process.env.STOKE_AUTH_COUNT).toBe("1");
+      expect(process.env.STOKE_CHECK_COUNT).toBe("1");
 
-      process.env.RIGKIT_FORCE_REAUTH = "1";
+      process.env.STOKE_FORCE_REAUTH = "1";
       const second = await engine.apply({ workflow: "reauth" });
       expect(second.context.token).toBe("token-2");
-      expect(process.env.RIGKIT_AUTH_COUNT).toBe("2");
-      expect(process.env.RIGKIT_CHECK_COUNT).toBe("3");
+      expect(process.env.STOKE_AUTH_COUNT).toBe("2");
+      expect(process.env.STOKE_CHECK_COUNT).toBe("3");
 
       const validRuns = engine.listNodeRuns().filter((run) => !run.invalidated);
       expect(validRuns.map((run) => run.nodePath).sort()).toEqual(["check-auth", "github-auth", "prepare"]);
     } finally {
-      restoreEnv("RIGKIT_AUTH_COUNT", previous.authCount);
-      restoreEnv("RIGKIT_CHECK_COUNT", previous.checkCount);
-      restoreEnv("RIGKIT_FORCE_REAUTH", previous.forceReauth);
+      restoreEnv("STOKE_AUTH_COUNT", previous.authCount);
+      restoreEnv("STOKE_CHECK_COUNT", previous.checkCount);
+      restoreEnv("STOKE_FORCE_REAUTH", previous.forceReauth);
     }
   });
 });

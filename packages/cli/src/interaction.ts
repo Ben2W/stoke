@@ -11,7 +11,7 @@ export function createLocalInteractionPresenter(): InteractionPresenter {
 }
 
 export function openExternalTarget(url: string): void {
-  if (process.env.RIGKIT_NO_BROWSER === "1") return;
+  if (process.env.STOKE_NO_BROWSER === "1") return;
 
   const command =
     process.platform === "darwin"

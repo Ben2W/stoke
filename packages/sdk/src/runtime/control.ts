@@ -1,5 +1,5 @@
-import { RIGKIT_ENGINE_VERSION, type WorkspaceRecord } from "@usestoke/engine";
-import { RIGKIT_RUNTIME_VERSION } from "./version.ts";
+import { STOKE_ENGINE_VERSION, type WorkspaceRecord } from "@usestoke/engine";
+import { STOKE_RUNTIME_VERSION } from "./version.ts";
 import { RuntimeHostRequestError } from "./errors.ts";
 import { loadEngine, operationManifestFor, runOperation } from "./operations.ts";
 import {
@@ -38,8 +38,8 @@ export function runtimeHealth(context: RuntimeContext) {
     runtimeFingerprint: context.runtimeFingerprint,
     projectDir: context.projectDir,
     configPath: context.configPath,
-    engineVersion: RIGKIT_ENGINE_VERSION,
-    runtimeVersion: RIGKIT_RUNTIME_VERSION,
+    engineVersion: STOKE_ENGINE_VERSION,
+    runtimeVersion: STOKE_RUNTIME_VERSION,
     expiresAt: context.getExpiresAt(),
   };
 }
@@ -47,8 +47,8 @@ export function runtimeHealth(context: RuntimeContext) {
 export function runtimeMetadata() {
   return {
     apiVersion: RUNTIME_API_VERSION,
-    engineVersion: RIGKIT_ENGINE_VERSION,
-    runtimeVersion: RIGKIT_RUNTIME_VERSION,
+    engineVersion: STOKE_ENGINE_VERSION,
+    runtimeVersion: STOKE_RUNTIME_VERSION,
     protocolHash: RUNTIME_PROTOCOL_HASH,
   };
 }

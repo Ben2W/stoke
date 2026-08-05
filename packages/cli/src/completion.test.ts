@@ -5,20 +5,20 @@ import { join } from "node:path";
 import { projectIdFor, runtimeFingerprintFor, runtimePaths, SUPPORTED_RUNTIME_API_VERSION } from "@usestoke/runtime-client";
 import { completeRig, formatCompletionItems, formatWorkspaceAge, renderCompletionScript } from "./completion.ts";
 
-function rigkitIndexPath(projectDir: string): string {
-  return join(projectDir, "rigkit", "index.ts");
+function stokeIndexPath(projectDir: string): string {
+  return join(projectDir, "stoke", "index.ts");
 }
 
 function writeStokeIndex(projectDir: string): string {
-  const configPath = rigkitIndexPath(projectDir);
-  mkdirSync(join(projectDir, "rigkit"), { recursive: true });
+  const configPath = stokeIndexPath(projectDir);
+  mkdirSync(join(projectDir, "stoke"), { recursive: true });
   writeFileSync(configPath, "export const dev = {}\n");
   return configPath;
 }
 
 describe("CLI completion", () => {
   test("completes workspace targets from the runtime", async () => {
-    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-completion-"));
+    const projectDir = mkdtempSync(join(tmpdir(), "stoke-completion-"));
     await withWorkspaceRuntime({ projectDir }, async () => {
       const items = await completeRig({
         cwd: projectDir,
@@ -32,7 +32,7 @@ describe("CLI completion", () => {
   });
 
   test("does not complete provider resource ids as workspace targets", async () => {
-    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-completion-"));
+    const projectDir = mkdtempSync(join(tmpdir(), "stoke-completion-"));
     await withWorkspaceRuntime({ projectDir }, async () => {
       const items = await completeRig({
         cwd: projectDir,
@@ -45,7 +45,7 @@ describe("CLI completion", () => {
   });
 
   test("respects --chdir when completing workspace targets", async () => {
-    const parentDir = mkdtempSync(join(tmpdir(), "rigkit-completion-parent-"));
+    const parentDir = mkdtempSync(join(tmpdir(), "stoke-completion-parent-"));
     const projectDir = join(parentDir, "project");
     await withWorkspaceRuntime({ projectDir, cleanupDir: parentDir }, async () => {
       const items = await completeRig({
@@ -59,7 +59,7 @@ describe("CLI completion", () => {
   });
 
   test("completes project directories for --chdir", async () => {
-    const cwd = mkdtempSync(join(tmpdir(), "rigkit-completion-dirs-"));
+    const cwd = mkdtempSync(join(tmpdir(), "stoke-completion-dirs-"));
     mkdirSync(join(cwd, "examples", "global-fragments"), { recursive: true });
 
     try {
@@ -110,7 +110,7 @@ describe("CLI completion", () => {
   });
 
   test("completes project directories for --chdir", async () => {
-    const cwd = mkdtempSync(join(tmpdir(), "rigkit-completion-dirs-"));
+    const cwd = mkdtempSync(join(tmpdir(), "stoke-completion-dirs-"));
     mkdirSync(join(cwd, "examples", "global-fragments"), { recursive: true });
 
     try {
@@ -132,7 +132,7 @@ describe("CLI completion", () => {
   });
 
   test("completes workspace operation targets", async () => {
-    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-completion-"));
+    const projectDir = mkdtempSync(join(tmpdir(), "stoke-completion-"));
     await withWorkspaceRuntime({ projectDir }, async () => {
       const roots = await completeRig({
         cwd: projectDir,
@@ -166,7 +166,7 @@ describe("CLI completion", () => {
   });
 
   test("completes rm workspace targets and confirmation flags", async () => {
-    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-completion-"));
+    const projectDir = mkdtempSync(join(tmpdir(), "stoke-completion-"));
     await withWorkspaceRuntime({ projectDir }, async () => {
       const workspaces = await completeRig({
         cwd: projectDir,
@@ -186,7 +186,7 @@ describe("CLI completion", () => {
   });
 
   test("uses --workflow to scope workspace command completion", async () => {
-    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-completion-"));
+    const projectDir = mkdtempSync(join(tmpdir(), "stoke-completion-"));
     await withWorkspaceRuntime({ projectDir, includeApiWorkflow: true }, async () => {
       const workflowValues = await completeRig({
         cwd: projectDir,
@@ -226,7 +226,7 @@ describe("CLI completion", () => {
   });
 
   test("completes top-level project commands at the root command position", async () => {
-    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-completion-"));
+    const projectDir = mkdtempSync(join(tmpdir(), "stoke-completion-"));
     await withWorkspaceRuntime({ projectDir }, async () => {
       const items = await completeRig({
         cwd: projectDir,
@@ -249,7 +249,7 @@ describe("CLI completion", () => {
   });
 
   test("completes cache subcommands and flags", async () => {
-    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-completion-"));
+    const projectDir = mkdtempSync(join(tmpdir(), "stoke-completion-"));
     await withWorkspaceRuntime({ projectDir }, async () => {
       const workflows = await completeRig({
         cwd: projectDir,
@@ -283,7 +283,7 @@ describe("CLI completion", () => {
   });
 
   test("completes project operation flags and workflow values", async () => {
-    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-completion-"));
+    const projectDir = mkdtempSync(join(tmpdir(), "stoke-completion-"));
     await withWorkspaceRuntime({ projectDir }, async () => {
       const flags = await completeRig({
         cwd: projectDir,
@@ -317,7 +317,7 @@ describe("CLI completion", () => {
   });
 
   test("completes workspace operation flags and enum values", async () => {
-    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-completion-"));
+    const projectDir = mkdtempSync(join(tmpdir(), "stoke-completion-"));
     await withWorkspaceRuntime({ projectDir }, async () => {
       const flags = await completeRig({
         cwd: projectDir,
@@ -337,7 +337,7 @@ describe("CLI completion", () => {
   });
 
   test("completes cache invalidate targets and flags", async () => {
-    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-completion-"));
+    const projectDir = mkdtempSync(join(tmpdir(), "stoke-completion-"));
     await withWorkspaceRuntime({ projectDir }, async () => {
       const targets = await completeRig({
         cwd: projectDir,
@@ -371,7 +371,7 @@ describe("CLI completion", () => {
       expect(explainTargets.map((item) => item.value)).toEqual(["install-tooling", "setup.build", "base", "--json", "--help"]);
     });
 
-    const apiProjectDir = mkdtempSync(join(tmpdir(), "rigkit-completion-"));
+    const apiProjectDir = mkdtempSync(join(tmpdir(), "stoke-completion-"));
     await withWorkspaceRuntime({ projectDir: apiProjectDir, includeApiWorkflow: true }, async () => {
       const apiTargets = await completeRig({
         cwd: apiProjectDir,
@@ -468,14 +468,14 @@ async function withWorkspaceRuntime(
   input: { projectDir: string; cleanupDir?: string; includeApiWorkflow?: boolean },
   run: () => Promise<void>,
 ): Promise<void> {
-  const previousHome = process.env.RIGKIT_HOME;
-  const rigkitHome = mkdtempSync(join(tmpdir(), "rigkit-home-"));
+  const previousHome = process.env.STOKE_HOME;
+  const stokeHome = mkdtempSync(join(tmpdir(), "stoke-home-"));
   const token = "test-token";
   mkdirSync(input.projectDir, { recursive: true });
   const configPath = writeStokeIndex(input.projectDir);
   const projectId = projectIdFor({ projectDir: input.projectDir, configPath });
   const runtimeFingerprint = runtimeFingerprintFor({ projectDir: input.projectDir, configPath });
-  const paths = runtimePaths(projectId, rigkitHome);
+  const paths = runtimePaths(projectId, stokeHome);
   mkdirSync(paths.root, { recursive: true });
   writeFileSync(paths.tokenPath, `${token}\n`);
 
@@ -830,23 +830,23 @@ async function withWorkspaceRuntime(
     }, null, 2)}\n`,
   );
 
-  process.env.RIGKIT_HOME = rigkitHome;
+  process.env.STOKE_HOME = stokeHome;
   try {
     await run();
   } finally {
     if (previousHome === undefined) {
-      delete process.env.RIGKIT_HOME;
+      delete process.env.STOKE_HOME;
     } else {
-      process.env.RIGKIT_HOME = previousHome;
+      process.env.STOKE_HOME = previousHome;
     }
     server.stop(true);
-    rmSync(rigkitHome, { recursive: true, force: true });
+    rmSync(stokeHome, { recursive: true, force: true });
     rmSync(input.cleanupDir ?? input.projectDir, { recursive: true, force: true });
   }
 }
 
 function runtimeJson(body: unknown, init: ResponseInit = {}): Response {
   const headers = new Headers(init.headers);
-  headers.set("x-rigkit-api-version", String(SUPPORTED_RUNTIME_API_VERSION));
+  headers.set("x-stoke-api-version", String(SUPPORTED_RUNTIME_API_VERSION));
   return Response.json(body, { ...init, headers });
 }

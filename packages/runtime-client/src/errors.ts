@@ -34,7 +34,7 @@ export class RuntimeApiVersionError extends Error {
     super(
       input.version
         ? `Unsupported Stoke runtime API version ${input.version}; this host supports ${input.supportedVersion}`
-        : `Runtime did not report x-rigkit-api-version; this host requires ${input.supportedVersion}`,
+        : `Runtime did not report x-stoke-api-version; this host requires ${input.supportedVersion}`,
     );
     this.name = "RuntimeApiVersionError";
     this.version = input.version;

@@ -6,8 +6,8 @@ import {
   type HttpServerRequest,
 } from "@effect/platform";
 import { Cause, Context, Effect, Layer } from "effect";
-import { RIGKIT_ENGINE_VERSION } from "@usestoke/engine";
-import { RIGKIT_RUNTIME_VERSION } from "./version.ts";
+import { STOKE_ENGINE_VERSION } from "@usestoke/engine";
+import { STOKE_RUNTIME_VERSION } from "./version.ts";
 import { runtimeControlApi } from "./api.ts";
 import {
   RUNTIME_API_VERSION,
@@ -39,7 +39,7 @@ import {
 import type { RunStore } from "./runs.ts";
 import type { RuntimeContext } from "./types.ts";
 
-export class RuntimeApiState extends Context.Tag("rigkit/RuntimeApiState")<
+export class RuntimeApiState extends Context.Tag("stoke/RuntimeApiState")<
   RuntimeApiState,
   RuntimeAppState
 >() {}
@@ -143,10 +143,10 @@ const appendRuntimeHeaders = HttpApp.appendPreResponseHandler((_request, respons
 
 function runtimeHeaders() {
   return {
-    "x-rigkit-api-version": String(RUNTIME_API_VERSION),
-    "x-rigkit-protocol-hash": RUNTIME_PROTOCOL_HASH,
-    "x-rigkit-engine-version": RIGKIT_ENGINE_VERSION,
-    "x-rigkit-runtime-version": RIGKIT_RUNTIME_VERSION,
+    "x-stoke-api-version": String(RUNTIME_API_VERSION),
+    "x-stoke-protocol-hash": RUNTIME_PROTOCOL_HASH,
+    "x-stoke-engine-version": STOKE_ENGINE_VERSION,
+    "x-stoke-runtime-version": STOKE_RUNTIME_VERSION,
   };
 }
 

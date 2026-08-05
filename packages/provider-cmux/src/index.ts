@@ -490,7 +490,7 @@ export function formatShellCommand(args: readonly string[]): string {
   return args.map(shellQuote).join(" ");
 }
 
-export { RIGKIT_PROVIDER_CMUX_VERSION } from "./version.ts";
+export { STOKE_PROVIDER_CMUX_VERSION } from "./version.ts";
 export {
   CMUX_CALL_CAPABILITY,
   CMUX_CALL_CAPABILITY_ID,

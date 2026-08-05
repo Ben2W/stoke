@@ -17,7 +17,7 @@ export {
   type ServeRuntimeOptions,
   type RuntimeServer,
 } from "./server.ts";
-export { RIGKIT_RUNTIME_VERSION } from "./version.ts";
+export { STOKE_RUNTIME_VERSION } from "./version.ts";
 export {
   RuntimeApiState,
   createRuntimeControlApiHandler,

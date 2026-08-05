@@ -7,7 +7,7 @@
 //   - Engine/runtime code that itself uses `console.*` is never touched.
 //   - Concurrent step executions each get their own logger.
 //
-// Disabled by `RIGKIT_NO_CONSOLE_INTERCEPT=1`.
+// Disabled by `STOKE_NO_CONSOLE_INTERCEPT=1`.
 
 import { AsyncLocalStorage } from "node:async_hooks";
 import { formatWithOptions } from "node:util";
@@ -25,7 +25,7 @@ let installed = false;
 const originalMethods: Partial<Record<ConsoleMethod, (...args: unknown[]) => void>> = {};
 
 export function runWithStepConsole<T>(sink: StepConsoleSink, fn: () => Promise<T> | T): Promise<T> | T {
-  if (process.env.RIGKIT_NO_CONSOLE_INTERCEPT === "1") return fn();
+  if (process.env.STOKE_NO_CONSOLE_INTERCEPT === "1") return fn();
   ensureInstalled();
   return STORAGE.run(sink, fn);
 }

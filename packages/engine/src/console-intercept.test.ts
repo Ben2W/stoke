@@ -15,7 +15,7 @@ function collector(): { sink: StepConsoleSink; entries: Captured[] } {
 
 afterEach(() => {
   __resetConsoleInterceptForTests();
-  delete process.env.RIGKIT_NO_CONSOLE_INTERCEPT;
+  delete process.env.STOKE_NO_CONSOLE_INTERCEPT;
 });
 
 describe("runWithStepConsole", () => {
@@ -80,8 +80,8 @@ describe("runWithStepConsole", () => {
     expect(b.entries).toEqual([{ level: "warn", message: "from B" }]);
   });
 
-  test("RIGKIT_NO_CONSOLE_INTERCEPT=1 disables capture", async () => {
-    process.env.RIGKIT_NO_CONSOLE_INTERCEPT = "1";
+  test("STOKE_NO_CONSOLE_INTERCEPT=1 disables capture", async () => {
+    process.env.STOKE_NO_CONSOLE_INTERCEPT = "1";
     const { sink, entries } = collector();
     const consoleLogSpy: string[] = [];
     const originalLog = console.log;

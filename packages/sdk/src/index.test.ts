@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
-  RIGKIT_SDK_VERSION,
+  STOKE_SDK_VERSION,
   createRuntimeControlApiHandler,
   env,
   runtimeControlApi,
@@ -15,7 +15,7 @@ import { defineHostCapabilities, defineHostCapability } from "./host.ts";
 
 describe("@usestoke/sdk package boundary", () => {
   test("exports authoring API and project runtime entrypoints", () => {
-    expect(RIGKIT_SDK_VERSION).toBe("0.1.0");
+    expect(STOKE_SDK_VERSION).toBe("0.1.1");
     expect(env).toBeTypeOf("function");
     expect(env.secret).toBeTypeOf("function");
     expect(sequence).toBeTypeOf("function");

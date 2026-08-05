@@ -5,7 +5,7 @@
 Stoke is a typed workflow engine plus a managed control plane. It has one cloud
 platform: Vercel.
 
-- The CLI evaluates `rigkit/index.ts` in a local checkout when one is available.
+- The CLI evaluates `stoke/index.ts` in a local checkout when one is available.
   Checkout-free `plan` and `apply` requests evaluate the same configuration in
   an isolated, ephemeral Vercel Sandbox; arbitrary project code does not run in
   the control-plane function itself.
@@ -110,7 +110,7 @@ server functions for product behavior.
 - `stoke add ./local-directory` inspects its Git remote, registers or finds the
   managed project, and links that path as a checkout on the current device.
 - A local single-workflow project defaults to the workflow name defined in
-  `rigkit/index.ts`; multi-workflow and remote-only projects default to the
+  `stoke/index.ts`; multi-workflow and remote-only projects default to the
   repository or directory name. `--name` overrides either default.
 - Adding a new local checkout for an existing source or name prompts to attach
   it to the existing project or create a separate project with a different

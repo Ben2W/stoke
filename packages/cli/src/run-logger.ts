@@ -1,4 +1,4 @@
-// Persists every runtime event for a single run to `.rigkit/logs/`. The
+// Persists every runtime event for a single run to `.stoke/logs/`. The
 // presenter on stderr stays terse; this file is the unfiltered transcript you
 // grep when something goes wrong. NDJSON, one event per line, plus a couple of
 // envelope records (run.start / run.end) so logs stand on their own.
@@ -152,7 +152,7 @@ function safeFileSize(path: string): number {
 
 function resolveLogDir(input: { projectDir: string; runtimeStateDir?: string }): string | undefined {
   if (input.runtimeStateDir) return join(input.runtimeStateDir, LOG_DIR_NAME);
-  if (input.projectDir) return join(input.projectDir, ".rigkit", LOG_DIR_NAME);
+  if (input.projectDir) return join(input.projectDir, ".stoke", LOG_DIR_NAME);
   return undefined;
 }
 

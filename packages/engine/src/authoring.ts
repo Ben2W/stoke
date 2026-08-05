@@ -45,7 +45,7 @@ export function workflow<const Name extends string>(name: Name): WorkflowDefinit
   const providers = {};
 
   const app = {
-    kind: "rigkit.workflow" as const,
+    kind: "stoke.workflow" as const,
     name,
     providers,
     sequence: <InputContext extends JsonObject = {}>(sequenceName: string) =>
@@ -92,7 +92,7 @@ export function defineProvider<
   plugin?: unknown,
 ): WorkflowProviderDefinition<ProviderId, Config, Runtime> {
   return {
-    kind: "rigkit.provider",
+    kind: "stoke.provider",
     providerId,
     config,
     plugin,
@@ -100,15 +100,15 @@ export function defineProvider<
 }
 
 export function isWorkflow(value: unknown): value is WorkflowDefinition {
-  return Boolean(value && typeof value === "object" && getKind(value) === "rigkit.workflow");
+  return Boolean(value && typeof value === "object" && getKind(value) === "stoke.workflow");
 }
 
 export function isWorkflowNode(value: unknown): value is WorkflowNodeDefinition<any, any, any> {
-  return Boolean(value && typeof value === "object" && getKind(value) === "rigkit.workflow-node");
+  return Boolean(value && typeof value === "object" && getKind(value) === "stoke.workflow-node");
 }
 
 export function isProviderDefinition(value: unknown): value is WorkflowProviderDefinition {
-  return Boolean(value && typeof value === "object" && getKind(value) === "rigkit.provider");
+  return Boolean(value && typeof value === "object" && getKind(value) === "stoke.provider");
 }
 
 function createSequence<
@@ -140,7 +140,7 @@ function createSequence<
   Config
 > {
   const node = {
-    kind: "rigkit.workflow-node" as const,
+    kind: "stoke.workflow-node" as const,
     nodeKind: "sequence" as const,
     name,
     workflow: app,
@@ -362,7 +362,7 @@ function createTask<
   if (!handler) throw new Error(`Task ${name} is missing a handler`);
 
   return {
-    kind: "rigkit.workflow-node",
+    kind: "stoke.workflow-node",
     nodeKind: "task",
     name,
     workflow: app,
@@ -396,7 +396,7 @@ function createParallel<Providers extends WorkflowProviderMap, InputContext exte
   branches: Record<string, WorkflowNodeDefinition<Providers, any, any>>;
 } {
   const node = {
-    kind: "rigkit.workflow-node" as const,
+    kind: "stoke.workflow-node" as const,
     nodeKind: "parallel" as const,
     name,
     workflow: app,

@@ -135,7 +135,7 @@ export type WorkflowProviderDefinition<
   Config extends object = Record<string, unknown>,
   Runtime = unknown,
 > = {
-  readonly kind: "rigkit.provider";
+  readonly kind: "stoke.provider";
   readonly providerId: ProviderId;
   readonly config: ResolvableObject<Config>;
   readonly plugin?: unknown;
@@ -185,7 +185,7 @@ export type WorkflowRuntimeHelpers = {
   metadata(metadata: JsonObject): void;
 };
 
-export const STEP_INVALIDATION_KIND = "rigkit.step.invalidate" as const;
+export const STEP_INVALIDATION_KIND = "stoke.step.invalidate" as const;
 
 export type WorkflowStepInvalidation<Target extends string = string> = {
   readonly kind: typeof STEP_INVALIDATION_KIND;
@@ -433,7 +433,7 @@ export type WorkflowDefinition<
   Name extends string = string,
   Providers extends WorkflowProviderMap = WorkflowProviderMap,
 > = {
-  readonly kind: "rigkit.workflow";
+  readonly kind: "stoke.workflow";
   readonly name: Name;
   readonly providers: Providers;
 
@@ -481,7 +481,7 @@ export type WorkflowNodeDefinition<
   InputContext extends JsonObject = JsonObject,
   OutputContext extends JsonObject = JsonObject,
 > = {
-  readonly kind: "rigkit.workflow-node";
+  readonly kind: "stoke.workflow-node";
   readonly nodeKind: WorkflowNodeKind;
   readonly name: string;
   readonly workflow: WorkflowDefinition<string, Providers>;
@@ -746,7 +746,7 @@ export const RESERVED_WORKFLOW_OPERATION_IDS = [
 export type ReservedWorkflowOperationId = typeof RESERVED_WORKFLOW_OPERATION_IDS[number];
 
 type WorkflowOperationIdError<Message extends string> = {
-  readonly __rigkitOperationIdError: Message;
+  readonly __stokeOperationIdError: Message;
 };
 
 export type WorkflowOperationIdConstraint<
@@ -763,7 +763,7 @@ export type WorkflowOperationIdConstraint<
         : unknown;
 
 type WorkflowTaskIdError<Message extends string> = {
-  readonly __rigkitTaskIdError: Message;
+  readonly __stokeTaskIdError: Message;
 };
 
 export type WorkflowTaskIdConstraint<

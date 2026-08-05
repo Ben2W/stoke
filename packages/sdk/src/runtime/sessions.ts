@@ -1,7 +1,7 @@
 import { Socket } from "@effect/platform";
-import { RIGKIT_ENGINE_VERSION } from "@usestoke/engine";
+import { STOKE_ENGINE_VERSION } from "@usestoke/engine";
 import { Effect, type Scope } from "effect";
-import { RIGKIT_RUNTIME_VERSION } from "./version.ts";
+import { STOKE_RUNTIME_VERSION } from "./version.ts";
 import {
   RuntimeHostRequestError,
   RuntimeRunCancelledError,
@@ -145,8 +145,8 @@ function sendHelloAck(ws: RuntimeSessionTransport, run: { operation: string; ope
     type: "hello.ack",
     transportVersion: 1,
     runtime: {
-      engineVersion: RIGKIT_ENGINE_VERSION,
-      runtimeVersion: RIGKIT_RUNTIME_VERSION,
+      engineVersion: STOKE_ENGINE_VERSION,
+      runtimeVersion: STOKE_RUNTIME_VERSION,
       protocolHash: RUNTIME_PROTOCOL_HASH,
     },
     operation: {

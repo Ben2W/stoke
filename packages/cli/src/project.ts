@@ -1,9 +1,9 @@
 import { dirname, join, resolve } from "node:path";
 import { existsSync, readdirSync } from "node:fs";
 
-export const RIGKIT_DIR = "rigkit";
+export const STOKE_DIR = "stoke";
 export const DEFAULT_CONFIG_FILE = "index.ts";
-export const DEFAULT_CONFIG_PATH = join(RIGKIT_DIR, DEFAULT_CONFIG_FILE);
+export const DEFAULT_CONFIG_PATH = join(STOKE_DIR, DEFAULT_CONFIG_FILE);
 
 export type ConfigPathOptions = {
   chdir?: string;
@@ -77,7 +77,7 @@ function visitProjectDirs(dir: string, projects: DiscoveredProject[]): void {
 
 function shouldSkipDiscoveryDir(name: string): boolean {
   return name === ".git" ||
-    name === ".rigkit" ||
+    name === ".stoke" ||
     name === "node_modules" ||
     name === "dist" ||
     name === "build";

@@ -12,7 +12,7 @@ export type RunPresenter = {
 };
 
 export function createRunPresenter(operation: string): RunPresenter | undefined {
-  if (process.env.RIGKIT_RENDER === "0") return undefined;
+  if (process.env.STOKE_RENDER === "0") return undefined;
 
   let workflow = "";
   let totalNodes = 0;
@@ -124,8 +124,8 @@ export function createRunPresenter(operation: string): RunPresenter | undefined 
           if (!data) break;
           const stream = stringField(event.stream);
           // console.debug is intentionally silent at the terminal — it lives
-          // in the run log file only. Surface it live with RIGKIT_DEBUG=1.
-          if (stream === "debug" && process.env.RIGKIT_DEBUG !== "1") break;
+          // in the run log file only. Surface it live with STOKE_DEBUG=1.
+          if (stream === "debug" && process.env.STOKE_DEBUG !== "1") break;
           const label = stringField(event.label);
           const { icon, style } = logStreamPresentation(stream);
           const lines = data.replace(/\r/g, "").split("\n").filter((line) => line.length > 0);

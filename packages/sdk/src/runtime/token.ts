@@ -5,7 +5,7 @@ export function readOrCreateToken(path: string): string {
   if (existsSync(path)) return readFileSync(path, "utf8").trim();
 
   mkdirSync(dirname(path), { recursive: true });
-  const token = `rigkit_${crypto.randomUUID().replaceAll("-", "")}`;
+  const token = `stoke_${crypto.randomUUID().replaceAll("-", "")}`;
   writeFileSync(path, `${token}\n`);
   try {
     chmodSync(path, 0o600);

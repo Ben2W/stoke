@@ -21,13 +21,13 @@ import { serveRuntime, serveRuntimeEffect } from "./server.ts";
 import { createRuntimeStateCoordinator } from "./state.ts";
 import type { RuntimeContext } from "./types.ts";
 
-function rigkitIndexPath(projectDir: string): string {
-  return join(projectDir, "rigkit", "index.ts");
+function stokeIndexPath(projectDir: string): string {
+  return join(projectDir, "stoke", "index.ts");
 }
 
 function writeStokeIndex(projectDir: string, contents: string): string {
-  const configPath = rigkitIndexPath(projectDir);
-  mkdirSync(join(projectDir, "rigkit"), { recursive: true });
+  const configPath = stokeIndexPath(projectDir);
+  mkdirSync(join(projectDir, "stoke"), { recursive: true });
   writeFileSync(configPath, contents);
   return configPath;
 }
@@ -45,8 +45,8 @@ describe("runtime HTTP app", () => {
     const body = await response.json();
 
     expect(response.status).toBe(200);
-    expect(response.headers.get("x-rigkit-api-version")).toBe(String(RUNTIME_API_VERSION));
-    expect(response.headers.get("x-rigkit-protocol-hash")).toBe(RUNTIME_PROTOCOL_HASH);
+    expect(response.headers.get("x-stoke-api-version")).toBe(String(RUNTIME_API_VERSION));
+    expect(response.headers.get("x-stoke-protocol-hash")).toBe(RUNTIME_PROTOCOL_HASH);
     expect(body.apiVersion).toBe(RUNTIME_API_VERSION);
     expect(body.protocolHash).toBe(RUNTIME_PROTOCOL_HASH);
   });
@@ -57,14 +57,14 @@ describe("runtime HTTP app", () => {
     try {
       const unauthenticated = await handler(new Request("http://runtime.local/runtime"));
       expect(unauthenticated.status).toBe(401);
-      expect(unauthenticated.headers.get("x-rigkit-api-version")).toBe(String(RUNTIME_API_VERSION));
+      expect(unauthenticated.headers.get("x-stoke-api-version")).toBe(String(RUNTIME_API_VERSION));
 
       const runtimeResponse = await handler(new Request("http://runtime.local/runtime", {
         headers: { authorization: "Bearer test-token" },
       }));
       const runtimeBody = await runtimeResponse.json();
       expect(runtimeResponse.status).toBe(200);
-      expect(runtimeResponse.headers.get("x-rigkit-protocol-hash")).toBe(RUNTIME_PROTOCOL_HASH);
+      expect(runtimeResponse.headers.get("x-stoke-protocol-hash")).toBe(RUNTIME_PROTOCOL_HASH);
       expect(runtimeBody.apiVersion).toBe(RUNTIME_API_VERSION);
 
       const missingRun = await handler(new Request("http://runtime.local/runs/missing", {
@@ -118,7 +118,7 @@ describe("runtime HTTP app", () => {
   });
 
   test("serveRuntimeEffect stops the runtime server when its scope closes", async () => {
-    const root = mkdtempSync(join(tmpdir(), "rigkit-runtime-effect-"));
+    const root = mkdtempSync(join(tmpdir(), "stoke-runtime-effect-"));
     let url = "";
     let closed: Promise<void> | undefined;
 
@@ -129,7 +129,7 @@ describe("runtime HTTP app", () => {
           serveRuntimeEffect({
             projectId: "test-project",
             projectDir: root,
-            configPath: rigkitIndexPath(root),
+            configPath: stokeIndexPath(root),
             handlePath: join(root, "runtime.json"),
             tokenPath: join(root, "runtime.token"),
             token: "test-token",
@@ -156,14 +156,14 @@ describe("runtime HTTP app", () => {
   });
 
   test("shutdown resolves the runtime server closed promise", async () => {
-    const root = mkdtempSync(join(tmpdir(), "rigkit-runtime-shutdown-"));
+    const root = mkdtempSync(join(tmpdir(), "stoke-runtime-shutdown-"));
 
     try {
       writeNoopConfig(root);
       const server = await serveRuntime({
         projectId: "test-project",
         projectDir: root,
-        configPath: rigkitIndexPath(root),
+        configPath: stokeIndexPath(root),
         handlePath: join(root, "runtime.json"),
         tokenPath: join(root, "runtime.token"),
         token: "test-token",
@@ -182,7 +182,7 @@ describe("runtime HTTP app", () => {
   });
 
   test("loads config before reporting runtime readiness", async () => {
-    const root = mkdtempSync(join(tmpdir(), "rigkit-runtime-startup-config-"));
+    const root = mkdtempSync(join(tmpdir(), "stoke-runtime-startup-config-"));
     const configPath = writeStokeIndex(root, "throw new Error('startup config failed');\n");
 
     try {
@@ -378,7 +378,7 @@ describe("runtime HTTP app", () => {
       { name: "rebuild", flag: "--rebuild", required: false, type: "boolean" },
     ]);
     expect(inputSchema.required).toEqual(["workspace"]);
-    expect(inputSchema.properties.workspace["x-rigkit-input"]).toEqual({
+    expect(inputSchema.properties.workspace["x-stoke-input"]).toEqual({
       kind: "workspace",
       workflow: "test",
       resolve: "data",
@@ -407,7 +407,7 @@ describe("runtime HTTP app", () => {
   });
 
   test("rejects config operation ids reserved by host commands", async () => {
-    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-runtime-reserved-operation-"));
+    const projectDir = mkdtempSync(join(tmpdir(), "stoke-runtime-reserved-operation-"));
     const configPath = writeStokeIndex(projectDir,
       `
         import { sequence } from "${import.meta.dir}/../../../engine/src/index.ts";
@@ -427,7 +427,7 @@ describe("runtime HTTP app", () => {
   });
 
   test("negotiates run sessions with hello acknowledgements and heartbeats", async () => {
-    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-runtime-session-"));
+    const projectDir = mkdtempSync(join(tmpdir(), "stoke-runtime-session-"));
     const configPath = writeStokeIndex(projectDir,
       `
         import { sequence } from "${import.meta.dir}/../../../engine/src/index.ts";
@@ -479,7 +479,7 @@ describe("runtime HTTP app", () => {
   });
 
   test("exposes persisted workspace payload as workspace context", async () => {
-    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-runtime-workspace-ctx-"));
+    const projectDir = mkdtempSync(join(tmpdir(), "stoke-runtime-workspace-ctx-"));
     const configPath = writeStokeIndex(projectDir,
       `
         import { sequence } from "${import.meta.dir}/../../../engine/src/index.ts";
@@ -534,7 +534,7 @@ describe("runtime HTTP app", () => {
   });
 
   test("reports typed operation validation failures on run events", async () => {
-    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-runtime-validation-"));
+    const projectDir = mkdtempSync(join(tmpdir(), "stoke-runtime-validation-"));
     const configPath = writeStokeIndex(projectDir,
       `
         import { sequence } from "${import.meta.dir}/../../../engine/src/index.ts";
@@ -585,7 +585,7 @@ describe("runtime HTTP app", () => {
   });
 
   test("bridges typed host capability requests over run sessions", async () => {
-    const { server, projectDir } = await serveRuntimeFixture("rigkit-runtime-capability-", `
+    const { server, projectDir } = await serveRuntimeFixture("stoke-runtime-capability-", `
       export const root = sequence("capability-test").operation("open", {
         run: async ({ local }) => await local.requestCapability("cmux.call", { name: "demo" }),
       });
@@ -625,7 +625,7 @@ describe("runtime HTTP app", () => {
   });
 
   test("resolves host capability resource lifetimes from session close reports", async () => {
-    const { server, projectDir } = await serveRuntimeFixture("rigkit-runtime-capability-close-", `
+    const { server, projectDir } = await serveRuntimeFixture("stoke-runtime-capability-close-", `
       export const root = sequence("capability-close-test").operation("open", {
         run: async ({ local }) => {
           if (!local.requestCapabilitySession) throw new Error("requestCapabilitySession unavailable");
@@ -668,7 +668,7 @@ describe("runtime HTTP app", () => {
   });
 
   test("keeps host-owned capability runs attached until the host cancels", async () => {
-    const { server, projectDir } = await serveRuntimeFixture("rigkit-runtime-capability-attached-", `
+    const { server, projectDir } = await serveRuntimeFixture("stoke-runtime-capability-attached-", `
       export const root = sequence("capability-attached-test").operation("open", {
         run: async ({ local }) => {
           await local.requestCapability("cmux.call", { name: "demo" });
@@ -709,7 +709,7 @@ describe("runtime HTTP app", () => {
   });
 
   test("turns host response errors into typed host request failures", async () => {
-    const { server, projectDir } = await serveRuntimeFixture("rigkit-runtime-capability-error-", `
+    const { server, projectDir } = await serveRuntimeFixture("stoke-runtime-capability-error-", `
       export const root = sequence("capability-error-test").operation("cmux-call", {
         run: async ({ local }) => await local.requestCapability("cmux.call", { name: "demo" }),
       });
@@ -744,7 +744,7 @@ describe("runtime HTTP app", () => {
   });
 
   test("turns run.cancel session messages into run failures", async () => {
-    const { server, projectDir } = await serveRuntimeFixture("rigkit-runtime-cancel-", `
+    const { server, projectDir } = await serveRuntimeFixture("stoke-runtime-cancel-", `
       export const root = sequence("cancel-test").operation("long-running", {
         run: async () => await new Promise(() => {}),
       });
@@ -887,8 +887,8 @@ async function collectSessionMessages(
 function testContext(): RuntimeContext {
   return {
     projectId: "project-test",
-    projectDir: "/tmp/rigkit-project",
-    configPath: "/tmp/rigkit-project/rigkit/index.ts",
+    projectDir: "/tmp/stoke-project",
+    configPath: "/tmp/stoke-project/stoke/index.ts",
     state: createRuntimeStateCoordinator(),
     token: "test-token",
     startedAt: "2026-01-01T00:00:00.000Z",

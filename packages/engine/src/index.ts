@@ -25,7 +25,7 @@ export {
   defaultProviderHostStorageDir,
 } from "./host-storage.ts";
 export { createStateStore, emptyStateSnapshot, StateStore } from "./state.ts";
-export { RIGKIT_ENGINE_VERSION } from "./version.ts";
+export { STOKE_ENGINE_VERSION } from "./version.ts";
 export {
   defineProvider,
   env,

@@ -18,7 +18,7 @@ type ProviderHostStorageFile = {
 };
 
 export function defaultProviderHostStorageDir(): string {
-  return process.env.RIGKIT_HOST_STORAGE_DIR ?? join(homedir(), ".rigkit", "providers");
+  return process.env.STOKE_HOST_STORAGE_DIR ?? join(homedir(), ".stoke", "providers");
 }
 
 export function createFileProviderHostStorage(options: ProviderHostStorageOptions): ProviderStorage {

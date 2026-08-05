@@ -17,13 +17,13 @@ describe("managed project source resolution", () => {
       owner: "vercel",
       repository: "next.js",
     });
-    expect(parseGitHubRepository("https://github.com/vercel-sh/rigkit.git")).toEqual({
+    expect(parseGitHubRepository("https://github.com/vercel-sh/stoke.git")).toEqual({
       owner: "vercel-sh",
-      repository: "rigkit",
+      repository: "stoke",
     });
-    expect(parseGitHubRepository("git@github.com:vercel-sh/rigkit.git")).toEqual({
+    expect(parseGitHubRepository("git@github.com:vercel-sh/stoke.git")).toEqual({
       owner: "vercel-sh",
-      repository: "rigkit",
+      repository: "stoke",
     });
   });
 
@@ -543,7 +543,7 @@ async function runManagedCli(
     env: {
       ...process.env,
       ...environment,
-      RIGKIT_UPDATE_CHECK: "0",
+      STOKE_UPDATE_CHECK: "0",
       FORCE_COLOR: "0",
       NO_COLOR: "1",
     },

@@ -6,7 +6,7 @@ import { createRunLogger } from "./run-logger.ts";
 
 describe("createRunLogger", () => {
   test("writes a run.start envelope, every appended event, and a run.end envelope", () => {
-    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-run-logger-"));
+    const projectDir = mkdtempSync(join(tmpdir(), "stoke-run-logger-"));
     try {
       const logger = createRunLogger({ projectDir, operation: "plan" });
       expect(logger).toBeDefined();
@@ -23,7 +23,7 @@ describe("createRunLogger", () => {
       expect(entries[2]).toMatchObject({ type: "node.completed", nodePath: "build" });
       expect(entries[3]).toMatchObject({ type: "run.end", status: "completed", result: { ok: true } });
 
-      const logFiles = readdirSync(join(projectDir, ".rigkit", "logs"));
+      const logFiles = readdirSync(join(projectDir, ".stoke", "logs"));
       expect(logFiles.length).toBe(1);
     } finally {
       rmSync(projectDir, { recursive: true, force: true });
@@ -31,7 +31,7 @@ describe("createRunLogger", () => {
   });
 
   test("captures failure details on the run.end envelope", () => {
-    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-run-logger-"));
+    const projectDir = mkdtempSync(join(tmpdir(), "stoke-run-logger-"));
     try {
       const logger = createRunLogger({ projectDir, operation: "apply" });
       logger!.append({ type: "run.failed", error: { message: "boom" } });
@@ -50,7 +50,7 @@ describe("createRunLogger", () => {
   });
 
   test("splices daemon stderr written during the run into the failure log", () => {
-    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-run-logger-"));
+    const projectDir = mkdtempSync(join(tmpdir(), "stoke-run-logger-"));
     const daemonStderrPath = join(projectDir, "daemon.log");
     // Pre-existing daemon output that predates the run — we must NOT splice it.
     writeFileSync(daemonStderrPath, "earlier daemon noise we should ignore\n");
@@ -75,7 +75,7 @@ describe("createRunLogger", () => {
   });
 
   test("does not splice daemon stderr on success", () => {
-    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-run-logger-"));
+    const projectDir = mkdtempSync(join(tmpdir(), "stoke-run-logger-"));
     const daemonStderrPath = join(projectDir, "daemon.log");
     try {
       const logger = createRunLogger({ projectDir, operation: "apply", daemonStderrPath });

@@ -219,7 +219,7 @@ async function runRuntimeHttpRequest<A>(
   const response = await runRuntimeHttpEffect(program, context);
   const [value, httpResponse] = response;
   try {
-    assertSupportedApiVersionHeader(Option.getOrNull(Headers.get(httpResponse.headers, "x-rigkit-api-version")));
+    assertSupportedApiVersionHeader(Option.getOrNull(Headers.get(httpResponse.headers, "x-stoke-api-version")));
   } catch (error) {
     throw toRuntimeTransportError(error, context);
   }

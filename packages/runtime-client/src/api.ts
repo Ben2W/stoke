@@ -270,7 +270,7 @@ export type RuntimeControlOkResponse = Schema.Schema.Type<typeof RuntimeControlO
 const runId = HttpApiSchema.param("runId", Schema.String);
 const requestId = HttpApiSchema.param("requestId", Schema.String);
 
-export const runtimeControlApi = HttpApi.make("rigkit-runtime")
+export const runtimeControlApi = HttpApi.make("stoke-runtime")
   .annotate(OpenApi.Title, "Stoke runtime")
   .annotate(OpenApi.Version, String(SUPPORTED_RUNTIME_API_VERSION))
   .add(

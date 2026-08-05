@@ -7,9 +7,9 @@ import { STOKE_CLI_VERSION } from "./version.ts";
 
 describe("initProject", () => {
   test("creates the canonical Stoke config and package metadata", () => {
-    const projectDir = join(mkdtempSync(join(tmpdir(), "rigkit-init-")), "My Project");
+    const projectDir = join(mkdtempSync(join(tmpdir(), "stoke-init-")), "My Project");
     const result = initProject({ projectDir });
-    const configPath = join(projectDir, "rigkit", "index.ts");
+    const configPath = join(projectDir, "stoke", "index.ts");
     const packageJsonPath = join(projectDir, "package.json");
 
     expect(result).toEqual({
@@ -55,7 +55,7 @@ describe("initProject", () => {
   });
 
   test("updates existing package metadata without replacing unrelated fields", () => {
-    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-init-package-"));
+    const projectDir = mkdtempSync(join(tmpdir(), "stoke-init-package-"));
     writeFileSync(join(projectDir, "package.json"), `${JSON.stringify({
       name: "custom-project",
       private: false,
@@ -84,8 +84,8 @@ describe("initProject", () => {
   });
 
   test("rejects an existing canonical config", () => {
-    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-init-"));
-    const configPath = join(projectDir, "rigkit", "index.ts");
+    const projectDir = mkdtempSync(join(tmpdir(), "stoke-init-"));
+    const configPath = join(projectDir, "stoke", "index.ts");
     initProject({ projectDir });
     writeFileSync(configPath, "export const userEdit = true;\n");
 

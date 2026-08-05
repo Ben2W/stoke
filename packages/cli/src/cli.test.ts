@@ -7,13 +7,13 @@ import { STOKE_CLI_VERSION } from "./version.ts";
 
 const cliPath = join(import.meta.dir, "cli.ts");
 
-function rigkitIndexPath(projectDir: string): string {
-  return join(projectDir, "rigkit", "index.ts");
+function stokeIndexPath(projectDir: string): string {
+  return join(projectDir, "stoke", "index.ts");
 }
 
 function writeStokeIndex(projectDir: string): string {
-  const configPath = rigkitIndexPath(projectDir);
-  mkdirSync(join(projectDir, "rigkit"), { recursive: true });
+  const configPath = stokeIndexPath(projectDir);
+  mkdirSync(join(projectDir, "stoke"), { recursive: true });
   writeFileSync(configPath, "export const dev = {}\n");
   return configPath;
 }
@@ -71,7 +71,7 @@ describe("CLI entrypoint", () => {
   });
 
   test("discovers projects without starting a runtime", async () => {
-    const cwd = mkdtempSync(join(tmpdir(), "rigkit-cli-projects-"));
+    const cwd = mkdtempSync(join(tmpdir(), "stoke-cli-projects-"));
     mkdirSync(join(cwd, "api"));
     writeStokeIndex(join(cwd, "api"));
 
@@ -84,7 +84,7 @@ describe("CLI entrypoint", () => {
       expect(JSON.parse(result.stdout)).toEqual({
         projects: [{
           projectDir: join(realCwd, "api"),
-          configPath: join(realCwd, "api", "rigkit", "index.ts"),
+          configPath: join(realCwd, "api", "stoke", "index.ts"),
         }],
       });
     } finally {
@@ -93,7 +93,7 @@ describe("CLI entrypoint", () => {
   });
 
   test("shows the canonical config path when missing", async () => {
-    const cwd = mkdtempSync(join(tmpdir(), "rigkit-cli-named-configs-"));
+    const cwd = mkdtempSync(join(tmpdir(), "stoke-cli-named-configs-"));
 
     try {
       const result = await runCli(["create", "--json"], { cwd });
@@ -108,7 +108,7 @@ describe("CLI entrypoint", () => {
   });
 
   test("initializes the current directory without init options", async () => {
-    const cwd = mkdtempSync(join(tmpdir(), "rigkit-cli-init-"));
+    const cwd = mkdtempSync(join(tmpdir(), "stoke-cli-init-"));
 
     try {
       const result = await runCli(["--json", "init"], { cwd });
@@ -119,7 +119,7 @@ describe("CLI entrypoint", () => {
       expect(JSON.parse(result.stdout)).toEqual({
         name: projectDir.split("/").at(-1)?.toLowerCase(),
         projectDir,
-        configPath: join(projectDir, "rigkit", "index.ts"),
+        configPath: join(projectDir, "stoke", "index.ts"),
         packageJsonPath: join(projectDir, "package.json"),
         created: {
           config: true,
@@ -134,7 +134,7 @@ describe("CLI entrypoint", () => {
           reason: "json",
         },
       });
-      expect(existsSync(join(projectDir, "rigkit", "index.ts"))).toBe(true);
+      expect(existsSync(join(projectDir, "stoke", "index.ts"))).toBe(true);
       expect(existsSync(join(projectDir, "package.json"))).toBe(true);
     } finally {
       rmSync(cwd, { recursive: true, force: true });
@@ -142,7 +142,7 @@ describe("CLI entrypoint", () => {
   });
 
   test("rejects removed init options", async () => {
-    const cwd = mkdtempSync(join(tmpdir(), "rigkit-cli-init-options-"));
+    const cwd = mkdtempSync(join(tmpdir(), "stoke-cli-init-options-"));
 
     try {
       const result = await runCli(["init", "website"], { cwd });
@@ -150,14 +150,14 @@ describe("CLI entrypoint", () => {
       expect(result.exitCode).toBe(1);
       expect(result.stdout).toBe("");
       expect(result.stderr).toContain("too many arguments");
-      expect(existsSync(join(cwd, "rigkit", "index.ts"))).toBe(false);
+      expect(existsSync(join(cwd, "stoke", "index.ts"))).toBe(false);
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }
   });
 
   test("rejects package manager installs in JSON init before writing files", async () => {
-    const cwd = mkdtempSync(join(tmpdir(), "rigkit-cli-init-json-install-"));
+    const cwd = mkdtempSync(join(tmpdir(), "stoke-cli-init-json-install-"));
 
     try {
       const result = await runCli(["init", "--json", "--package-manager", "npm"], { cwd });
@@ -165,7 +165,7 @@ describe("CLI entrypoint", () => {
       expect(result.exitCode).toBe(1);
       expect(result.stdout).toBe("");
       expect(result.stderr).toContain("stoke init --json only supports --package-manager skip");
-      expect(existsSync(join(cwd, "rigkit", "index.ts"))).toBe(false);
+      expect(existsSync(join(cwd, "stoke", "index.ts"))).toBe(false);
       expect(existsSync(join(cwd, "package.json"))).toBe(false);
     } finally {
       rmSync(cwd, { recursive: true, force: true });
@@ -173,7 +173,7 @@ describe("CLI entrypoint", () => {
   });
 
   test("accepts conventional double-dash global options", async () => {
-    const cwd = mkdtempSync(join(tmpdir(), "rigkit-cli-global-options-"));
+    const cwd = mkdtempSync(join(tmpdir(), "stoke-cli-global-options-"));
     mkdirSync(join(cwd, "api"));
     writeStokeIndex(join(cwd, "api"));
 
@@ -185,7 +185,7 @@ describe("CLI entrypoint", () => {
       expect(JSON.parse(result.stdout)).toEqual({
         projects: [{
           projectDir: join(realpathSync(cwd), "api"),
-          configPath: join(realpathSync(cwd), "api", "rigkit", "index.ts"),
+          configPath: join(realpathSync(cwd), "api", "stoke", "index.ts"),
         }],
       });
     } finally {
@@ -194,7 +194,7 @@ describe("CLI entrypoint", () => {
   });
 
   test("clears workflow cache through the runtime", async () => {
-    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-cli-cache-clear-"));
+    const projectDir = mkdtempSync(join(tmpdir(), "stoke-cli-cache-clear-"));
 
     await withWorkspaceRuntime({ projectDir }, async ({ env }) => {
       const result = await runCli([`--chdir=${projectDir}`, "cache", "smoke", "clear", "--global", "--json"], { env });
@@ -206,7 +206,7 @@ describe("CLI entrypoint", () => {
   });
 
   test("does not render a success marker when cache invalidation is a no-op", async () => {
-    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-cli-cache-invalidate-"));
+    const projectDir = mkdtempSync(join(tmpdir(), "stoke-cli-cache-invalidate-"));
 
     await withWorkspaceRuntime({ projectDir, cacheInvalidated: 0 }, async ({ env }) => {
       const result = await runCli([`--chdir=${projectDir}`, "cache", "smoke", "invalidate", "missing-task"], { env });
@@ -219,7 +219,7 @@ describe("CLI entrypoint", () => {
   });
 
   test("preserves JSON output for zero cache invalidations", async () => {
-    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-cli-cache-invalidate-json-"));
+    const projectDir = mkdtempSync(join(tmpdir(), "stoke-cli-cache-invalidate-json-"));
 
     await withWorkspaceRuntime({ projectDir, cacheInvalidated: 0 }, async ({ env }) => {
       const result = await runCli([`--chdir=${projectDir}`, "cache", "smoke", "invalidate", "missing-task", "--json"], { env });
@@ -231,7 +231,7 @@ describe("CLI entrypoint", () => {
   });
 
   test("passes positional workflow when invalidating cache", async () => {
-    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-cli-cache-invalidate-workflow-"));
+    const projectDir = mkdtempSync(join(tmpdir(), "stoke-cli-cache-invalidate-workflow-"));
 
     await withWorkspaceRuntime({ projectDir, requireCacheInvalidateWorkflow: true }, async ({ env }) => {
       const result = await runCli([`--chdir=${projectDir}`, "cache", "smoke", "invalidate", "ready", "--json"], { env });
@@ -243,7 +243,7 @@ describe("CLI entrypoint", () => {
   });
 
   test("lists cache entries with plan-style task status", async () => {
-    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-cli-cache-list-"));
+    const projectDir = mkdtempSync(join(tmpdir(), "stoke-cli-cache-list-"));
 
     await withWorkspaceRuntime({ projectDir }, async ({ env }) => {
       const result = await runCli([`--chdir=${projectDir}`, "cache", "smoke", "ls"], { env });
@@ -258,7 +258,7 @@ describe("CLI entrypoint", () => {
   });
 
   test("lists the selected project's workflows and workspaces", async () => {
-    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-cli-list-"));
+    const projectDir = mkdtempSync(join(tmpdir(), "stoke-cli-list-"));
 
     await withWorkspaceRuntime({ projectDir }, async ({ env }) => {
       const result = await runCli([`--chdir=${projectDir}`, "ls", "--json"], { env });
@@ -279,7 +279,7 @@ describe("CLI entrypoint", () => {
   });
 
   test("defaults a managed project name to its single Stoke workflow", async () => {
-    const projectDir = realpathSync(mkdtempSync(join(tmpdir(), "rigkit-cli-managed-name-")));
+    const projectDir = realpathSync(mkdtempSync(join(tmpdir(), "stoke-cli-managed-name-")));
 
     await withWorkspaceRuntime({ projectDir }, async ({ env }) => {
       let createBody: Record<string, unknown> | undefined;
@@ -352,7 +352,7 @@ describe("CLI entrypoint", () => {
   });
 
   test("explains workflow cache decisions", async () => {
-    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-cli-cache-explain-"));
+    const projectDir = mkdtempSync(join(tmpdir(), "stoke-cli-cache-explain-"));
 
     await withWorkspaceRuntime({ projectDir }, async ({ env }) => {
       const result = await runCli([`--chdir=${projectDir}`, "cache", "smoke", "explain", "--json"], { env });
@@ -371,7 +371,7 @@ describe("CLI entrypoint", () => {
   });
 
   test("rejects workspace create names that are not shell-safe", async () => {
-    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-cli-create-name-"));
+    const projectDir = mkdtempSync(join(tmpdir(), "stoke-cli-create-name-"));
 
     await withWorkspaceRuntime({ projectDir }, async ({ env }) => {
       const result = await runCli([`--chdir=${projectDir}`, "create", "--workflow", "smoke", "--name", "some workspace", "--json"], { env });
@@ -383,7 +383,7 @@ describe("CLI entrypoint", () => {
   });
 
   test("accepts create name as a positional argument", async () => {
-    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-cli-create-positional-"));
+    const projectDir = mkdtempSync(join(tmpdir(), "stoke-cli-create-positional-"));
 
     await withWorkspaceRuntime({ projectDir }, async ({ env }) => {
       const result = await runCli([`--chdir=${projectDir}`, "create", "--workflow", "smoke", "new-workspace", "--json"], { env });
@@ -397,7 +397,7 @@ describe("CLI entrypoint", () => {
   });
 
   test("removes a workspace with the built-in rm command", async () => {
-    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-cli-rm-"));
+    const projectDir = mkdtempSync(join(tmpdir(), "stoke-cli-rm-"));
 
     await withWorkspaceRuntime({ projectDir }, async ({ env }) => {
       const result = await runCli([`--chdir=${projectDir}`, "rm", "api", "-y", "--json"], { env });
@@ -411,7 +411,7 @@ describe("CLI entrypoint", () => {
   });
 
   test("requires --workflow for duplicate workspace names in JSON run", async () => {
-    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-cli-run-conflict-"));
+    const projectDir = mkdtempSync(join(tmpdir(), "stoke-cli-run-conflict-"));
 
     await withWorkspaceRuntime({ projectDir, duplicateWorkspaceName: true }, async ({ env }) => {
       const result = await runCli([`--chdir=${projectDir}`, "run", "api", "remove", "--json"], { env });
@@ -423,7 +423,7 @@ describe("CLI entrypoint", () => {
   });
 
   test("uses --workflow to disambiguate duplicate workspace names in run", async () => {
-    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-cli-run-workflow-"));
+    const projectDir = mkdtempSync(join(tmpdir(), "stoke-cli-run-workflow-"));
 
     await withWorkspaceRuntime({ projectDir, duplicateWorkspaceName: true }, async ({ env }) => {
       const result = await runCli([`--chdir=${projectDir}`, "run", "api", "remove", "--workflow", "smoke", "--yes", "--json"], { env });
@@ -438,7 +438,7 @@ describe("CLI entrypoint", () => {
   });
 
   test("requires discovered projects for operation --all", async () => {
-    const cwd = mkdtempSync(join(tmpdir(), "rigkit-cli-run-all-"));
+    const cwd = mkdtempSync(join(tmpdir(), "stoke-cli-run-all-"));
 
     try {
       const result = await runCli(["plan", "--all", "--json"], { cwd });
@@ -452,7 +452,7 @@ describe("CLI entrypoint", () => {
   });
 
   test("requires selection for operation --discover with multiple projects", async () => {
-    const cwd = mkdtempSync(join(tmpdir(), "rigkit-cli-run-discover-"));
+    const cwd = mkdtempSync(join(tmpdir(), "stoke-cli-run-discover-"));
     mkdirSync(join(cwd, "api"));
     mkdirSync(join(cwd, "web"));
     writeStokeIndex(join(cwd, "api"));
@@ -465,8 +465,8 @@ describe("CLI entrypoint", () => {
       expect(result.stdout).toBe("");
       expect(result.stderr).toContain("Multiple Stoke projects found.");
       expect(result.stderr).toContain("pass --all");
-      expect(result.stderr).toContain(join(realpathSync(cwd), "api", "rigkit", "index.ts"));
-      expect(result.stderr).toContain(join(realpathSync(cwd), "web", "rigkit", "index.ts"));
+      expect(result.stderr).toContain(join(realpathSync(cwd), "api", "stoke", "index.ts"));
+      expect(result.stderr).toContain(join(realpathSync(cwd), "web", "stoke", "index.ts"));
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }
@@ -483,7 +483,7 @@ async function runCli(
     stderr: "pipe",
     env: {
       ...process.env,
-      RIGKIT_UPDATE_CHECK: "0",
+      STOKE_UPDATE_CHECK: "0",
       STOKE_HOME: join(tmpdir(), `stoke-cli-tests-${process.pid}`),
       ...options.env,
       FORCE_COLOR: "0",
@@ -510,14 +510,13 @@ async function withWorkspaceRuntime(
   },
   run: (context: { env: Record<string, string> }) => Promise<void>,
 ): Promise<void> {
-  const rigkitHome = mkdtempSync(join(tmpdir(), "rigkit-home-"));
   const stokeHome = mkdtempSync(join(tmpdir(), "stoke-home-"));
   const token = "test-token";
   mkdirSync(input.projectDir, { recursive: true });
   const configPath = writeStokeIndex(input.projectDir);
   const projectId = projectIdFor({ projectDir: input.projectDir, configPath });
   const runtimeFingerprint = runtimeFingerprintFor({ projectDir: input.projectDir, configPath });
-  const paths = runtimePaths(projectId, rigkitHome);
+  const paths = runtimePaths(projectId, stokeHome);
   mkdirSync(paths.root, { recursive: true });
   writeFileSync(paths.tokenPath, `${token}\n`);
   const engineVersion = input.engineVersion ?? "engine-test";
@@ -781,7 +780,7 @@ async function withWorkspaceRuntime(
           {
             headers: {
               "content-type": "text/event-stream",
-              "x-rigkit-api-version": String(SUPPORTED_RUNTIME_API_VERSION),
+              "x-stoke-api-version": String(SUPPORTED_RUNTIME_API_VERSION),
             },
           },
         );
@@ -804,10 +803,9 @@ async function withWorkspaceRuntime(
   );
 
   try {
-    await run({ env: { RIGKIT_HOME: rigkitHome, STOKE_HOME: stokeHome } });
+    await run({ env: { STOKE_HOME: stokeHome } });
   } finally {
     server.stop(true);
-    rmSync(rigkitHome, { recursive: true, force: true });
     rmSync(stokeHome, { recursive: true, force: true });
     rmSync(input.projectDir, { recursive: true, force: true });
   }
@@ -815,6 +813,6 @@ async function withWorkspaceRuntime(
 
 function runtimeJson(body: unknown, init: ResponseInit = {}): Response {
   const headers = new Headers(init.headers);
-  headers.set("x-rigkit-api-version", String(SUPPORTED_RUNTIME_API_VERSION));
+  headers.set("x-stoke-api-version", String(SUPPORTED_RUNTIME_API_VERSION));
   return Response.json(body, { ...init, headers });
 }

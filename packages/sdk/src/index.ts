@@ -1,4 +1,4 @@
-export { RIGKIT_SDK_VERSION } from "./version.ts";
+export { STOKE_SDK_VERSION } from "./version.ts";
 
 export {
   defineProvider,
@@ -16,7 +16,7 @@ export {
   createRuntimeControlApiHandler,
   createRuntimeApp,
   DEFAULT_IDLE_MS,
-  RIGKIT_RUNTIME_VERSION,
+  STOKE_RUNTIME_VERSION,
   createRuntimeStateCoordinator,
   emptyRuntimeStateSnapshot,
   HostCommandRequestEffectSchema,
