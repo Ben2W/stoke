@@ -645,7 +645,6 @@ async function withWorkspaceRuntime(
           runtimeFingerprint,
           projectDir: input.projectDir,
           configPath,
-          statePath: join(input.projectDir, ".rigkit", "state.sqlite"),
           engineVersion,
           runtimeVersion,
           expiresAt: new Date(Date.now() + 60_000).toISOString(),
@@ -663,7 +662,6 @@ async function withWorkspaceRuntime(
         return runtimeJson({
           projectDir: input.projectDir,
           configPath,
-          statePath: join(input.projectDir, ".rigkit", "state.sqlite"),
           workflows: [{
             name: "smoke",
             providers: [],

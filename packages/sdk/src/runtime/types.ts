@@ -5,8 +5,10 @@ export type ServeRuntimeOptions = {
   runtimeFingerprint?: string;
   projectDir: string;
   configPath: string;
-  statePath?: string;
-  globalFragmentRoot?: string;
+  managedProjectId?: string;
+  managedApiUrl?: string;
+  managedToken?: string;
+  stateFile?: string;
   source?: JsonValue;
   handlePath: string;
   tokenPath: string;
@@ -28,8 +30,7 @@ export type RuntimeContext = {
   readonly runtimeFingerprint?: string;
   readonly projectDir: string;
   readonly configPath: string;
-  readonly statePath?: string;
-  readonly globalFragmentRoot?: string;
+  readonly state: import("./state.ts").RuntimeStateCoordinator;
   readonly source?: JsonValue;
   readonly token: string;
   readonly startedAt: string;

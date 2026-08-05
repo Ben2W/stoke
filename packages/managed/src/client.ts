@@ -12,6 +12,8 @@ import {
   type ManagedRunEvent,
   type RemoteExecutionRequest,
   type RemoteExecutionResponse,
+  type ManagedProjectStateSnapshot,
+  type ProjectStateResponse,
   CheckoutListResponseSchema,
   CheckoutResponseSchema,
   CreateProjectRequestSchema,
@@ -29,6 +31,8 @@ import {
   RunSocketTicketResponseSchema,
   RemoteExecutionRequestSchema,
   RemoteExecutionResponseSchema,
+  ProjectStateResponseSchema,
+  UpdateProjectStateRequestSchema,
 } from "./contracts.ts";
 
 export type ManagedClientOptions = {
@@ -56,6 +60,12 @@ export type ManagedClient = {
   listRunEvents(runId: string, after?: number): Promise<ManagedRunEvent[]>;
   createRunSocketTicket(runId: string, role?: "viewer" | "producer"): Promise<string>;
   executeProject(projectId: string, input: RemoteExecutionRequest): Promise<RemoteExecutionResponse>;
+  getProjectState(projectId: string): Promise<ProjectStateResponse>;
+  updateProjectState(
+    projectId: string,
+    expectedRevision: number,
+    snapshot: ManagedProjectStateSnapshot,
+  ): Promise<ProjectStateResponse>;
 };
 
 export class ManagedApiError extends Error {
@@ -163,6 +173,20 @@ export function createManagedClient(options: ManagedClientOptions): ManagedClien
       return RemoteExecutionResponseSchema.parse(
         await request(`/api/v1/projects/${encodeURIComponent(projectId)}/executions`, {
           method: "POST",
+          body: JSON.stringify(payload),
+        }),
+      );
+    },
+    async getProjectState(projectId) {
+      return ProjectStateResponseSchema.parse(
+        await request(`/api/v1/projects/${encodeURIComponent(projectId)}/state`),
+      );
+    },
+    async updateProjectState(projectId, expectedRevision, snapshot) {
+      const payload = UpdateProjectStateRequestSchema.parse({ expectedRevision, snapshot });
+      return ProjectStateResponseSchema.parse(
+        await request(`/api/v1/projects/${encodeURIComponent(projectId)}/state`, {
+          method: "PUT",
           body: JSON.stringify(payload),
         }),
       );

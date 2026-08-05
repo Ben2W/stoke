@@ -155,6 +155,28 @@ export const RemoteExecutionResponseSchema = z.object({
   result: z.unknown().optional(),
 });
 
+export const ManagedStateScopeSchema = z.object({
+  workspaces: z.array(z.unknown()),
+  workflowApplies: z.array(z.unknown()),
+  nodeRuns: z.array(z.unknown()),
+  providerState: z.array(z.unknown()),
+});
+
+export const ManagedProjectStateSnapshotSchema = z.object({
+  version: z.literal(1),
+  scopes: z.record(z.string(), ManagedStateScopeSchema),
+});
+
+export const ProjectStateResponseSchema = z.object({
+  revision: z.number().int().nonnegative(),
+  snapshot: ManagedProjectStateSnapshotSchema,
+});
+
+export const UpdateProjectStateRequestSchema = z.object({
+  expectedRevision: z.number().int().nonnegative(),
+  snapshot: ManagedProjectStateSnapshotSchema,
+});
+
 export type GitHubProjectSource = z.infer<typeof GitHubProjectSourceSchema>;
 export type LocalProjectSource = z.infer<typeof LocalProjectSourceSchema>;
 export type ProjectSource = z.infer<typeof ProjectSourceSchema>;
@@ -173,3 +195,6 @@ export type ClaimRunRequest = z.infer<typeof ClaimRunRequestSchema>;
 export type ClaimRunResponse = z.infer<typeof ClaimRunResponseSchema>;
 export type RemoteExecutionRequest = z.infer<typeof RemoteExecutionRequestSchema>;
 export type RemoteExecutionResponse = z.infer<typeof RemoteExecutionResponseSchema>;
+export type ManagedProjectStateSnapshot = z.infer<typeof ManagedProjectStateSnapshotSchema>;
+export type ProjectStateResponse = z.infer<typeof ProjectStateResponseSchema>;
+export type UpdateProjectStateRequest = z.infer<typeof UpdateProjectStateRequestSchema>;

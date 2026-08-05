@@ -77,7 +77,6 @@ consistency with command options:
 ```sh
 rig --chdir=examples/smoke plan
 rig --chdir=examples/global-fragments apply --workflow api
-rig --state=/tmp/rigkit-state.sqlite plan
 rig --json plan --workflow dev
 ```
 
@@ -86,7 +85,6 @@ Options:
 | Option | Description |
 | --- | --- |
 | `--chdir <dir>` | Switch to a directory before resolving `rigkit/index.ts`. |
-| `--state <file>` | Use a specific local runtime state database. |
 | `--json` | Print machine-readable JSON where supported. |
 
 By default Rigkit searches upward from the current directory for

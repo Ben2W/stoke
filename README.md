@@ -104,6 +104,11 @@ Sandbox, evaluates its typed workflow there, and records the run in the managed
 control plane. Pass `--workflow <name>` for a repository with multiple
 workflows; a single workflow is selected automatically.
 
+Workflow state and cache metadata live in Neon Postgres, not SQLite or the
+checkout. Local runtimes and Vercel Sandboxes load and commit the same
+revisioned project snapshot, so work applied in one environment can be reused
+by the other.
+
 Remove a project from the managed control plane with:
 
 ```sh

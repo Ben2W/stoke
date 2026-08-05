@@ -33,8 +33,8 @@ import {
 export type RuntimeProjectOptions = {
   projectDir: string;
   configPath: string;
-  statePath?: string;
-  globalFragmentRoot?: string;
+  managedState?: { projectId: string; revision: number; apiUrl: string; token: string };
+  stateFile?: string;
   source?: unknown;
 };
 
@@ -99,21 +99,18 @@ async function getOrStartRuntimeUnsafe(options: GetOrStartRuntimeOptions): Promi
       message: `Rigkit config must be ${canonicalConfigPath}; ${configPath} is not supported.`,
     });
   }
-  const statePath = options.statePath ? resolve(options.statePath) : undefined;
-  const globalFragmentRoot = options.globalFragmentRoot
-    ? resolve(options.globalFragmentRoot)
-    : join(options.rigkitHome ?? defaultRigkitHome(), "fragments");
   const projectId = projectIdFor({
     projectDir,
     configPath,
-    statePath,
+    managedState: options.managedState,
+    stateFile: options.stateFile,
     source: options.source,
   });
   const runtimeFingerprint = runtimeFingerprintFor({
     projectDir,
     configPath,
-    statePath,
-    ...(options.globalFragmentRoot ? { globalFragmentRoot } : {}),
+    managedState: options.managedState,
+    stateFile: options.stateFile,
     source: options.source,
   });
   const paths = runtimePaths(projectId, options.rigkitHome);
@@ -128,8 +125,6 @@ async function getOrStartRuntimeUnsafe(options: GetOrStartRuntimeOptions): Promi
       ...options,
       projectDir,
       configPath,
-      statePath,
-      globalFragmentRoot,
       projectId,
       runtimeFingerprint,
       paths,
@@ -153,7 +148,8 @@ export function projectIdFor(options: RuntimeProjectOptions): string {
   hash.update(JSON.stringify({
     projectDir: resolve(options.projectDir),
     configPath,
-    statePath: options.statePath ? resolve(options.statePath) : null,
+    managedProjectId: options.managedState?.projectId ?? null,
+    stateFile: options.stateFile ? resolve(options.stateFile) : null,
     source: options.source ?? null,
   }));
   return `sha256-${hash.digest("hex").slice(0, 32)}`;
@@ -162,18 +158,19 @@ export function projectIdFor(options: RuntimeProjectOptions): string {
 export function runtimeFingerprintFor(options: RuntimeProjectOptions): string {
   const projectDir = resolve(options.projectDir);
   const configPath = resolve(options.configPath);
-  const statePath = options.statePath ? resolve(options.statePath) : null;
-  const globalFragmentRoot = options.globalFragmentRoot ? resolve(options.globalFragmentRoot) : null;
+  const stateFile = options.stateFile ? resolve(options.stateFile) : null;
   const hash = createHash("sha256");
 
   hash.update("project\0");
   hash.update(projectDir);
   hash.update("\0config\0");
   hash.update(configPath);
-  hash.update("\0state\0");
-  hash.update(statePath ?? "");
-  hash.update("\0global-fragment-root\0");
-  hash.update(globalFragmentRoot ?? "");
+  hash.update("\0managed-project\0");
+  hash.update(options.managedState?.projectId ?? "");
+  hash.update("\0managed-state-revision\0");
+  hash.update(String(options.managedState?.revision ?? ""));
+  hash.update("\0state-file\0");
+  hash.update(stateFile ?? "");
   hash.update("\0source\0");
   hash.update(JSON.stringify(options.source ?? null));
 
@@ -270,8 +267,11 @@ async function startRuntime(input: GetOrStartRuntimeOptions & {
     "--idle-ms",
     String(input.idleMs ?? DEFAULT_IDLE_MS),
   ];
-  if (input.statePath) args.push("--state", input.statePath);
-  if (input.globalFragmentRoot) args.push("--global-fragment-root", input.globalFragmentRoot);
+  if (input.managedState) {
+    args.push("--managed-project-id", input.managedState.projectId);
+    args.push("--managed-api-url", input.managedState.apiUrl);
+  }
+  if (input.stateFile) args.push("--state-file", resolve(input.stateFile));
   if (input.source !== undefined) args.push("--source-json", JSON.stringify(input.source));
 
   mkdirSync(input.paths.root, { recursive: true });
@@ -279,7 +279,10 @@ async function startRuntime(input: GetOrStartRuntimeOptions & {
   const proc = spawn(runtimeBin, args, {
     detached: true,
     stdio: ["ignore", "pipe", stderrFd],
-    env: process.env,
+    env: {
+      ...process.env,
+      ...(input.managedState ? { STOKE_RUNTIME_TOKEN: input.managedState.token } : {}),
+    },
   }) as ChildProcessByStdio<null, Readable, null>;
   // The child inherits the fd; the parent can release its own handle.
   try {
@@ -391,6 +394,8 @@ async function withRuntimeLock(path: string, run: () => Promise<void>): Promise<
 }
 
 function resolveRuntimeBin(projectDir: string): string {
+  const override = process.env.STOKE_RUNTIME_BIN?.trim();
+  if (override && existsSync(override)) return override;
   const local = join(projectDir, "node_modules", ".bin", process.platform === "win32" ? "rigkit-project-runtime.cmd" : "rigkit-project-runtime");
   if (existsSync(local)) return local;
   throw new RuntimeStartupError({

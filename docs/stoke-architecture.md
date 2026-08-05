@@ -57,6 +57,8 @@ The initial API is deliberately small:
 - `POST /api/v1/projects`
 - `DELETE /api/v1/projects/:projectId`
 - `POST /api/v1/projects/:projectId/executions`
+- `GET /api/v1/projects/:projectId/state`
+- `PUT /api/v1/projects/:projectId/state`
 - `POST /api/v1/devices`
 - `GET /api/v1/checkouts`
 - `POST /api/v1/checkouts`
@@ -125,6 +127,26 @@ server functions for product behavior.
 credential override for automation; interactive use reads the credential written
 by `stoke login`.
 
+## Managed workflow state
+
+Neon Postgres is the only durable workflow-state store. Each project owns one
+versioned JSON snapshot containing workflow cache records, workspace metadata,
+and provider storage, partitioned by engine scope. There is no SQLite database
+and no durable state file in a checkout.
+
+For a local command, the runtime reads the selected project's latest snapshot
+from the Hono API, evaluates the TypeScript workflow locally, and commits the
+updated snapshot with an expected revision. A revision conflict fails instead
+of silently overwriting another command's work. A new revision also restarts a
+stale local runtime before the next operation, so another device's cache writes
+become visible.
+
+For checkout-free execution, the control plane reads the same snapshot, passes
+it into the Vercel Sandbox as a transient transport file, and commits the
+returned snapshot to Postgres after a successful command. The transient file is
+discarded with the Sandbox; it is not a second state store. Local development
+and Vercel Sandbox therefore consume the same managed cache.
+
 ## Build order
 
 1. Authenticated project, device, and checkout registry with deterministic CLI
@@ -132,8 +154,9 @@ by `stoke login`.
 2. Vercel Sandbox execution for GitHub-backed projects, addressed by the same
    managed project identity. Plan and apply runs share the managed run model,
    dedupe active work, emit live events, and heartbeat until completion.
-3. Managed workflow state and shared cache metadata, with large artifacts in
-   object storage rather than Postgres.
+3. Managed workflow state and shared cache metadata in revisioned Postgres
+   snapshots. Large binary artifacts remain provider-owned rather than being
+   copied into Postgres.
 
 ## Deliberate interview-scope cuts
 

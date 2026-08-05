@@ -9,7 +9,6 @@ describe("gcloud auth store", () => {
   test("upserts local access token credentials", async () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-gcloud-"));
     const state = createStateStore({ projectDir });
-    await state.syncSchema();
     const store = createGcloudAuthStore(state.providerStorage("gcloud.config.copy"));
 
     const first = store.saveCredentials({

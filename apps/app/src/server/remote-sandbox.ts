@@ -1,10 +1,17 @@
 import { Sandbox } from "@vercel/sandbox";
-import type { ManagedProject, RemoteExecutionRequest } from "@stoke/managed";
+import {
+  ProjectStateResponseSchema,
+  type ProjectStateResponse,
+  type ManagedProject,
+  type RemoteExecutionRequest,
+} from "@stoke/managed";
 
-const REMOTE_CLI_VERSION = "0.2.17";
 const SANDBOX_TIMEOUT_MS = 5 * 60_000;
 const COMMAND_TIMEOUT_MS = 4 * 60_000;
 const MAX_ERROR_OUTPUT_LENGTH = 4_000;
+const STATE_FILE = "/tmp/stoke-managed-state.json";
+const STOKE_CLI_PATH = "/tmp/stoke-cli.js";
+const STOKE_RUNTIME_PATH = "/tmp/stoke-runtime.js";
 
 export type RemoteSandboxStage = {
   type: "remote.sandbox.created" | "remote.command.started" | "remote.command.completed";
@@ -17,11 +24,17 @@ export type RemoteSandboxStage = {
 export type RunRemoteSandboxInput = {
   project: ManagedProject;
   request: RemoteExecutionRequest;
+  state: ProjectStateResponse;
   githubToken?: string;
   onStage?: (stage: RemoteSandboxStage) => Promise<void> | void;
 };
 
-export async function runRemoteSandbox(input: RunRemoteSandboxInput): Promise<unknown> {
+export type RemoteSandboxResult = {
+  result: unknown;
+  state: ProjectStateResponse;
+};
+
+export async function runRemoteSandbox(input: RunRemoteSandboxInput): Promise<RemoteSandboxResult> {
   if (input.project.source.kind !== "github") {
     throw new Error("Remote execution currently requires a GitHub project source");
   }
@@ -46,22 +59,41 @@ export async function runRemoteSandbox(input: RunRemoteSandboxInput): Promise<un
     },
   });
   await input.onStage?.({ type: "remote.sandbox.created", sandboxName: sandbox.name });
+  await sandbox.writeFiles([{ path: STATE_FILE, content: JSON.stringify(input.state) }]);
 
-  await runCommand(sandbox, input, "install-bun", {
+  await runCommand(sandbox, input, "bootstrap-toolchain", {
     cmd: "npm",
     args: ["install", "--global", "bun@1.3.7"],
+  });
+  await runCommand(sandbox, input, "load-stoke-cli", {
+    cmd: "curl",
+    args: ["--fail", "--silent", "--show-error", "https://usestoke.dev/runtime/stoke-cli.js", "-o", STOKE_CLI_PATH],
+  });
+  await runCommand(sandbox, input, "load-stoke-runtime", {
+    cmd: "curl",
+    args: ["--fail", "--silent", "--show-error", "https://usestoke.dev/runtime/stoke-runtime.js", "-o", STOKE_RUNTIME_PATH],
+  });
+  await runCommand(sandbox, input, "prepare-stoke-runtime", {
+    cmd: "chmod",
+    args: ["700", STOKE_CLI_PATH, STOKE_RUNTIME_PATH],
   });
   await runCommand(sandbox, input, "install-dependencies", {
     cmd: "bun",
     args: ["install"],
   });
 
-  const commandEnvironment = { RIGKIT_UPDATE_CHECK: "0", NO_COLOR: "1", FORCE_COLOR: "0" };
+  const commandEnvironment = {
+    RIGKIT_UPDATE_CHECK: "0",
+    NO_COLOR: "1",
+    FORCE_COLOR: "0",
+    STOKE_STATE_FILE: STATE_FILE,
+    STOKE_RUNTIME_BIN: STOKE_RUNTIME_PATH,
+  };
   let workflow = input.request.workflow;
   if (!workflow) {
     const discovered = await runCommand(sandbox, input, "discover-workflow", {
       cmd: "bun",
-      args: ["x", `@rigkit/cli@${REMOTE_CLI_VERSION}`, "ls", "--json"],
+      args: [STOKE_CLI_PATH, "ls", "--json"],
       env: commandEnvironment,
     });
     workflow = singleWorkflowFromList(await discovered.stdout());
@@ -72,11 +104,21 @@ export async function runRemoteSandbox(input: RunRemoteSandboxInput): Promise<un
     env: commandEnvironment,
   });
   const stdout = await result.stdout();
+  let parsedResult: unknown;
   try {
-    return JSON.parse(stdout);
+    parsedResult = JSON.parse(stdout);
   } catch {
     throw new Error(`Remote Stoke ${input.request.operation} returned invalid JSON`);
   }
+  const stateBuffer = await sandbox.readFileToBuffer({ path: STATE_FILE });
+  if (!stateBuffer) throw new Error("Remote Stoke execution did not return managed state");
+  let state: ProjectStateResponse;
+  try {
+    state = ProjectStateResponseSchema.parse(JSON.parse(stateBuffer.toString("utf8")));
+  } catch {
+    throw new Error("Remote Stoke execution returned invalid managed state");
+  }
+  return { result: parsedResult, state };
 }
 
 type SandboxCommand = Parameters<Sandbox["runCommand"]>[0] & { cmd: string };
@@ -101,8 +143,7 @@ async function runCommand(
 
 function remoteCliArgs(request: RemoteExecutionRequest, workflow: string | undefined): string[] {
   return [
-    "x",
-    `@rigkit/cli@${REMOTE_CLI_VERSION}`,
+    STOKE_CLI_PATH,
     request.operation,
     ...(workflow ? ["--workflow", workflow] : []),
     ...(request.operation === "apply" && request.dryRun ? ["--dry-run"] : []),

@@ -10,7 +10,6 @@ describe("createFreestyleStore", () => {
   test("saves and reuses a single default identity row", async () => {
     const projectDir = mkdtempSync(join(tmpdir(), "provider-freestyle-"));
     const state = createStateStore({ projectDir });
-    await state.syncSchema();
 
     const store = createFreestyleStore(state.providerStorage("freestyle"));
 

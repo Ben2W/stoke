@@ -36,6 +36,8 @@ const running: ManagedRun = {
   completedAt: null,
 };
 
+const managedState = { revision: 0, snapshot: { version: 1 as const, scopes: {} } };
+
 describe("remote managed execution", () => {
   test("claims a cloud run and publishes sandbox lifecycle events", async () => {
     const events: unknown[] = [];
@@ -85,11 +87,16 @@ describe("remote managed execution", () => {
         };
       },
       heartbeatRun: async () => undefined,
+      getProjectState: async () => managedState,
+      updateProjectState: async (_userId, _projectId, input) => ({
+        revision: input.expectedRevision + 1,
+        snapshot: input.snapshot,
+      }),
       findGitHubAccessToken: async () => "github-token",
       runSandbox: async (input) => {
         expect(input.githubToken).toBe("github-token");
         await input.onStage?.({ type: "remote.sandbox.created", sandboxName: "test-sandbox" });
-        return plan;
+        return { result: plan, state: managedState };
       },
     });
 
@@ -130,10 +137,18 @@ describe("remote managed execution", () => {
         };
       },
       heartbeatRun: async () => undefined,
+      getProjectState: async () => managedState,
+      updateProjectState: async (_userId, _projectId, input) => ({
+        revision: input.expectedRevision + 1,
+        snapshot: input.snapshot,
+      }),
       findGitHubAccessToken: async () => undefined,
       runSandbox: async () => ({
-        context: {},
-        plan: { workflow: "stoke-example", nodeCount: 3, cachedNodeCount: 0, nodes: [] },
+        result: {
+          context: {},
+          plan: { workflow: "stoke-example", nodeCount: 3, cachedNodeCount: 0, nodes: [] },
+        },
+        state: managedState,
       }),
     });
 

@@ -13,4 +13,4 @@ This package supplies:
 
 Use `vm.exec(...)` inside workflow tasks to install VM dependencies before taking a snapshot. Pass `console.log` to Freestyle SDK calls that accept `logger` to stream SDK progress into the CLI. Console output inside a task handler is intercepted by the Rigkit runtime and emitted as leveled `log.output` events.
 
-By default the provider authenticates through a browser login and stores Freestyle credentials in Rigkit's provider host storage, outside project `.rigkit/state.sqlite`. Pass `freestyle.provider({ apiKey })` or `freestyle.provider(apiKey)` to use API-key auth instead.
+By default the provider authenticates through a browser login and stores Freestyle credentials in provider-owned host storage, outside Stoke's managed project state. Pass `freestyle.provider({ apiKey })` or `freestyle.provider(apiKey)` to use API-key auth instead.

@@ -8,7 +8,12 @@ import type {
 import { registerCheckout, registerDevice } from "./devices.ts";
 import { getProject } from "./projects.ts";
 import { accountRepository } from "./repositories/account-repository.ts";
-import { runRemoteSandbox, type RunRemoteSandboxInput } from "./remote-sandbox.ts";
+import { getProjectState, updateProjectState } from "./project-state.ts";
+import {
+  runRemoteSandbox,
+  type RemoteSandboxResult,
+  type RunRemoteSandboxInput,
+} from "./remote-sandbox.ts";
 import { appendRunEvent, claimRun, getRun, heartbeatRun } from "./runs.ts";
 
 const CLOUD_DEVICE_NAME = "Vercel Sandbox";
@@ -24,8 +29,10 @@ export type RemoteExecutionDependencies = {
   getRun: typeof getRun;
   appendRunEvent: typeof appendRunEvent;
   heartbeatRun: typeof heartbeatRun;
+  getProjectState: typeof getProjectState;
+  updateProjectState: typeof updateProjectState;
   findGitHubAccessToken: typeof accountRepository.findGitHubAccessToken;
-  runSandbox: (input: RunRemoteSandboxInput) => Promise<unknown>;
+  runSandbox: (input: RunRemoteSandboxInput) => Promise<RemoteSandboxResult>;
 };
 
 const defaultDependencies: RemoteExecutionDependencies = {
@@ -36,6 +43,8 @@ const defaultDependencies: RemoteExecutionDependencies = {
   getRun,
   appendRunEvent,
   heartbeatRun,
+  getProjectState,
+  updateProjectState,
   findGitHubAccessToken: accountRepository.findGitHubAccessToken,
   runSandbox: runRemoteSandbox,
 };
@@ -79,18 +88,25 @@ export async function executeRemoteProject(
 
   try {
     const githubToken = await dependencies.findGitHubAccessToken(userId);
+    const projectState = await dependencies.getProjectState(userId, project.id);
     const heartbeat = setInterval(() => {
       void dependencies.heartbeatRun(userId, claimed.run.id).catch(() => undefined);
     }, HEARTBEAT_INTERVAL_MS);
     let result: unknown;
     try {
-      result = await dependencies.runSandbox({
+      const executed = await dependencies.runSandbox({
         project,
         request,
+        state: projectState,
         githubToken,
         onStage: async (stage) => {
           await dependencies.appendRunEvent(userId, claimed.run.id, stage);
         },
+      });
+      result = executed.result;
+      await dependencies.updateProjectState(userId, project.id, {
+        expectedRevision: projectState.revision,
+        snapshot: executed.state.snapshot,
       });
     } finally {
       clearInterval(heartbeat);

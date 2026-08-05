@@ -49,8 +49,8 @@ export const website = app
 ```
 
 `create` receives the final workflow context and the requested workspace name.
-It returns workspace context, which must be JSON-serializable. Rigkit stores it
-in `.rigkit/state.sqlite`.
+It returns workspace context, which must be JSON-serializable. Stoke stores it
+in managed Postgres state.
 
 `remove` receives the saved workspace context and should clean up provider
 resources.

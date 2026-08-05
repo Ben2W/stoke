@@ -38,8 +38,6 @@ export function runtimeHealth(context: RuntimeContext) {
     runtimeFingerprint: context.runtimeFingerprint,
     projectDir: context.projectDir,
     configPath: context.configPath,
-    statePath: context.statePath,
-    globalFragmentRoot: context.globalFragmentRoot,
     engineVersion: RIGKIT_ENGINE_VERSION,
     runtimeVersion: RIGKIT_RUNTIME_VERSION,
     expiresAt: context.getExpiresAt(),
@@ -101,6 +99,7 @@ export async function explainRuntimeCache(context: RuntimeContext, body: { workf
 export async function clearRuntimeCache(context: RuntimeContext, body: { workflow: string; scope?: "local" | "global" | "all" }) {
   const engine = await loadEngine(context);
   const result = await engine.clearCache({ workflow: body.workflow, scope: body.scope });
+  await context.state.persist();
   return { ok: true, deleted: result.deleted };
 }
 
@@ -113,6 +112,7 @@ export async function invalidateRuntimeCache(
     workflow: body.workflow,
     nodePaths: body.nodePaths,
   });
+  await context.state.persist();
   return { ok: true, invalidated: result.invalidated };
 }
 

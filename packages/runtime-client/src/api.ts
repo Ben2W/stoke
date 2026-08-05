@@ -17,8 +17,6 @@ export const RuntimeControlHealthEffectSchema = Schema.Struct({
   runtimeFingerprint: OptionalString,
   projectDir: Schema.String,
   configPath: Schema.String,
-  statePath: OptionalString,
-  globalFragmentRoot: OptionalString,
   engineVersion: Schema.String,
   runtimeVersion: Schema.String,
   expiresAt: Schema.String,
@@ -45,7 +43,6 @@ export const RuntimeControlWorkflowSummaryEffectSchema = Schema.Struct({
 export const RuntimeControlProjectInfoEffectSchema = Schema.Struct({
   projectDir: Schema.String,
   configPath: Schema.String,
-  statePath: OptionalString,
   workflows: Schema.Array(RuntimeControlWorkflowSummaryEffectSchema),
 }).annotations({ identifier: "ProjectInfo" });
 

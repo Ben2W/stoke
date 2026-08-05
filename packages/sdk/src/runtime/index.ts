@@ -30,9 +30,10 @@ export {
   runtimeControlErrorStatus,
 } from "./control.ts";
 export {
-  createRuntimeStateService,
-  type RuntimeStateService,
-  type RuntimeStateServiceOptions,
+  createRuntimeStateCoordinator,
+  emptyRuntimeStateSnapshot,
+  type RuntimeStateCoordinator,
+  type RuntimeStateSnapshot,
 } from "./state.ts";
 export {
   OkResponseEffectSchema,

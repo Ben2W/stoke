@@ -102,7 +102,6 @@ describe("CLI completion", () => {
 
     expect(items.map((item) => item.value)).toEqual([
       "--chdir=",
-      "--state=",
       "--project=",
       "--json",
       "--help",

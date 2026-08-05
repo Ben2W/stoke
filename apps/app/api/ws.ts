@@ -6,7 +6,7 @@ import {
   getRun,
   heartbeatRun,
   listRunEvents,
-} from "./repositories/run-repository.js";
+} from "../src/server/runs.js";
 
 type RunRequest = IncomingMessage & { runClaims?: RunSocketClaims };
 

@@ -14,6 +14,7 @@ import { runtimeJsonError, sessionRunIdFor } from "./app.ts";
 import { createRuntimeControlApiHandler } from "./api-handlers.ts";
 import type { RuntimeAppState } from "./control.ts";
 import { loadEngine } from "./operations.ts";
+import { loadRuntimeState } from "./managed-state.ts";
 import { runSessionSocketEffect } from "./sessions.ts";
 import { DEFAULT_IDLE_MS } from "./protocol.ts";
 import { createRunStore } from "./runs.ts";
@@ -40,8 +41,12 @@ export function serveRuntimeEffect(options: ServeRuntimeOptions): Effect.Effect<
 export async function serveRuntime(options: ServeRuntimeOptions): Promise<RuntimeServer> {
   const projectDir = resolve(options.projectDir);
   const configPath = resolve(options.configPath);
-  const statePath = options.statePath ? resolve(options.statePath) : undefined;
-  const globalFragmentRoot = options.globalFragmentRoot ? resolve(options.globalFragmentRoot) : undefined;
+  const workflowState = await loadRuntimeState({
+    managedProjectId: options.managedProjectId,
+    managedApiUrl: options.managedApiUrl,
+    managedToken: options.managedToken,
+    stateFile: options.stateFile,
+  });
   const host = options.host ?? "127.0.0.1";
   const token = options.token ?? readOrCreateToken(options.tokenPath);
   const idleMs = options.idleMs ?? DEFAULT_IDLE_MS;
@@ -65,8 +70,6 @@ export async function serveRuntime(options: ServeRuntimeOptions): Promise<Runtim
         runtimeFingerprint: options.runtimeFingerprint,
         projectDir,
         configPath,
-        statePath,
-        globalFragmentRoot,
         pid: process.pid,
         url,
         tokenPath: options.tokenPath,
@@ -83,8 +86,7 @@ export async function serveRuntime(options: ServeRuntimeOptions): Promise<Runtim
     runtimeFingerprint: options.runtimeFingerprint,
     projectDir,
     configPath,
-    statePath,
-    globalFragmentRoot,
+    state: workflowState,
     source: options.source,
     token,
     startedAt,

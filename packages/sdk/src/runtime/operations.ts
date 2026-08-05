@@ -5,7 +5,6 @@ import {
   type JsonValue,
   type LocalHostCapabilityRequestOptions,
 } from "@rigkit/engine";
-import { join } from "node:path";
 import { normalizeRuntimeRunError } from "./errors.ts";
 import {
   HostCommandResultSchema,
@@ -24,35 +23,24 @@ import {
   type RunRecord,
   type RunStore,
 } from "./runs.ts";
-import { createRuntimeStateService } from "./state.ts";
+import { createRuntimeStateCoordinator, type RuntimeStateCoordinator } from "./state.ts";
 import { RIGKIT_RUNTIME_VERSION } from "./version.ts";
 
 export type EngineLoadOptions = {
   projectId?: string;
   projectDir: string;
   configPath: string;
-  statePath?: string;
-  globalFragmentRoot?: string;
+  state?: RuntimeStateCoordinator;
   source?: JsonValue;
 };
 
 export async function loadEngine(input: EngineLoadOptions): Promise<DevMachineEngine> {
+  const state = input.state ?? createRuntimeStateCoordinator();
   const engine = await createDevMachineEngine({
     projectDir: input.projectDir,
     configPath: input.configPath,
-    state: createRuntimeStateService({
-      projectId: input.projectId,
-      projectDir: input.projectDir,
-      configPath: input.configPath,
-      statePath: input.statePath,
-      runtimeVersion: RIGKIT_RUNTIME_VERSION,
-      source: input.source,
-    }),
-    globalFragmentStateLocator: input.globalFragmentRoot
-      ? (fragment) => ({
-        statePath: join(input.globalFragmentRoot!, fragment.hash, "state.sqlite"),
-      })
-      : undefined,
+    state: state.project,
+    stateFactory: state.stateFactory,
   });
   await engine.load();
   return engine;
@@ -63,22 +51,12 @@ export function runOperation(run: RunRecord, store: RunStore, options: EngineLoa
 }
 
 async function executeOperation(run: RunRecord, store: RunStore, options: EngineLoadOptions): Promise<void> {
+  const state = options.state ?? createRuntimeStateCoordinator();
   const engine = await createDevMachineEngine({
     projectDir: options.projectDir,
     configPath: options.configPath,
-    state: createRuntimeStateService({
-      projectId: options.projectId,
-      projectDir: options.projectDir,
-      configPath: options.configPath,
-      statePath: options.statePath,
-      runtimeVersion: RIGKIT_RUNTIME_VERSION,
-      source: options.source,
-    }),
-    globalFragmentStateLocator: options.globalFragmentRoot
-      ? (fragment) => ({
-        statePath: join(options.globalFragmentRoot!, fragment.hash, "state.sqlite"),
-      })
-      : undefined,
+    state: state.project,
+    stateFactory: state.stateFactory,
     interaction: {
       present: async (request) => {
         await requestHost(store, run, "open.external", {
@@ -140,6 +118,7 @@ async function executeOperation(run: RunRecord, store: RunStore, options: Engine
   await engine.load();
 
   const result = await engine.runRuntimeOperation({ operation: run.operation, input: run.input });
+  await state.persist();
   completeRun(run, result, store);
 }
 

@@ -1,11 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { Database } from "bun:sqlite";
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createDevMachineEngine, type InteractionPresentationRequest } from "./engine.ts";
-import { RIGKIT_STATE_SCHEMA_VERSION } from "./db/index.ts";
-import { createStateStore } from "./state.ts";
+import { createStateStore, StateStore, type StateServiceFactory } from "./state.ts";
 import type {
   BaseProviderPlugin,
   ProviderRuntimeContext,
@@ -22,6 +20,24 @@ function writeRigkitIndex(projectDir: string, contents: string): string {
   mkdirSync(join(projectDir, "rigkit"), { recursive: true });
   writeFileSync(configPath, contents);
   return configPath;
+}
+
+function createScopedTestState(projectDir: string) {
+  const scopes = new Map<string, StateStore>();
+  const stateFactory: StateServiceFactory = (options) => {
+    const scope = options.scope ?? "project";
+    let state = scopes.get(scope);
+    if (!state) {
+      state = new StateStore({ ...options, projectDir, scope });
+      scopes.set(scope, state);
+    }
+    return state;
+  };
+  return {
+    project: stateFactory({ projectDir, scope: "project" }),
+    stateFactory,
+    scopes,
+  };
 }
 
 describe("DevMachineEngine workflow runtime", () => {
@@ -424,7 +440,6 @@ describe("DevMachineEngine workflow runtime", () => {
 
   test("creates state through an injectable state service factory", async () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-"));
-    const statePath = join(projectDir, "custom-state.sqlite");
     writeRigkitIndex(projectDir,
       `
         import { sequence } from "${import.meta.dir}/index.ts";
@@ -434,16 +449,15 @@ describe("DevMachineEngine workflow runtime", () => {
     );
 
     const configPath = rigkitIndexPath(projectDir);
-    const calls: Array<{ projectDir: string; configPath?: string; statePath?: string }> = [];
+    const calls: Array<{ projectDir: string; configPath?: string; scope?: string }> = [];
     const engine = await createDevMachineEngine({
       projectDir,
-      statePath,
       providerFactory: () => new FakeWorkflowProvider(),
       stateFactory: (options) => {
         calls.push({
           projectDir: options.projectDir,
           configPath: options.configPath,
-          statePath: options.statePath,
+          scope: options.scope,
         });
         return createStateStore(options);
       },
@@ -451,10 +465,9 @@ describe("DevMachineEngine workflow runtime", () => {
 
     await engine.load();
 
-    expect(calls).toEqual([{ projectDir, configPath, statePath }]);
-    expect(engine.getProjectInfo().statePath).toBe(statePath);
+    expect(calls).toEqual([{ projectDir, configPath, scope: "project" }]);
 
-    const state = createStateStore({ projectDir, statePath: join(projectDir, "provided-state.sqlite") });
+    const state = createStateStore({ projectDir, scope: "provided" });
     const engineWithState = await createDevMachineEngine({
       projectDir,
       providerFactory: () => new FakeWorkflowProvider(),
@@ -465,80 +478,14 @@ describe("DevMachineEngine workflow runtime", () => {
     });
 
     await engineWithState.load();
-    expect(engineWithState.getProjectInfo().statePath).toBe(state.path);
-  });
-
-  test("resets stale state before applying the Drizzle push schema", async () => {
-    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-"));
-    const statePath = join(projectDir, ".rigkit", "state.sqlite");
-    mkdirSync(join(projectDir, ".rigkit"));
-    const legacy = new Database(statePath, { create: true });
-    legacy.run(`
-      CREATE TABLE workspaces (
-        id TEXT PRIMARY KEY NOT NULL,
-        name TEXT NOT NULL,
-        provider_id TEXT NOT NULL,
-        vm_id TEXT NOT NULL,
-        machine TEXT NOT NULL,
-        snapshot_id TEXT NOT NULL,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL,
-        metadata_json TEXT NOT NULL
-      )
-    `);
-    legacy
-      .query(`
-        INSERT INTO workspaces (
-          id, name, provider_id, vm_id, machine, snapshot_id, created_at, updated_at, metadata_json
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `)
-      .run(
-        "workspace-1",
-        "demo",
-        "freestyle",
-        "vm-1",
-        "smoke",
-        "snap-1",
-        "2026-05-10T00:00:00.000Z",
-        "2026-05-10T00:00:00.000Z",
-        JSON.stringify({ ready: true }),
-      );
-    legacy.close();
-
-    const state = createStateStore({ projectDir, statePath });
-    const result = await state.syncSchema();
-    const workspaces = state.listWorkspaces();
-
-    expect(result.applied).toEqual([RIGKIT_STATE_SCHEMA_VERSION]);
-    expect(result.hasDataLoss).toBe(true);
-    expect(result.warnings.some((warning) => warning.startsWith("Reset Rigkit state database after Drizzle push failed"))).toBe(
-      true,
-    );
-    expect(workspaces).toEqual([]);
-
-    const now = new Date().toISOString();
-    state.saveWorkspace({
-      id: "workspace-2",
-      name: "demo",
-      workflow: "smoke",
-      workflowCtx: { ready: true },
-      createdAt: now,
-      updatedAt: now,
-      ctx: { ready: true },
-    });
-    expect(state.getWorkspace("demo")).toMatchObject({
-      name: "demo",
-      workflow: "smoke",
-      ctx: { ready: true },
-    });
+    expect(engineWithState.listNodeRuns()).toEqual([]);
   });
 
   test("invalidates task cache when handler source changes", async () => {
     const rootDir = mkdtempSync(join(tmpdir(), "rigkit-handler-cache-"));
     const firstProjectDir = join(rootDir, "one");
     const secondProjectDir = join(rootDir, "two");
-    const statePath = join(rootDir, ".rigkit", "state.sqlite");
-    mkdirSync(join(rootDir, ".rigkit"));
+    const state = createStateStore({ projectDir: rootDir });
     const writeConfig = (projectDir: string, value: string) =>
       writeRigkitIndex(
         projectDir,
@@ -559,7 +506,7 @@ describe("DevMachineEngine workflow runtime", () => {
     const first = await createDevMachineEngine({
       projectDir: firstProjectDir,
       configPath: firstConfigPath,
-      statePath,
+      state,
     });
     await first.load();
     const applied = await first.apply({ workflow: "handler-cache" });
@@ -571,7 +518,7 @@ describe("DevMachineEngine workflow runtime", () => {
     const second = await createDevMachineEngine({
       projectDir: secondProjectDir,
       configPath: secondConfigPath,
-      statePath,
+      state,
     });
     await second.load();
     const changed = await second.plan({ workflow: "handler-cache" });
@@ -587,8 +534,7 @@ describe("DevMachineEngine workflow runtime", () => {
     const rootDir = mkdtempSync(join(tmpdir(), "rigkit-closed-over-cache-"));
     const firstProjectDir = join(rootDir, "one");
     const secondProjectDir = join(rootDir, "two");
-    const statePath = join(rootDir, ".rigkit", "state.sqlite");
-    mkdirSync(join(rootDir, ".rigkit"));
+    const state = createStateStore({ projectDir: rootDir });
     const writeConfig = (projectDir: string, value: string) =>
       writeRigkitIndex(
         projectDir,
@@ -608,7 +554,7 @@ describe("DevMachineEngine workflow runtime", () => {
     writeConfig(secondProjectDir, "two");
     const first = await createDevMachineEngine({
       projectDir: firstProjectDir,
-      statePath,
+      state,
     });
     await first.load();
     const applied = await first.apply({ workflow: "closed-over-cache" });
@@ -617,7 +563,7 @@ describe("DevMachineEngine workflow runtime", () => {
 
     const second = await createDevMachineEngine({
       projectDir: secondProjectDir,
-      statePath,
+      state,
     });
     await second.load();
     const changed = await second.plan({ workflow: "closed-over-cache" });
@@ -631,8 +577,7 @@ describe("DevMachineEngine workflow runtime", () => {
     const rootDir = mkdtempSync(join(tmpdir(), "rigkit-insert-task-cache-"));
     const firstProjectDir = join(rootDir, "one");
     const secondProjectDir = join(rootDir, "two");
-    const statePath = join(rootDir, ".rigkit", "state.sqlite");
-    mkdirSync(join(rootDir, ".rigkit"));
+    const state = createStateStore({ projectDir: rootDir });
     const writeConfig = (projectDir: string, includeExtra: boolean) =>
       writeRigkitIndex(
         projectDir,
@@ -652,7 +597,7 @@ describe("DevMachineEngine workflow runtime", () => {
 
     const first = await createDevMachineEngine({
       projectDir: firstProjectDir,
-      statePath,
+      state,
     });
     await first.load();
     const applied = await first.apply({ workflow: "insert-task-cache" });
@@ -661,7 +606,7 @@ describe("DevMachineEngine workflow runtime", () => {
 
     const second = await createDevMachineEngine({
       projectDir: secondProjectDir,
-      statePath,
+      state,
     });
     await second.load();
     const changed = await second.plan({ workflow: "insert-task-cache" });
@@ -676,8 +621,7 @@ describe("DevMachineEngine workflow runtime", () => {
     const rootDir = mkdtempSync(join(tmpdir(), "rigkit-task-version-cache-"));
     const firstProjectDir = join(rootDir, "one");
     const secondProjectDir = join(rootDir, "two");
-    const statePath = join(rootDir, ".rigkit", "state.sqlite");
-    mkdirSync(join(rootDir, ".rigkit"));
+    const state = createStateStore({ projectDir: rootDir });
     const previous = process.env.RIGKIT_TASK_VERSION;
     const writeConfig = (projectDir: string) => writeRigkitIndex(projectDir,
       `
@@ -699,7 +643,7 @@ describe("DevMachineEngine workflow runtime", () => {
       process.env.RIGKIT_TASK_VERSION = "one";
       const first = await createDevMachineEngine({
         projectDir: firstProjectDir,
-        statePath,
+        state,
       });
       await first.load();
       const applied = await first.apply({ workflow: "task-version-cache" });
@@ -709,7 +653,7 @@ describe("DevMachineEngine workflow runtime", () => {
       process.env.RIGKIT_TASK_VERSION = "two";
       const second = await createDevMachineEngine({
         projectDir: secondProjectDir,
-        statePath,
+        state,
       });
       await second.load();
       const changed = await second.plan({ workflow: "task-version-cache" });
@@ -726,9 +670,7 @@ describe("DevMachineEngine workflow runtime", () => {
     const rootDir = mkdtempSync(join(tmpdir(), "rigkit-global-fragment-"));
     const firstProjectDir = join(rootDir, "one");
     const secondProjectDir = join(rootDir, "two");
-    const statePath = join(rootDir, ".rigkit", "state.sqlite");
-    const fragmentRoot = join(rootDir, "fragments");
-    mkdirSync(join(rootDir, ".rigkit"));
+    const managedState = createScopedTestState(rootDir);
 
     const writeConfig = (projectDir: string, value: string) =>
       writeRigkitIndex(
@@ -753,10 +695,8 @@ describe("DevMachineEngine workflow runtime", () => {
     const engineOptions = (projectDir: string, configPath: string) => ({
       projectDir,
       configPath,
-      statePath,
-      globalFragmentStateLocator: (fragment: { hash: string }) => ({
-        statePath: join(fragmentRoot, fragment.hash, "state.sqlite"),
-      }),
+      state: managedState.project,
+      stateFactory: managedState.stateFactory,
     });
 
     const first = await createDevMachineEngine(engineOptions(firstProjectDir, firstConfigPath));
@@ -765,14 +705,9 @@ describe("DevMachineEngine workflow runtime", () => {
     expect((await first.plan({ workflow: "site" })).cachedNodeCount).toBe(2);
     expect(first.listNodeRuns().map((run) => run.nodePath)).toEqual(["install"]);
 
-    const fragmentHashes = readdirSync(fragmentRoot);
-    expect(fragmentHashes).toHaveLength(1);
-    const fragmentDb = new Database(join(fragmentRoot, fragmentHashes[0]!, "state.sqlite"));
-    const fragmentRuns = fragmentDb
-      .query<{ node_path: string }, []>("select node_path from workflow_node_runs order by node_path")
-      .all();
-    fragmentDb.close();
-    expect(fragmentRuns.map((run) => run.node_path)).toEqual(["deps.prepare"]);
+    const fragmentStates = [...managedState.scopes.entries()].filter(([scope]) => scope.startsWith("fragment:"));
+    expect(fragmentStates).toHaveLength(1);
+    expect(fragmentStates[0]![1].listNodeRuns().map((run) => run.nodePath)).toEqual(["deps.prepare"]);
 
     const cache = await first.listCache();
     expect(cache.entries.map((entry) => entry.scope).sort()).toEqual(["global", "local"]);
@@ -784,7 +719,7 @@ describe("DevMachineEngine workflow runtime", () => {
 
     const reapplied = await second.apply({ workflow: "site" });
     expect(reapplied.context.installed).toBe("two");
-    expect(readdirSync(fragmentRoot)).toHaveLength(2);
+    expect([...managedState.scopes.keys()].filter((scope) => scope.startsWith("fragment:"))).toHaveLength(2);
   });
 
   test("lists cache entries in workflow plan order", async () => {
@@ -824,8 +759,7 @@ describe("DevMachineEngine workflow runtime", () => {
     const rootDir = mkdtempSync(join(tmpdir(), "rigkit-cache-explain-"));
     const firstProjectDir = join(rootDir, "one");
     const secondProjectDir = join(rootDir, "two");
-    const statePath = join(rootDir, ".rigkit", "state.sqlite");
-    mkdirSync(join(rootDir, ".rigkit"));
+    const state = createStateStore({ projectDir: rootDir });
     const writeConfig = (projectDir: string, value: string) =>
       writeRigkitIndex(
         projectDir,
@@ -838,7 +772,7 @@ describe("DevMachineEngine workflow runtime", () => {
       );
 
     const firstConfigPath = writeConfig(firstProjectDir, "one");
-    const first = await createDevMachineEngine({ projectDir: firstProjectDir, configPath: firstConfigPath, statePath });
+    const first = await createDevMachineEngine({ projectDir: firstProjectDir, configPath: firstConfigPath, state });
     await first.load();
     await first.apply({ workflow: "explain" });
 
@@ -850,7 +784,7 @@ describe("DevMachineEngine workflow runtime", () => {
     });
 
     const secondConfigPath = writeConfig(secondProjectDir, "two");
-    const second = await createDevMachineEngine({ projectDir: secondProjectDir, configPath: secondConfigPath, statePath });
+    const second = await createDevMachineEngine({ projectDir: secondProjectDir, configPath: secondConfigPath, state });
     await second.load();
 
     const changed = await second.explainCache({ workflow: "explain", task: "value" });
@@ -865,7 +799,7 @@ describe("DevMachineEngine workflow runtime", () => {
 
   test("invalidates global cache entries by plan display path", async () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-global-cache-invalidate-"));
-    const fragmentRoot = join(projectDir, "fragments");
+    const managedState = createScopedTestState(projectDir);
 
     writeRigkitIndex(projectDir,
       `
@@ -883,9 +817,8 @@ describe("DevMachineEngine workflow runtime", () => {
 
     const engine = await createDevMachineEngine({
       projectDir,
-      globalFragmentStateLocator: (fragment: { hash: string }) => ({
-        statePath: join(fragmentRoot, fragment.hash, "state.sqlite"),
-      }),
+      state: managedState.project,
+      stateFactory: managedState.stateFactory,
     });
     await engine.load();
     await engine.apply({ workflow: "site" });
@@ -902,9 +835,7 @@ describe("DevMachineEngine workflow runtime", () => {
 
   test("allows a later local task to invalidate an earlier global fragment task", async () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-global-invalidates-"));
-    const statePath = join(projectDir, ".rigkit", "state.sqlite");
-    const fragmentRoot = join(projectDir, "fragments");
-    mkdirSync(join(projectDir, ".rigkit"));
+    const managedState = createScopedTestState(projectDir);
 
     const previous = {
       installCount: process.env.RIGKIT_GLOBAL_INSTALL_COUNT,
@@ -961,10 +892,8 @@ describe("DevMachineEngine workflow runtime", () => {
     try {
       const engine = await createDevMachineEngine({
         projectDir,
-        statePath,
-        globalFragmentStateLocator: (fragment: { hash: string }) => ({
-          statePath: join(fragmentRoot, fragment.hash, "state.sqlite"),
-        }),
+        state: managedState.project,
+        stateFactory: managedState.stateFactory,
       });
       await engine.load();
 
@@ -984,7 +913,7 @@ describe("DevMachineEngine workflow runtime", () => {
       expect(process.env.RIGKIT_GLOBAL_AUTH_COUNT).toBe("2");
       expect(process.env.RIGKIT_LOCAL_REPO_COUNT).toBe("2");
       expect(process.env.RIGKIT_LOCAL_CHECK_COUNT).toBe("3");
-      expect(readdirSync(fragmentRoot)).toHaveLength(1);
+      expect([...managedState.scopes.keys()].filter((scope) => scope.startsWith("fragment:"))).toHaveLength(1);
     } finally {
       restoreEnv("RIGKIT_GLOBAL_INSTALL_COUNT", previous.installCount);
       restoreEnv("RIGKIT_GLOBAL_AUTH_COUNT", previous.authCount);
@@ -996,6 +925,7 @@ describe("DevMachineEngine workflow runtime", () => {
 
   test("stores provider JSON state in Rigkit-owned provider storage", async () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-"));
+    const state = createStateStore({ projectDir });
     const plugin: BaseProviderPlugin = {
       providerId: "test",
       createProvider({ storage }) {
@@ -1018,45 +948,20 @@ describe("DevMachineEngine workflow runtime", () => {
 
     const engine = await createDevMachineEngine({
       projectDir,
+      state,
       providers: [plugin],
     });
 
     await engine.load();
     await engine.plan({ workflow: "provider-storage" });
 
-    const statePath = engine.getProjectInfo().statePath;
-    const main = new Database(statePath);
-    const mainTables = main
-      .query<{ name: string }, []>("select name from sqlite_master where type = 'table' order by name")
-      .all()
-      .map((row) => row.name);
-
-    expect(mainTables).toContain("workspaces");
-    expect(mainTables).toContain("provider_state");
-    expect(mainTables).toContain("runtime_metadata");
-    expect(mainTables).not.toContain("provider_local_state");
-
-    const row = main
-      .query<{ value_json: string }, []>(
-        "select value_json from provider_state where provider_id = 'test' and key = 'ready'",
-      )
-      .get();
-    const metadataRows = main
-      .query<{ key: string; value_json: string }, []>(
-        "select key, value_json from runtime_metadata order by key",
-      )
-      .all();
-    main.close();
-
-    expect(row ? JSON.parse(row.value_json).value : undefined).toBe("provider");
-    const metadata = Object.fromEntries(metadataRows.map((item) => [item.key, JSON.parse(item.value_json)]));
-    expect(metadata["state.schemaVersion"]).toBe(RIGKIT_STATE_SCHEMA_VERSION);
-    expect(metadata["project.dir"]).toBe(projectDir);
-    expect(metadata["config.path"]).toBe(rigkitIndexPath(projectDir));
+    expect(state.providerStorage("test").get("ready")?.value).toEqual({ value: "provider" });
+    expect(state.exportSnapshot().providerState).toHaveLength(1);
   });
 
   test("stores provider host JSON state outside project state", async () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-"));
+    const state = createStateStore({ projectDir });
     const hostStorageDir = join(projectDir, ".host-storage");
     const opened: string[] = [];
     const plugin: BaseProviderPlugin = {
@@ -1083,6 +988,7 @@ describe("DevMachineEngine workflow runtime", () => {
 
     const engine = await createDevMachineEngine({
       projectDir,
+      state,
       hostStorageDir,
       providers: [plugin],
       local: {
@@ -1102,21 +1008,8 @@ describe("DevMachineEngine workflow runtime", () => {
     const hostState = JSON.parse(readFileSync(join(hostStorageDir, files[0]!), "utf8"));
     expect(hostState.records.token.value.value).toBe("secret");
 
-    const main = new Database(engine.getProjectInfo().statePath);
-    const projectRow = main
-      .query<{ value_json: string }, []>(
-        "select value_json from provider_state where provider_id = 'test' and key = 'project'",
-      )
-      .get();
-    const leakedHostRow = main
-      .query<{ value_json: string }, []>(
-        "select value_json from provider_state where provider_id = 'test' and key = 'token'",
-      )
-      .get();
-    main.close();
-
-    expect(projectRow ? JSON.parse(projectRow.value_json).value : undefined).toBe("state");
-    expect(leakedHostRow).toBeNull();
+    expect(state.providerStorage("test").get("project")?.value).toEqual({ value: "state" });
+    expect(state.providerStorage("test").get("token")).toBeUndefined();
   });
 
   test("includes provider checks in workflow plans", async () => {
@@ -1315,6 +1208,7 @@ describe("DevMachineEngine workflow runtime", () => {
 
   test("provider config contributes to the scoped task cache fingerprint", async () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-"));
+    const state = createStateStore({ projectDir });
     const previousToken = process.env.RIGKIT_TEST_PROVIDER_TOKEN;
     writeRigkitIndex(projectDir,
       `
@@ -1337,6 +1231,7 @@ describe("DevMachineEngine workflow runtime", () => {
       process.env.RIGKIT_TEST_PROVIDER_TOKEN = "one";
       const first = await createDevMachineEngine({
         projectDir,
+        state,
         providerFactory: () => provider,
       });
       await first.load();
@@ -1346,6 +1241,7 @@ describe("DevMachineEngine workflow runtime", () => {
       process.env.RIGKIT_TEST_PROVIDER_TOKEN = "two";
       const second = await createDevMachineEngine({
         projectDir,
+        state,
         providerFactory: () => provider,
       });
       await second.load();
@@ -1361,6 +1257,7 @@ describe("DevMachineEngine workflow runtime", () => {
 
   test("provider config changes only invalidate tasks after addProvider", async () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-scoped-provider-cache-"));
+    const state = createStateStore({ projectDir });
     const previousToken = process.env.RIGKIT_TEST_PROVIDER_TOKEN;
     writeRigkitIndex(projectDir,
       `
@@ -1385,6 +1282,7 @@ describe("DevMachineEngine workflow runtime", () => {
       process.env.RIGKIT_TEST_PROVIDER_TOKEN = "one";
       const first = await createDevMachineEngine({
         projectDir,
+        state,
         providerFactory: () => provider,
       });
       await first.load();
@@ -1394,6 +1292,7 @@ describe("DevMachineEngine workflow runtime", () => {
       process.env.RIGKIT_TEST_PROVIDER_TOKEN = "two";
       const second = await createDevMachineEngine({
         projectDir,
+        state,
         providerFactory: () => provider,
       });
       await second.load();
@@ -1487,6 +1386,7 @@ describe("DevMachineEngine workflow runtime", () => {
 
   test("providers added only for workspace operations do not affect setup cache", async () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-operation-provider-cache-"));
+    const state = createStateStore({ projectDir });
     const previousToken = process.env.RIGKIT_TEST_PROVIDER_TOKEN;
     writeRigkitIndex(projectDir,
       `
@@ -1515,6 +1415,7 @@ describe("DevMachineEngine workflow runtime", () => {
       process.env.RIGKIT_TEST_PROVIDER_TOKEN = "one";
       const first = await createDevMachineEngine({
         projectDir,
+        state,
         providerFactory: () => provider,
       });
       await first.load();
@@ -1524,6 +1425,7 @@ describe("DevMachineEngine workflow runtime", () => {
       process.env.RIGKIT_TEST_PROVIDER_TOKEN = "two";
       const second = await createDevMachineEngine({
         projectDir,
+        state,
         providerFactory: () => provider,
       });
       await second.load();
@@ -1590,6 +1492,7 @@ describe("DevMachineEngine workflow runtime", () => {
 
   test("expires task cache when cacheTTL has elapsed", async () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-cache-ttl-"));
+    const state = createStateStore({ projectDir });
     writeRigkitIndex(projectDir,
       `
         import { sequence } from "${import.meta.dir}/index.ts";
@@ -1600,16 +1503,16 @@ describe("DevMachineEngine workflow runtime", () => {
       `,
     );
 
-    const engine = await createDevMachineEngine({ projectDir });
+    const engine = await createDevMachineEngine({ projectDir, state });
     await engine.load();
     await engine.apply({ workflow: "ttl" });
     expect((await engine.plan({ workflow: "ttl" })).cachedNodeCount).toBe(1);
 
-    const db = new Database(engine.getProjectInfo().statePath);
-    db.run("update workflow_node_runs set created_at = ?", [
-      new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
-    ]);
-    db.close();
+    const run = state.listNodeRuns()[0]!;
+    state.saveNodeRun({
+      ...run,
+      createdAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
+    });
 
     const expired = await engine.plan({ workflow: "ttl" });
     expect(expired.cachedNodeCount).toBe(0);

@@ -141,6 +141,13 @@ describe("managed client", () => {
             result: { workflow: "default", nodeCount: 1, cachedNodeCount: 0, nodes: [] },
           });
         }
+        if (request.url.endsWith(`/projects/${project.id}/state`)) {
+          const body = request.method === "PUT" ? await request.json() as { snapshot: unknown } : undefined;
+          return Response.json({
+            revision: request.method === "PUT" ? 2 : 1,
+            snapshot: body?.snapshot ?? { version: 1, scopes: {} },
+          });
+        }
         if (request.url.endsWith("/events?after=1")) return Response.json({ events: [event] });
         if (request.url.includes("/ticket?role=")) return Response.json({ socketUrl: "wss://usestoke.dev/api/ws?ticket=viewer" });
         if (request.url.includes("/runs/")) return Response.json({ run });
@@ -163,6 +170,9 @@ describe("managed client", () => {
       disposition: "created",
       result: { workflow: "default", nodeCount: 1 },
     });
+    const state = await client.getProjectState(project.id);
+    expect(state.revision).toBe(1);
+    expect(await client.updateProjectState(project.id, state.revision, state.snapshot)).toMatchObject({ revision: 2 });
     expect(requests.map((request) => `${request.method} ${new URL(request.url).pathname}${new URL(request.url).search}`)).toEqual([
       "POST /api/v1/runs/claim",
       `GET /api/v1/runs?projectId=${project.id}`,
@@ -170,6 +180,8 @@ describe("managed client", () => {
       `GET /api/v1/runs/${run.id}/events?after=1`,
       `POST /api/v1/runs/${run.id}/ticket?role=viewer`,
       `POST /api/v1/projects/${project.id}/executions`,
+      `GET /api/v1/projects/${project.id}/state`,
+      `PUT /api/v1/projects/${project.id}/state`,
     ]);
   });
 });

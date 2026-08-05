@@ -195,6 +195,31 @@ describe("Hono control-plane API", () => {
     expect(await response.json()).toMatchObject({ disposition: "created", result: plan });
   });
 
+  test("reads and updates revisioned managed project state", async () => {
+    const snapshot = { version: 1 as const, scopes: {} };
+    const api = createApi({
+      authenticate: async () => user,
+      getProjectState: async (userId, projectId) => {
+        expect([userId, projectId]).toEqual([user.id, project.id]);
+        return { revision: 4, snapshot };
+      },
+      updateProjectState: async (userId, projectId, input) => {
+        expect([userId, projectId, input.expectedRevision]).toEqual([user.id, project.id, 4]);
+        return { revision: 5, snapshot: input.snapshot };
+      },
+    });
+
+    const read = await api.request(`http://localhost/api/v1/projects/${project.id}/state`);
+    expect(await read.json()).toEqual({ revision: 4, snapshot });
+
+    const updated = await api.request(`http://localhost/api/v1/projects/${project.id}/state`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ expectedRevision: 4, snapshot }),
+    });
+    expect(await updated.json()).toEqual({ revision: 5, snapshot });
+  });
+
   test("centralizes managed resource conflicts", async () => {
     const api = createApi({
       authenticate: async () => user,

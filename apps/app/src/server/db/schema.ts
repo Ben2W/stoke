@@ -1,4 +1,4 @@
-import type { ProjectSource } from "@stoke/managed";
+import type { ManagedProjectStateSnapshot, ProjectSource } from "@stoke/managed";
 import { relations, sql } from "drizzle-orm";
 import {
   boolean,
@@ -165,6 +165,22 @@ export const projectCheckouts = pgTable(
   ],
 );
 
+export const projectStates = pgTable(
+  "project_states",
+  {
+    projectId: uuid("project_id")
+      .primaryKey()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    revision: integer("revision").notNull(),
+    snapshot: jsonb("snapshot").$type<ManagedProjectStateSnapshot>().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [index("project_states_user_updated_at_idx").on(table.userId, table.updatedAt)],
+);
+
 export const runs = pgTable(
   "runs",
   {
@@ -221,6 +237,7 @@ export const userRelations = relations(user, ({ many }) => ({
   projects: many(projects),
   devices: many(devices),
   projectCheckouts: many(projectCheckouts),
+  projectStates: many(projectStates),
   runs: many(runs),
 }));
 
@@ -235,7 +252,13 @@ export const accountRelations = relations(account, ({ one }) => ({
 export const projectsRelations = relations(projects, ({ one, many }) => ({
   user: one(user, { fields: [projects.userId], references: [user.id] }),
   checkouts: many(projectCheckouts),
+  state: one(projectStates),
   runs: many(runs),
+}));
+
+export const projectStatesRelations = relations(projectStates, ({ one }) => ({
+  project: one(projects, { fields: [projectStates.projectId], references: [projects.id] }),
+  user: one(user, { fields: [projectStates.userId], references: [user.id] }),
 }));
 
 export const devicesRelations = relations(devices, ({ one, many }) => ({

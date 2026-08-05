@@ -78,28 +78,17 @@ stay cache-safe. Ordinary source edits can invalidate more broadly; resolved
 provider config and provider implementation changes are scoped by
 `.addProvider(...)`.
 
-## Local cache
+## Managed cache
 
-Local cache is stored in the project:
-
-```text
-.rigkit/state.sqlite
-```
-
-It contains local task runs and workspace records for the selected config.
-`.rigkit/` should stay out of source control.
+Task runs, provider project state, and workspace records are stored by Stoke in
+the managed Postgres control plane. A local command and a Vercel Sandbox load
+the same versioned snapshot, so neither execution environment owns durable
+workflow state.
 
 ## Global fragments
 
-`.global()` moves a node and its children into a global fragment cache for that
-Rigkit installation. When using the CLI, the default fragment state lives at:
-
-```text
-~/.rigkit/fragments/<fragment-hash>/state.sqlite
-```
-
-Set `RIGKIT_HOME` to move the Rigkit home directory. Hosts that embed the
-engine directly can also provide their own global fragment root.
+`.global()` moves a node and its children into a separately keyed fragment
+scope inside the managed project snapshot.
 
 The fragment hash is based on the fragment graph and Rigkit definition
 fingerprint. Provider changes do not move the fragment state path; they make
@@ -418,8 +407,8 @@ storage.set("branch:br_123", {
 const branch = storage.get("branch:br_123");
 ```
 
-Freestyle browser login, for example, uses provider-owned host storage. That
-is why deleting `.rigkit/state.sqlite` does not log the user out of Freestyle.
+Freestyle browser login, for example, uses provider-owned host storage and is
+not written into managed project state.
 
 See [Creating providers](/v0.2.10/providers/creating-providers) for the full storage
 API and patterns.

@@ -20,7 +20,6 @@ describe("local gcloud config copy provider", () => {
 
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-gcloud-"));
     const state = createStateStore({ projectDir });
-    await state.syncSchema();
 
     await expect(
       gcloudConfigCopyProviderPlugin.createProvider({
@@ -40,7 +39,6 @@ describe("local gcloud config copy provider", () => {
 
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-gcloud-"));
     const state = createStateStore({ projectDir });
-    await state.syncSchema();
 
     const controller = await gcloudConfigCopyProviderPlugin.createProvider({
       provider: {
@@ -80,7 +78,6 @@ describe("local gcloud config copy provider", () => {
   test("mints and stores a fresh local gcloud access token", async () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-gcloud-"));
     const state = createStateStore({ projectDir });
-    await state.syncSchema();
     const store = createGcloudAuthStore(state.providerStorage("gcloud.config.copy"));
     const calls: string[][] = [];
     const runner: GcloudCommandRunner = async (_command, args) => {
@@ -120,7 +117,6 @@ describe("local gcloud config copy provider", () => {
     writeFileSync(join(configDir, "virtenv", "bin", "python"), "not copied config");
 
     const state = createStateStore({ projectDir });
-    await state.syncSchema();
     const store = createGcloudAuthStore(state.providerStorage("gcloud.config.copy"));
     const calls: string[][] = [];
     const runner: GcloudCommandRunner = async (_command, args) => {

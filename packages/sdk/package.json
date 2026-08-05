@@ -26,6 +26,7 @@
     "test": "bun test"
   },
   "dependencies": {
+    "@stoke/managed": "workspace:*",
     "@effect/cluster": "0.58.2",
     "@effect/experimental": "0.60.0",
     "@effect/platform": "0.96.1",

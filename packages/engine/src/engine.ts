@@ -62,12 +62,10 @@ import type {
 export type CreateDevMachineEngineOptions = {
   projectDir?: string;
   configPath?: string;
-  statePath?: string;
   state?: StateService;
   providers?: BaseProviderPlugin[];
   providerFactory?: ProviderFactory;
   stateFactory?: StateServiceFactory;
-  globalFragmentStateLocator?: GlobalFragmentStateLocator;
   hostStorageDir?: string;
   hostStorageFactory?: ProviderHostStorageFactory;
   interaction?: {
@@ -77,10 +75,6 @@ export type CreateDevMachineEngineOptions = {
 };
 
 export type { InteractionPresenter, InteractionPresentationRequest };
-
-export type GlobalFragmentStateLocator = (fragment: GlobalFragmentStateLocationInput) =>
-  | string
-  | { statePath: string };
 
 export type GlobalFragmentStateLocationInput = {
   hash: string;
@@ -94,13 +88,11 @@ export type EngineLoadResult = {
   workflows: LoadedWorkflow[];
   projectDir: string;
   configPath: string;
-  statePath: string;
 };
 
 export type EngineProjectInfo = {
   projectDir: string;
   configPath: string;
-  statePath: string;
   workflows: WorkflowSummary[];
 };
 
@@ -394,12 +386,10 @@ function collectDefinitionFiles(dir: string): string[] {
 export class DevMachineEngine {
   private readonly projectDir: string;
   private readonly configPath: string;
-  private readonly statePath: string;
   private state: StateService | undefined;
   private providers: BaseProviderPlugin[];
   private readonly providerFactory: ProviderFactory;
   private readonly stateFactory: StateServiceFactory;
-  private readonly globalFragmentStateLocator: GlobalFragmentStateLocator;
   private readonly globalFragmentStates = new Map<string, { input: GlobalFragmentStateLocationInput; state: StateService }>();
   private evaluationFragmentHashes: Set<string> | undefined;
   private readonly hostStorageDir: string;
@@ -419,14 +409,10 @@ export class DevMachineEngine {
     if (this.configPath !== expectedConfigPath) {
       throw new Error(`Rigkit config must be ${expectedConfigPath}; ${this.configPath} is not supported.`);
     }
-    this.statePath = options.state?.path ?? (options.statePath ? resolve(options.statePath) : join(this.projectDir, ".rigkit", "state.sqlite"));
     this.state = options.state;
     this.providers = options.providers ?? [];
     this.providerFactory = options.providerFactory ?? ((input) => this.createProviderFromPlugin(input));
     this.stateFactory = options.stateFactory ?? createStateStore;
-    this.globalFragmentStateLocator = options.globalFragmentStateLocator ?? ((fragment) => ({
-      statePath: join(this.projectDir, ".rigkit", "fragments", fragment.hash, "state.sqlite"),
-    }));
     this.hostStorageDir = options.hostStorageDir ? resolve(options.hostStorageDir) : defaultProviderHostStorageDir();
     this.hostStorageFactory = options.hostStorageFactory ?? createFileProviderHostStorage;
     this.interactionPresenter = options.interaction?.present ?? defaultInteractionPresenter;
@@ -477,9 +463,8 @@ export class DevMachineEngine {
     this.state ??= this.stateFactory({
       projectDir: this.projectDir,
       configPath: this.configPath,
-      statePath: this.statePath,
+      scope: "project",
     });
-    await this.state.syncSchema();
 
     this.workflows = new Map(loaded.map((item) => [item.name, item]));
     if (this.workflows.size !== loaded.length) {
@@ -494,7 +479,6 @@ export class DevMachineEngine {
       workflows: loaded,
       projectDir: this.projectDir,
       configPath: this.configPath,
-      statePath: this.getStateService().path,
     };
   }
 
@@ -510,7 +494,6 @@ export class DevMachineEngine {
     return {
       projectDir: this.projectDir,
       configPath: this.configPath,
-      statePath: this.state?.path ?? this.statePath,
       workflows: this.listWorkflowSummaries(),
     };
   }
@@ -2122,7 +2105,7 @@ export class DevMachineEngine {
 
   private getStateService(): StateService {
     if (!this.state) {
-      throw new Error(`No state database loaded. Call engine.load() first.`);
+      throw new Error(`No workflow state loaded. Call engine.load() first.`);
     }
     return this.state;
   }
@@ -2132,12 +2115,10 @@ export class DevMachineEngine {
     const existing = this.globalFragmentStates.get(input.hash);
     if (existing) return existing.state;
 
-    const located = this.globalFragmentStateLocator(input);
-    const statePath = typeof located === "string" ? located : located.statePath;
     const state = this.stateFactory({
       projectDir: this.projectDir,
       configPath: this.configPath,
-      statePath,
+      scope: `fragment:${input.hash}`,
       source: {
         kind: "global-fragment",
         hash: input.hash,
@@ -2147,7 +2128,6 @@ export class DevMachineEngine {
         nodeKind: input.nodeKind,
       },
     });
-    await state.syncSchema();
     this.globalFragmentStates.set(input.hash, { input, state });
     return state;
   }
@@ -2155,7 +2135,7 @@ export class DevMachineEngine {
   private invalidateTaskCaches(targets: EvaluationCacheTarget[]): string[] {
     const grouped = new Map<string, { target: EvaluationCacheTarget; nodePaths: Set<string> }>();
     for (const target of targets) {
-      const key = `${target.state.path}\0${target.workflow}`;
+      const key = `${target.state.id}\0${target.workflow}`;
       const existing = grouped.get(key);
       if (existing) {
         existing.nodePaths.add(target.nodePath);
@@ -2189,7 +2169,7 @@ export class DevMachineEngine {
       const workflow = target.scope === "global" && target.fragmentHash
         ? `fragment:${target.fragmentHash}`
         : localWorkflow;
-      const key = `${state.path}\0${workflow}`;
+      const key = `${state.id}\0${workflow}`;
       const existing = grouped.get(key);
       if (existing) {
         existing.nodePaths.add(target.nodePath);

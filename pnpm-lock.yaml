@@ -84,6 +84,9 @@ importers:
       drizzle-kit:
         specifier: ^0.31.10
         version: 0.31.10
+      esbuild:
+        specifier: ^0.28.1
+        version: 0.28.1
       postcss:
         specifier: 8.5.14
         version: 8.5.14
@@ -384,6 +387,9 @@ importers:
       '@rigkit/runtime-client':
         specifier: workspace:*
         version: link:../runtime-client
+      '@rigkit/sdk':
+        specifier: workspace:*
+        version: link:../sdk
       '@stoke/managed':
         specifier: workspace:*
         version: link:../managed
@@ -406,12 +412,6 @@ importers:
 
   packages/engine:
     dependencies:
-      drizzle-kit:
-        specifier: ^0.31.10
-        version: 0.31.10
-      drizzle-orm:
-        specifier: ^0.45.2
-        version: 0.45.2(@cloudflare/workers-types@5.20260804.1)(bun-types@1.3.14)(kysely@0.29.4)(postgres@3.4.9)(sql.js@1.14.1)
       zod:
         specifier: ^4
         version: 4.4.3
@@ -573,6 +573,9 @@ importers:
       '@rigkit/runtime-client':
         specifier: workspace:*
         version: link:../runtime-client
+      '@stoke/managed':
+        specifier: workspace:*
+        version: link:../managed
       effect:
         specifier: ^3.21.2
         version: 3.21.2

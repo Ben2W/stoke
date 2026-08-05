@@ -149,12 +149,9 @@ class RigkitVsCodeHost {
 
   private async resolveRuntime(): Promise<RuntimeClient> {
     const project = resolveWorkspaceProject();
-    const config = vscode.workspace.getConfiguration("rigkit");
-    const statePath = config.get<string | undefined>("statePath", undefined);
     return await getOrStartRuntime({
       projectDir: project.projectDir,
       configPath: project.configPath,
-      ...(statePath ? { statePath } : {}),
     });
   }
 

@@ -174,14 +174,6 @@ const GLOBAL_OPTIONS: OptionDefinition[] = [
       { value: "--chdir=", noSpace: true },
     ],
   }),
-  option(["--state"], "state database path", {
-    group: GROUP_GLOBAL,
-    takesValue: true,
-    valueKind: "filesystem",
-    completions: [
-      { value: "--state=", noSpace: true },
-    ],
-  }),
   option(["--project"], "managed project override", {
     group: GROUP_GLOBAL,
     takesValue: true,

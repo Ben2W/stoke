@@ -17,17 +17,14 @@ export type {
   EngineCacheList,
   EngineCacheScope,
   GlobalFragmentStateLocationInput,
-  GlobalFragmentStateLocator,
   InteractionPresenter,
   InteractionPresentationRequest,
 } from "./engine.ts";
-export { createRigkitDatabase, RIGKIT_STATE_SCHEMA_VERSION, syncRigkitDatabaseSchema } from "./db/index.ts";
-export { coreSchema } from "./db/schema/index.ts";
 export {
   createFileProviderHostStorage,
   defaultProviderHostStorageDir,
 } from "./host-storage.ts";
-export { createStateStore } from "./state.ts";
+export { createStateStore, emptyStateSnapshot, StateStore } from "./state.ts";
 export { RIGKIT_ENGINE_VERSION } from "./version.ts";
 export {
   defineProvider,
@@ -39,7 +36,6 @@ export {
   workflow,
 } from "./authoring.ts";
 export type * from "./types.ts";
-export type { RigkitDatabase, RigkitDatabaseSchema, SchemaSyncResult } from "./db/index.ts";
 export type { ProviderHostStorageFactory, ProviderHostStorageOptions } from "./host-storage.ts";
 export type * from "./provider/types.ts";
 export type * from "./state.ts";

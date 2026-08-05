@@ -85,6 +85,26 @@ describe("runtime manager", () => {
     }
   });
 
+  test("keeps project ids stable while managed state revisions restart the runtime", () => {
+    const base = {
+      projectDir: "/tmp/project",
+      configPath: "/tmp/project/rigkit/index.ts",
+      managedState: {
+        projectId: "managed-project",
+        apiUrl: "https://usestoke.dev",
+        token: "secret",
+        revision: 1,
+      },
+    };
+    const changed = {
+      ...base,
+      managedState: { ...base.managedState, revision: 2 },
+    };
+
+    expect(projectIdFor(changed)).toBe(projectIdFor(base));
+    expect(runtimeFingerprintFor(changed)).not.toBe(runtimeFingerprintFor(base));
+  });
+
   test("changes runtime fingerprints when rigkit helper files change", () => {
     const root = mkdtempSync(join(tmpdir(), "rigkit-runtime-client-helper-fingerprint-"));
     try {
@@ -389,7 +409,6 @@ server = Bun.serve({
         runtimeFingerprint: options["runtime-fingerprint"],
         projectDir: resolve(options["project-dir"]),
         configPath: resolve(options.config),
-        statePath: options.state ? resolve(options.state) : undefined,
         engineVersion: "engine-test",
         runtimeVersion: "runtime-test",
         expiresAt: new Date(Date.now() + 60_000).toISOString(),
@@ -411,7 +430,6 @@ const handle = {
   runtimeFingerprint: options["runtime-fingerprint"],
   projectDir: resolve(options["project-dir"]),
   configPath: resolve(options.config),
-  statePath: options.state ? resolve(options.state) : undefined,
   pid: process.pid,
   url: \`http://127.0.0.1:\${server.port}\`,
   tokenPath: resolve(options.token),

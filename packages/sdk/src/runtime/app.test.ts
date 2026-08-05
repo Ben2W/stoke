@@ -18,6 +18,7 @@ import {
 } from "./protocol.ts";
 import { createRun, createRunStore } from "./runs.ts";
 import { serveRuntime, serveRuntimeEffect } from "./server.ts";
+import { createRuntimeStateCoordinator } from "./state.ts";
 import type { RuntimeContext } from "./types.ts";
 
 function rigkitIndexPath(projectDir: string): string {
@@ -439,7 +440,6 @@ describe("runtime HTTP app", () => {
       projectId: "project-session-test",
       projectDir,
       configPath,
-      statePath: join(projectDir, "state.sqlite"),
       handlePath: join(projectDir, "runtime.json"),
       tokenPath: join(projectDir, "runtime.token"),
       token: "test-token",
@@ -497,7 +497,6 @@ describe("runtime HTTP app", () => {
       projectId: "project-workspace-ctx-test",
       projectDir,
       configPath,
-      statePath: join(projectDir, "state.sqlite"),
       handlePath: join(projectDir, "runtime.json"),
       tokenPath: join(projectDir, "runtime.token"),
       token: "test-token",
@@ -549,7 +548,6 @@ describe("runtime HTTP app", () => {
       projectId: "project-validation-test",
       projectDir,
       configPath,
-      statePath: join(projectDir, "state.sqlite"),
       handlePath: join(projectDir, "runtime.json"),
       tokenPath: join(projectDir, "runtime.token"),
       token: "test-token",
@@ -794,7 +792,6 @@ async function serveRuntimeFixture(prefix: string, configBody: string) {
     projectId: prefix.replace(/[^a-z0-9-]/gi, ""),
     projectDir,
     configPath,
-    statePath: join(projectDir, "state.sqlite"),
     handlePath: join(projectDir, "runtime.json"),
     tokenPath: join(projectDir, "runtime.token"),
     token: "test-token",
@@ -888,6 +885,7 @@ function testContext(): RuntimeContext {
     projectId: "project-test",
     projectDir: "/tmp/rigkit-project",
     configPath: "/tmp/rigkit-project/rigkit/index.ts",
+    state: createRuntimeStateCoordinator(),
     token: "test-token",
     startedAt: "2026-01-01T00:00:00.000Z",
     getExpiresAt: () => "2026-01-01T00:30:00.000Z",

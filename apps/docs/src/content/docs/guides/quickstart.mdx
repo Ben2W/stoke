@@ -81,8 +81,8 @@ rig plan
 ```
 
 The first plan shows the setup task as pending. `rig apply` runs it and stores
-the task output in `.rigkit/state.sqlite`. The second plan should show the task
-as cached.
+the task output in Stoke's managed Postgres state. The second plan should show
+the task as cached locally or from a Vercel Sandbox.
 
 Cached setup is reused until a cache input changes: task code, provider config
 in scope for the task, upstream task output, output schema, `cacheTTL`, provider

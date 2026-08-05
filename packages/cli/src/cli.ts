@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 import { existsSync, rmSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { fileURLToPath } from "node:url";
 import { Command, CommanderError, Option } from "commander";
 import inquirer from "inquirer";
 import * as ui from "./ui.ts";
@@ -67,6 +68,7 @@ import {
   revokeStokeSession,
   resolveProjectSource,
   setCurrentProject,
+  stokeApiUrl,
   type StokeDeviceIdentity,
   writeStokeCredential,
 } from "./managed.ts";
@@ -74,7 +76,6 @@ import {
 type GlobalOptions = {
   chdir?: string;
   project?: string;
-  state?: string;
   json: boolean;
 };
 
@@ -139,7 +140,6 @@ type InitInstallResult = {
 type EngineProjectInfo = {
   projectDir: string;
   configPath: string;
-  statePath: string;
   workflows: RuntimeWorkflowSummary[];
 };
 
@@ -220,10 +220,20 @@ const CLI_HOST_CAPABILITIES: Array<{ id: string; schemaHash?: string }> = [
   ...(capability.schemaHash ? { schemaHash: capability.schemaHash } : {}),
 }));
 
+process.env.STOKE_RUNTIME_BIN ||= bundledRuntimeBin();
+
 if (process.argv[2] === "__complete") {
   runCompletionEndpoint(process.argv.slice(3)).catch(handleCliError);
 } else {
   runCli(process.argv).catch(handleCliError);
+}
+
+function bundledRuntimeBin(): string | undefined {
+  try {
+    return fileURLToPath(new URL("./src/cli.ts", import.meta.resolve("@rigkit/sdk/package.json")));
+  } catch {
+    return undefined;
+  }
 }
 
 async function runCli(argv: string[]): Promise<void> {
@@ -238,14 +248,12 @@ async function runCli(argv: string[]): Promise<void> {
     .argument("[command]")
     .addOption(new Option("--chdir <dir>", `Switch to a directory containing ${DEFAULT_CONFIG_PATH} before running the command`).hideHelp())
     .addOption(new Option("--project <project>", "Use a managed project for this command").hideHelp())
-    .addOption(new Option("--state <file>", "Local runtime state database path").hideHelp())
     .addOption(new Option("--json", "Print machine-readable JSON where supported").hideHelp())
     .addHelpText("after", [
       "",
       "Global Options:",
       "  --chdir <dir>     Switch to a directory containing rigkit/index.ts before running the command",
       "  --project <ref>   Override the current managed project",
-      "  --state <file>    Local runtime state database path",
       "  --json            Print machine-readable JSON where supported",
       "",
     ].join("\n"))
@@ -524,13 +532,11 @@ function rootOptions(program: Command): GlobalOptions {
   const options = program.opts<{
     chdir?: string;
     project?: string;
-    state?: string;
     json?: boolean;
   }>();
   return {
     chdir: options.chdir,
     project: options.project,
-    state: options.state,
     json: Boolean(options.json),
   };
 }
@@ -1145,10 +1151,6 @@ async function runDiscoveredProjectOperation(
       ...projects.map((project) => `- ${project.configPath}`),
     ].join("\n"));
   }
-  if (invocation.global.state && projects.length > 1) {
-    throw new Error(`--state cannot be used with multiple discovered projects`);
-  }
-
   const results: Array<{
     project: { projectDir: string; configPath: string };
     operation: string;
@@ -1159,7 +1161,6 @@ async function runDiscoveredProjectOperation(
     const runtime = await getOrStartRuntime({
       projectDir: project.projectDir,
       configPath: project.configPath,
-      statePath: invocation.global.state ? resolveGlobalPath(invocation, invocation.global.state) : undefined,
     });
     await checkRuntimeCompatibility(invocation, runtime);
     const { operation, parsed, result } = await executeRuntimeOperation(
@@ -1328,9 +1329,6 @@ async function resolveManagedProjectName(
   const runtime = await getOrStartRuntime({
     projectDir: resolved.checkout.path,
     configPath,
-    statePath: invocation.global.state
-      ? resolve(resolved.checkout.path, invocation.global.state)
-      : undefined,
   });
   const project = await readRuntimeProject(runtime);
   return project.workflows.length === 1 ? project.workflows[0]!.name : resolved.name;
@@ -1511,9 +1509,13 @@ async function runSelectedProject(invocation: CliInvocation, workflow: string | 
     return;
   }
 
-  const runtimeContext = managed?.checkout
+  const managedState = managed?.checkout
+    ? await managed.client.getProjectState(managed.project.id)
+    : undefined;
+  const runtimeContext = managed?.checkout && managedState
     ? {
         project: managed.project,
+        stateRevision: managedState.revision,
         source: {
           projectId: managed.project.id,
           checkoutId: managed.checkout.id,
@@ -2413,7 +2415,6 @@ async function runDoctor(invocation: CliInvocation, options: DoctorOptions): Pro
     ["api version", String(runtimeInfo.apiVersion)],
     ["protocol", runtimeInfo.protocolHash],
     ["compatibility", formatVersionCompatibilitySummary(compatibility)],
-    ["state", project.statePath ?? ""],
     ["expires", health.expiresAt ?? runtime.handle.expiresAt ?? ""],
   ]));
 }
@@ -2492,7 +2493,6 @@ async function runHelp(invocation: CliInvocation): Promise<void> {
     ui.dim("Options:"),
     opt("--chdir <dir>",   "Switch to a directory containing rigkit/index.ts before running the command"),
     opt("--project <ref>", "Override the current managed project"),
-    opt("--state <file>",  "Local runtime state database path"),
     opt("--json",          "Print machine-readable JSON where supported"),
   ].join("\n"));
 }
@@ -2517,11 +2517,22 @@ async function startRuntimeContext(
   options: { checkCompatibility?: boolean } = {},
   managed?: {
     project: ManagedProject;
+    stateRevision: number;
     source: { projectId: string; checkoutId: string; deviceId: string };
   },
 ): Promise<{ runtime: RuntimeClient; managedProject?: ManagedProject }> {
   const engineOptions = resolveEngineOptions(invocation);
-  if (managed) engineOptions.source = managed.source;
+  if (managed) {
+    const token = process.env.STOKE_TOKEN?.trim() || readStokeCredential()?.accessToken;
+    if (!token) throw new Error("Stoke is not authenticated. Run `stoke login` first.");
+    engineOptions.source = managed.source;
+    engineOptions.managedState = {
+      projectId: managed.project.id,
+      revision: managed.stateRevision,
+      apiUrl: stokeApiUrl(),
+      token,
+    };
+  }
   const runtime = await getOrStartRuntime(engineOptions);
   if (options.checkCompatibility !== false) {
     await checkRuntimeCompatibility(invocation, runtime);
@@ -2533,12 +2544,15 @@ async function resolveManagedRuntimeContext(
   invocation: CliInvocation,
 ): Promise<{
   project: ManagedProject;
+  stateRevision: number;
   source: { projectId: string; checkoutId: string; deviceId: string };
 } | undefined> {
   const managed = await resolveManagedProjectContext(invocation, { requireCheckout: true });
   if (!managed) return undefined;
+  const state = await managed.client.getProjectState(managed.project.id);
   return {
     project: managed.project,
+    stateRevision: state.revision,
     source: {
       projectId: managed.project.id,
       checkoutId: managed.checkout!.id,
@@ -2955,25 +2969,21 @@ function uninstallRunCancelHandler(): void {
 function resolveEngineOptions(invocation: CliInvocation): {
   projectDir: string;
   configPath: string;
-  statePath?: string;
+  managedState?: { projectId: string; revision: number; apiUrl: string; token: string };
+  stateFile?: string;
   source?: unknown;
 } {
   const paths = resolveCommandConfigPaths(invocation);
-  const options = invocation.global;
   return {
     projectDir: paths.projectDir,
     configPath: paths.configPath,
-    statePath: options.state ? resolveGlobalPath(invocation, options.state) : undefined,
+    ...(process.env.STOKE_STATE_FILE ? { stateFile: resolve(process.env.STOKE_STATE_FILE) } : {}),
   };
 }
 
 function resolveCommandConfigPaths(invocation: CliInvocation): { projectDir: string; configPath: string } {
   const options = invocation.global;
   return resolveConfigPaths({ chdir: options.chdir });
-}
-
-function resolveGlobalPath(invocation: CliInvocation, path: string): string {
-  return resolve(process.cwd(), invocation.global.chdir ?? ".", path);
 }
 
 type HostRequestEvent = {
@@ -3747,7 +3757,6 @@ function printConfig(info: EngineProjectInfo): void {
   console.log(ui.kvList([
     ["config", info.configPath],
     ["project", info.projectDir],
-    ["state", info.statePath ?? ""],
     ["workflows", info.workflows.map((workflow) => workflow.name).join(", ")],
   ]));
 }

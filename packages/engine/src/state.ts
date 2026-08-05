@@ -1,17 +1,6 @@
-import { join } from "node:path";
-import { and, asc, desc, eq } from "drizzle-orm";
 import type { ProviderStorage, ProviderStorageRecord } from "./provider/types.ts";
 import type { JsonValue, WorkspaceRecord } from "./types.ts";
-import {
-  createRigkitDatabase,
-  syncRigkitDatabaseSchema,
-  type RigkitDatabase,
-  type SchemaSyncResult,
-} from "./db/index.ts";
-import { coreSchema, type CoreSchema } from "./db/schema/index.ts";
-import { providerState, runtimeMetadata, workflowApplies, workflowNodeRuns, workspaces } from "./db/schema/index.ts";
 import { stableJson } from "./hash.ts";
-import { RIGKIT_ENGINE_VERSION } from "./version.ts";
 
 export type WorkflowNodeRunRecord = {
   id: string;
@@ -39,9 +28,17 @@ export type WorkflowApplyRecord = {
   appliedAt: string;
 };
 
+export type StateSnapshot = {
+  workspaces: WorkspaceRecord[];
+  workflowApplies: WorkflowApplyRecord[];
+  nodeRuns: WorkflowNodeRunRecord[];
+  providerState: ProviderStorageRecord[];
+};
+
 export type StateServiceOptions = {
   projectDir: string;
-  statePath?: string;
+  scope?: string;
+  snapshot?: StateSnapshot;
   projectId?: string;
   configPath?: string;
   runtimeVersion?: string;
@@ -51,8 +48,8 @@ export type StateServiceOptions = {
 export type StateServiceFactory = (options: StateServiceOptions) => StateService;
 
 export interface StateService {
-  readonly path: string;
-  syncSchema(): Promise<SchemaSyncResult>;
+  readonly id: string;
+  exportSnapshot(): StateSnapshot;
   listWorkspaces(): WorkspaceRecord[];
   listWorkspacesByName(name: string): WorkspaceRecord[];
   findWorkspace(nameOrResourceId: string, workflow?: string): WorkspaceRecord | undefined;
@@ -85,123 +82,82 @@ export interface StateService {
 }
 
 export class StateStore implements StateService {
-  readonly path: string;
-  readonly db: RigkitDatabase<CoreSchema>;
-  private readonly schema = coreSchema;
-  private readonly projectDir: string;
-  private readonly metadata: Omit<StateServiceOptions, "projectDir" | "statePath">;
-  private schemaSync?: Promise<SchemaSyncResult>;
+  readonly id: string;
+  private readonly workspaces = new Map<string, WorkspaceRecord>();
+  private readonly workflowApplies = new Map<string, WorkflowApplyRecord>();
+  private readonly nodeRuns = new Map<string, WorkflowNodeRunRecord>();
+  private readonly providerRecords = new Map<string, ProviderStorageRecord>();
 
-  constructor(projectDir: string, options: Omit<StateServiceOptions, "projectDir"> = {}) {
-    this.projectDir = projectDir;
-    this.path = options.statePath ?? join(projectDir, ".rigkit", "state.sqlite");
-    this.metadata = {
-      projectId: options.projectId,
-      configPath: options.configPath,
-      runtimeVersion: options.runtimeVersion,
-      source: options.source,
-    };
-    this.db = createRigkitDatabase(this.path, { schema: this.schema });
+  constructor(options: StateServiceOptions) {
+    this.id = options.scope ?? "project";
+    this.importSnapshot(options.snapshot ?? emptyStateSnapshot());
   }
 
-  async syncSchema(): Promise<SchemaSyncResult> {
-    this.schemaSync ??= this.syncSchemaOnce();
-    return await this.schemaSync;
+  exportSnapshot(): StateSnapshot {
+    return {
+      workspaces: this.listWorkspaces(),
+      workflowApplies: this.listWorkflowApplies(),
+      nodeRuns: this.listNodeRuns(),
+      providerState: [...this.providerRecords.values()]
+        .sort((left, right) => providerRecordKey(left.providerId, left.key).localeCompare(providerRecordKey(right.providerId, right.key)))
+        .map(cloneProviderStorageRecord),
+    };
   }
 
   listWorkspaces(): WorkspaceRecord[] {
-    return this.db.select().from(workspaces).orderBy(asc(workspaces.workflow), asc(workspaces.name)).all().map(toWorkspaceRecord);
+    return [...this.workspaces.values()]
+      .sort((left, right) => left.workflow.localeCompare(right.workflow) || left.name.localeCompare(right.name))
+      .map(cloneWorkspace);
   }
 
   listWorkspacesByName(name: string): WorkspaceRecord[] {
-    return this.db
-      .select()
-      .from(workspaces)
-      .where(eq(workspaces.name, name))
-      .orderBy(asc(workspaces.workflow))
-      .all()
-      .map(toWorkspaceRecord);
+    return this.listWorkspaces().filter((workspace) => workspace.name === name);
   }
 
   findWorkspace(nameOrResourceId: string, workflow?: string): WorkspaceRecord | undefined {
-    const matches = this.listWorkspaces()
-      .filter((workspace) =>
-        (workspace.name === nameOrResourceId || workspace.id === nameOrResourceId) &&
-        (workflow === undefined || workspace.workflow === workflow)
-      );
+    const matches = this.listWorkspaces().filter((workspace) =>
+      (workspace.name === nameOrResourceId || workspace.id === nameOrResourceId)
+      && (workflow === undefined || workspace.workflow === workflow)
+    );
     return matches.length === 1 ? matches[0] : undefined;
   }
 
   getWorkspace(name: string, workflow?: string): WorkspaceRecord | undefined {
     if (workflow !== undefined) {
-      const row = this.db
-        .select()
-        .from(workspaces)
-        .where(and(eq(workspaces.name, name), eq(workspaces.workflow, workflow)))
-        .get();
-      return row ? toWorkspaceRecord(row) : undefined;
+      const workspace = this.workspaces.get(workspaceKey(workflow, name));
+      return workspace ? cloneWorkspace(workspace) : undefined;
     }
     const matches = this.listWorkspacesByName(name);
     return matches.length === 1 ? matches[0] : undefined;
   }
 
   saveWorkspace(workspace: WorkspaceRecord): void {
-    this.db
-      .insert(workspaces)
-      .values(workspace)
-      .onConflictDoUpdate({
-        target: [workspaces.workflow, workspaces.name],
-        set: {
-          id: workspace.id,
-          workflowCtx: workspace.workflowCtx,
-          updatedAt: workspace.updatedAt,
-          ctx: workspace.ctx,
-        },
-      })
-      .run();
+    this.workspaces.set(workspaceKey(workspace.workflow, workspace.name), cloneWorkspace(workspace));
   }
 
   deleteWorkspace(name: string, workflow: string): void {
-    this.db.delete(workspaces).where(and(eq(workspaces.name, name), eq(workspaces.workflow, workflow))).run();
+    this.workspaces.delete(workspaceKey(workflow, name));
   }
 
   listWorkflowApplies(): WorkflowApplyRecord[] {
-    return this.db
-      .select()
-      .from(workflowApplies)
-      .orderBy(asc(workflowApplies.workflow))
-      .all()
-      .map(toWorkflowApplyRecord);
+    return [...this.workflowApplies.values()]
+      .sort((left, right) => left.workflow.localeCompare(right.workflow))
+      .map((record) => ({ ...record }));
   }
 
   getWorkflowApply(workflow: string): WorkflowApplyRecord | undefined {
-    const row = this.db.select().from(workflowApplies).where(eq(workflowApplies.workflow, workflow)).get();
-    return row ? toWorkflowApplyRecord(row) : undefined;
+    const record = this.workflowApplies.get(workflow);
+    return record ? { ...record } : undefined;
   }
 
   saveWorkflowApply(record: WorkflowApplyRecord): void {
-    this.db
-      .insert(workflowApplies)
-      .values(record)
-      .onConflictDoUpdate({
-        target: workflowApplies.workflow,
-        set: {
-          providerFingerprint: record.providerFingerprint,
-          cachedNodeCount: record.cachedNodeCount,
-          nodeCount: record.nodeCount,
-          appliedAt: record.appliedAt,
-        },
-      })
-      .run();
+    this.workflowApplies.set(record.workflow, { ...record });
   }
 
   listNodeRuns(): WorkflowNodeRunRecord[] {
-    return this.db
-      .select()
-      .from(workflowNodeRuns)
-      .orderBy(desc(workflowNodeRuns.createdAt))
-      .all()
-      .map(toNodeRunRecord);
+    return [...this.nodeRuns.values()]
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+      .map(cloneNodeRun);
   }
 
   listSnapshots(): SnapshotRecord[] {
@@ -216,188 +172,90 @@ export class StateStore implements StateService {
     upstreamRunIds: readonly string[];
   }): WorkflowNodeRunRecord | undefined {
     const upstream = stableJson([...input.upstreamRunIds]);
-    const candidates = this.db
-      .select()
-      .from(workflowNodeRuns)
-      .where(eq(workflowNodeRuns.workflow, input.workflow))
-      .orderBy(desc(workflowNodeRuns.createdAt))
-      .all()
-      .filter((run) =>
-        !run.invalidated &&
-        run.nodePath === input.nodePath &&
-        run.nodeKey === input.nodeKey &&
-        run.providerFingerprint === input.providerFingerprint &&
-        stableJson(run.upstreamRunIds) === upstream
-      );
-
-    const row = candidates[0];
-    return row ? toNodeRunRecord(row) : undefined;
+    return this.listNodeRuns().find((run) =>
+      !run.invalidated
+      && run.workflow === input.workflow
+      && run.nodePath === input.nodePath
+      && run.nodeKey === input.nodeKey
+      && run.providerFingerprint === input.providerFingerprint
+      && stableJson(run.upstreamRunIds) === upstream
+    );
   }
 
   saveNodeRun(run: WorkflowNodeRunRecord): void {
-    this.db.insert(workflowNodeRuns).values(run).run();
+    this.nodeRuns.set(run.id, cloneNodeRun(run));
   }
 
-  clearNodeRuns(input: {
-    workflow?: string;
-    nodePaths?: readonly string[];
-  } = {}): number {
+  clearNodeRuns(input: { workflow?: string; nodePaths?: readonly string[] } = {}): number {
     const nodePaths = input.nodePaths ? new Set(input.nodePaths) : undefined;
-    const rows = this.db
-      .select({ id: workflowNodeRuns.id, workflow: workflowNodeRuns.workflow, nodePath: workflowNodeRuns.nodePath })
-      .from(workflowNodeRuns)
-      .all()
-      .filter((row) =>
-        (input.workflow === undefined || row.workflow === input.workflow) &&
-        (nodePaths === undefined || nodePaths.has(row.nodePath))
-      );
-
-    for (const row of rows) {
-      this.db.delete(workflowNodeRuns).where(eq(workflowNodeRuns.id, row.id)).run();
-    }
-
-    return rows.length;
+    const ids = [...this.nodeRuns.values()]
+      .filter((run) =>
+        (input.workflow === undefined || run.workflow === input.workflow)
+        && (nodePaths === undefined || nodePaths.has(run.nodePath))
+      )
+      .map((run) => run.id);
+    return this.deleteNodeRunsById(ids);
   }
 
   deleteNodeRunsById(ids: readonly string[]): number {
-    if (ids.length === 0) return 0;
     let deleted = 0;
-    for (const id of ids) {
-      this.db.delete(workflowNodeRuns).where(eq(workflowNodeRuns.id, id)).run();
-      deleted += 1;
-    }
+    for (const id of ids) if (this.nodeRuns.delete(id)) deleted += 1;
     return deleted;
   }
 
-  invalidateNodeRuns(input: {
-    workflow: string;
-    nodePaths: readonly string[];
-  }): string[] {
+  invalidateNodeRuns(input: { workflow: string; nodePaths: readonly string[] }): string[] {
     const targetPaths = new Set(input.nodePaths);
     if (targetPaths.size === 0) return [];
-
-    const rows = this.db
-      .select()
-      .from(workflowNodeRuns)
-      .where(eq(workflowNodeRuns.workflow, input.workflow))
-      .orderBy(asc(workflowNodeRuns.createdAt))
-      .all()
-      .map(toNodeRunRecord);
-
+    const rows = this.listNodeRuns()
+      .filter((run) => run.workflow === input.workflow)
+      .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
     const invalidatedIds = new Set<string>();
     let changed = true;
     while (changed) {
       changed = false;
       for (const row of rows) {
         if (row.invalidated || invalidatedIds.has(row.id)) continue;
-        const isTarget = targetPaths.has(row.nodePath);
-        const dependsOnInvalidated = row.upstreamRunIds.some((id) => invalidatedIds.has(id));
-        if (!isTarget && !dependsOnInvalidated) continue;
+        if (!targetPaths.has(row.nodePath) && !row.upstreamRunIds.some((id) => invalidatedIds.has(id))) continue;
         invalidatedIds.add(row.id);
         changed = true;
       }
     }
-
     for (const id of invalidatedIds) {
-      this.db.update(workflowNodeRuns).set({ invalidated: true }).where(eq(workflowNodeRuns.id, id)).run();
+      const row = this.nodeRuns.get(id);
+      if (row) this.nodeRuns.set(id, { ...row, invalidated: true });
     }
-
     return [...invalidatedIds];
   }
 
   providerStorage(providerId: string): ProviderStorage {
-    return new StateProviderStorage(this.db, providerId);
+    return new MemoryProviderStorage(this.providerRecords, providerId);
   }
 
-  private async syncSchemaOnce(): Promise<SchemaSyncResult> {
-    const result = await syncRigkitDatabaseSchema(this.db, this.schema);
-    this.writeRuntimeMetadata(result.schemaVersion);
-    return result;
-  }
-
-  private writeRuntimeMetadata(schemaVersion: string): void {
-    const now = new Date().toISOString();
-    const entries: Array<[string, JsonValue]> = [
-      ["engine.version", RIGKIT_ENGINE_VERSION],
-      ["state.schemaVersion", schemaVersion],
-      ["project.dir", this.projectDir],
-      ["state.path", this.path],
-    ];
-
-    if (this.metadata.projectId) entries.push(["project.id", this.metadata.projectId]);
-    if (this.metadata.configPath) entries.push(["config.path", this.metadata.configPath]);
-    if (this.metadata.runtimeVersion) entries.push(["runtime.version", this.metadata.runtimeVersion]);
-    if (this.metadata.source !== undefined) entries.push(["source", this.metadata.source]);
-
-    for (const [key, value] of entries) {
-      this.db
-        .insert(runtimeMetadata)
-        .values({ key, value, updatedAt: now })
-        .onConflictDoUpdate({
-          target: runtimeMetadata.key,
-          set: { value, updatedAt: now },
-        })
-        .run();
+  private importSnapshot(snapshot: StateSnapshot): void {
+    for (const workspace of snapshot.workspaces) this.saveWorkspace(workspace);
+    for (const record of snapshot.workflowApplies) this.saveWorkflowApply(record);
+    for (const run of snapshot.nodeRuns) this.saveNodeRun(run);
+    for (const record of snapshot.providerState) {
+      this.providerRecords.set(providerRecordKey(record.providerId, record.key), cloneProviderStorageRecord(record));
     }
   }
 }
 
-export const createStateStore: StateServiceFactory = (options) =>
-  new StateStore(options.projectDir, options);
+export const createStateStore: StateServiceFactory = (options) => new StateStore(options);
 
-function toWorkspaceRecord(row: typeof workspaces.$inferSelect): WorkspaceRecord {
-  return {
-    id: row.id,
-    name: row.name,
-    workflow: row.workflow,
-    workflowCtx: row.workflowCtx,
-    createdAt: row.createdAt,
-    updatedAt: row.updatedAt,
-    ctx: row.ctx,
-  };
+export function emptyStateSnapshot(): StateSnapshot {
+  return { workspaces: [], workflowApplies: [], nodeRuns: [], providerState: [] };
 }
 
-function toWorkflowApplyRecord(row: typeof workflowApplies.$inferSelect): WorkflowApplyRecord {
-  return {
-    workflow: row.workflow,
-    providerFingerprint: row.providerFingerprint,
-    cachedNodeCount: row.cachedNodeCount,
-    nodeCount: row.nodeCount,
-    appliedAt: row.appliedAt,
-  };
-}
-
-function toNodeRunRecord(row: typeof workflowNodeRuns.$inferSelect): WorkflowNodeRunRecord {
-  return {
-    id: row.id,
-    workflow: row.workflow,
-    nodePath: row.nodePath,
-    nodeName: row.nodeName,
-    nodeKind: row.nodeKind,
-    nodeKey: row.nodeKey,
-    providerFingerprint: row.providerFingerprint,
-    upstreamRunIds: row.upstreamRunIds,
-    output: row.output,
-    artifacts: row.artifacts,
-    invalidated: row.invalidated,
-    createdAt: row.createdAt,
-    metadata: row.metadata,
-  };
-}
-
-class StateProviderStorage implements ProviderStorage {
+class MemoryProviderStorage implements ProviderStorage {
   constructor(
-    private readonly db: RigkitDatabase<CoreSchema>,
+    private readonly records: Map<string, ProviderStorageRecord>,
     private readonly providerId: string,
   ) {}
 
   get<Value extends JsonValue = JsonValue>(key: string): ProviderStorageRecord<Value> | undefined {
-    const row = this.db
-      .select()
-      .from(providerState)
-      .where(and(eq(providerState.providerId, this.providerId), eq(providerState.key, key)))
-      .get();
-    return row ? toProviderStorageRecord(row) as ProviderStorageRecord<Value> : undefined;
+    const record = this.records.get(providerRecordKey(this.providerId, key));
+    return record ? cloneProviderStorageRecord(record) as ProviderStorageRecord<Value> : undefined;
   }
 
   set<Value extends JsonValue = JsonValue>(key: string, value: Value): ProviderStorageRecord<Value> {
@@ -410,46 +268,38 @@ class StateProviderStorage implements ProviderStorage {
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
     };
-    this.db
-      .insert(providerState)
-      .values(record)
-      .onConflictDoUpdate({
-        target: [providerState.providerId, providerState.key],
-        set: {
-          value,
-          updatedAt: record.updatedAt,
-        },
-      })
-      .run();
-    return record;
+    this.records.set(providerRecordKey(this.providerId, key), cloneProviderStorageRecord(record));
+    return cloneProviderStorageRecord(record) as ProviderStorageRecord<Value>;
   }
 
   delete(key: string): void {
-    this.db
-      .delete(providerState)
-      .where(and(eq(providerState.providerId, this.providerId), eq(providerState.key, key)))
-      .run();
+    this.records.delete(providerRecordKey(this.providerId, key));
   }
 
   entries(prefix = ""): ProviderStorageRecord[] {
-    const rows = this.db
-      .select()
-      .from(providerState)
-      .where(eq(providerState.providerId, this.providerId))
-      .orderBy(asc(providerState.key))
-      .all();
-    return rows
-      .filter((row) => row.key.startsWith(prefix))
-      .map(toProviderStorageRecord);
+    return [...this.records.values()]
+      .filter((record) => record.providerId === this.providerId && record.key.startsWith(prefix))
+      .sort((left, right) => left.key.localeCompare(right.key))
+      .map(cloneProviderStorageRecord);
   }
 }
 
-function toProviderStorageRecord(row: typeof providerState.$inferSelect): ProviderStorageRecord {
-  return {
-    providerId: row.providerId,
-    key: row.key,
-    value: row.value,
-    createdAt: row.createdAt,
-    updatedAt: row.updatedAt,
-  };
+function workspaceKey(workflow: string, name: string): string {
+  return `${workflow}\0${name}`;
+}
+
+function providerRecordKey(providerId: string, key: string): string {
+  return `${providerId}\0${key}`;
+}
+
+function cloneWorkspace(workspace: WorkspaceRecord): WorkspaceRecord {
+  return structuredClone(workspace);
+}
+
+function cloneNodeRun(run: WorkflowNodeRunRecord): WorkflowNodeRunRecord {
+  return structuredClone(run);
+}
+
+function cloneProviderStorageRecord(record: ProviderStorageRecord): ProviderStorageRecord {
+  return structuredClone(record);
 }

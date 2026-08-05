@@ -7,8 +7,9 @@ type ServeArgs = {
   runtimeFingerprint?: string;
   projectDir?: string;
   configPath?: string;
-  statePath?: string;
-  globalFragmentRoot?: string;
+  managedProjectId?: string;
+  managedApiUrl?: string;
+  stateFile?: string;
   sourceJson?: string;
   handlePath?: string;
   tokenPath?: string;
@@ -42,8 +43,10 @@ const runtime = await serveRuntime({
   runtimeFingerprint: options.runtimeFingerprint,
   projectDir: resolve(options.projectDir!),
   configPath: resolve(options.configPath!),
-  statePath: options.statePath ? resolve(options.statePath) : undefined,
-  globalFragmentRoot: options.globalFragmentRoot ? resolve(options.globalFragmentRoot) : undefined,
+  managedProjectId: options.managedProjectId,
+  managedApiUrl: options.managedApiUrl,
+  managedToken: process.env.STOKE_RUNTIME_TOKEN,
+  stateFile: options.stateFile ? resolve(options.stateFile) : undefined,
   source: options.sourceJson ? JSON.parse(options.sourceJson) : undefined,
   handlePath: resolve(options.handlePath!),
   tokenPath: resolve(options.tokenPath!),
@@ -93,12 +96,14 @@ function parseServeArgs(args: string[]): ServeArgs {
       case "--config":
         parsed.configPath = readValue();
         break;
-      case "--state":
-      case "--state-path":
-        parsed.statePath = readValue();
+      case "--managed-project-id":
+        parsed.managedProjectId = readValue();
         break;
-      case "--global-fragment-root":
-        parsed.globalFragmentRoot = readValue();
+      case "--managed-api-url":
+        parsed.managedApiUrl = readValue();
+        break;
+      case "--state-file":
+        parsed.stateFile = readValue();
         break;
       case "--source-json":
         parsed.sourceJson = readValue();

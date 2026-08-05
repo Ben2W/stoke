@@ -11,6 +11,8 @@ import {
   RegisterDeviceRequestSchema,
   RemoteExecutionRequestSchema,
   RemoteExecutionResponseSchema,
+  ProjectStateResponseSchema,
+  UpdateProjectStateRequestSchema,
   RunEventsResponseSchema,
   RunListResponseSchema,
   RunResponseSchema,
@@ -20,6 +22,7 @@ import { Hono } from "hono";
 import { authenticateRequest } from "./auth.ts";
 import { listCheckouts, registerCheckout, registerDevice } from "./devices.ts";
 import { createProject, deleteProject, listProjects } from "./projects.ts";
+import { getProjectState, ProjectStateConflictError, updateProjectState } from "./project-state.ts";
 import { executeRemoteProject, RemoteExecutionError } from "./remote-executions.ts";
 import { createRunSocketUrl } from "./run-tickets.ts";
 import { claimRun, getRun, listRunEvents, listRuns } from "./runs.ts";
@@ -39,6 +42,8 @@ type ApiDependencies = {
   listRunEvents: typeof listRunEvents;
   listRuns: typeof listRuns;
   executeRemoteProject: typeof executeRemoteProject;
+  getProjectState: typeof getProjectState;
+  updateProjectState: typeof updateProjectState;
 };
 
 const defaultDependencies: ApiDependencies = {
@@ -54,6 +59,8 @@ const defaultDependencies: ApiDependencies = {
   listRunEvents,
   listRuns,
   executeRemoteProject,
+  getProjectState,
+  updateProjectState,
 };
 
 export function createApi(overrides: Partial<ApiDependencies> = {}) {
@@ -120,6 +127,27 @@ export function createApi(overrides: Partial<ApiDependencies> = {}) {
       parsed.data,
     );
     return context.json(RemoteExecutionResponseSchema.parse(executed));
+  });
+
+  managed.get("/projects/:projectId/state", async (context) => {
+    const state = await dependencies.getProjectState(
+      context.get("user").id,
+      context.req.param("projectId"),
+    );
+    return context.json(ProjectStateResponseSchema.parse(state));
+  });
+
+  managed.put("/projects/:projectId/state", async (context) => {
+    const parsed = UpdateProjectStateRequestSchema.safeParse(await readJson(context.req.raw));
+    if (!parsed.success) {
+      return context.json({ error: "invalid_request", issues: parsed.error.issues }, 400);
+    }
+    const state = await dependencies.updateProjectState(
+      context.get("user").id,
+      context.req.param("projectId"),
+      parsed.data,
+    );
+    return context.json(ProjectStateResponseSchema.parse(state));
   });
 
   managed.post("/devices", async (context) => {
@@ -219,6 +247,13 @@ export function createApi(overrides: Partial<ApiDependencies> = {}) {
     }
     if (error instanceof RemoteExecutionError) {
       return context.json({ error: "remote_execution_failed", message: error.message, run: error.run }, 422);
+    }
+    if (error instanceof ProjectStateConflictError) {
+      return context.json({
+        error: "state_conflict",
+        message: error.message,
+        currentRevision: error.currentRevision,
+      }, 409);
     }
     if (error.message.includes("not found")) {
       return context.json({ error: "not_found", message: error.message }, 404);
