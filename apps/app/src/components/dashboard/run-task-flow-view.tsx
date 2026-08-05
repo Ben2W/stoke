@@ -17,7 +17,7 @@ export function RunTaskFlowView({ flow, run }: { flow: RunTaskFlow; run: Managed
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
               <h3 className="truncate text-xs font-semibold text-zinc-900">
-                {run.operation === "apply" ? "Apply" : "Plan"} {run.workflow}
+                {operationTitle(run.operation)} {run.workflow}
               </h3>
               <span className="text-[10px] text-zinc-400">{flowSummary(flow, run)}</span>
             </div>
@@ -118,4 +118,12 @@ function flowSummary(flow: RunTaskFlow, run: ManagedRun): string {
 
 function noun(singular: string, count: number): string {
   return count === 1 ? singular : `${singular}s`;
+}
+
+function operationTitle(operation: ManagedRun["operation"]): string {
+  if (operation === "plan") return "Plan";
+  if (operation === "apply") return "Apply";
+  if (operation === "create") return "Create workspace";
+  if (operation === "remove") return "Remove workspace";
+  return "Workspace operation";
 }

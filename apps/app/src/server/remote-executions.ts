@@ -15,6 +15,7 @@ import {
   type RunRemoteSandboxInput,
 } from "./remote-sandbox.ts";
 import { appendRunEvent, claimRemoteRun, getRun, heartbeatRun } from "./runs.ts";
+import { createSandboxTicket } from "./sandbox-tickets.ts";
 
 const JOIN_POLL_MS = 500;
 const JOIN_TIMEOUT_MS = 5 * 60_000;
@@ -133,6 +134,7 @@ async function completeRemoteProjectExecution(
           role: "producer",
         }),
         revision,
+        sandboxToken: createSandboxTicket(userId, project.id),
         onStage: async (stage) => {
           await dependencies.appendRunEvent(userId, run.id, stage);
         },
@@ -209,6 +211,12 @@ function remoteExecutionFingerprint(
       operation: request.operation,
       workflow: request.workflow,
       ...(request.operation === "apply" ? { dryRun: request.dryRun } : {}),
+      ...(request.operation === "create" || request.operation === "remove" || request.operation === "run"
+        ? { workspace: request.workspace }
+        : {}),
+      ...(request.operation === "run"
+        ? { workspaceOperation: request.workspaceOperation, input: request.input }
+        : {}),
     }))
     .digest("hex")}`;
 }
@@ -220,6 +228,7 @@ async function appendResultEvents(
   result: unknown,
   append: typeof appendRunEvent,
 ): Promise<void> {
+  if (request.operation !== "plan" && request.operation !== "apply") return;
   const summary = resultSummary(result);
   if (!summary) return;
   await append(userId, runId, {

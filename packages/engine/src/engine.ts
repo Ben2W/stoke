@@ -1088,6 +1088,18 @@ export class DevMachineEngine {
       workflow: workflow.name,
       workflowCtx: { ...applied.context },
       ctx: {},
+      operations: workflow.workspaceOperations.map((operation) => {
+        const summary = this.workspaceOperationSummary(workflow, operation);
+        return {
+          id: summary.id,
+          ...(summary.title ? { title: summary.title } : {}),
+          ...(summary.description ? { description: summary.description } : {}),
+          ...(summary.inputSchema
+            ? { inputSchema: summary.inputSchema as Record<string, JsonValue> }
+            : {}),
+          requiredCapabilities: [...(summary.requiredCapabilities ?? [])],
+        };
+      }),
       ...(this.workspaceCreatedFrom ? { createdFrom: { ...this.workspaceCreatedFrom } } : {}),
       createdAt: now,
       updatedAt: now,
@@ -2315,6 +2327,7 @@ function cloneWorkspace(workspace: WorkspaceRecord): WorkspaceRecord {
     ...workspace,
     workflowCtx: { ...workspace.workflowCtx },
     ctx: { ...workspace.ctx },
+    operations: workspace.operations.map((operation) => structuredClone(operation)),
     ...(workspace.createdFrom ? { createdFrom: { ...workspace.createdFrom } } : {}),
   };
 }

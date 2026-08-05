@@ -38,6 +38,8 @@ export async function listProjectWorkspaces(
       projectId,
       name: workspace.name,
       workflow: workspace.workflow,
+      ctx: workspace.ctx,
+      operations: workspace.operations,
       createdFrom,
       createdAt: workspace.createdAt,
       updatedAt: workspace.updatedAt,
@@ -49,6 +51,8 @@ function parseWorkspace(value: unknown): {
   id: string;
   name: string;
   workflow: string;
+  ctx: Record<string, unknown>;
+  operations: ManagedWorkspace["operations"];
   createdFrom: { kind: "checkout"; deviceId: string; checkoutId?: string } | { kind: "dashboard" };
   createdAt: string;
   updatedAt: string;
@@ -60,7 +64,30 @@ function parseWorkspace(value: unknown): {
     || typeof value.workflow !== "string"
     || typeof value.createdAt !== "string"
     || typeof value.updatedAt !== "string"
+    || !isRecord(value.ctx)
+    || !Array.isArray(value.operations)
   ) return undefined;
+  const ctx = value.ctx;
+  const operations = value.operations.flatMap((operation) => {
+    if (!isRecord(operation) || typeof operation.id !== "string") return [];
+    const requiredCapabilities = Array.isArray(operation.requiredCapabilities)
+      ? operation.requiredCapabilities.flatMap((capability) =>
+          isRecord(capability) && typeof capability.id === "string"
+            ? [{
+                id: capability.id,
+                ...(typeof capability.schemaHash === "string" ? { schemaHash: capability.schemaHash } : {}),
+              }]
+            : []
+        )
+      : [];
+    return [{
+      id: operation.id,
+      ...(typeof operation.title === "string" ? { title: operation.title } : {}),
+      ...(typeof operation.description === "string" ? { description: operation.description } : {}),
+      ...(isRecord(operation.inputSchema) ? { inputSchema: operation.inputSchema } : {}),
+      requiredCapabilities,
+    }];
+  });
   const createdFrom = isRecord(value.createdFrom) ? value.createdFrom : undefined;
   if (createdFrom?.kind !== "checkout" && createdFrom?.kind !== "dashboard") return undefined;
   if (createdFrom.kind === "checkout" && (typeof createdFrom.deviceId !== "string" || !createdFrom.deviceId)) {
@@ -70,6 +97,8 @@ function parseWorkspace(value: unknown): {
     id: value.id,
     name: value.name,
     workflow: value.workflow,
+    ctx,
+    operations,
     createdFrom: createdFrom.kind === "dashboard"
       ? { kind: "dashboard" }
       : {

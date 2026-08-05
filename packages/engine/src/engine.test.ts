@@ -317,6 +317,7 @@ describe("DevMachineEngine workflow runtime", () => {
       repoPath: "/workspace/repo",
       ready: true,
     });
+    expect(workspace.operations.map((operation) => operation.id)).toEqual(["inspect", "status"]);
     expect(provider.hasFile("vm-2", "/tmp/create-created")).toBe(true);
 
     const inspected = await engine.runRuntimeOperation({ operation: "created/inspect" });

@@ -6,6 +6,7 @@ import {
   ProjectCacheResponseSchema,
   ProjectResponseSchema,
   ProjectWorkspaceListResponseSchema,
+  ManagedSandboxInteractiveResponseSchema,
   RunEventsResponseSchema,
   RunListResponseSchema,
   RunSocketTicketResponseSchema,
@@ -14,11 +15,13 @@ import {
   type ManagedProject,
   type ManagedRunOperation,
   type ManagedWorkspace,
+  type ManagedSandboxInteractiveResponse,
   type ManagedRun,
   type ManagedRunEvent,
   type ManagedUser,
   type ProjectCacheMutationResponse,
   type ProjectCacheResponse,
+  type RemoteExecutionRequest,
   type RemoteExecutionResponse,
 } from "@usestoke/managed";
 
@@ -87,6 +90,16 @@ export async function getProjectWorkspaces(projectId: string): Promise<ManagedWo
   ).workspaces;
 }
 
+export async function openWorkspaceTerminal(
+  projectId: string,
+  sandboxName: string,
+): Promise<ManagedSandboxInteractiveResponse> {
+  return ManagedSandboxInteractiveResponseSchema.parse(await request(
+    `/api/v1/sandboxes/${encodeURIComponent(sandboxName)}/interactive`,
+    { method: "POST", body: JSON.stringify({ projectId }) },
+  ));
+}
+
 export async function executeProject(
   projectId: string,
   operation: ManagedRunOperation,
@@ -99,6 +112,23 @@ export async function executeProject(
     },
   ));
 }
+
+export async function executeProjectRequest(
+  projectId: string,
+  input: DashboardRemoteExecutionRequest,
+): Promise<RemoteExecutionResponse> {
+  return RemoteExecutionResponseSchema.parse(await request(
+    `/api/v1/projects/${encodeURIComponent(projectId)}/executions`,
+    {
+      method: "POST",
+      body: JSON.stringify({ ...input, origin: "dashboard" }),
+    },
+  ));
+}
+
+type DashboardRemoteExecutionRequest = RemoteExecutionRequest extends infer Request
+  ? Request extends RemoteExecutionRequest ? Omit<Request, "origin"> : never
+  : never;
 
 export async function getProjectCache(projectId: string): Promise<ProjectCacheResponse> {
   return ProjectCacheResponseSchema.parse(

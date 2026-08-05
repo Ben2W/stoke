@@ -3,6 +3,7 @@ import { betterAuth } from "better-auth";
 import { bearer, deviceAuthorization } from "better-auth/plugins";
 import { getDatabase } from "./db/client.ts";
 import * as schema from "./db/schema.ts";
+import { verifySandboxTicket } from "./sandbox-tickets.ts";
 
 export const STOKE_CLI_CLIENT_ID = "stoke-cli";
 
@@ -51,6 +52,22 @@ export function createStokeAuth() {
 }
 
 export async function authenticateRequest(request: Request) {
+  const authorization = request.headers.get("authorization");
+  const sandbox = authorization?.startsWith("Bearer ")
+    ? verifySandboxTicket(authorization.slice("Bearer ".length))
+    : undefined;
+  if (sandbox) {
+    return {
+      id: sandbox.userId,
+      name: "Stoke Sandbox",
+      email: "sandbox@usestoke.dev",
+      emailVerified: true,
+      image: null,
+      createdAt: new Date(0),
+      updatedAt: new Date(0),
+      sandboxProjectId: sandbox.projectId,
+    };
+  }
   const session = await getStokeSession(request.headers);
   if (!session) throw new AuthenticationError("Authentication required");
   return session.user;

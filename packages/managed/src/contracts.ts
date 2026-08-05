@@ -84,6 +84,17 @@ export const ManagedWorkspaceSchema = z.object({
   projectId: z.uuid(),
   name: z.string().min(1),
   workflow: z.string().min(1),
+  ctx: z.record(z.string(), z.unknown()),
+  operations: z.array(z.object({
+    id: z.string().min(1),
+    title: z.string().min(1).optional(),
+    description: z.string().optional(),
+    inputSchema: z.record(z.string(), z.unknown()).optional(),
+    requiredCapabilities: z.array(z.object({
+      id: z.string().min(1),
+      schemaHash: z.string().optional(),
+    })),
+  })),
   createdFrom: z.discriminatedUnion("kind", [
     z.object({
       kind: z.literal("checkout"),
@@ -159,7 +170,7 @@ export const ManagedRunStatusSchema = z.enum([
   "orphaned",
 ]);
 
-export const ManagedRunOperationSchema = z.enum(["plan", "apply"]);
+export const ManagedRunOperationSchema = z.enum(["plan", "apply", "create", "remove", "run"]);
 export const ManagedRunOriginSchema = z.enum(["machine", "cli", "dashboard"]);
 
 export const ManagedRunSchema = z.object({
@@ -217,6 +228,26 @@ export const RemoteExecutionRequestSchema = z.discriminatedUnion("operation", [
     operation: z.literal("apply"),
     workflow: RemoteWorkflowSchema,
     dryRun: z.boolean().optional(),
+    origin: RemoteOriginSchema,
+  }),
+  z.object({
+    operation: z.literal("create"),
+    workflow: z.string().trim().min(1).max(120),
+    workspace: z.string().trim().min(1).max(120),
+    origin: RemoteOriginSchema,
+  }),
+  z.object({
+    operation: z.literal("remove"),
+    workflow: z.string().trim().min(1).max(120),
+    workspace: z.string().trim().min(1).max(120),
+    origin: RemoteOriginSchema,
+  }),
+  z.object({
+    operation: z.literal("run"),
+    workflow: z.string().trim().min(1).max(120),
+    workspace: z.string().trim().min(1).max(120),
+    workspaceOperation: z.string().trim().min(1).max(120),
+    input: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).default({}),
     origin: RemoteOriginSchema,
   }),
 ]);

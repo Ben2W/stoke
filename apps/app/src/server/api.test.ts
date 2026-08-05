@@ -383,6 +383,8 @@ describe("Hono control-plane API", () => {
       projectId: project.id,
       name: "quiet-forest",
       workflow: "default",
+      ctx: {},
+      operations: [],
       createdFrom: {
         kind: "checkout" as const,
         deviceId: checkout.deviceId,

@@ -27,6 +27,7 @@ export type RunRemoteSandboxInput = {
   state: ProjectStateResponse;
   producerSocketUrl: string;
   revision: string;
+  sandboxToken: string;
   onStage?: (stage: RemoteSandboxStage) => Promise<void> | void;
 };
 
@@ -86,6 +87,9 @@ export async function runRemoteSandbox(input: RunRemoteSandboxInput): Promise<Re
     FORCE_COLOR: "0",
     STOKE_STATE_FILE: STATE_FILE,
     STOKE_RUNTIME_BIN: STOKE_RUNTIME_PATH,
+    STOKE_TOKEN: input.sandboxToken,
+    STOKE_PROJECT_ID: input.project.id,
+    STOKE_API_URL: controlPlaneUrl(),
     ...(input.request.origin === "dashboard" ? { STOKE_WORKSPACE_ORIGIN: "dashboard" } : {}),
   };
   const commandEnvironment = {
@@ -126,6 +130,12 @@ export async function runRemoteSandbox(input: RunRemoteSandboxInput): Promise<Re
   return { result: parsedResult, state };
 }
 
+function controlPlaneUrl(): string {
+  if (process.env.BETTER_AUTH_URL) return process.env.BETTER_AUTH_URL;
+  if (process.env.VERCEL_PROJECT_PRODUCTION_URL) return `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`;
+  return "https://usestoke.dev";
+}
+
 type SandboxCommand = Parameters<Sandbox["runCommand"]>[0] & { cmd: string };
 
 async function runCommand(
@@ -147,6 +157,24 @@ async function runCommand(
 }
 
 function remoteCliArgs(request: RemoteExecutionRequest, workflow: string | undefined): string[] {
+  if (request.operation === "create") {
+    return [STOKE_CLI_PATH, "create", request.workspace, "--workflow", request.workflow, "--json"];
+  }
+  if (request.operation === "remove") {
+    return [STOKE_CLI_PATH, "rm", request.workspace, "--workflow", request.workflow, "--yes", "--json"];
+  }
+  if (request.operation === "run") {
+    return [
+      STOKE_CLI_PATH,
+      "run",
+      request.workspace,
+      request.workspaceOperation,
+      "--workflow",
+      request.workflow,
+      ...operationInputArgs(request.input),
+      "--json",
+    ];
+  }
   return [
     STOKE_CLI_PATH,
     request.operation,
@@ -154,6 +182,14 @@ function remoteCliArgs(request: RemoteExecutionRequest, workflow: string | undef
     ...(request.operation === "apply" && request.dryRun ? ["--dry-run"] : []),
     "--json",
   ];
+}
+
+function operationInputArgs(input: Record<string, string | number | boolean>): string[] {
+  return Object.entries(input).flatMap(([name, value]) => {
+    const flag = `--${name.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}`;
+    if (typeof value === "boolean") return value ? [flag] : [];
+    return [flag, String(value)];
+  });
 }
 
 function singleWorkflowFromList(stdout: string): string {

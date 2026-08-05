@@ -197,7 +197,7 @@ export const runs = pgTable(
       .references(() => devices.id, { onDelete: "set null" }),
     origin: text("origin").$type<"machine" | "cli" | "dashboard">().default("machine").notNull(),
     executionKey: text("execution_key").notNull(),
-    operation: text("operation").$type<"plan" | "apply">().notNull(),
+    operation: text("operation").$type<"plan" | "apply" | "create" | "remove" | "run">().notNull(),
     workflow: text("workflow").notNull(),
     fingerprint: text("fingerprint").notNull(),
     status: text("status").$type<"running" | "completed" | "failed" | "orphaned">().notNull(),

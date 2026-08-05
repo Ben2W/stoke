@@ -121,7 +121,11 @@ export function createApi(overrides: Partial<ApiDependencies> = {}) {
 
   const managed = new Hono<{ Variables: { user: AuthenticatedUser } }>();
   managed.use("*", async (context, next) => {
-    context.set("user", await dependencies.authenticate(context.req.raw));
+    const user = await dependencies.authenticate(context.req.raw);
+    if ("sandboxProjectId" in user && !context.req.path.startsWith("/api/v1/sandboxes")) {
+      return context.json({ error: "forbidden", message: "Sandbox credentials can only manage Vercel Sandboxes" }, 403);
+    }
+    context.set("user", user);
     await next();
   });
 
@@ -281,6 +285,9 @@ export function createApi(overrides: Partial<ApiDependencies> = {}) {
     if (!parsed.success) {
       return context.json({ error: "invalid_request", issues: parsed.error.issues }, 400);
     }
+    if (sandboxProjectId(context.get("user")) && sandboxProjectId(context.get("user")) !== parsed.data.projectId) {
+      return context.json({ error: "forbidden" }, 403);
+    }
     const sandbox = await dependencies.createManagedSandbox(context.get("user").id, parsed.data);
     return context.json(ManagedSandboxResponseSchema.parse({ sandbox }), 201);
   });
@@ -289,6 +296,9 @@ export function createApi(overrides: Partial<ApiDependencies> = {}) {
     const parsed = RunManagedSandboxCommandRequestSchema.safeParse(await readJson(context.req.raw));
     if (!parsed.success) {
       return context.json({ error: "invalid_request", issues: parsed.error.issues }, 400);
+    }
+    if (sandboxProjectId(context.get("user")) && sandboxProjectId(context.get("user")) !== parsed.data.projectId) {
+      return context.json({ error: "forbidden" }, 403);
     }
     const result = await dependencies.runManagedSandboxCommand(
       context.get("user").id,
@@ -303,6 +313,9 @@ export function createApi(overrides: Partial<ApiDependencies> = {}) {
     if (!projectId) {
       return context.json({ error: "invalid_request", message: "projectId is required" }, 400);
     }
+    if (sandboxProjectId(context.get("user")) && sandboxProjectId(context.get("user")) !== projectId) {
+      return context.json({ error: "forbidden" }, 403);
+    }
     await dependencies.stopManagedSandbox(
       context.get("user").id,
       context.req.param("sandboxName"),
@@ -315,6 +328,9 @@ export function createApi(overrides: Partial<ApiDependencies> = {}) {
     const parsed = OpenManagedSandboxInteractiveRequestSchema.safeParse(await readJson(context.req.raw));
     if (!parsed.success) {
       return context.json({ error: "invalid_request", issues: parsed.error.issues }, 400);
+    }
+    if (sandboxProjectId(context.get("user")) && sandboxProjectId(context.get("user")) !== parsed.data.projectId) {
+      return context.json({ error: "forbidden" }, 403);
     }
     const interactive = await dependencies.openManagedSandboxInteractive(
       context.get("user").id,
@@ -418,6 +434,10 @@ export function createApi(overrides: Partial<ApiDependencies> = {}) {
 
 async function readJson(request: Request): Promise<unknown> {
   return await request.json().catch(() => null);
+}
+
+function sandboxProjectId(user: AuthenticatedUser): string | undefined {
+  return "sandboxProjectId" in user ? user.sandboxProjectId : undefined;
 }
 
 export const api = createApi();

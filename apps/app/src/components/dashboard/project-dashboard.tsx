@@ -17,6 +17,7 @@ type ProjectDashboardProps = {
 
 export function ProjectDashboard({ user, projects, checkouts, runs }: ProjectDashboardProps) {
   const [selectedProjectId, setSelectedProjectId] = useState<string>();
+  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string>();
   const selectedProject = useMemo(
     () => projects.find((project) => project.id === selectedProjectId || project.slug === selectedProjectId),
     [projects, selectedProjectId],
@@ -25,7 +26,11 @@ export function ProjectDashboard({ user, projects, checkouts, runs }: ProjectDas
   const activeRunCount = runs.filter((run) => run.status === "running").length;
 
   useEffect(() => {
-    const selectFromUrl = () => setSelectedProjectId(new URLSearchParams(window.location.search).get("project") ?? undefined);
+    const selectFromUrl = () => {
+      const params = new URLSearchParams(window.location.search);
+      setSelectedProjectId(params.get("project") ?? undefined);
+      setSelectedWorkspaceId(params.get("workspace") ?? undefined);
+    };
     selectFromUrl();
     window.addEventListener("popstate", selectFromUrl);
     return () => window.removeEventListener("popstate", selectFromUrl);
@@ -34,10 +39,22 @@ export function ProjectDashboard({ user, projects, checkouts, runs }: ProjectDas
   const selectProject = (project: ManagedProject) => {
     window.history.pushState(null, "", `/?project=${encodeURIComponent(project.slug)}`);
     setSelectedProjectId(project.id);
+    setSelectedWorkspaceId(undefined);
+  };
+  const selectWorkspace = (workspaceId: string) => {
+    if (!selectedProject) return;
+    window.history.pushState(null, "", `/?project=${encodeURIComponent(selectedProject.slug)}&workspace=${encodeURIComponent(workspaceId)}`);
+    setSelectedWorkspaceId(workspaceId);
+  };
+  const showProject = () => {
+    if (!selectedProject) return;
+    window.history.pushState(null, "", `/?project=${encodeURIComponent(selectedProject.slug)}`);
+    setSelectedWorkspaceId(undefined);
   };
   const showProjects = () => {
     window.history.pushState(null, "", "/");
     setSelectedProjectId(undefined);
+    setSelectedWorkspaceId(undefined);
   };
 
   return (
@@ -50,7 +67,10 @@ export function ProjectDashboard({ user, projects, checkouts, runs }: ProjectDas
             <ProjectDetail
               checkouts={checkouts.filter((checkout) => checkout.projectId === selectedProject.id)}
               onBack={showProjects}
+              onWorkspaceBack={showProject}
+              onWorkspaceSelect={selectWorkspace}
               project={selectedProject}
+              selectedWorkspaceId={selectedWorkspaceId}
             />
           ) : (
             <>

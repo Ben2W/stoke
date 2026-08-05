@@ -60,7 +60,7 @@ export function ProjectCard({ project, checkouts, run, now, onSelect }: ProjectC
         {run?.status === "running" ? (
           <span className="inline-flex shrink-0 items-center gap-1.5 text-[10px] font-medium text-emerald-700">
             <span className="size-1.5 animate-pulse rounded-full bg-emerald-500" />
-            {run.operation === "apply" ? "Applying" : "Planning"} <code className="font-mono" title={run.fingerprint}>{shortFingerprint(run.fingerprint)}</code>
+            {runLabel(run.operation)} <code className="font-mono" title={run.fingerprint}>{shortFingerprint(run.fingerprint)}</code>
           </span>
         ) : run ? (
           <code className="shrink-0 font-mono text-[10px] text-zinc-400" title={run.fingerprint}>{shortFingerprint(run.fingerprint)}</code>
@@ -70,6 +70,14 @@ export function ProjectCard({ project, checkouts, run, now, onSelect }: ProjectC
       </div>
     </button>
   );
+}
+
+function runLabel(operation: ManagedRun["operation"]): string {
+  if (operation === "apply") return "Applying";
+  if (operation === "plan") return "Planning";
+  if (operation === "create") return "Creating workspace";
+  if (operation === "remove") return "Removing workspace";
+  return "Running operation";
 }
 
 function relativeTime(value: string, now: number): string {

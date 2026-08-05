@@ -865,12 +865,21 @@ export type WorkflowPlan = {
 
 export type MachinePlan = WorkflowPlan;
 
+export type WorkspaceOperationRecord = {
+  id: string;
+  title?: string;
+  description?: string;
+  inputSchema?: Record<string, JsonValue>;
+  requiredCapabilities: HostCapabilityRequirement[];
+};
+
 export type WorkspaceRecord = {
   id: string;
   name: string;
   workflow: string;
   workflowCtx: Record<string, JsonValue>;
   ctx: Record<string, JsonValue>;
+  operations: WorkspaceOperationRecord[];
   createdFrom?:
     | { kind: "checkout"; deviceId: string; checkoutId?: string }
     | { kind: "dashboard" };

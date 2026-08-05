@@ -6,16 +6,23 @@ import { ProjectCache } from "./project-cache.tsx";
 import { ProjectCheckouts } from "./project-checkouts.tsx";
 import { ProjectDangerZone } from "./project-danger-zone.tsx";
 import { ProjectWorkspaces } from "./project-workspaces.tsx";
+import { WorkspaceDetail } from "./workspace-detail.tsx";
 import { RunActivity } from "./run-activity.tsx";
 
 export function ProjectDetail({
   project,
   checkouts,
   onBack,
+  selectedWorkspaceId,
+  onWorkspaceSelect,
+  onWorkspaceBack,
 }: {
   project: ManagedProject;
   checkouts: ManagedCheckout[];
   onBack(): void;
+  selectedWorkspaceId?: string;
+  onWorkspaceSelect(workspaceId: string): void;
+  onWorkspaceBack(): void;
 }) {
   const source = project.source.kind === "github"
     ? `${project.source.owner}/${project.source.repository}`
@@ -39,11 +46,17 @@ export function ProjectDetail({
       </div>
 
       <div className="mx-auto max-w-7xl px-5 py-6 sm:px-8 sm:py-8">
-        <ProjectWorkspaces project={project} />
-        <ProjectCheckouts checkouts={checkouts} />
-        <ProjectCache project={project} />
-        <RunActivity project={project} />
-        <ProjectDangerZone onDeleted={onBack} project={project} />
+        {selectedWorkspaceId ? (
+          <WorkspaceDetail onBack={onWorkspaceBack} project={project} workspaceId={selectedWorkspaceId} />
+        ) : (
+          <>
+            <ProjectWorkspaces onSelect={onWorkspaceSelect} project={project} />
+            <ProjectCheckouts checkouts={checkouts} />
+            <ProjectCache project={project} />
+            <RunActivity project={project} />
+            <ProjectDangerZone onDeleted={onBack} project={project} />
+          </>
+        )}
       </div>
     </>
   );

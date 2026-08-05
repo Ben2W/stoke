@@ -2,11 +2,15 @@
 
 import type { ManagedProject, ManagedWorkspace } from "@usestoke/managed";
 import { useQuery } from "@tanstack/react-query";
-import { Box, LayoutDashboard, Laptop, MapPin } from "lucide-react";
+import { Box, ChevronRight, LayoutDashboard, Laptop, MapPin, Plus } from "lucide-react";
+import { useState } from "react";
 import { projectWorkspacesQuery } from "../../lib/queries.ts";
+import { CreateWorkspaceDialog } from "./create-workspace-dialog.tsx";
 
-export function ProjectWorkspaces({ project }: { project: ManagedProject }) {
+export function ProjectWorkspaces({ project, onSelect }: { project: ManagedProject; onSelect(workspaceId: string): void }) {
   const workspaces = useQuery(projectWorkspacesQuery(project.id));
+  const [creating, setCreating] = useState(false);
+  const defaultWorkflow = workspaces.data?.[0]?.workflow ?? project.name;
 
   return (
     <section aria-labelledby="workspaces-heading">
@@ -15,7 +19,10 @@ export function ProjectWorkspaces({ project }: { project: ManagedProject }) {
           <h2 className="text-sm font-medium" id="workspaces-heading">Workspaces</h2>
           <p className="mt-1 text-xs text-zinc-500">Managed project state, independent of any machine or checkout.</p>
         </div>
-        <span className="shrink-0 text-xs tabular-nums text-zinc-400">{workspaces.data?.length ?? 0} total</span>
+        <div className="flex items-center gap-3">
+          <span className="shrink-0 text-xs tabular-nums text-zinc-400">{workspaces.data?.length ?? 0} total</span>
+          <button className="inline-flex h-8 items-center gap-1.5 rounded-md bg-zinc-950 px-3 text-[11px] font-medium text-white transition hover:bg-zinc-800" onClick={() => setCreating(true)} type="button"><Plus size={12} /> Create workspace</button>
+        </div>
       </div>
 
       {workspaces.isPending ? (
@@ -24,20 +31,22 @@ export function ProjectWorkspaces({ project }: { project: ManagedProject }) {
         <button className="grid h-32 w-full place-items-center rounded-lg border border-zinc-200 bg-white text-sm text-zinc-500" onClick={() => void workspaces.refetch()} type="button">Could not load workspaces. Try again.</button>
       ) : workspaces.data.length ? (
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-          {workspaces.data.map((workspace) => <WorkspaceCard key={workspace.id} workspace={workspace} />)}
+          {workspaces.data.map((workspace) => <WorkspaceCard key={workspace.id} onSelect={() => onSelect(workspace.id)} workspace={workspace} />)}
         </div>
       ) : (
         <div className="rounded-lg border border-dashed border-zinc-300 bg-white px-6 py-10 text-center">
           <Box className="mx-auto text-zinc-300" size={21} />
           <p className="mt-3 text-sm font-medium text-zinc-800">No workspaces yet</p>
-          <p className="mt-1 text-xs text-zinc-500">Create one from a local checkout; it will remain available as managed project state.</p>
+          <p className="mt-1 text-xs text-zinc-500">Create one here in Vercel Sandbox or attach one from a local checkout.</p>
+          <button className="mt-4 inline-flex h-8 items-center gap-1.5 rounded-md bg-zinc-950 px-3 text-[11px] font-medium text-white" onClick={() => setCreating(true)} type="button"><Plus size={12} /> Create workspace</button>
         </div>
       )}
+      <CreateWorkspaceDialog defaultWorkflow={defaultWorkflow} onClose={() => setCreating(false)} open={creating} project={project} />
     </section>
   );
 }
 
-function WorkspaceCard({ workspace }: { workspace: ManagedWorkspace }) {
+function WorkspaceCard({ workspace, onSelect }: { workspace: ManagedWorkspace; onSelect(): void }) {
   const provenance = workspace.createdFrom;
   const fromDashboard = provenance.kind === "dashboard";
   const title = fromDashboard
@@ -46,7 +55,7 @@ function WorkspaceCard({ workspace }: { workspace: ManagedWorkspace }) {
   const detail = !fromDashboard ? provenance.checkoutPath : undefined;
 
   return (
-    <article className="rounded-lg border border-zinc-200 bg-white p-4 shadow-xs">
+    <button className="group rounded-lg border border-zinc-200 bg-white p-4 text-left shadow-xs transition hover:border-zinc-300 hover:shadow-sm" onClick={onSelect} type="button">
       <div className="flex items-start gap-3">
         <div className="grid size-8 shrink-0 place-items-center rounded-md bg-zinc-100 text-zinc-500"><Box size={15} /></div>
         <div className="min-w-0 flex-1">
@@ -54,6 +63,7 @@ function WorkspaceCard({ workspace }: { workspace: ManagedWorkspace }) {
           <p className="mt-0.5 truncate text-[11px] text-zinc-400">{workspace.workflow}</p>
         </div>
         <time className="shrink-0 text-[10px] text-zinc-400">{relativeTime(workspace.updatedAt)}</time>
+        <ChevronRight className="shrink-0 text-zinc-300 transition group-hover:translate-x-0.5 group-hover:text-zinc-500" size={14} />
       </div>
       <div className="mt-4 flex min-w-0 items-start gap-2 border-t border-zinc-100 pt-3 text-[11px] text-zinc-500">
         {fromDashboard ? <LayoutDashboard className="mt-0.5 shrink-0" size={12} /> : <Laptop className="mt-0.5 shrink-0" size={12} />}
@@ -62,7 +72,7 @@ function WorkspaceCard({ workspace }: { workspace: ManagedWorkspace }) {
           {detail ? <span className="mt-0.5 flex items-center gap-1 truncate text-zinc-400"><MapPin size={10} /> {detail}</span> : null}
         </span>
       </div>
-    </article>
+    </button>
   );
 }
 

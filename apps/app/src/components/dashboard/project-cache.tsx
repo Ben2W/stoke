@@ -18,7 +18,9 @@ export function ProjectCache({ project }: { project: ManagedProject }) {
   const entries = cache.data?.entries ?? [];
   const runsResult = useQuery(runsQuery);
   const projectRuns = (runsResult.data ?? []).filter((run) => run.projectId === projectId);
-  const activeRun = projectRuns.find((run) => run.status === "running");
+  const activeRun = projectRuns.find((run) =>
+    run.status === "running" && (run.operation === "plan" || run.operation === "apply")
+  );
   const [bridgingRunId, setBridgingRunId] = useState<string>();
   const executionRun = activeRun ?? projectRuns.find((run) => run.id === bridgingRunId);
   const latestPlan = projectRuns.find((run) => run.operation === "plan" && run.status === "completed");
