@@ -26,7 +26,7 @@ import { Hono } from "hono";
 import { authenticateRequest } from "./auth.ts";
 import { listCheckouts, registerCheckout, registerDevice } from "./devices.ts";
 import { PublicGitHubRepositoryRequiredError } from "./github-repository.ts";
-import { createProject, deleteProject, listProjects } from "./projects.ts";
+import { createProject, deleteProject, listProjects, verifyProjectSource } from "./projects.ts";
 import { clearProjectCache, invalidateProjectCache, listProjectCache } from "./project-cache.ts";
 import { getProjectState, ProjectStateConflictError, updateProjectState } from "./project-state.ts";
 import { listProjectWorkspaces } from "./project-workspaces.ts";
@@ -40,6 +40,7 @@ type ApiDependencies = {
   authenticate: typeof authenticateRequest;
   createProject: typeof createProject;
   deleteProject: typeof deleteProject;
+  verifyProjectSource: typeof verifyProjectSource;
   listProjects: typeof listProjects;
   listCheckouts: typeof listCheckouts;
   registerCheckout: typeof registerCheckout;
@@ -61,6 +62,7 @@ const defaultDependencies: ApiDependencies = {
   authenticate: authenticateRequest,
   createProject,
   deleteProject,
+  verifyProjectSource,
   listProjects,
   listCheckouts,
   registerCheckout,
@@ -124,6 +126,15 @@ export function createApi(overrides: Partial<ApiDependencies> = {}) {
 
   managed.delete("/projects/:projectId", async (context) => {
     const project = await dependencies.deleteProject(
+      context.get("user").id,
+      context.req.param("projectId"),
+    );
+    if (!project) return context.json({ error: "not_found" }, 404);
+    return context.json(ProjectResponseSchema.parse({ project }));
+  });
+
+  managed.post("/projects/:projectId/verify-source", async (context) => {
+    const project = await dependencies.verifyProjectSource(
       context.get("user").id,
       context.req.param("projectId"),
     );

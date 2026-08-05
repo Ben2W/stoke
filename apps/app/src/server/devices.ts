@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type {
+  GitHubProjectSource,
   ManagedCheckout,
   ManagedDevice,
   RegisterCheckoutRequest,
@@ -7,6 +8,7 @@ import type {
 } from "@stoke/managed";
 import { checkoutRepository, type CheckoutRow } from "./repositories/checkout-repository.ts";
 import { deviceRepository, type DeviceRow } from "./repositories/device-repository.ts";
+import { githubSourceFromRemote, requirePublicGitHubRepository } from "./github-repository.ts";
 import { projectRepository } from "./repositories/project-repository.ts";
 
 export class ManagedResourceConflictError extends Error {
@@ -56,6 +58,15 @@ export async function registerCheckout(
 
   if (!project) throw new Error("Managed project was not found");
   if (!device) throw new Error("Device must be registered before adding a checkout");
+  const githubSources = new Map<string, GitHubProjectSource>();
+  if (project.source.kind === "github") {
+    githubSources.set(`${project.source.owner}/${project.source.repository}`.toLowerCase(), project.source);
+  }
+  const upstreamSource = input.gitRemote ? githubSourceFromRemote(input.gitRemote) : undefined;
+  if (upstreamSource) {
+    githubSources.set(`${upstreamSource.owner}/${upstreamSource.repository}`.toLowerCase(), upstreamSource);
+  }
+  await Promise.all([...githubSources.values()].map((source) => requirePublicGitHubRepository(source)));
   if (existing && existing.userId !== userId) {
     throw new ManagedResourceConflictError("Checkout path is already registered", { path: input.path });
   }

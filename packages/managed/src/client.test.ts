@@ -55,7 +55,7 @@ describe("managed client", () => {
     );
   });
 
-  test("deletes a managed project", async () => {
+  test("verifies and deletes a managed project", async () => {
     const requests: Request[] = [];
     const client = createManagedClient({
       baseUrl: "https://usestoke.dev",
@@ -66,8 +66,10 @@ describe("managed client", () => {
       },
     });
 
+    expect(await client.verifyProjectSource(project.id)).toEqual(project);
     expect(await client.deleteProject(project.id)).toEqual(project);
     expect(requests.map((request) => `${request.method} ${new URL(request.url).pathname}`)).toEqual([
+      `POST /api/v1/projects/${project.id}/verify-source`,
       `DELETE /api/v1/projects/${project.id}`,
     ]);
   });

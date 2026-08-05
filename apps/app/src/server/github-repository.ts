@@ -7,6 +7,19 @@ export class PublicGitHubRepositoryRequiredError extends Error {
   override name = "PublicGitHubRepositoryRequiredError";
 }
 
+export function githubSourceFromRemote(value: string): GitHubProjectSource | undefined {
+  const match = value.trim().match(
+    /^(?:https?:\/\/github\.com\/|git@github\.com:|ssh:\/\/git@github\.com\/)([^/\s:]+)\/([^/\s]+?)(?:\.git)?\/?$/i,
+  );
+  if (!match?.[1] || !match[2]) return undefined;
+  return {
+    kind: "github",
+    owner: match[1],
+    repository: match[2],
+    url: `https://github.com/${match[1]}/${match[2]}`,
+  };
+}
+
 export async function requirePublicGitHubRepository(
   source: GitHubProjectSource,
   fetchImplementation: GitHubFetch = (input, init) => fetch(input, init),

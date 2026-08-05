@@ -74,6 +74,13 @@ export async function createGitHubProject(input: { url: string }): Promise<Manag
   })).project;
 }
 
+export async function deleteManagedProject(projectId: string): Promise<ManagedProject> {
+  return ProjectResponseSchema.parse(await request(
+    `/api/v1/projects/${encodeURIComponent(projectId)}`,
+    { method: "DELETE" },
+  )).project;
+}
+
 export async function getProjectWorkspaces(projectId: string): Promise<ManagedWorkspace[]> {
   return ProjectWorkspaceListResponseSchema.parse(
     await request(`/api/v1/projects/${encodeURIComponent(projectId)}/workspaces`),

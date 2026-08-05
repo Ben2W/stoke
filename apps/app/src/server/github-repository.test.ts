@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   PublicGitHubRepositoryRequiredError,
+  githubSourceFromRemote,
   requirePublicGitHubRepository,
   resolvePublicGitHubRevision,
 } from "./github-repository.ts";
@@ -9,6 +10,19 @@ const source = { kind: "github" as const, owner: "vercel", repository: "next.js"
 const revision = "e587a05a934ac7be12bf5233102939d4479f8625";
 
 describe("public GitHub repository resolution", () => {
+  test("resolves common GitHub origin formats", () => {
+    expect(githubSourceFromRemote("git@github.com:vercel/next.js.git")).toMatchObject({
+      kind: "github",
+      owner: "vercel",
+      repository: "next.js",
+    });
+    expect(githubSourceFromRemote("ssh://git@github.com/vercel/next.js.git")).toMatchObject({
+      owner: "vercel",
+      repository: "next.js",
+    });
+    expect(githubSourceFromRemote("https://gitlab.com/vercel/next.js")).toBeUndefined();
+  });
+
   test("verifies public visibility and pins the default branch commit", async () => {
     const requests: Request[] = [];
     const resolved = await resolvePublicGitHubRevision(source, async (input, init) => {

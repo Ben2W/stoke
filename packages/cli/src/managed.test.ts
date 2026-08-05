@@ -427,7 +427,9 @@ describe("managed project source resolution", () => {
       port: 0,
       async fetch(request) {
         const url = new URL(request.url);
-        const body = request.method === "POST" ? await request.json() : undefined;
+        const body = request.method === "POST"
+          ? await request.json().catch(() => undefined)
+          : undefined;
         requests.push({ path: `${url.pathname}${url.search}`, method: request.method, body });
         if (url.pathname === "/api/v1/devices") {
           const input = body as { id: string; name: string };
@@ -441,6 +443,9 @@ describe("managed project source resolution", () => {
         }
         if (url.pathname === "/api/v1/projects" && request.method === "POST") {
           return Response.json({ project: created });
+        }
+        if (url.pathname === `/api/v1/projects/${existing.id}/verify-source`) {
+          return Response.json({ project: existing });
         }
         if (url.pathname === "/api/v1/projects") return Response.json({ projects: [existing] });
         if (url.pathname === "/api/v1/checkouts" && request.method === "POST") {

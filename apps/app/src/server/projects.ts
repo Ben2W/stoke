@@ -35,6 +35,15 @@ export async function deleteProject(userId: string, projectId: string): Promise<
   return row ? toManagedProject(row) : undefined;
 }
 
+export async function verifyProjectSource(
+  userId: string,
+  projectId: string,
+): Promise<ManagedProject | undefined> {
+  const project = await getProject(userId, projectId);
+  if (project?.source.kind === "github") await requirePublicGitHubRepository(project.source);
+  return project;
+}
+
 export async function getProject(userId: string, projectId: string): Promise<ManagedProject | undefined> {
   const row = await projectRepository.findOwnedById(userId, projectId);
   return row ? toManagedProject(row) : undefined;

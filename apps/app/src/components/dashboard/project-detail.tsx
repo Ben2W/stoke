@@ -5,6 +5,7 @@ import { ArrowLeft, ExternalLink, GitBranch } from "lucide-react";
 import { ProjectActions } from "./project-actions.tsx";
 import { ProjectCache } from "./project-cache.tsx";
 import { ProjectCheckouts } from "./project-checkouts.tsx";
+import { ProjectDangerZone } from "./project-danger-zone.tsx";
 import { ProjectWorkspaces } from "./project-workspaces.tsx";
 import { RunActivity } from "./run-activity.tsx";
 
@@ -46,6 +47,7 @@ export function ProjectDetail({
         <ProjectCheckouts checkouts={checkouts} />
         <ProjectCache projectId={project.id} />
         <RunActivity project={project} />
+        <ProjectDangerZone onDeleted={onBack} project={project} />
       </div>
     </>
   );

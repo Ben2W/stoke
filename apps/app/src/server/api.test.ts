@@ -124,6 +124,24 @@ describe("Hono control-plane API", () => {
     expect(await response.json()).toEqual({ error: "not_found" });
   });
 
+  test("verifies an existing project source", async () => {
+    const api = createApi({
+      authenticate: async () => user,
+      verifyProjectSource: async (userId, projectId) => {
+        expect([userId, projectId]).toEqual([user.id, project.id]);
+        return project;
+      },
+    });
+
+    const response = await api.request(
+      `http://localhost/api/v1/projects/${project.id}/verify-source`,
+      { method: "POST" },
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ project });
+  });
+
   test("returns structured validation and authentication failures", async () => {
     const authenticated = createApi({ authenticate: async () => user });
     const invalid = await authenticated.request("http://localhost/api/v1/projects", {

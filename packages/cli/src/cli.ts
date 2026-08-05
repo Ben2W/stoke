@@ -1294,6 +1294,7 @@ async function runManagedAdd(
   }
 
   if (!project) throw new Error("Could not resolve or create the managed project");
+  if (!created) project = await client.verifyProjectSource(project.id);
   const checkout = resolved.checkout
     ? await client.registerCheckout({
         projectId: project.id,
