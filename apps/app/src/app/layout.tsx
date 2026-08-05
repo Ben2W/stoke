@@ -4,7 +4,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://usestoke.dev"),
-  title: "Stoke — Your project, wherever the work runs",
+  title: "Stoke",
   description: "Managed development environments connecting local checkouts, coding agents, CI, and Vercel Sandbox.",
   openGraph: {
     title: "Stoke — Your project, wherever the work runs",

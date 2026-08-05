@@ -35,6 +35,9 @@ export function ProjectDashboard({ user, projects, checkouts, runs }: ProjectDas
     window.addEventListener("popstate", selectFromUrl);
     return () => window.removeEventListener("popstate", selectFromUrl);
   }, []);
+  useEffect(() => {
+    document.title = selectedProject ? `Stoke - ${selectedProject.name}` : "Stoke";
+  }, [selectedProject]);
 
   const selectProject = (project: ManagedProject) => {
     window.history.pushState(null, "", `/?project=${encodeURIComponent(project.slug)}`);
