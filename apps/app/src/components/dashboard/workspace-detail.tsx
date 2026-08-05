@@ -1,6 +1,6 @@
 "use client";
 
-import type { ManagedProject, ManagedWorkspace } from "@usestoke/managed";
+import type { ManagedProject, ManagedRun, ManagedWorkspace } from "@usestoke/managed";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Box, LayoutDashboard, Laptop, Trash2 } from "lucide-react";
 import { useState } from "react";
@@ -26,11 +26,18 @@ function WorkspaceDetailContent({ onBack, project, workspace }: { onBack(): void
       workflow: workspace.workflow,
       workspace: workspace.name,
     }),
-    onSuccess: onBack,
-    onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.runs });
-      void queryClient.invalidateQueries({ queryKey: queryKeys.projectWorkspaces(project.id) });
+    onSuccess: (response) => {
+      queryClient.setQueryData<ManagedRun[]>(queryKeys.runs, (runs = []) => [
+        response.run,
+        ...runs.filter((run) => run.id !== response.run.id),
+      ]);
+      queryClient.setQueryData<ManagedWorkspace[]>(
+        queryKeys.projectWorkspaces(project.id),
+        (workspaces = []) => workspaces.filter((candidate) => candidate.id !== workspace.id),
+      );
+      onBack();
     },
+    onSettled: () => void queryClient.invalidateQueries({ queryKey: queryKeys.runs }),
   });
 
   return (

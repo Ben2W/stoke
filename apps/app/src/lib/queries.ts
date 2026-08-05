@@ -58,7 +58,7 @@ export function projectWorkspacesQuery(projectId: string | undefined) {
     queryKey: queryKeys.projectWorkspaces(projectId ?? "none"),
     queryFn: () => getProjectWorkspaces(projectId!),
     enabled: Boolean(projectId),
-    refetchInterval: 5_000,
+    staleTime: 15_000,
   });
 }
 

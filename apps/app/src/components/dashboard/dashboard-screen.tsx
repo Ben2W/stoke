@@ -3,6 +3,7 @@
 import type { ManagedUser } from "@usestoke/managed";
 import { useQueries } from "@tanstack/react-query";
 import { checkoutsQuery, projectsQuery, runsQuery } from "../../lib/queries.ts";
+import { ActiveRunObservers } from "./active-run-observers.tsx";
 import { ProjectDashboard } from "./project-dashboard.tsx";
 
 export function DashboardScreen({ user }: { user: ManagedUser }) {
@@ -25,12 +26,15 @@ export function DashboardScreen({ user }: { user: ManagedUser }) {
   }
 
   return (
-    <ProjectDashboard
-      checkouts={checkouts.data ?? []}
-      projects={projects.data ?? []}
-      runs={runs.data ?? []}
-      user={user}
-    />
+    <>
+      <ActiveRunObservers runs={runs.data ?? []} />
+      <ProjectDashboard
+        checkouts={checkouts.data ?? []}
+        projects={projects.data ?? []}
+        runs={runs.data ?? []}
+        user={user}
+      />
+    </>
   );
 }
 
