@@ -23,8 +23,7 @@ describe("Vercel Sandbox provider", () => {
     expect(parseVercelSandboxSshInput({
       provider: "vercel-sandbox",
       sandbox: " demo ",
-      cwd: " /vercel/sandbox/apps/web ",
-    })).toEqual({ provider: "vercel-sandbox", sandbox: "demo", cwd: "/vercel/sandbox/apps/web" });
+    })).toEqual({ provider: "vercel-sandbox", sandbox: "demo" });
     expect(() => parseVercelSandboxSshInput({ provider: "other", sandbox: "demo" }))
       .toThrow('provider must be "vercel-sandbox"');
   });
@@ -36,8 +35,8 @@ describe("Vercel Sandbox provider", () => {
       close = resolve;
     });
     const handler = createVercelSandboxSshHostCapability({
-      open(sandbox, cwd) {
-        requested.push(`${sandbox}:${cwd}`);
+      open(sandbox) {
+        requested.push(sandbox);
         return closed;
       },
     });
@@ -45,10 +44,9 @@ describe("Vercel Sandbox provider", () => {
     const result = await handler.handle({
       provider: "vercel-sandbox",
       sandbox: "demo",
-      cwd: "/vercel/sandbox",
     }) as { attached: true; closed: Promise<void> };
     expect(result.attached).toBe(true);
-    expect(requested).toEqual(["demo:/vercel/sandbox"]);
+    expect(requested).toEqual(["demo"]);
     close();
     await expect(result.closed).resolves.toBeUndefined();
   });
