@@ -96,6 +96,7 @@ export function ProjectExplorer({ projects, checkouts, runs, now, onProjectSelec
         onClose={() => setShowAddProject(false)}
         onProjectAdded={onProjectSelect}
         open={showAddProject}
+        projects={projects}
       />
     </>
   );
