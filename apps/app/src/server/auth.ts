@@ -51,9 +51,13 @@ export function createStokeAuth() {
 }
 
 export async function authenticateRequest(request: Request) {
-  const session = await getStokeAuth().api.getSession({ headers: request.headers });
+  const session = await getStokeSession(request.headers);
   if (!session) throw new AuthenticationError("Authentication required");
   return session.user;
+}
+
+export async function getStokeSession(headers: Headers) {
+  return await getStokeAuth().api.getSession({ headers });
 }
 
 function stokeBaseUrl(): string {

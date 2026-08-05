@@ -7,7 +7,8 @@ cloud platform: Vercel.
 
 - The CLI discovers and evaluates `rigkit/index.ts` on the user's machine or in
   CI. The control plane never evaluates arbitrary project TypeScript.
-- The control plane is a Next.js application on Vercel Functions.
+- The control plane is a Next.js application on Vercel. Product API routes are
+  composed in one Hono application and mounted through a single Vercel Function.
 - Durable managed data is Postgres supplied by Neon through the Vercel
   Marketplace.
 - Cloud development environments will run in Vercel Sandbox.
@@ -55,9 +56,17 @@ The initial API is deliberately small:
 - `GET /api/v1/checkouts`
 - `POST /api/v1/checkouts`
 
+The `/api/v1` surface is a Hono router with shared authentication and error
+handling, mounted at `app/api/v1/[[...route]]/route.ts`. Better Auth retains its
+own `/api/auth/*` handler because it owns that browser and device protocol.
+
 Project and identity endpoints require an authenticated bearer session.
 `DATABASE_URL` points at Neon; `BETTER_AUTH_SECRET`, `GITHUB_CLIENT_ID`, and
 `GITHUB_CLIENT_SECRET` configure authentication.
+
+The root web experience is public when signed out and becomes a managed project
+dashboard when a Better Auth browser session is present. It reads project data
+through the same server-side authorization boundary as the API.
 
 ## CLI semantics
 

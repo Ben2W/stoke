@@ -3,7 +3,7 @@ import { DeviceAuthorization } from "./device-authorization.tsx";
 
 export default function DevicePage() {
   return (
-    <main>
+    <main className="device-main">
       <Suspense fallback={<section className="panel">Loading authorization request…</section>}>
         <DeviceAuthorization />
       </Suspense>

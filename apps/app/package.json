@@ -16,6 +16,7 @@
     "@stoke/managed": "workspace:*",
     "better-auth": "1.6.25",
     "drizzle-orm": "^0.45.2",
+    "hono": "4.12.23",
     "next": "^16.1.6",
     "postgres": "^3.4.8",
     "react": "^19.2.5",

@@ -12,8 +12,8 @@ in place while the managed product boundary is built.
 
 The first Stoke slice lives in:
 
-- `apps/app`: Next.js control plane for Vercel, with Better Auth and a
-  Neon-backed Postgres project registry.
+- `apps/app`: Next.js product UI and a mounted Hono API on Vercel, with Better
+  Auth and a Neon-backed Postgres project registry.
 - `packages/managed`: versioned API contracts and the client the CLI will use.
 - `apps/app/drizzle`: committed Postgres migrations.
 - `packages/cli`: the `stoke` CLI, including device login and managed projects.
