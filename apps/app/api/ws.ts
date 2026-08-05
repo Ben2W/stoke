@@ -87,7 +87,7 @@ function attachViewer(socket: WebSocket, claims: RunSocketClaims): void {
         listRunEvents(claims.userId, claims.runId, cursor),
       ]);
       if (events.length) {
-        cursor = events.at(-1)?.id ?? cursor;
+        cursor = events[events.length - 1]?.id ?? cursor;
         send(socket, { type: "events", events });
       }
       send(socket, { type: "run", run });
