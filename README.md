@@ -59,6 +59,22 @@ pnpm --filter @rigkit/cli stoke -- version
 pnpm --filter @rigkit/cli stoke -- login
 ```
 
+Enable Stoke's context-aware shell completion in your shell profile:
+
+```sh
+# zsh
+eval "$(stoke completion zsh)"
+
+# bash
+eval "$(stoke completion bash)"
+
+# fish
+stoke completion fish | source
+```
+
+The completion engine suggests commands, flags, workflows, workspaces,
+operations, enum inputs, cache entries, providers, and filesystem paths.
+
 Register the current checkout and select its managed project:
 
 ```sh
