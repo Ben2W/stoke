@@ -28,6 +28,8 @@
     "ws": "8.20.0"
   },
   "devDependencies": {
+    "@rigkit/cli": "workspace:*",
+    "@rigkit/sdk": "workspace:*",
     "@tailwindcss/postcss": "4.3.0",
     "@types/bun": "latest",
     "@types/node": "latest",

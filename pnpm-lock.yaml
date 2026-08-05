@@ -63,6 +63,12 @@ importers:
         specifier: 8.20.0
         version: 8.20.0
     devDependencies:
+      '@rigkit/cli':
+        specifier: workspace:*
+        version: link:../../packages/cli
+      '@rigkit/sdk':
+        specifier: workspace:*
+        version: link:../../packages/sdk
       '@tailwindcss/postcss':
         specifier: 4.3.0
         version: 4.3.0
