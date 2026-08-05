@@ -1,22 +1,23 @@
 "use client";
 
-import { X } from "lucide-react";
+import { CircleDashed } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { openWorkspaceTerminal } from "../../lib/api-client.ts";
 
-export function WorkspaceTerminalDialog({ onClose, projectId, sandbox, title }: {
-  onClose(): void;
+export function WorkspaceTerminal({ projectId, sandbox }: {
   projectId: string;
   sandbox: string;
-  title: string;
 }) {
   const container = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<import("@xterm/xterm").Terminal>(null);
+  const [status, setStatus] = useState<"connecting" | "connected" | "failed">("connecting");
   const [error, setError] = useState<string>();
+
   useEffect(() => {
     let disposed = false;
     let socket: WebSocket | undefined;
     let terminal: import("@xterm/xterm").Terminal | undefined;
+    let resizeObserver: ResizeObserver | undefined;
     void (async () => {
       try {
         const [{ Terminal }, interactive] = await Promise.all([
@@ -28,12 +29,19 @@ export function WorkspaceTerminalDialog({ onClose, projectId, sandbox, title }: 
           cursorBlink: true,
           fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
           fontSize: 13,
-          rows: 28,
           theme: { background: "#09090b", foreground: "#e4e4e7", cursor: "#fafafa" },
         });
         terminal.open(container.current);
         terminalRef.current = terminal;
-        terminal.focus();
+        resizeObserver = new ResizeObserver(([entry]) => {
+          if (!entry || !terminal) return;
+          const cols = Math.max(20, Math.floor((entry.contentRect.width - 24) / 8));
+          const rows = Math.max(8, Math.floor((entry.contentRect.height - 24) / 17));
+          terminal.resize(cols, rows);
+          if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: "resize", cols, rows }));
+        });
+        resizeObserver.observe(container.current);
+
         const socketUrl = new URL(interactive.url);
         socketUrl.searchParams.set("token", interactive.token);
         socket = new WebSocket(socketUrl);
@@ -41,8 +49,7 @@ export function WorkspaceTerminalDialog({ onClose, projectId, sandbox, title }: 
         terminal.onData((data) => {
           if (socket?.readyState === WebSocket.OPEN) socket.send(new TextEncoder().encode(data));
         });
-        terminal.onResize(({ cols, rows }) => socket?.readyState === WebSocket.OPEN && socket.send(JSON.stringify({ type: "resize", cols, rows })));
-        socket.addEventListener("open", () => {
+        socket.onopen = () => {
           socket?.send(JSON.stringify({
             type: "start",
             command: "bash",
@@ -51,28 +58,38 @@ export function WorkspaceTerminalDialog({ onClose, projectId, sandbox, title }: 
             cols: terminal?.cols ?? 80,
             rows: terminal?.rows ?? 28,
           }));
+          setStatus("connected");
           terminal?.focus();
-        });
-        socket.addEventListener("message", async (event) => {
+        };
+        socket.onmessage = async (event) => {
           if (typeof event.data === "string") {
             try {
               const message = JSON.parse(event.data) as { type?: string; code?: number };
               if (message.type === "exit") terminal?.writeln(`\r\n[process exited ${message.code ?? 0}]`);
-            } catch { terminal?.write(event.data); }
+            } catch {
+              terminal?.write(event.data);
+            }
             return;
           }
           const bytes = event.data instanceof Blob
             ? new Uint8Array(await event.data.arrayBuffer())
             : new Uint8Array(event.data as ArrayBuffer);
           terminal?.write(bytes);
-        });
-        socket.addEventListener("error", () => setError("The terminal connection failed."));
+        };
+        socket.onerror = () => {
+          setStatus("failed");
+          setError("The terminal connection failed.");
+        };
       } catch (cause) {
-        if (!disposed) setError(cause instanceof Error ? cause.message : String(cause));
+        if (!disposed) {
+          setStatus("failed");
+          setError(cause instanceof Error ? cause.message : String(cause));
+        }
       }
     })();
     return () => {
       disposed = true;
+      resizeObserver?.disconnect();
       socket?.close();
       terminal?.dispose();
       terminalRef.current = null;
@@ -80,11 +97,14 @@ export function WorkspaceTerminalDialog({ onClose, projectId, sandbox, title }: 
   }, [projectId, sandbox]);
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-zinc-950/55 p-4 backdrop-blur-[2px]" role="presentation">
-      <section aria-label={`${title} terminal`} aria-modal="true" className="w-full max-w-5xl overflow-hidden rounded-xl border border-zinc-700 bg-zinc-950 shadow-2xl" role="dialog">
-        <header className="flex items-center justify-between border-b border-zinc-800 px-4 py-3 text-zinc-200"><div><p className="text-xs font-medium">{title}</p><p className="mt-0.5 font-mono text-[10px] text-zinc-500">{sandbox}</p></div><button aria-label="Close terminal" className="grid size-8 place-items-center rounded-md text-zinc-500 hover:bg-zinc-800 hover:text-white" onClick={onClose} type="button"><X size={16} /></button></header>
-        {error ? <div className="grid h-[28rem] place-items-center p-8 text-sm text-red-400">{error}</div> : <div className="h-[28rem] p-3" onMouseDown={() => terminalRef.current?.focus()} ref={container} />}
-      </section>
+    <div className="relative min-h-0 flex-1 bg-zinc-950" onMouseDown={() => terminalRef.current?.focus()}>
+      {status === "connecting" ? (
+        <div className="absolute inset-0 z-10 grid place-items-center bg-zinc-950 text-zinc-400">
+          <div className="text-center"><CircleDashed className="mx-auto animate-spin text-violet-400" size={20} /><p className="mt-3 text-xs">Connecting to Sandbox…</p></div>
+        </div>
+      ) : null}
+      {status === "failed" ? <div className="absolute inset-0 z-10 grid place-items-center bg-zinc-950 p-8 text-sm text-red-400">{error}</div> : null}
+      <div className="absolute inset-0 p-3" ref={container} />
     </div>
   );
 }

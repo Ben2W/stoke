@@ -5,8 +5,9 @@ import { shortFingerprint } from "../../lib/fingerprint.ts";
 import { runOriginLabel } from "./run-origin.ts";
 import { projectRunTaskFlow } from "./run-task-flow.ts";
 import { RunTaskFlowView } from "./run-task-flow-view.tsx";
+import { formatRunDuration } from "./run-duration.ts";
 
-export function RunEventList({ events, run }: { events: ManagedRunEvent[]; run: ManagedRun }) {
+export function RunEventList({ events, run, title }: { events: ManagedRunEvent[]; run: ManagedRun; title?: string }) {
   const timelineRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (run.status === "running") timelineRef.current?.scrollTo({ top: timelineRef.current.scrollHeight, behavior: "smooth" });
@@ -20,12 +21,12 @@ export function RunEventList({ events, run }: { events: ManagedRunEvent[]; run: 
       <div className="border-b border-zinc-100 px-5 py-3">
         <div className="flex items-center justify-between">
           <div className="min-w-0">
-            <p className="truncate text-xs font-medium capitalize text-zinc-900">{run.operation} · {run.workflow}</p>
+            <p className="truncate text-xs font-medium text-zinc-900">{title ?? `${run.operation} · ${run.workflow}`}</p>
             <p className="mt-0.5 truncate text-[11px] text-zinc-500">
               {runOriginLabel(run)} · <code className="font-mono" title={run.fingerprint}>{shortFingerprint(run.fingerprint)}</code> · {run.id.slice(0, 8)}
             </p>
           </div>
-          <StatusBadge status={run.status} />
+          <StatusBadge run={run} />
         </div>
         <div className="mt-3 h-1 overflow-hidden rounded-full bg-zinc-100"><div className="h-full rounded-full bg-emerald-500 transition-[width] duration-500" style={{ width: `${progress}%` }} /></div>
       </div>
@@ -46,7 +47,8 @@ export function RunEventList({ events, run }: { events: ManagedRunEvent[]; run: 
   );
 }
 
-function StatusBadge({ status }: { status: ManagedRun["status"] }) {
+function StatusBadge({ run }: { run: ManagedRun }) {
+  const status = run.status;
   const styles = status === "running"
     ? "bg-blue-50 text-blue-700"
     : status === "completed"
@@ -55,7 +57,7 @@ function StatusBadge({ status }: { status: ManagedRun["status"] }) {
   return (
     <span className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-1 text-[10px] font-medium capitalize ${styles}`}>
       {status === "running" ? <span className="size-1.5 animate-pulse rounded-full bg-blue-500" /> : null}
-      {status}
+      {status === "completed" ? `Completed in ${formatRunDuration(run)}` : status}
     </span>
   );
 }

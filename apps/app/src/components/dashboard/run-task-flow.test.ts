@@ -67,6 +67,27 @@ describe("managed run task flow", () => {
       ["install", "pending", ["cached-run"]],
     ]);
   });
+
+  test("streams workspace operation logs into one completed task", () => {
+    const flow = projectRunTaskFlow([
+      event(1, "remote.command.started", { command: "run" }),
+      event(2, "workspace.operation.started", { workspaceName: "demo", operationId: "test" }),
+      event(3, "log.output", { nodePath: "workspace.demo.test", stream: "info", data: "$ npm test" }),
+      event(4, "log.output", { nodePath: "workspace.demo.test", stream: "info", data: "2 tests passed" }),
+      event(5, "workspace.operation.completed", { workspaceName: "demo", operationId: "test" }),
+    ], run({ operation: "run", status: "completed" }));
+
+    expect(flow.tasks).toEqual([
+      expect.objectContaining({
+        nodePath: "workspace.demo.test",
+        status: "completed",
+        output: [
+          expect.objectContaining({ text: "$ npm test" }),
+          expect.objectContaining({ text: "2 tests passed" }),
+        ],
+      }),
+    ]);
+  });
 });
 
 function run(overrides: Partial<ManagedRun> = {}): ManagedRun {

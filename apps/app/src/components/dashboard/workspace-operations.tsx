@@ -2,14 +2,14 @@
 
 import type { ManagedProject, ManagedRun, ManagedWorkspace } from "@usestoke/managed";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Play } from "lucide-react";
+import { CircleDashed, Play } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { executeProjectRequest } from "../../lib/api-client.ts";
 import { queryKeys } from "../../lib/queries.ts";
 import { OperationInputDialog } from "./operation-input-dialog.tsx";
 import { operationHasInput, type OperationInput } from "./operation-input.ts";
 import { useRunObserver } from "./use-run-observer.ts";
-import { WorkspaceTerminalDialog } from "./workspace-terminal-dialog.tsx";
+import { WorkspaceOperationRunDialog } from "./workspace-operation-run-dialog.tsx";
 
 const DASHBOARD_CAPABILITIES = new Set(["browser.open", "ssh"]);
 
@@ -20,8 +20,10 @@ export function WorkspaceOperations({ project, workspace }: {
   const queryClient = useQueryClient();
   const [activeRunId, setActiveRunId] = useState<string>();
   const [selectedOperation, setSelectedOperation] = useState<ManagedWorkspace["operations"][number]>();
-  const [terminal, setTerminal] = useState<{ sandbox: string; title: string }>();
+  const [executingOperation, setExecutingOperation] = useState<ManagedWorkspace["operations"][number]>();
+  const [capabilityReady, setCapabilityReady] = useState(false);
   const previewWindow = useRef<Window | null>(null);
+  const terminalWindow = useRef<Window | null>(null);
   const handledEvents = useRef(new Set<number>());
   const observed = useRunObserver(activeRunId);
   const execute = useMutation({
@@ -45,6 +47,8 @@ export function WorkspaceOperations({ project, workspace }: {
         previewWindow.current?.close();
         previewWindow.current = null;
       }
+      terminalWindow.current?.close();
+      terminalWindow.current = null;
     },
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.runs });
@@ -62,13 +66,19 @@ export function WorkspaceOperations({ project, workspace }: {
         if (previewWindow.current && !previewWindow.current.closed) previewWindow.current.location.replace(url);
         else window.open(url, "_blank", "noopener,noreferrer");
         previewWindow.current = null;
+        setCapabilityReady(true);
       }
       if (event.data.capability === "ssh") {
         const request = sandboxTerminalRequest(event.data.params, workspace.name);
-        if (request) setTerminal(request);
+        if (!request) continue;
+        const url = terminalUrl(project.id, request);
+        if (terminalWindow.current && !terminalWindow.current.closed) terminalWindow.current.location.replace(url);
+        else window.open(url, "_blank");
+        terminalWindow.current = null;
+        setCapabilityReady(true);
       }
     }
-  }, [observed.eventsResult.data, workspace.name]);
+  }, [observed.eventsResult.data, project.id, workspace.name]);
 
   useEffect(() => {
     if (!observed.run || observed.run.status === "running") return;
@@ -76,17 +86,30 @@ export function WorkspaceOperations({ project, workspace }: {
     if (observed.run.status === "failed" || observed.run.status === "orphaned") {
       previewWindow.current?.close();
       previewWindow.current = null;
+      terminalWindow.current?.close();
+      terminalWindow.current = null;
     }
   }, [observed.run, project.id, queryClient]);
 
   const runOperation = (operation: ManagedWorkspace["operations"][number], operationInput: OperationInput = {}) => {
     const opensBrowser = operation.requiredCapabilities.some((capability) => capability.id === "browser.open");
+    const opensTerminal = operation.requiredCapabilities.some((capability) => capability.id === "ssh");
+    execute.reset();
+    setSelectedOperation(undefined);
+    setExecutingOperation(operation);
+    setActiveRunId(undefined);
+    setCapabilityReady(false);
     if (opensBrowser) {
       previewWindow.current = window.open("", "_blank");
       renderPreviewPlaceholder(previewWindow.current);
     }
+    if (opensTerminal) {
+      terminalWindow.current = window.open(terminalLoadingUrl(workspace.name), "_blank");
+    }
     execute.mutate({ workspaceOperation: operation.id, opensBrowser, operationInput });
   };
+
+  const operationIsRunning = execute.isPending || observed.run?.status === "running";
 
   return (
     <section className="mt-8" aria-labelledby="operations-heading">
@@ -96,7 +119,9 @@ export function WorkspaceOperations({ project, workspace }: {
         {workspace.operations.length ? workspace.operations.map((operation, index) => {
           const unavailable = operation.requiredCapabilities.filter((capability) => !DASHBOARD_CAPABILITIES.has(capability.id));
           const hasInput = operationHasInput(operation.inputSchema);
-          const isRunning = execute.isPending && execute.variables?.workspaceOperation === operation.id;
+          const isActive = executingOperation?.id === operation.id && operationIsRunning;
+          const waitsForCapability = operation.requiredCapabilities.some((capability) => capability.id === "ssh" || capability.id === "browser.open");
+          const isStarting = isActive && (!waitsForCapability || !capabilityReady);
           return (
             <div className={`flex items-center justify-between gap-4 p-4 ${index ? "border-t border-zinc-100" : ""}`} key={operation.id}>
               <div>
@@ -106,8 +131,8 @@ export function WorkspaceOperations({ project, workspace }: {
                   {unavailable.length ? ` · Dashboard doesn’t support ${unavailable.map((item) => item.id).join(", ")}.` : hasInput ? " · Configurable input" : ""}
                 </p>
               </div>
-              <button className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-zinc-200 px-3 text-[11px] font-medium hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-40" disabled={execute.isPending || unavailable.length > 0} onClick={() => hasInput ? setSelectedOperation(operation) : runOperation(operation)} type="button">
-                <Play size={12} />{isRunning ? "Running…" : "Run"}
+              <button className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-zinc-200 px-3 text-[11px] font-medium hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-40" disabled={operationIsRunning || unavailable.length > 0} onClick={() => hasInput ? setSelectedOperation(operation) : runOperation(operation)} type="button">
+                {isStarting ? <CircleDashed className="animate-spin" size={12} /> : <Play size={12} />}{isStarting ? "Loading…" : isActive ? "Running…" : "Run"}
               </button>
             </div>
           );
@@ -115,7 +140,16 @@ export function WorkspaceOperations({ project, workspace }: {
       </div>
       {execute.isError ? <p className="mt-3 text-xs text-red-600">{execute.error.message}</p> : null}
       {selectedOperation ? <OperationInputDialog error={execute.isError ? execute.error.message : undefined} onClose={() => setSelectedOperation(undefined)} onSubmit={(input) => runOperation(selectedOperation, input)} operation={selectedOperation} pending={execute.isPending} /> : null}
-      {terminal ? <WorkspaceTerminalDialog onClose={() => setTerminal(undefined)} projectId={project.id} sandbox={terminal.sandbox} title={terminal.title} /> : null}
+      {executingOperation ? (
+        <WorkspaceOperationRunDialog
+          error={execute.isError ? execute.error.message : undefined}
+          events={observed.eventsResult.data ?? []}
+          onClose={() => setExecutingOperation(undefined)}
+          operation={executingOperation}
+          pending={execute.isPending}
+          run={observed.run}
+        />
+      ) : null}
     </section>
   );
 }
@@ -136,6 +170,20 @@ function sandboxTerminalRequest(params: unknown, fallbackTitle: string): { sandb
     sandbox: params.sandbox,
     title: typeof params.title === "string" && params.title.trim() ? params.title : fallbackTitle,
   };
+}
+
+function terminalLoadingUrl(title: string): string {
+  const url = new URL("/terminal", window.location.origin);
+  url.searchParams.set("title", `SSH ${title}`);
+  return url.toString();
+}
+
+function terminalUrl(projectId: string, input: { sandbox: string; title: string }): string {
+  const url = new URL("/terminal", window.location.origin);
+  url.searchParams.set("project", projectId);
+  url.searchParams.set("sandbox", input.sandbox);
+  url.searchParams.set("title", input.title);
+  return url.toString();
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

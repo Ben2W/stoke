@@ -62,6 +62,24 @@ export function projectRunTaskFlow(events: ManagedRunEvent[], run: ManagedRun): 
         task.runId = stringField(event.data.runId);
         break;
       }
+      case "workspace.operation.started": {
+        const workspaceName = stringField(event.data.workspaceName);
+        const operationId = stringField(event.data.operationId);
+        if (!workspaceName || !operationId) break;
+        const task = getTask(tasks, `workspace.${workspaceName}.${operationId}`);
+        task.status = "running";
+        task.startedAt ??= event.createdAt;
+        break;
+      }
+      case "workspace.operation.completed": {
+        const workspaceName = stringField(event.data.workspaceName);
+        const operationId = stringField(event.data.operationId);
+        if (!workspaceName || !operationId) break;
+        const task = getTask(tasks, `workspace.${workspaceName}.${operationId}`);
+        task.status = "completed";
+        task.completedAt = event.createdAt;
+        break;
+      }
       case "plan.nodes": {
         const nodes = Array.isArray(event.data.nodes) ? event.data.nodes : [];
         for (const value of nodes) {
