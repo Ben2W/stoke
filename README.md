@@ -3,6 +3,8 @@
 Stoke manages typed development workflows and runs them locally or in Vercel
 Sandbox.
 
+> Stoke is forked from [Rigkit](https://rigkit.dev), an open-source framework I made for defining development environments. Stoke adapts Rigkit into a managed service. The managed control plane lives in [`apps/app`](./apps/app).
+
 ## Try it
 
 1. Open [usestoke.dev](https://usestoke.dev) and sign in with GitHub.

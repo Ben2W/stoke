@@ -99,33 +99,33 @@ export function DevelopmentEnvironmentShowcase() {
 
 function CmuxWorkspace({ cycle }: { cycle: number }) {
   return (
-    <div className="grid flex-1 grid-cols-[7.5rem_minmax(0,1fr)] bg-zinc-100" key={cycle} style={{ animation: "stoke-terminal-line 260ms ease-out both" }}>
-      <aside className="border-r border-zinc-200 bg-zinc-950 p-3 text-zinc-400">
+    <div className="grid flex-1 grid-cols-[7.5rem_minmax(0,1fr)] bg-white" key={cycle} style={{ animation: "stoke-terminal-line 260ms ease-out both" }}>
+      <aside className="border-r border-zinc-200 bg-zinc-100/80 p-3 text-zinc-500">
         <div className="mb-4 flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-wider text-zinc-500">
-          <span className="size-1.5 rounded-full bg-emerald-400" /> cmux
+          <span className="size-1.5 rounded-full bg-emerald-500" /> cmux
         </div>
-        <div className="rounded-md bg-white/10 px-2 py-2 text-[10px] text-white">
+        <div className="rounded-md border border-zinc-200 bg-white px-2 py-2 text-[10px] text-zinc-900 shadow-xs">
           <p className="truncate font-medium">demo</p>
-          <p className="mt-1 truncate text-zinc-500">stoke-example</p>
+          <p className="mt-1 truncate text-zinc-400">stoke-example</p>
         </div>
-        <div className="mt-3 space-y-2 px-2 text-[9px]">
-          <p className="flex items-center gap-1.5"><Terminal size={9} /> terminal</p>
+        <div className="mt-3 space-y-2 px-2 text-[9px] text-zinc-400">
+          <p className="flex items-center gap-1.5 text-zinc-700"><Terminal size={9} /> terminal</p>
           <p className="flex items-center gap-1.5"><ExternalLink size={9} /> preview</p>
         </div>
       </aside>
       <div className="flex min-w-0 flex-col">
-        <div className="flex h-9 items-center gap-1 border-b border-zinc-200 bg-white px-2">
-          <span className="rounded bg-zinc-950 px-2 py-1 font-mono text-[9px] text-white">terminal</span>
+        <div className="flex h-9 items-center gap-1 border-b border-zinc-200 bg-zinc-50 px-2">
+          <span className="rounded border border-zinc-200 bg-white px-2 py-1 font-mono text-[9px] text-zinc-800 shadow-xs">terminal</span>
           <span className="rounded px-2 py-1 font-mono text-[9px] text-zinc-400">localhost:3000</span>
         </div>
         <div className="grid min-h-0 flex-1 grid-rows-2 bg-zinc-200 sm:grid-cols-2 sm:grid-rows-1">
-          <div className="bg-zinc-950 p-4 font-mono text-[10px] leading-5 text-zinc-400">
-            <p><span className="text-emerald-400">demo</span> <span className="text-zinc-600">~/app</span></p>
-            <p className="mt-2 text-zinc-300">$ bun dev</p>
-            <p>ready on <span className="text-zinc-200">localhost:3000</span></p>
-            <p className="mt-2 text-emerald-400">✓ connected over SSH</p>
+          <div className="bg-[#faf9f6] p-4 font-mono text-[10px] leading-5 text-zinc-500">
+            <p><span className="text-emerald-700">demo</span> <span className="text-zinc-400">~/app</span></p>
+            <p className="mt-2 text-zinc-800">$ bun dev</p>
+            <p>ready on <span className="text-zinc-700">localhost:3000</span></p>
+            <p className="mt-2 text-emerald-700">✓ connected over SSH</p>
           </div>
-          <div className="m-px bg-white p-4">
+          <div className="bg-white p-4">
             <div className="flex items-center gap-1.5 text-[9px] text-zinc-400"><GitBranch size={9} /> Ben2W/stoke-example</div>
             <div className="mt-4 h-3 w-3/4 rounded bg-zinc-900" />
             <div className="mt-2 h-2 w-full rounded bg-zinc-200" />
