@@ -105,6 +105,19 @@ describe("runtime manager", () => {
     expect(runtimeFingerprintFor(changed)).not.toBe(runtimeFingerprintFor(base));
   });
 
+  test("keeps project ids stable while file state revisions restart the runtime", () => {
+    const base = {
+      projectDir: "/tmp/project",
+      configPath: "/tmp/project/stoke/index.ts",
+      stateFile: "/tmp/project-state.json",
+      stateRevision: 1,
+    };
+    const changed = { ...base, stateRevision: 2 };
+
+    expect(projectIdFor(changed)).toBe(projectIdFor(base));
+    expect(runtimeFingerprintFor(changed)).not.toBe(runtimeFingerprintFor(base));
+  });
+
   test("changes runtime fingerprints when Stoke helper files change", () => {
     const root = mkdtempSync(join(tmpdir(), "stoke-runtime-client-helper-fingerprint-"));
     try {

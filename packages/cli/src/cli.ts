@@ -2981,13 +2981,16 @@ function resolveEngineOptions(invocation: CliInvocation): {
   configPath: string;
   managedState?: { projectId: string; revision: number; apiUrl: string; token: string };
   stateFile?: string;
+  stateRevision?: string | number;
   source?: unknown;
 } {
   const paths = resolveCommandConfigPaths(invocation);
+  const dashboardStateRevision = process.env.STOKE_RUNTIME_STATE_REVISION;
   return {
     projectDir: paths.projectDir,
     configPath: paths.configPath,
     ...(process.env.STOKE_STATE_FILE ? { stateFile: resolve(process.env.STOKE_STATE_FILE) } : {}),
+    ...(dashboardStateRevision ? { stateRevision: dashboardStateRevision } : {}),
     ...(process.env.STOKE_WORKSPACE_ORIGIN === "dashboard" ? { source: { kind: "dashboard" } } : {}),
   };
 }

@@ -35,6 +35,7 @@ export type RuntimeProjectOptions = {
   configPath: string;
   managedState?: { projectId: string; revision: number; apiUrl: string; token: string };
   stateFile?: string;
+  stateRevision?: string | number;
   source?: unknown;
 };
 
@@ -171,6 +172,8 @@ export function runtimeFingerprintFor(options: RuntimeProjectOptions): string {
   hash.update(String(options.managedState?.revision ?? ""));
   hash.update("\0state-file\0");
   hash.update(stateFile ?? "");
+  hash.update("\0state-revision\0");
+  hash.update(String(options.stateRevision ?? ""));
   hash.update("\0source\0");
   hash.update(JSON.stringify(options.source ?? null));
 
