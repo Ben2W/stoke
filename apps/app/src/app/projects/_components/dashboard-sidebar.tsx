@@ -10,7 +10,7 @@ export function DashboardSidebar() {
   const pathname = usePathname();
   const projectsActive = pathname.startsWith(dashboardRoutes.projects);
   return (
-    <aside className="shrink-0 border-b border-zinc-200 bg-zinc-50/60 p-3 md:flex md:w-60 md:flex-col md:border-b-0 md:border-r">
+    <aside className="shrink-0 border-b border-zinc-200 bg-zinc-50/60 p-3 md:sticky md:top-16 md:flex md:h-[calc(100vh-4rem)] md:w-60 md:self-start md:flex-col md:overflow-y-auto md:border-b-0 md:border-r">
       <nav className="flex gap-1 overflow-x-auto md:block md:space-y-1" aria-label="Dashboard navigation">
         <Link className={`flex h-10 shrink-0 items-center gap-3 rounded-md px-3 text-sm font-medium md:w-full ${projectsActive ? "bg-zinc-200/70 text-zinc-950" : "text-zinc-600 hover:bg-zinc-100"}`} href={dashboardRoutes.projects}>
           <FolderKanban size={16} strokeWidth={1.8} />
