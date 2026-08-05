@@ -19,7 +19,6 @@ export function WorkspaceOperations({ project, workspace }: {
 }) {
   const queryClient = useQueryClient();
   const [activeRunId, setActiveRunId] = useState<string>();
-  const [pendingHostCapability, setPendingHostCapability] = useState<string>();
   const [selectedOperation, setSelectedOperation] = useState<ManagedWorkspace["operations"][number]>();
   const [terminal, setTerminal] = useState<{ sandbox: string; title: string }>();
   const previewWindow = useRef<Window | null>(null);
@@ -42,7 +41,6 @@ export function WorkspaceOperations({ project, workspace }: {
       setSelectedOperation(undefined);
     },
     onError: (_error, input) => {
-      setPendingHostCapability(undefined);
       if (input.opensBrowser) {
         previewWindow.current?.close();
         previewWindow.current = null;
@@ -55,13 +53,6 @@ export function WorkspaceOperations({ project, workspace }: {
   });
 
   useEffect(() => {
-    if (!activeRunId || !pendingHostCapability) return;
-    void observed.eventsResult.refetch();
-    const interval = setInterval(() => void observed.eventsResult.refetch(), 400);
-    return () => clearInterval(interval);
-  }, [activeRunId, observed.eventsResult.refetch, pendingHostCapability]);
-
-  useEffect(() => {
     for (const event of observed.eventsResult.data ?? []) {
       if (handledEvents.current.has(event.id) || event.data.type !== "host.capability.request") continue;
       handledEvents.current.add(event.id);
@@ -71,12 +62,10 @@ export function WorkspaceOperations({ project, workspace }: {
         if (previewWindow.current && !previewWindow.current.closed) previewWindow.current.location.replace(url);
         else window.open(url, "_blank", "noopener,noreferrer");
         previewWindow.current = null;
-        setPendingHostCapability(undefined);
       }
       if (event.data.capability === "ssh") {
         const request = sandboxTerminalRequest(event.data.params, workspace.name);
         if (request) setTerminal(request);
-        setPendingHostCapability(undefined);
       }
     }
   }, [observed.eventsResult.data, workspace.name]);
@@ -87,7 +76,6 @@ export function WorkspaceOperations({ project, workspace }: {
     if (observed.run.status === "failed" || observed.run.status === "orphaned") {
       previewWindow.current?.close();
       previewWindow.current = null;
-      setPendingHostCapability(undefined);
     }
   }, [observed.run, project.id, queryClient]);
 
@@ -97,7 +85,6 @@ export function WorkspaceOperations({ project, workspace }: {
       previewWindow.current = window.open("", "_blank");
       renderPreviewPlaceholder(previewWindow.current);
     }
-    setPendingHostCapability(operation.requiredCapabilities.find((capability) => DASHBOARD_CAPABILITIES.has(capability.id))?.id);
     execute.mutate({ workspaceOperation: operation.id, opensBrowser, operationInput });
   };
 

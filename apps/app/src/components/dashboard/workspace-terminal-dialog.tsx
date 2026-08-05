@@ -38,7 +38,9 @@ export function WorkspaceTerminalDialog({ onClose, projectId, sandbox, title }: 
         socketUrl.searchParams.set("token", interactive.token);
         socket = new WebSocket(socketUrl);
         socket.binaryType = "arraybuffer";
-        terminal.onData((data) => socket?.readyState === WebSocket.OPEN && socket.send(data));
+        terminal.onData((data) => {
+          if (socket?.readyState === WebSocket.OPEN) socket.send(new TextEncoder().encode(data));
+        });
         terminal.onResize(({ cols, rows }) => socket?.readyState === WebSocket.OPEN && socket.send(JSON.stringify({ type: "resize", cols, rows })));
         socket.addEventListener("open", () => {
           socket?.send(JSON.stringify({

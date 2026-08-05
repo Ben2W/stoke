@@ -12,7 +12,7 @@ export function useRunObserver(runId: string | undefined) {
   const { mutateAsync: createTicketForRun } = useMutation({ mutationFn: createRunTicket });
 
   useEffect(() => {
-    if (!runId || run?.status !== "running") return;
+    if (!runId) return;
     let disposed = false;
     let terminal = false;
     let reconnect: ReturnType<typeof setTimeout> | undefined;
@@ -71,7 +71,7 @@ export function useRunObserver(runId: string | undefined) {
       if (reconnect) clearTimeout(reconnect);
       socket?.close();
     };
-  }, [createTicketForRun, queryClient, run?.status, runId]);
+  }, [createTicketForRun, queryClient, runId]);
 
   return { eventsResult, run, runsResult };
 }
