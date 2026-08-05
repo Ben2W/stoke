@@ -4,6 +4,7 @@ import { LandingPage } from "../components/landing/landing-page.tsx";
 import { getStokeSession } from "../server/auth.ts";
 import { listCheckouts } from "../server/devices.ts";
 import { listProjects } from "../server/projects.ts";
+import { listRuns } from "../server/runs.ts";
 
 export const dynamic = "force-dynamic";
 
@@ -12,9 +13,10 @@ export default async function Home() {
 
   if (!session) return <LandingPage />;
 
-  const [projects, checkouts] = await Promise.all([
+  const [projects, checkouts, runs] = await Promise.all([
     listProjects(session.user.id),
     listCheckouts(session.user.id),
+    listRuns(session.user.id),
   ]);
 
   return (
@@ -22,6 +24,7 @@ export default async function Home() {
       user={session.user}
       projects={projects}
       checkouts={checkouts}
+      runs={runs}
     />
   );
 }

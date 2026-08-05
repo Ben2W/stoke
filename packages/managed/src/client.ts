@@ -6,6 +6,10 @@ import {
   type ManagedUser,
   type RegisterCheckoutRequest,
   type RegisterDeviceRequest,
+  type ClaimRunRequest,
+  type ClaimRunResponse,
+  type ManagedRun,
+  type ManagedRunEvent,
   CheckoutListResponseSchema,
   CheckoutResponseSchema,
   CreateProjectRequestSchema,
@@ -15,6 +19,12 @@ import {
   ProjectResponseSchema,
   RegisterCheckoutRequestSchema,
   RegisterDeviceRequestSchema,
+  ClaimRunRequestSchema,
+  ClaimRunResponseSchema,
+  RunEventsResponseSchema,
+  RunListResponseSchema,
+  RunResponseSchema,
+  RunSocketTicketResponseSchema,
 } from "./contracts.ts";
 
 export type ManagedClientOptions = {
@@ -35,6 +45,11 @@ export type ManagedClient = {
   registerDevice(input: RegisterDeviceRequest): Promise<ManagedDevice>;
   listCheckouts(deviceId?: string): Promise<ManagedCheckout[]>;
   registerCheckout(input: RegisterCheckoutRequest): Promise<ManagedCheckout>;
+  claimRun(input: ClaimRunRequest): Promise<ClaimRunResponse>;
+  listRuns(projectId?: string): Promise<ManagedRun[]>;
+  getRun(runId: string): Promise<ManagedRun>;
+  listRunEvents(runId: string, after?: number): Promise<ManagedRunEvent[]>;
+  createRunSocketTicket(runId: string, role?: "viewer" | "producer"): Promise<string>;
 };
 
 export class ManagedApiError extends Error {
@@ -103,6 +118,30 @@ export function createManagedClient(options: ManagedClientOptions): ManagedClien
         await request("/api/v1/checkouts", { method: "POST", body: JSON.stringify(payload) }),
       );
       return response.checkout;
+    },
+    async claimRun(input) {
+      const payload = ClaimRunRequestSchema.parse(input);
+      return ClaimRunResponseSchema.parse(
+        await request("/api/v1/runs/claim", { method: "POST", body: JSON.stringify(payload) }),
+      );
+    },
+    async listRuns(projectId) {
+      const query = projectId ? `?projectId=${encodeURIComponent(projectId)}` : "";
+      return RunListResponseSchema.parse(await request(`/api/v1/runs${query}`)).runs;
+    },
+    async getRun(runId) {
+      return RunResponseSchema.parse(await request(`/api/v1/runs/${encodeURIComponent(runId)}`)).run;
+    },
+    async listRunEvents(runId, after) {
+      const query = after ? `?after=${after}` : "";
+      return RunEventsResponseSchema.parse(
+        await request(`/api/v1/runs/${encodeURIComponent(runId)}/events${query}`),
+      ).events;
+    },
+    async createRunSocketTicket(runId, role = "viewer") {
+      return RunSocketTicketResponseSchema.parse(
+        await request(`/api/v1/runs/${encodeURIComponent(runId)}/ticket?role=${role}`, { method: "POST" }),
+      ).socketUrl;
     },
   };
 }

@@ -27,6 +27,12 @@ import { initProject, type InitProjectResult } from "./init.ts";
 import { openExternalTarget } from "./interaction.ts";
 import { createRunPresenter, type RunPresenter } from "./run-presenter.ts";
 import { createRunLogger, type RunLogger } from "./run-logger.ts";
+import {
+  createManagedRunPublisher,
+  followManagedRun,
+  managedRunResult,
+  tryClaimManagedApply,
+} from "./managed-run.ts";
 import { maybePrintUpdateNotice } from "./update-check.ts";
 import {
   evaluateVersionCompatibility,
@@ -2296,7 +2302,37 @@ async function runRuntimeOperation<T>(
   input: Record<string, unknown>,
   options: { renderEvents: boolean },
 ): Promise<T> {
-  const started = await runtime.control.startRun({ operation, input });
+  const managedClaim = await tryClaimManagedApply(runtime, operation, input);
+  if (managedClaim?.disposition === "joined") {
+    const managedPresenter = options.renderEvents ? createRunPresenter(operation) : undefined;
+    if (options.renderEvents) {
+      console.error(ui.dim(`joining managed run ${managedClaim.run.id.slice(0, 8)} on ${managedClaim.run.deviceName}`));
+    }
+    try {
+      const run = await followManagedRun(managedClaim, (event) => managedPresenter?.render(event));
+      return managedRunResult(run) as T;
+    } finally {
+      managedPresenter?.close();
+    }
+  }
+
+  const managedPublisher = managedClaim?.disposition === "created"
+    ? createManagedRunPublisher(
+      managedClaim.socketUrl,
+      () => managedClaim.client.createRunSocketTicket(managedClaim.run.id, "producer"),
+    )
+    : undefined;
+  let started: Awaited<ReturnType<typeof runtime.control.startRun>>;
+  try {
+    started = await runtime.control.startRun({ operation, input });
+  } catch (error) {
+    await managedPublisher?.publish({
+      type: "run.failed",
+      error: { message: error instanceof Error ? error.message : String(error) },
+    }, true);
+    managedPublisher?.close();
+    throw error;
+  }
   let presenter: RunPresenter | undefined = options.renderEvents
     ? createRunPresenter(operation)
     : undefined;
@@ -2318,6 +2354,9 @@ async function runRuntimeOperation<T>(
     respond?: (id: string, response: unknown) => void | Promise<void>,
     sendSession?: (message: unknown) => void | Promise<void>,
   ) => {
+    if (isRecord(event) && (isDevMachineEvent(event) || event.type === "run.completed" || event.type === "run.failed")) {
+      await managedPublisher?.publish(event, event.type === "run.completed" || event.type === "run.failed");
+    }
     logger?.append(event);
     if (isRecord(event)) {
       if (event.type === "node.started" && typeof event.nodePath === "string") {
@@ -2434,6 +2473,7 @@ async function runRuntimeOperation<T>(
       logger.close();
     }
     uninstallRunCancelHandler();
+    managedPublisher?.close();
   }
 
   if (failure) {

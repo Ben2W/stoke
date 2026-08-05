@@ -1,11 +1,18 @@
 "use client";
 
-import type { ManagedCheckout, ManagedProject } from "@stoke/managed";
+import type { ManagedCheckout, ManagedProject, ManagedRun } from "@stoke/managed";
 import { Check, Grid2X2, List, Plus, Search } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ProjectCard } from "./project-card.tsx";
 
-export function ProjectExplorer({ projects, checkouts, now }: { projects: ManagedProject[]; checkouts: ManagedCheckout[]; now: number }) {
+type ProjectExplorerProps = {
+  projects: ManagedProject[];
+  checkouts: ManagedCheckout[];
+  runs: ManagedRun[];
+  now: number;
+};
+
+export function ProjectExplorer({ projects, checkouts, runs, now }: ProjectExplorerProps) {
   const [query, setQuery] = useState("");
   const [view, setView] = useState<"grid" | "list">("grid");
   const [copied, setCopied] = useState(false);
@@ -83,6 +90,7 @@ export function ProjectExplorer({ projects, checkouts, now }: { projects: Manage
               key={project.id}
               now={now}
               project={project}
+              run={runs.find((run) => run.projectId === project.id)}
             />
           ))}
         </div>

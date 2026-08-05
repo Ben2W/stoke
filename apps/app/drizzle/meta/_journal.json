@@ -15,6 +15,13 @@
       "when": 1785888993579,
       "tag": "0001_overconfident_franklin_richards",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1785896966202,
+      "tag": "0002_round_brood",
+      "breakpoints": true
     }
   ]
 }

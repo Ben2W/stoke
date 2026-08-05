@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { ManagedCheckout, ManagedProject } from "@stoke/managed";
+import type { ManagedCheckout, ManagedProject, ManagedRun, ManagedRunEvent } from "@stoke/managed";
 import { AuthenticationError } from "./auth.ts";
 import { createApi } from "./api.ts";
 import { ManagedResourceConflictError } from "./devices.ts";
@@ -31,6 +31,29 @@ const checkout: ManagedCheckout = {
   path: "/Users/ben/stoke",
   createdAt: "2026-08-01T00:00:00.000Z",
   lastSeenAt: "2026-08-01T00:00:00.000Z",
+};
+
+const run: ManagedRun = {
+  id: "2923c579-7457-410c-a5bb-d47cd7131f0a",
+  projectId: project.id,
+  checkoutId: checkout.id,
+  deviceId: checkout.deviceId,
+  deviceName: checkout.deviceName,
+  operation: "apply",
+  workflow: "default",
+  fingerprint: "sha256-example",
+  status: "running",
+  startedAt: "2026-08-04T00:00:00.000Z",
+  updatedAt: "2026-08-04T00:00:00.000Z",
+  completedAt: null,
+};
+
+const runEvent: ManagedRunEvent = {
+  id: 1,
+  runId: run.id,
+  type: "node.started",
+  data: { type: "node.started", nodePath: "build" },
+  createdAt: "2026-08-04T00:00:01.000Z",
 };
 
 describe("Hono control-plane API", () => {
@@ -112,5 +135,53 @@ describe("Hono control-plane API", () => {
       message: "Checkout belongs to another project",
       details: { existingProjectId: "project-1" },
     });
+  });
+
+  test("claims runs and exposes their live observation endpoints", async () => {
+    const api = createApi({
+      authenticate: async () => user,
+      claimRun: async (userId, input) => {
+        expect(userId).toBe(user.id);
+        expect(input).toMatchObject({ projectId: project.id, checkoutId: checkout.id, operation: "apply" });
+        return { run, disposition: "created" };
+      },
+      listRuns: async (userId, projectId) => {
+        expect([userId, projectId]).toEqual([user.id, project.id]);
+        return [run];
+      },
+      getRun: async (userId, runId) => {
+        expect([userId, runId]).toEqual([user.id, run.id]);
+        return run;
+      },
+      listRunEvents: async (userId, runId, after) => {
+        expect([userId, runId, after]).toEqual([user.id, run.id, 0]);
+        return [runEvent];
+      },
+    });
+
+    const claim = await api.request("http://localhost/api/v1/runs/claim", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        projectId: project.id,
+        checkoutId: checkout.id,
+        operation: "apply",
+        workflow: "default",
+        fingerprint: run.fingerprint,
+      }),
+    });
+    expect(claim.status).toBe(201);
+    expect(await claim.json()).toMatchObject({
+      run,
+      disposition: "created",
+      socketUrl: expect.stringMatching(/^ws:\/\/localhost\/api\/ws\?ticket=/),
+    });
+
+    const listed = await api.request(`http://localhost/api/v1/runs?projectId=${project.id}`);
+    expect(await listed.json()).toEqual({ runs: [run] });
+    const events = await api.request(`http://localhost/api/v1/runs/${run.id}/events`);
+    expect(await events.json()).toEqual({ events: [runEvent] });
+    const ticket = await api.request(`http://localhost/api/v1/runs/${run.id}/ticket`, { method: "POST" });
+    expect(await ticket.json()).toMatchObject({ socketUrl: expect.stringMatching(/^ws:\/\/localhost\/api\/ws\?ticket=/) });
   });
 });

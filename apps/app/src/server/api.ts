@@ -1,17 +1,25 @@
 import {
   CheckoutListResponseSchema,
   CheckoutResponseSchema,
+  ClaimRunRequestSchema,
+  ClaimRunResponseSchema,
   CreateProjectRequestSchema,
   DeviceResponseSchema,
   ProjectListResponseSchema,
   ProjectResponseSchema,
   RegisterCheckoutRequestSchema,
   RegisterDeviceRequestSchema,
+  RunEventsResponseSchema,
+  RunListResponseSchema,
+  RunResponseSchema,
+  RunSocketTicketResponseSchema,
 } from "@stoke/managed";
 import { Hono } from "hono";
 import { authenticateRequest } from "./auth.ts";
 import { listCheckouts, registerCheckout, registerDevice } from "./devices.ts";
 import { createProject, listProjects } from "./projects.ts";
+import { createRunSocketUrl } from "./run-tickets.ts";
+import { claimRun, getRun, listRunEvents, listRuns } from "./runs.ts";
 
 type AuthenticatedUser = Awaited<ReturnType<typeof authenticateRequest>>;
 
@@ -22,6 +30,10 @@ type ApiDependencies = {
   listCheckouts: typeof listCheckouts;
   registerCheckout: typeof registerCheckout;
   registerDevice: typeof registerDevice;
+  claimRun: typeof claimRun;
+  getRun: typeof getRun;
+  listRunEvents: typeof listRunEvents;
+  listRuns: typeof listRuns;
 };
 
 const defaultDependencies: ApiDependencies = {
@@ -31,6 +43,10 @@ const defaultDependencies: ApiDependencies = {
   listCheckouts,
   registerCheckout,
   registerDevice,
+  claimRun,
+  getRun,
+  listRunEvents,
+  listRuns,
 };
 
 export function createApi(overrides: Partial<ApiDependencies> = {}) {
@@ -101,6 +117,62 @@ export function createApi(overrides: Partial<ApiDependencies> = {}) {
     }
     const checkout = await dependencies.registerCheckout(context.get("user").id, parsed.data);
     return context.json(CheckoutResponseSchema.parse({ checkout }));
+  });
+
+  managed.post("/runs/claim", async (context) => {
+    const parsed = ClaimRunRequestSchema.safeParse(await readJson(context.req.raw));
+    if (!parsed.success) {
+      return context.json({ error: "invalid_request", issues: parsed.error.issues }, 400);
+    }
+    const user = context.get("user");
+    const claimed = await dependencies.claimRun(user.id, parsed.data);
+    return context.json(ClaimRunResponseSchema.parse({
+      ...claimed,
+      socketUrl: createRunSocketUrl(context.req.url, {
+        runId: claimed.run.id,
+        userId: user.id,
+        role: claimed.disposition === "created" ? "producer" : "viewer",
+      }),
+    }), claimed.disposition === "created" ? 201 : 200);
+  });
+
+  managed.get("/runs", async (context) => {
+    const runs = await dependencies.listRuns(context.get("user").id, context.req.query("projectId"));
+    return context.json(RunListResponseSchema.parse({ runs }));
+  });
+
+  managed.get("/runs/:runId", async (context) => {
+    const run = await dependencies.getRun(context.get("user").id, context.req.param("runId"));
+    return context.json(RunResponseSchema.parse({ run }));
+  });
+
+  managed.get("/runs/:runId/events", async (context) => {
+    const after = Number(context.req.query("after") ?? 0);
+    if (!Number.isSafeInteger(after) || after < 0) {
+      return context.json({ error: "invalid_request", message: "after must be a non-negative integer" }, 400);
+    }
+    const events = await dependencies.listRunEvents(
+      context.get("user").id,
+      context.req.param("runId"),
+      after,
+    );
+    return context.json(RunEventsResponseSchema.parse({ events }));
+  });
+
+  managed.post("/runs/:runId/ticket", async (context) => {
+    const user = context.get("user");
+    const run = await dependencies.getRun(user.id, context.req.param("runId"));
+    const role = context.req.query("role") ?? "viewer";
+    if (role !== "viewer" && role !== "producer") {
+      return context.json({ error: "invalid_request", message: "role must be viewer or producer" }, 400);
+    }
+    return context.json(RunSocketTicketResponseSchema.parse({
+      socketUrl: createRunSocketUrl(context.req.url, {
+        runId: run.id,
+        userId: user.id,
+        role,
+      }),
+    }));
   });
 
   api.route("/", managed);

@@ -1,11 +1,20 @@
-import type { ManagedCheckout, ManagedProject } from "@stoke/managed";
-import { Box, FolderKanban, Laptop } from "lucide-react";
+import type { ManagedCheckout, ManagedProject, ManagedRun } from "@stoke/managed";
+import { Activity, Box, FolderKanban, Laptop } from "lucide-react";
 import { DashboardHeader } from "./dashboard-header.tsx";
 import { DashboardSidebar } from "./dashboard-sidebar.tsx";
 import { ProjectExplorer } from "./project-explorer.tsx";
+import { RunActivity } from "./run-activity.tsx";
 
-export function ProjectDashboard({ user, projects, checkouts }: { user: { name: string; email: string; image?: string | null }; projects: ManagedProject[]; checkouts: ManagedCheckout[] }) {
+type ProjectDashboardProps = {
+  user: { name: string; email: string; image?: string | null };
+  projects: ManagedProject[];
+  checkouts: ManagedCheckout[];
+  runs: ManagedRun[];
+};
+
+export function ProjectDashboard({ user, projects, checkouts, runs }: ProjectDashboardProps) {
   const deviceCount = new Set(checkouts.map((checkout) => checkout.deviceId)).size;
+  const activeRunCount = runs.filter((run) => run.status === "running").length;
 
   return (
     <main className="min-h-screen bg-white text-zinc-950">
@@ -24,14 +33,17 @@ export function ProjectDashboard({ user, projects, checkouts }: { user: { name: 
           </div>
 
           <div className="mx-auto max-w-7xl px-5 py-6 sm:px-8 sm:py-8">
-            <ProjectExplorer checkouts={checkouts} now={Date.now()} projects={projects} />
+            <ProjectExplorer checkouts={checkouts} now={Date.now()} projects={projects} runs={runs} />
+
+            <RunActivity initialRuns={runs} projects={projects} />
 
             <section className="mt-8" aria-labelledby="usage-heading">
               <h2 className="mb-3 text-sm font-medium" id="usage-heading">Workspace</h2>
-              <div className="grid overflow-hidden rounded-lg border border-zinc-200 bg-white sm:grid-cols-3">
+              <div className="grid overflow-hidden rounded-lg border border-zinc-200 bg-white sm:grid-cols-2 lg:grid-cols-4">
                 <Metric icon={FolderKanban} label="Projects" value={projects.length} />
                 <Metric border icon={Laptop} label="Devices" value={deviceCount} />
                 <Metric border icon={Box} label="Checkouts" value={checkouts.length} />
+                <Metric border icon={Activity} label="Active runs" value={activeRunCount} />
               </div>
             </section>
           </div>

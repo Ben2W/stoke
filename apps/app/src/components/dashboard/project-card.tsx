@@ -1,7 +1,14 @@
-import type { ManagedCheckout, ManagedProject } from "@stoke/managed";
+import type { ManagedCheckout, ManagedProject, ManagedRun } from "@stoke/managed";
 import { Check, ExternalLink, GitBranch, Laptop, MapPin } from "lucide-react";
 
-export function ProjectCard({ project, checkouts, now }: { project: ManagedProject; checkouts: ManagedCheckout[]; now: number }) {
+type ProjectCardProps = {
+  project: ManagedProject;
+  checkouts: ManagedCheckout[];
+  run?: ManagedRun;
+  now: number;
+};
+
+export function ProjectCard({ project, checkouts, run, now }: ProjectCardProps) {
   const githubSource = project.source.kind === "github" ? project.source : undefined;
   const source = project.source.kind === "github"
     ? `${project.source.owner}/${project.source.repository}`
@@ -49,9 +56,15 @@ export function ProjectCard({ project, checkouts, now }: { project: ManagedProje
         </div>
       </div>
 
-      <div className="mt-5 flex items-center justify-between border-t border-zinc-100 pt-4">
+      <div className="mt-5 flex items-center justify-between gap-3 border-t border-zinc-100 pt-4">
         <code className="truncate text-[11px] text-zinc-500">stoke use {project.slug}</code>
-        <span className="shrink-0 text-[10px] text-zinc-400">Updated {relativeTime(project.updatedAt, now)}</span>
+        {run?.status === "running" ? (
+          <span className="inline-flex shrink-0 items-center gap-1.5 text-[10px] font-medium text-emerald-700">
+            <span className="size-1.5 animate-pulse rounded-full bg-emerald-500" /> Applying now
+          </span>
+        ) : (
+          <span className="shrink-0 text-[10px] text-zinc-400">Updated {relativeTime(project.updatedAt, now)}</span>
+        )}
       </div>
     </article>
   );

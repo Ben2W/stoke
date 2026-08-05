@@ -1,5 +1,5 @@
 import type { ProjectSource } from "@stoke/managed";
-import { relations } from "drizzle-orm";
+import { relations, sql } from "drizzle-orm";
 import {
   boolean,
   index,
@@ -7,6 +7,7 @@ import {
   jsonb,
   pgTable,
   text,
+  serial,
   timestamp,
   uniqueIndex,
   uuid,
@@ -164,12 +165,63 @@ export const projectCheckouts = pgTable(
   ],
 );
 
+export const runs = pgTable(
+  "runs",
+  {
+    id: uuid("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    checkoutId: uuid("checkout_id")
+      .notNull()
+      .references(() => projectCheckouts.id, { onDelete: "cascade" }),
+    deviceId: text("device_id")
+      .notNull()
+      .references(() => devices.id, { onDelete: "cascade" }),
+    operation: text("operation").$type<"apply">().notNull(),
+    workflow: text("workflow").notNull(),
+    fingerprint: text("fingerprint").notNull(),
+    status: text("status").$type<"running" | "completed" | "failed" | "orphaned">().notNull(),
+    nodeCount: integer("node_count"),
+    cachedNodeCount: integer("cached_node_count"),
+    error: text("error"),
+    startedAt: timestamp("started_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+  },
+  (table) => [
+    uniqueIndex("runs_active_fingerprint_uidx")
+      .on(table.projectId, table.checkoutId, table.fingerprint)
+      .where(sql`${table.status} = 'running'`),
+    index("runs_user_started_at_idx").on(table.userId, table.startedAt),
+    index("runs_project_started_at_idx").on(table.projectId, table.startedAt),
+  ],
+);
+
+export const runEvents = pgTable(
+  "run_events",
+  {
+    id: serial("id").primaryKey(),
+    runId: uuid("run_id")
+      .notNull()
+      .references(() => runs.id, { onDelete: "cascade" }),
+    type: text("type").notNull(),
+    data: jsonb("data").$type<Record<string, unknown>>().notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [index("run_events_run_id_id_idx").on(table.runId, table.id)],
+);
+
 export const userRelations = relations(user, ({ many }) => ({
   sessions: many(session),
   accounts: many(account),
   projects: many(projects),
   devices: many(devices),
   projectCheckouts: many(projectCheckouts),
+  runs: many(runs),
 }));
 
 export const sessionRelations = relations(session, ({ one }) => ({
@@ -183,15 +235,30 @@ export const accountRelations = relations(account, ({ one }) => ({
 export const projectsRelations = relations(projects, ({ one, many }) => ({
   user: one(user, { fields: [projects.userId], references: [user.id] }),
   checkouts: many(projectCheckouts),
+  runs: many(runs),
 }));
 
 export const devicesRelations = relations(devices, ({ one, many }) => ({
   user: one(user, { fields: [devices.userId], references: [user.id] }),
   checkouts: many(projectCheckouts),
+  runs: many(runs),
 }));
 
-export const projectCheckoutsRelations = relations(projectCheckouts, ({ one }) => ({
+export const projectCheckoutsRelations = relations(projectCheckouts, ({ one, many }) => ({
   user: one(user, { fields: [projectCheckouts.userId], references: [user.id] }),
   project: one(projects, { fields: [projectCheckouts.projectId], references: [projects.id] }),
   device: one(devices, { fields: [projectCheckouts.deviceId], references: [devices.id] }),
+  runs: many(runs),
+}));
+
+export const runsRelations = relations(runs, ({ one, many }) => ({
+  user: one(user, { fields: [runs.userId], references: [user.id] }),
+  project: one(projects, { fields: [runs.projectId], references: [projects.id] }),
+  checkout: one(projectCheckouts, { fields: [runs.checkoutId], references: [projectCheckouts.id] }),
+  device: one(devices, { fields: [runs.deviceId], references: [devices.id] }),
+  events: many(runEvents),
+}));
+
+export const runEventsRelations = relations(runEvents, ({ one }) => ({
+  run: one(runs, { fields: [runEvents.runId], references: [runs.id] }),
 }));

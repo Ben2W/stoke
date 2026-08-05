@@ -87,6 +87,58 @@ export const ManagedUserSchema = z.object({
 
 export const CurrentUserResponseSchema = z.object({ user: ManagedUserSchema });
 
+export const ManagedRunStatusSchema = z.enum([
+  "running",
+  "completed",
+  "failed",
+  "orphaned",
+]);
+
+export const ManagedRunSchema = z.object({
+  id: z.uuid(),
+  projectId: z.uuid(),
+  checkoutId: z.uuid(),
+  deviceId: z.string().min(1),
+  deviceName: z.string().min(1),
+  operation: z.literal("apply"),
+  workflow: z.string().min(1),
+  fingerprint: z.string().min(1),
+  status: ManagedRunStatusSchema,
+  nodeCount: z.number().int().nonnegative().optional(),
+  cachedNodeCount: z.number().int().nonnegative().optional(),
+  error: z.string().nullable().optional(),
+  startedAt: z.iso.datetime(),
+  updatedAt: z.iso.datetime(),
+  completedAt: z.iso.datetime().nullable().optional(),
+});
+
+export const ManagedRunEventSchema = z.object({
+  id: z.number().int().positive(),
+  runId: z.uuid(),
+  type: z.string().min(1).max(100),
+  data: z.record(z.string(), z.unknown()),
+  createdAt: z.iso.datetime(),
+});
+
+export const ClaimRunRequestSchema = z.object({
+  projectId: z.uuid(),
+  checkoutId: z.uuid(),
+  operation: z.literal("apply"),
+  workflow: z.string().trim().min(1).max(120).default("default"),
+  fingerprint: z.string().min(1).max(255),
+});
+
+export const ClaimRunResponseSchema = z.object({
+  run: ManagedRunSchema,
+  disposition: z.enum(["created", "joined"]),
+  socketUrl: z.url(),
+});
+
+export const RunListResponseSchema = z.object({ runs: z.array(ManagedRunSchema) });
+export const RunResponseSchema = z.object({ run: ManagedRunSchema });
+export const RunEventsResponseSchema = z.object({ events: z.array(ManagedRunEventSchema) });
+export const RunSocketTicketResponseSchema = z.object({ socketUrl: z.url() });
+
 export type GitHubProjectSource = z.infer<typeof GitHubProjectSourceSchema>;
 export type LocalProjectSource = z.infer<typeof LocalProjectSourceSchema>;
 export type ProjectSource = z.infer<typeof ProjectSourceSchema>;
@@ -97,3 +149,8 @@ export type ManagedDevice = z.infer<typeof ManagedDeviceSchema>;
 export type RegisterDeviceRequest = z.infer<typeof RegisterDeviceRequestSchema>;
 export type ManagedCheckout = z.infer<typeof ManagedCheckoutSchema>;
 export type RegisterCheckoutRequest = z.infer<typeof RegisterCheckoutRequestSchema>;
+export type ManagedRunStatus = z.infer<typeof ManagedRunStatusSchema>;
+export type ManagedRun = z.infer<typeof ManagedRunSchema>;
+export type ManagedRunEvent = z.infer<typeof ManagedRunEventSchema>;
+export type ClaimRunRequest = z.infer<typeof ClaimRunRequestSchema>;
+export type ClaimRunResponse = z.infer<typeof ClaimRunResponseSchema>;
