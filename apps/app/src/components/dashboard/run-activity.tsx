@@ -1,29 +1,41 @@
 "use client";
 
 import type { ManagedProject, ManagedRun, ManagedRunEvent } from "@stoke/managed";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Activity } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { createRunTicket } from "../../lib/api-client.ts";
+import { queryKeys, runEventsQuery, runsQuery } from "../../lib/queries.ts";
 import { RunEventList } from "./run-event-list.tsx";
 import { RunList } from "./run-list.tsx";
 
-export function RunActivity({ initialRuns, projects }: { initialRuns: ManagedRun[]; projects: ManagedProject[] }) {
-  const [runs, setRuns] = useState(initialRuns);
-  const [selectedRunId, setSelectedRunId] = useState(() => initialRuns.find((run) => run.status === "running")?.id ?? initialRuns[0]?.id);
-  const [events, setEvents] = useState<ManagedRunEvent[]>([]);
-  const selectedRun = useMemo(() => runs.find((run) => run.id === selectedRunId), [runs, selectedRunId]);
+export function RunActivity({ projects }: { projects: ManagedProject[] }) {
+  const queryClient = useQueryClient();
+  const runsResult = useQuery(runsQuery);
+  const runs = runsResult.data ?? [];
+  const [selectedRunId, setSelectedRunId] = useState<string>();
+  const selectedRun = useMemo(
+    () => runs.find((run) => run.id === selectedRunId),
+    [runs, selectedRunId],
+  );
+  const eventsResult = useQuery(runEventsQuery(selectedRunId));
+  const { mutateAsync: createTicketForRun } = useMutation({ mutationFn: createRunTicket });
 
   useEffect(() => {
-    if (!selectedRunId) return;
+    if (selectedRunId && runs.some((run) => run.id === selectedRunId)) return;
+    setSelectedRunId(runs.find((run) => run.status === "running")?.id ?? runs[0]?.id);
+  }, [runs, selectedRunId]);
+
+  useEffect(() => {
+    if (!selectedRunId || selectedRun?.status !== "running") return;
     let disposed = false;
     let terminal = false;
     let reconnect: ReturnType<typeof setTimeout> | undefined;
     let socket: WebSocket | undefined;
-    const abort = new AbortController();
-    setEvents([]);
 
     const mergeEvents = (next: ManagedRunEvent[]) => {
       if (disposed) return;
-      setEvents((current) => {
+      queryClient.setQueryData<ManagedRunEvent[]>(queryKeys.runEvents(selectedRunId), (current = []) => {
         const merged = new Map(current.map((event) => [event.id, event]));
         for (const event of next) merged.set(event.id, event);
         return [...merged.values()].sort((left, right) => left.id - right.id);
@@ -33,25 +45,22 @@ export function RunActivity({ initialRuns, projects }: { initialRuns: ManagedRun
     const updateRun = (run: ManagedRun) => {
       if (disposed) return;
       terminal = run.status !== "running";
-      setRuns((current) => current.map((candidate) => candidate.id === run.id ? run : candidate));
-    };
-
-    const loadEvents = async () => {
-      const response = await fetch(`/api/v1/runs/${selectedRunId}/events`, { signal: abort.signal });
-      if (!response.ok) throw new Error("Could not load run events");
-      const data = await response.json() as { events: ManagedRunEvent[] };
-      mergeEvents(data.events);
+      queryClient.setQueryData<ManagedRun[]>(queryKeys.runs, (current = []) =>
+        current.map((candidate) => candidate.id === run.id ? run : candidate));
     };
 
     const connect = async () => {
       if (disposed || terminal) return;
       try {
-        const response = await fetch(`/api/v1/runs/${selectedRunId}/ticket`, { method: "POST", signal: abort.signal });
-        if (!response.ok) throw new Error("Could not create a live run ticket");
-        const { socketUrl } = await response.json() as { socketUrl: string };
+        const socketUrl = await createTicketForRun(selectedRunId);
+        if (disposed) return;
         socket = new WebSocket(socketUrl);
         socket.addEventListener("message", (message) => {
-          const data = JSON.parse(String(message.data)) as { type?: string; events?: ManagedRunEvent[]; run?: ManagedRun };
+          const data = JSON.parse(String(message.data)) as {
+            type?: string;
+            events?: ManagedRunEvent[];
+            run?: ManagedRun;
+          };
           if (data.type === "events" && data.events) mergeEvents(data.events);
           if (data.type === "run" && data.run) updateRun(data.run);
         });
@@ -63,17 +72,13 @@ export function RunActivity({ initialRuns, projects }: { initialRuns: ManagedRun
       }
     };
 
-    void loadEvents().catch(() => undefined);
-    if (selectedRun?.status === "running") void connect();
-    else terminal = true;
-
+    void connect();
     return () => {
       disposed = true;
-      abort.abort();
       if (reconnect) clearTimeout(reconnect);
       socket?.close();
     };
-  }, [selectedRunId, selectedRun?.status]);
+  }, [createTicketForRun, queryClient, selectedRun?.status, selectedRunId]);
 
   return (
     <section className="mt-8" aria-labelledby="activity-heading">
@@ -88,7 +93,13 @@ export function RunActivity({ initialRuns, projects }: { initialRuns: ManagedRun
             <div className="border-b border-zinc-100 px-4 py-3 text-[11px] font-medium uppercase tracking-wide text-zinc-400">Recent runs</div>
             <RunList onSelect={setSelectedRunId} projects={projects} runs={runs} selectedRunId={selectedRunId} />
           </div>
-          <RunEventList events={events} run={selectedRun} />
+          {eventsResult.isPending ? (
+            <div className="grid min-h-72 place-items-center text-xs text-zinc-400">Loading run events…</div>
+          ) : eventsResult.isError ? (
+            <button className="min-h-72 text-sm text-zinc-500" onClick={() => void eventsResult.refetch()} type="button">Could not load events. Try again.</button>
+          ) : (
+            <RunEventList events={eventsResult.data} run={selectedRun} />
+          )}
         </div>
       ) : (
         <div className="rounded-lg border border-dashed border-zinc-300 bg-white px-6 py-10 text-center">

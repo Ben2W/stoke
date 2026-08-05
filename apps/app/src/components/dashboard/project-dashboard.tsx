@@ -35,7 +35,7 @@ export function ProjectDashboard({ user, projects, checkouts, runs }: ProjectDas
           <div className="mx-auto max-w-7xl px-5 py-6 sm:px-8 sm:py-8">
             <ProjectExplorer checkouts={checkouts} now={Date.now()} projects={projects} runs={runs} />
 
-            <RunActivity initialRuns={runs} projects={projects} />
+            <RunActivity projects={projects} />
 
             <section className="mt-8" aria-labelledby="usage-heading">
               <h2 className="mb-3 text-sm font-medium" id="usage-heading">Workspace</h2>

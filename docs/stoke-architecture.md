@@ -7,8 +7,9 @@ cloud platform: Vercel.
 
 - The CLI discovers and evaluates `rigkit/index.ts` on the user's machine or in
   CI. The control plane never evaluates arbitrary project TypeScript.
-- The control plane is a Next.js application on Vercel. Product API routes are
-  composed in one Hono application and mounted through a single Vercel Function.
+- The control plane is a client-rendered React application served as a static
+  Next.js shell on Vercel. Product API routes are composed in one Hono
+  application and mounted through a single Vercel Function.
 - Durable managed data is Postgres supplied by Neon through the Vercel
   Marketplace.
 - Cloud development environments will run in Vercel Sandbox.
@@ -52,9 +53,13 @@ The initial API is deliberately small:
 - `GET /api/v1/auth/me`
 - `GET /api/v1/projects`
 - `POST /api/v1/projects`
+- `DELETE /api/v1/projects/:projectId`
 - `POST /api/v1/devices`
 - `GET /api/v1/checkouts`
 - `POST /api/v1/checkouts`
+- `GET /api/v1/runs`
+- `GET /api/v1/runs/:runId/events`
+- `POST /api/v1/runs/:runId/ticket`
 
 The `/api/v1` surface is a Hono router with shared authentication and error
 handling, mounted at `app/api/v1/[[...route]]/route.ts`. Better Auth retains its
@@ -65,8 +70,22 @@ Project and identity endpoints require an authenticated bearer session.
 `GITHUB_CLIENT_SECRET` configure authentication.
 
 The root web experience is public when signed out and becomes a managed project
-dashboard when a Better Auth browser session is present. It reads project data
-through the same server-side authorization boundary as the API.
+dashboard when a Better Auth browser session is present.
+
+## Frontend boundary
+
+The product UI is a SPA. Next.js serves the static application shell and mounts
+the Hono and Better Auth handlers; React components do not import control-plane
+services, repositories, or database code.
+
+TanStack Query owns all remote browser state, including the current user,
+projects, checkouts, runs, run events, and device authorization. Browser calls
+go through one typed API client into Hono. WebSocket events update the same
+TanStack Query cache rather than maintaining a second copy of run state.
+
+React state is reserved for local presentation concerns such as search text,
+view mode, and the selected run. Stoke does not use Next.js server actions or
+server functions for product behavior.
 
 ## CLI semantics
 
