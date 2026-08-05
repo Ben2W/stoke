@@ -2,6 +2,7 @@
 
 import type { ManagedRun, ManagedRunEvent, ManagedWorkspace } from "@usestoke/managed";
 import { CircleDashed, Terminal, X } from "lucide-react";
+import { RunCapabilityAction } from "./run-capability-action.tsx";
 import { RunEventList } from "./run-event-list.tsx";
 
 type WorkspaceOperation = ManagedWorkspace["operations"][number];
@@ -29,7 +30,12 @@ export function WorkspaceOperationRunDialog({ error, events, onClose, operation,
         </header>
 
         {run ? (
-          <RunEventList events={events} run={run} title={operation.title ?? operation.id} />
+          <RunEventList
+            action={<RunCapabilityAction events={events} run={run} />}
+            events={events}
+            run={run}
+            title={operation.title ?? operation.id}
+          />
         ) : (
           <div className="flex h-[32rem] flex-col">
             <div className="flex items-center gap-2 border-b border-zinc-100 px-5 py-3 text-xs text-zinc-600">

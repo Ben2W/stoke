@@ -11,8 +11,12 @@ describe("browser provider", () => {
   test("opens validated web URLs through the host", async () => {
     const opened: string[] = [];
     const host = createBrowserOpenHostCapability({ open: (url) => { opened.push(url); } });
-    expect(await host.handle({ url: "https://example.com/preview" })).toEqual({ opened: true });
+    expect(await host.handle({
+      url: "https://example.com/preview",
+      displayName: "Open development preview",
+    })).toEqual({ opened: true });
     expect(opened).toEqual(["https://example.com/preview"]);
-    await expect(host.handle({ url: "file:///etc/passwd" })).rejects.toThrow();
+    await expect(host.handle({ url: "file:///etc/passwd", displayName: "Open file" })).rejects.toThrow();
+    await expect(host.handle({ url: "https://example.com" })).rejects.toThrow("displayName");
   });
 });

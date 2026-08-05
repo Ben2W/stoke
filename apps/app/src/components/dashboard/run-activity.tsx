@@ -5,6 +5,7 @@ import { Activity } from "lucide-react";
 import { useEffect, useState } from "react";
 import { RunEventListSkeleton } from "./run-event-list-skeleton.tsx";
 import { RunEventList } from "./run-event-list.tsx";
+import { RunCapabilityAction } from "./run-capability-action.tsx";
 import { RunList } from "./run-list.tsx";
 import { useRunObserver } from "./use-run-observer.ts";
 
@@ -44,7 +45,7 @@ export function RunActivity({ project }: { project: ManagedProject }) {
           ) : eventsResult.isError ? (
             <button className="h-[32rem] text-sm text-zinc-500" onClick={() => void eventsResult.refetch()} type="button">Could not load events. Try again.</button>
           ) : (
-            <RunEventList events={eventsResult.data} run={selectedRun} />
+            <RunEventList action={<RunCapabilityAction events={eventsResult.data} run={selectedRun} />} events={eventsResult.data} run={selectedRun} />
           )}
         </div>
       ) : (

@@ -19,7 +19,14 @@ export type ManagedApplyClaim = {
 
 export type ManagedRunPublisher = {
   publish(event: unknown, waitForAck?: boolean): Promise<void>;
+  onHostResponse(handler: (response: ManagedHostResponse) => void | Promise<void>): void;
   close(): void;
+};
+
+export type ManagedHostResponse = {
+  id: string;
+  result?: unknown;
+  error?: { code?: string; message?: string };
 };
 
 export async function tryClaimManagedApply(
@@ -67,6 +74,8 @@ export function createManagedRunPublisher(
 ): ManagedRunPublisher {
   const queue: string[] = [];
   const pending = new Map<string, () => void>();
+  const queuedHostResponses: ManagedHostResponse[] = [];
+  let hostResponseHandler: ((response: ManagedHostResponse) => void | Promise<void>) | undefined;
   let socket: WebSocket | undefined;
   let reconnect: ReturnType<typeof setTimeout> | undefined;
   let closed = false;
@@ -83,6 +92,15 @@ export function createManagedRunPublisher(
         if (data.type === "event.ack" && typeof data.clientEventId === "string") {
           pending.get(data.clientEventId)?.();
           pending.delete(data.clientEventId);
+        }
+        if (data.type === "host.response" && typeof data.id === "string") {
+          const response: ManagedHostResponse = {
+            id: data.id,
+            ...(data.result !== undefined ? { result: data.result } : {}),
+            ...(isHostResponseError(data.error) ? { error: data.error } : {}),
+          };
+          if (hostResponseHandler) void Promise.resolve(hostResponseHandler(response)).catch(() => undefined);
+          else queuedHostResponses.push(response);
         }
       } catch {
         // Managed telemetry is intentionally best-effort.
@@ -141,15 +159,27 @@ export function createManagedRunPublisher(
         else await acknowledged.catch(() => undefined);
       }
     },
+    onHostResponse(handler) {
+      hostResponseHandler = handler;
+      for (const response of queuedHostResponses.splice(0)) {
+        void Promise.resolve(handler(response)).catch(() => undefined);
+      }
+    },
     close() {
       closed = true;
       clearInterval(heartbeat);
       if (reconnect) clearTimeout(reconnect);
       for (const resolve of pending.values()) resolve();
       pending.clear();
+      queuedHostResponses.length = 0;
+      hostResponseHandler = undefined;
       if (socket?.readyState === WebSocket.OPEN || socket?.readyState === WebSocket.CONNECTING) socket.close();
     },
   };
+}
+
+function isHostResponseError(value: unknown): value is { code?: string; message?: string } {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 export async function followManagedRun(

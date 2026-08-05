@@ -220,6 +220,10 @@ export const RunListResponseSchema = z.object({ runs: z.array(ManagedRunSchema) 
 export const RunResponseSchema = z.object({ run: ManagedRunSchema });
 export const RunEventsResponseSchema = z.object({ events: z.array(ManagedRunEventSchema) });
 export const RunSocketTicketResponseSchema = z.object({ socketUrl: z.url() });
+export const RespondRunCapabilityRequestSchema = z.object({
+  result: z.record(z.string(), z.unknown()),
+});
+export const RespondRunCapabilityResponseSchema = z.object({ event: ManagedRunEventSchema });
 
 const RemoteWorkflowSchema = z.string().trim().min(1).max(120).optional();
 const RemoteOriginSchema = z.enum(["cli", "dashboard"]).default("cli");
@@ -331,6 +335,8 @@ export type ManagedRunOperation = z.infer<typeof ManagedRunOperationSchema>;
 export type ManagedRunOrigin = z.infer<typeof ManagedRunOriginSchema>;
 export type ManagedRun = z.infer<typeof ManagedRunSchema>;
 export type ManagedRunEvent = z.infer<typeof ManagedRunEventSchema>;
+export type RespondRunCapabilityRequest = z.infer<typeof RespondRunCapabilityRequestSchema>;
+export type RespondRunCapabilityResponse = z.infer<typeof RespondRunCapabilityResponseSchema>;
 export type ClaimRunRequest = z.infer<typeof ClaimRunRequestSchema>;
 export type ClaimRunResponse = z.infer<typeof ClaimRunResponseSchema>;
 export type RemoteExecutionRequest = z.infer<typeof RemoteExecutionRequestSchema>;

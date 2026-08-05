@@ -27,6 +27,8 @@ import {
   RunListResponseSchema,
   RunResponseSchema,
   RunSocketTicketResponseSchema,
+  RespondRunCapabilityRequestSchema,
+  RespondRunCapabilityResponseSchema,
 } from "@usestoke/managed";
 import { waitUntil } from "@vercel/functions";
 import { Hono } from "hono";
@@ -49,6 +51,7 @@ import {
   startRemoteProjectExecution,
 } from "./remote-executions.ts";
 import { createRunSocketUrl } from "./run-tickets.ts";
+import { respondToRunCapability } from "./run-capabilities.ts";
 import { claimRun, getRun, listRunEvents, listRuns } from "./runs.ts";
 
 type AuthenticatedUser = Awaited<ReturnType<typeof authenticateRequest>>;
@@ -66,6 +69,7 @@ type ApiDependencies = {
   getRun: typeof getRun;
   listRunEvents: typeof listRunEvents;
   listRuns: typeof listRuns;
+  respondToRunCapability: typeof respondToRunCapability;
   executeRemoteProject: typeof executeRemoteProject;
   startRemoteProjectExecution: typeof startRemoteProjectExecution;
   getProjectState: typeof getProjectState;
@@ -93,6 +97,7 @@ const defaultDependencies: ApiDependencies = {
   getRun,
   listRunEvents,
   listRuns,
+  respondToRunCapability,
   executeRemoteProject,
   startRemoteProjectExecution,
   getProjectState,
@@ -378,6 +383,20 @@ export function createApi(overrides: Partial<ApiDependencies> = {}) {
       after,
     );
     return context.json(RunEventsResponseSchema.parse({ events }));
+  });
+
+  managed.post("/runs/:runId/capabilities/:requestId/respond", async (context) => {
+    const parsed = RespondRunCapabilityRequestSchema.safeParse(await readJson(context.req.raw));
+    if (!parsed.success) {
+      return context.json({ error: "invalid_request", issues: parsed.error.issues }, 400);
+    }
+    const event = await dependencies.respondToRunCapability(
+      context.get("user").id,
+      context.req.param("runId"),
+      context.req.param("requestId"),
+      parsed.data,
+    );
+    return context.json(RespondRunCapabilityResponseSchema.parse({ event }));
   });
 
   managed.post("/runs/:runId/ticket", async (context) => {

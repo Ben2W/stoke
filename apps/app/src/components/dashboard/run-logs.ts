@@ -86,7 +86,11 @@ function projectEvent(event: ManagedRunEvent): RunLogLine | undefined {
   }
   if (event.type === "host.capability.request") {
     const capability = stringField(event.data.capability);
-    if (capability === "browser.open") return { ...base, message: "Opening development preview…", source: "dashboard", stream: "info" };
+    if (capability === "browser.open") {
+      const params = recordField(event.data.params);
+      const displayName = params ? stringField(params.displayName) : undefined;
+      return { ...base, message: `${displayName ?? "Development preview"} ready`, source: "dashboard", stream: "info" };
+    }
     if (capability === "ssh") return { ...base, message: "Opening SSH session…", source: "dashboard", stream: "info" };
   }
   if (event.type === "run.failed") {

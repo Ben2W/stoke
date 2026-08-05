@@ -508,4 +508,43 @@ describe("Hono control-plane API", () => {
     const ticket = await api.request(`http://localhost/api/v1/runs/${run.id}/ticket`, { method: "POST" });
     expect(await ticket.json()).toMatchObject({ socketUrl: expect.stringMatching(/^ws:\/\/localhost\/api\/ws\?ticket=/) });
   });
+
+  test("acknowledges a dashboard host capability after the user acts", async () => {
+    const responseEvent: ManagedRunEvent = {
+      id: 2,
+      runId: run.id,
+      type: "host.capability.response",
+      data: {
+        type: "host.capability.response",
+        requestId: "cap_req_preview",
+        capability: "browser.open",
+        result: { opened: true },
+      },
+      createdAt: "2026-08-04T00:00:02.000Z",
+    };
+    const api = createApi({
+      authenticate: async () => user,
+      respondToRunCapability: async (userId, runId, requestId, input) => {
+        expect({ userId, runId, requestId, input }).toEqual({
+          userId: user.id,
+          runId: run.id,
+          requestId: "cap_req_preview",
+          input: { result: { opened: true } },
+        });
+        return responseEvent;
+      },
+    });
+
+    const response = await api.request(
+      `http://localhost/api/v1/runs/${run.id}/capabilities/cap_req_preview/respond`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ result: { opened: true } }),
+      },
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ event: responseEvent });
+  });
 });

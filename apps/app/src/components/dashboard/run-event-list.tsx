@@ -1,5 +1,6 @@
 import type { ManagedRun, ManagedRunEvent } from "@usestoke/managed";
 import { CircleDashed, FileText } from "lucide-react";
+import type { ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 import { shortFingerprint } from "../../lib/fingerprint.ts";
 import { runOriginLabel } from "./run-origin.ts";
@@ -8,7 +9,7 @@ import { RunTaskFlowView } from "./run-task-flow-view.tsx";
 import { formatRunDuration } from "./run-duration.ts";
 import { RunLogsDialog } from "./run-logs-dialog.tsx";
 
-export function RunEventList({ events, run, title }: { events: ManagedRunEvent[]; run: ManagedRun; title?: string }) {
+export function RunEventList({ action, events, run, title }: { action?: ReactNode; events: ManagedRunEvent[]; run: ManagedRun; title?: string }) {
   const timelineRef = useRef<HTMLDivElement>(null);
   const [showLogs, setShowLogs] = useState(false);
   useEffect(() => {
@@ -48,6 +49,7 @@ export function RunEventList({ events, run, title }: { events: ManagedRunEvent[]
           </div>
         </div>
       )}
+      {action}
       {showLogs ? <RunLogsDialog events={events} onClose={() => setShowLogs(false)} run={run} /> : null}
     </div>
   );

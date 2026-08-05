@@ -22,12 +22,11 @@ export function WorkspaceOperations({ project, workspace }: {
   const [selectedOperation, setSelectedOperation] = useState<ManagedWorkspace["operations"][number]>();
   const [executingOperation, setExecutingOperation] = useState<ManagedWorkspace["operations"][number]>();
   const [capabilityReady, setCapabilityReady] = useState(false);
-  const previewWindow = useRef<Window | null>(null);
   const terminalWindow = useRef<Window | null>(null);
   const handledEvents = useRef(new Set<number>());
   const observed = useRunObserver(activeRunId);
   const execute = useMutation({
-    mutationFn: (input: { workspaceOperation: string; opensBrowser: boolean; operationInput: OperationInput }) => executeProjectRequest(project.id, {
+    mutationFn: (input: { workspaceOperation: string; operationInput: OperationInput }) => executeProjectRequest(project.id, {
       operation: "run",
       workflow: workspace.workflow,
       workspace: workspace.name,
@@ -42,11 +41,7 @@ export function WorkspaceOperations({ project, workspace }: {
       setActiveRunId(response.run.id);
       setSelectedOperation(undefined);
     },
-    onError: (_error, input) => {
-      if (input.opensBrowser) {
-        previewWindow.current?.close();
-        previewWindow.current = null;
-      }
+    onError: () => {
       terminalWindow.current?.close();
       terminalWindow.current = null;
     },
@@ -55,21 +50,12 @@ export function WorkspaceOperations({ project, workspace }: {
       void queryClient.invalidateQueries({ queryKey: queryKeys.projectWorkspaces(project.id) });
     },
   });
-
   useEffect(() => {
     for (const event of observed.eventsResult.data ?? []) {
       if (handledEvents.current.has(event.id) || event.data.type !== "host.capability.request") continue;
       handledEvents.current.add(event.id);
       if (event.data.capability === "browser.open") {
-        const url = browserUrl(event.data.params);
-        if (!url) continue;
         setCapabilityReady(true);
-        const target = previewWindow.current;
-        previewWindow.current = null;
-        void waitForNavigationFeedback().then(() => {
-          if (target && !target.closed) target.location.replace(url);
-          else window.open(url, "_blank", "noopener,noreferrer");
-        });
       }
       if (event.data.capability === "ssh") {
         const request = sandboxTerminalRequest(event.data.params, workspace.name);
@@ -90,29 +76,22 @@ export function WorkspaceOperations({ project, workspace }: {
     if (!observed.run || observed.run.status === "running") return;
     void queryClient.invalidateQueries({ queryKey: queryKeys.projectWorkspaces(project.id) });
     if (observed.run.status === "failed" || observed.run.status === "orphaned") {
-      previewWindow.current?.close();
-      previewWindow.current = null;
       terminalWindow.current?.close();
       terminalWindow.current = null;
     }
   }, [observed.run, project.id, queryClient]);
 
   const runOperation = (operation: ManagedWorkspace["operations"][number], operationInput: OperationInput = {}) => {
-    const opensBrowser = operation.requiredCapabilities.some((capability) => capability.id === "browser.open");
     const opensTerminal = operation.requiredCapabilities.some((capability) => capability.id === "ssh");
     execute.reset();
     setSelectedOperation(undefined);
     setExecutingOperation(operation);
     setActiveRunId(undefined);
     setCapabilityReady(false);
-    if (opensBrowser) {
-      previewWindow.current = window.open("", "_blank");
-      renderPreviewPlaceholder(previewWindow.current);
-    }
     if (opensTerminal) {
       terminalWindow.current = window.open(terminalLoadingUrl(workspace.name), "_blank");
     }
-    execute.mutate({ workspaceOperation: operation.id, opensBrowser, operationInput });
+    execute.mutate({ workspaceOperation: operation.id, operationInput });
   };
 
   const operationIsRunning = execute.isPending || observed.run?.status === "running";
@@ -160,16 +139,6 @@ export function WorkspaceOperations({ project, workspace }: {
   );
 }
 
-function browserUrl(params: unknown): string | undefined {
-  if (!isRecord(params) || typeof params.url !== "string") return undefined;
-  try {
-    const url = new URL(params.url);
-    return url.protocol === "http:" || url.protocol === "https:" ? url.toString() : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
 function sandboxTerminalRequest(params: unknown, fallbackTitle: string): { sandbox: string; title: string; cwd: string } | undefined {
   if (!isRecord(params) || params.provider !== "vercel-sandbox" || typeof params.sandbox !== "string") return undefined;
   return {
@@ -196,15 +165,6 @@ function terminalUrl(projectId: string, input: { sandbox: string; title: string;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function renderPreviewPlaceholder(target: Window | null): void {
-  if (!target) return;
-  target.document.title = "Opening preview…";
-  target.document.body.style.cssText = "margin:0;background:#fafafa;color:#18181b;font:14px ui-sans-serif,system-ui,sans-serif;display:grid;min-height:100vh;place-items:center";
-  const status = target.document.createElement("p");
-  status.textContent = "Opening preview…";
-  target.document.body.replaceChildren(status);
 }
 
 function waitForNavigationFeedback(): Promise<void> {

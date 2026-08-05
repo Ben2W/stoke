@@ -207,6 +207,7 @@ const CLI_HOST_METHODS = [
   { id: "open.external" },
   { id: "host.command.run", modes: ["capture", "interactive"] },
 ];
+const DASHBOARD_CAPABILITY_TIMEOUT_MS = 3 * 60_000;
 
 process.env.STOKE_RUNTIME_BIN ||= bundledRuntimeBin();
 
@@ -2711,6 +2712,7 @@ async function runRuntimeOperation<T>(
   let failure: Error | undefined;
   let failureCode: string | undefined;
   let activeNodePath: string | undefined;
+  const dashboardCapabilityTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
 
   const handleEvent = async (
     event: unknown,
@@ -2758,6 +2760,23 @@ async function runRuntimeOperation<T>(
     if (isHostCapabilityRequestEvent(event)) {
       if (externalManagedSocketUrl) {
         await managedPublisher?.publish(event, true);
+        if (event.capability === "browser.open") {
+          const id = event.id ?? event.requestId;
+          if (!id || !sendSession) throw new Error("Dashboard browser capability requires a live runtime session");
+          const timeout = setTimeout(() => {
+            dashboardCapabilityTimeouts.delete(id);
+            void Promise.resolve(sendSession({
+              type: "response",
+              id,
+              error: {
+                code: "HOST_CAPABILITY_TIMEOUT",
+                message: "The dashboard did not open this link before it expired",
+              },
+            })).catch(() => undefined);
+          }, DASHBOARD_CAPABILITY_TIMEOUT_MS);
+          dashboardCapabilityTimeouts.set(id, timeout);
+          return;
+        }
         await answerDashboardHostCapability(runtime, event, respond, sendSession);
         return;
       }
@@ -2819,6 +2838,16 @@ async function runRuntimeOperation<T>(
           hostCapabilities: effectiveCliHostCapabilities(),
         },
         onOpen(session) {
+          managedPublisher?.onHostResponse((response) => {
+            const timeout = dashboardCapabilityTimeouts.get(response.id);
+            if (timeout) clearTimeout(timeout);
+            dashboardCapabilityTimeouts.delete(response.id);
+            session.send({
+              type: "response",
+              id: response.id,
+              ...(response.error ? { error: response.error } : { result: response.result }),
+            });
+          });
           return installRunCancelHandler(session);
         },
         onClose() {
@@ -2843,6 +2872,8 @@ async function runRuntimeOperation<T>(
       await runtime.runEvents(started.runId, handleEvent);
     }
   } finally {
+    for (const timeout of dashboardCapabilityTimeouts.values()) clearTimeout(timeout);
+    dashboardCapabilityTimeouts.clear();
     presenter?.close();
     if (logger) {
       logger.finish({
@@ -3052,11 +3083,7 @@ async function answerDashboardHostCapability(
 ): Promise<void> {
   const id = event.id ?? event.requestId;
   if (!id) throw new Error("Dashboard host capability request is missing id");
-  const result = event.capability === "browser.open"
-    ? { opened: true }
-    : event.capability === "ssh"
-      ? { attached: true }
-      : undefined;
+  const result = event.capability === "ssh" ? { attached: true } : undefined;
   const response = result
     ? { result }
     : { error: { message: `Dashboard does not support host capability ${event.capability}` } };

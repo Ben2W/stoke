@@ -10,6 +10,7 @@ import {
   type ClaimRunResponse,
   type ManagedRun,
   type ManagedRunEvent,
+  type RespondRunCapabilityRequest,
   type RemoteExecutionRequest,
   type RemoteExecutionResponse,
   type ManagedProjectStateSnapshot,
@@ -33,6 +34,8 @@ import {
   RunListResponseSchema,
   RunResponseSchema,
   RunSocketTicketResponseSchema,
+  RespondRunCapabilityRequestSchema,
+  RespondRunCapabilityResponseSchema,
   RemoteExecutionRequestSchema,
   RemoteExecutionResponseSchema,
   ProjectStateResponseSchema,
@@ -71,6 +74,11 @@ export type ManagedClient = {
   getRun(runId: string): Promise<ManagedRun>;
   listRunEvents(runId: string, after?: number): Promise<ManagedRunEvent[]>;
   createRunSocketTicket(runId: string, role?: "viewer" | "producer"): Promise<string>;
+  respondRunCapability(
+    runId: string,
+    requestId: string,
+    input: RespondRunCapabilityRequest,
+  ): Promise<ManagedRunEvent>;
   executeProject(projectId: string, input: RemoteExecutionRequest): Promise<RemoteExecutionResponse>;
   getProjectState(projectId: string): Promise<ProjectStateResponse>;
   updateProjectState(
@@ -222,6 +230,15 @@ export function createManagedClient(options: ManagedClientOptions): ManagedClien
       return RunSocketTicketResponseSchema.parse(
         await request(`/api/v1/runs/${encodeURIComponent(runId)}/ticket?role=${role}`, { method: "POST" }),
       ).socketUrl;
+    },
+    async respondRunCapability(runId, requestId, input) {
+      const payload = RespondRunCapabilityRequestSchema.parse(input);
+      return RespondRunCapabilityResponseSchema.parse(
+        await request(
+          `/api/v1/runs/${encodeURIComponent(runId)}/capabilities/${encodeURIComponent(requestId)}/respond`,
+          { method: "POST", body: JSON.stringify(payload) },
+        ),
+      ).event;
     },
     async executeProject(projectId, input) {
       const payload = RemoteExecutionRequestSchema.parse(input);

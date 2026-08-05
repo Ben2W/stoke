@@ -30,6 +30,32 @@ export async function upgradeManagedRunSocket(request: Request): Promise<Respons
 
 function attachProducer(socket: WebSocket, claims: RunSocketClaims): void {
   let chain = Promise.resolve();
+  let responseCursor = 0;
+  let responsePolling = false;
+  let closed = false;
+
+  const relayCapabilityResponses = async () => {
+    if (responsePolling || closed || socket.readyState !== socket.OPEN) return;
+    responsePolling = true;
+    try {
+      const events = await listRunEvents(claims.userId, claims.runId, responseCursor);
+      if (events.length) responseCursor = events[events.length - 1]?.id ?? responseCursor;
+      for (const event of events) {
+        const response = capabilityResponseMessage(event.data);
+        if (response) send(socket, response);
+      }
+    } catch (error) {
+      send(socket, { type: "error", message: error instanceof Error ? error.message : String(error) });
+    } finally {
+      responsePolling = false;
+    }
+  };
+
+  const responseInterval = setInterval(relayCapabilityResponses, 250);
+  socket.on("close", () => {
+    closed = true;
+    clearInterval(responseInterval);
+  });
   socket.on("message", (raw) => {
     chain = chain.then(async () => {
       try {
@@ -54,6 +80,7 @@ function attachProducer(socket: WebSocket, claims: RunSocketClaims): void {
     });
   });
   send(socket, { type: "ready", runId: claims.runId, role: claims.role });
+  void relayCapabilityResponses();
 }
 
 function attachViewer(socket: WebSocket, claims: RunSocketClaims): void {
@@ -112,4 +139,21 @@ function parseMessage(raw: WebSocketData): Record<string, unknown> {
 
 function send(socket: WebSocket, message: unknown): void {
   if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(message));
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+export function capabilityResponseMessage(data: Record<string, unknown>): {
+  type: "host.response";
+  id: string;
+  result: Record<string, unknown>;
+} | undefined {
+  if (
+    data.type !== "host.capability.response"
+    || typeof data.requestId !== "string"
+    || !isRecord(data.result)
+  ) return undefined;
+  return { type: "host.response", id: data.requestId, result: data.result };
 }

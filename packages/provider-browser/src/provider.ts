@@ -9,7 +9,7 @@ import { BROWSER_OPEN_CAPABILITY, BROWSER_OPEN_CAPABILITY_ID } from "./capabilit
 export const BROWSER_PROVIDER_ID = "browser";
 
 export type BrowserRuntime = {
-  open(url: string): Promise<{ opened: true }>;
+  open(input: { url: string; displayName: string }): Promise<{ opened: true }>;
 };
 
 export type BrowserProviderDefinition = WorkflowProviderDefinition<
@@ -39,13 +39,13 @@ export const browserProviderPlugin: BaseProviderPlugin = {
 
 function createBrowserRuntime(local: LocalWorkspaceRuntime, nodePath: string): BrowserRuntime {
   return {
-    async open(url) {
+    async open(input) {
       if (!local.requestCapability) {
         throw new Error(`Host capability ${BROWSER_OPEN_CAPABILITY_ID} is unavailable in this runtime`);
       }
       return await local.requestCapability<{ opened: true }>(
         BROWSER_OPEN_CAPABILITY_ID,
-        { url },
+        input,
         { nodePath },
       );
     },

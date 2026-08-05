@@ -3,7 +3,7 @@ import { basename, dirname, join } from "node:path";
 import { DEFAULT_CONFIG_PATH } from "./project.ts";
 
 export const STOKE_INIT_DEV_DEPENDENCIES = {
-  "@usestoke/provider-vercel-sandbox": "0.1.5",
+  "@usestoke/provider-vercel-sandbox": "0.1.6",
   "@usestoke/sdk": "0.1.3",
 } as const;
 

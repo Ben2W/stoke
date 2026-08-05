@@ -41,12 +41,12 @@ describe("run log projection", () => {
 
   test("projects dashboard capability feedback into the log stream", () => {
     const lines = projectRunLogs([
-      event(1, "host.capability.request", { capability: "browser.open", params: { url: "https://example.com" } }),
+      event(1, "host.capability.request", { capability: "browser.open", params: { url: "https://example.com", displayName: "Open development preview" } }),
       event(2, "host.capability.request", { capability: "ssh" }),
     ], { ...run, status: "completed", error: null });
 
     expect(lines.map((line) => line.message)).toEqual([
-      "Opening development preview…",
+      "Open development preview ready",
       "Opening SSH session…",
     ]);
   });

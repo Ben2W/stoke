@@ -164,6 +164,17 @@ describe("managed client", () => {
       data: { type: "node.started", nodePath: "build" },
       createdAt: "2026-08-04T00:00:01.000Z",
     };
+    const capabilityResponse = {
+      ...event,
+      id: 2,
+      type: "host.capability.response",
+      data: {
+        type: "host.capability.response",
+        requestId: "cap_req_preview",
+        capability: "browser.open",
+        result: { opened: true },
+      },
+    };
     const client = createManagedClient({
       baseUrl: "https://usestoke.dev",
       token: "secret",
@@ -188,6 +199,9 @@ describe("managed client", () => {
           });
         }
         if (request.url.endsWith("/events?after=1")) return Response.json({ events: [event] });
+        if (request.url.endsWith("/capabilities/cap_req_preview/respond")) {
+          return Response.json({ event: capabilityResponse });
+        }
         if (request.url.includes("/ticket?role=")) return Response.json({ socketUrl: "wss://usestoke.dev/api/ws?ticket=viewer" });
         if (request.url.includes("/runs/")) return Response.json({ run });
         return Response.json({ runs: [run] });
@@ -205,6 +219,8 @@ describe("managed client", () => {
     expect(await client.getRun(run.id)).toEqual(run);
     expect(await client.listRunEvents(run.id, 1)).toEqual([event]);
     expect(await client.createRunSocketTicket(run.id)).toBe("wss://usestoke.dev/api/ws?ticket=viewer");
+    expect(await client.respondRunCapability(run.id, "cap_req_preview", { result: { opened: true } }))
+      .toEqual(capabilityResponse);
     expect(await client.executeProject(project.id, { operation: "plan", origin: "cli" })).toMatchObject({
       disposition: "created",
       result: { workflow: "default", nodeCount: 1 },
@@ -218,6 +234,7 @@ describe("managed client", () => {
       `GET /api/v1/runs/${run.id}`,
       `GET /api/v1/runs/${run.id}/events?after=1`,
       `POST /api/v1/runs/${run.id}/ticket?role=viewer`,
+      `POST /api/v1/runs/${run.id}/capabilities/cap_req_preview/respond`,
       `POST /api/v1/projects/${project.id}/executions`,
       `GET /api/v1/projects/${project.id}/state`,
       `PUT /api/v1/projects/${project.id}/state`,

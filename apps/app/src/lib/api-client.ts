@@ -10,6 +10,7 @@ import {
   RunEventsResponseSchema,
   RunListResponseSchema,
   RunSocketTicketResponseSchema,
+  RespondRunCapabilityResponseSchema,
   RemoteExecutionResponseSchema,
   type ManagedCheckout,
   type ManagedProject,
@@ -171,6 +172,17 @@ export async function createRunTicket(runId: string): Promise<string> {
   return RunSocketTicketResponseSchema.parse(
     await request(`/api/v1/runs/${encodeURIComponent(runId)}/ticket`, { method: "POST" }),
   ).socketUrl;
+}
+
+export async function respondRunCapability(
+  runId: string,
+  requestId: string,
+  result: Record<string, unknown>,
+): Promise<ManagedRunEvent> {
+  return RespondRunCapabilityResponseSchema.parse(await request(
+    `/api/v1/runs/${encodeURIComponent(runId)}/capabilities/${encodeURIComponent(requestId)}/respond`,
+    { method: "POST", body: JSON.stringify({ result }) },
+  )).event;
 }
 
 export type DeviceAuthorizationStatus = "pending" | "approved" | "denied";
