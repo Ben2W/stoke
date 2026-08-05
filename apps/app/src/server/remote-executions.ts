@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import type {
   ManagedProject,
   ManagedRun,
@@ -140,10 +141,12 @@ async function completeRemoteProjectExecution(
         },
       });
       result = executed.result;
-      await dependencies.updateProjectState(userId, project.id, {
-        expectedRevision: projectState.revision,
-        snapshot: executed.state.snapshot,
-      });
+      if (!isDeepStrictEqual(projectState.snapshot, executed.state.snapshot)) {
+        await dependencies.updateProjectState(userId, project.id, {
+          expectedRevision: projectState.revision,
+          snapshot: executed.state.snapshot,
+        });
+      }
     } finally {
       clearInterval(heartbeat);
     }

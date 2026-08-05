@@ -58,6 +58,7 @@ import type {
   WorkspaceRecord,
   WorkspaceRuntimeRecord,
   WorkflowWorkspaceOperationDefinition,
+  WorkspaceOperationRecord,
 } from "./types.ts";
 
 export type CreateDevMachineEngineOptions = {
@@ -475,6 +476,7 @@ export class DevMachineEngine {
     if (this.workflows.size !== loaded.length) {
       throw new Error(`Workflow names must be unique`);
     }
+    this.reconcileWorkspaceOperations();
 
     for (const item of loaded) {
       this.emit({ type: "definition.loaded", workflow: item.name });
@@ -511,6 +513,32 @@ export class DevMachineEngine {
 
   listWorkspaces(): WorkspaceRecord[] {
     return this.getStateService().listWorkspaces();
+  }
+
+  private reconcileWorkspaceOperations(): void {
+    const state = this.getStateService();
+    for (const workspace of state.listWorkspaces()) {
+      const workflow = this.workflows.get(workspace.workflow);
+      if (!workflow) continue;
+      const operations = this.workspaceOperationsFor(workflow);
+      if (stableJson(workspace.operations) === stableJson(operations)) continue;
+      state.saveWorkspace({ ...workspace, operations });
+    }
+  }
+
+  private workspaceOperationsFor(workflow: LoadedWorkflow): WorkspaceOperationRecord[] {
+    return workflow.workspaceOperations.map((operation) => {
+      const summary = this.workspaceOperationSummary(workflow, operation);
+      return {
+        id: summary.id,
+        ...(summary.title ? { title: summary.title } : {}),
+        ...(summary.description ? { description: summary.description } : {}),
+        ...(summary.inputSchema
+          ? { inputSchema: summary.inputSchema as Record<string, JsonValue> }
+          : {}),
+        requiredCapabilities: [...(summary.requiredCapabilities ?? [])],
+      };
+    });
   }
 
   listSnapshots(): SnapshotRecord[] {
@@ -1088,18 +1116,7 @@ export class DevMachineEngine {
       workflow: workflow.name,
       workflowCtx: { ...applied.context },
       ctx: {},
-      operations: workflow.workspaceOperations.map((operation) => {
-        const summary = this.workspaceOperationSummary(workflow, operation);
-        return {
-          id: summary.id,
-          ...(summary.title ? { title: summary.title } : {}),
-          ...(summary.description ? { description: summary.description } : {}),
-          ...(summary.inputSchema
-            ? { inputSchema: summary.inputSchema as Record<string, JsonValue> }
-            : {}),
-          requiredCapabilities: [...(summary.requiredCapabilities ?? [])],
-        };
-      }),
+      operations: this.workspaceOperationsFor(workflow),
       ...(this.workspaceCreatedFrom ? { createdFrom: { ...this.workspaceCreatedFrom } } : {}),
       createdAt: now,
       updatedAt: now,

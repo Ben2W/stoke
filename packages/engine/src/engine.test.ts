@@ -41,6 +41,41 @@ function createScopedTestState(projectDir: string) {
 }
 
 describe("DevMachineEngine workflow runtime", () => {
+  test("refreshes persisted workspace operations from the current workflow definition", async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), "stoke-workspace-operations-"));
+    const state = createStateStore({ projectDir });
+    state.saveWorkspace({
+      id: "workspace-1",
+      name: "demo",
+      workflow: "dev",
+      workflowCtx: {},
+      ctx: {},
+      operations: [{ id: "old", requiredCapabilities: [] }],
+      createdAt: "2026-08-05T00:00:00.000Z",
+      updatedAt: "2026-08-05T00:00:00.000Z",
+    });
+    writeStokeIndex(projectDir, `
+      import { workflow, z } from "${import.meta.dir}/index.ts";
+      export const dev = workflow("dev")
+        .sequence("dev")
+        .workspace({ create: async () => ({}), remove: async () => {} })
+        .workspaceOperation("preview", {
+          title: "Open preview",
+          input: z.object({ path: z.string().default("/") }),
+          run: async () => ({ ok: true }),
+        });
+    `);
+
+    const engine = await createDevMachineEngine({ projectDir, state });
+    await engine.load();
+
+    expect(engine.listWorkspaces()[0]?.operations).toMatchObject([{
+      id: "preview",
+      title: "Open preview",
+      inputSchema: { properties: { path: { type: "string", default: "/" } } },
+    }]);
+  });
+
   test("infers operation host capabilities from the captured provider scope", async () => {
     const projectDir = mkdtempSync(join(tmpdir(), "stoke-capability-manifest-"));
     writeStokeIndex(projectDir, `

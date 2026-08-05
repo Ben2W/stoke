@@ -27,6 +27,43 @@ const running: ManagedRun = {
 const managedState = { revision: 0, snapshot: { version: 1 as const, scopes: {} } };
 
 describe("remote managed execution", () => {
+  test("does not rewrite unchanged project state for read-only operations", async () => {
+    let stateWrites = 0;
+    const events: unknown[] = [];
+    await executeRemoteProject("user-1", project.id, {
+      operation: "run",
+      workflow: "stoke-example",
+      workspace: "demo",
+      workspaceOperation: "preview",
+      input: {},
+      origin: "dashboard",
+    }, {
+      getProject: async () => project,
+      claimRemoteRun: async () => ({ run: { ...running, operation: "run" }, disposition: "created" }),
+      getRun: async () => ({ ...running, operation: "run", status: "completed" }),
+      appendRunEvent: async (_userId, _runId, event) => {
+        events.push(event);
+        return {
+          id: events.length,
+          runId: running.id,
+          type: (event as { type: string }).type,
+          data: event as Record<string, unknown>,
+          createdAt: "2026-08-04T00:00:00.000Z",
+        };
+      },
+      heartbeatRun: async () => undefined,
+      getProjectState: async () => managedState,
+      updateProjectState: async (_userId, _projectId, input) => {
+        stateWrites += 1;
+        return { revision: input.expectedRevision + 1, snapshot: input.snapshot };
+      },
+      resolveGitHubRevision: async () => "e587a05a934ac7be12bf5233102939d4479f8625",
+      runSandbox: async () => ({ result: { ok: true }, state: structuredClone(managedState) }),
+    });
+
+    expect(stateWrites).toBe(0);
+  });
+
   test("returns a claimed run before the sandbox completes", async () => {
     let releaseSandbox!: () => void;
     const sandboxGate = new Promise<void>((resolve) => {
