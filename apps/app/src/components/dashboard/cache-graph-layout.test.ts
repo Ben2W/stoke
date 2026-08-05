@@ -25,6 +25,7 @@ describe("cache graph", () => {
       ["build", "test"],
       ["test", "deploy"],
     ]);
+    expect(graph.height).toBeGreaterThanOrEqual(452);
   });
 });
 

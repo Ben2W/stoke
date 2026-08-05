@@ -7,6 +7,7 @@ const HORIZONTAL_GAP = 36;
 const VERTICAL_GAP = 64;
 const CANVAS_PADDING = 24;
 const MINIMUM_WIDTH = 640;
+const MINIMUM_HEIGHT = 452;
 
 export type CacheGraphNode = {
   entry: ManagedCacheEntry;
@@ -82,7 +83,7 @@ export function layoutCacheGraph(entries: ManagedCacheEntry[]): CacheGraphLayout
   const contentWidth = widestLayer * CACHE_NODE_WIDTH + (widestLayer - 1) * HORIZONTAL_GAP;
   const width = Math.max(MINIMUM_WIDTH, contentWidth + CANVAS_PADDING * 2);
   const height = Math.max(
-    CACHE_NODE_HEIGHT + CANVAS_PADDING * 2,
+    MINIMUM_HEIGHT,
     orderedLayers.length * CACHE_NODE_HEIGHT
       + Math.max(0, orderedLayers.length - 1) * VERTICAL_GAP
       + CANVAS_PADDING * 2,

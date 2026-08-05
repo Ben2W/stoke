@@ -3,7 +3,6 @@ import { Check, CircleDashed, Database, RotateCcw, Waypoints } from "lucide-reac
 import { useEffect, useMemo, useState } from "react";
 import { shortFingerprint } from "../../lib/fingerprint.ts";
 import { projectCacheGraph } from "./cache-graph-model.ts";
-import { CacheRunOutput } from "./cache-run-output.tsx";
 import {
   CACHE_NODE_HEIGHT,
   CACHE_NODE_WIDTH,
@@ -119,7 +118,7 @@ export function CacheGraph({
               <article
                 aria-label={`${entry.nodePath} cache entry`}
                 className={`absolute flex flex-col rounded-lg border p-3 shadow-sm transition-all ${live ? "border-blue-400 bg-blue-50/60 ring-2 ring-blue-100" : completed ? "border-emerald-300 bg-emerald-50/40" : planned ? "border-dashed border-amber-300 bg-amber-50/50" : target ? "border-amber-400 bg-amber-50 ring-2 ring-amber-100" : affected ? "border-amber-200 bg-amber-50/70" : "border-zinc-200 bg-white"} ${dimmed ? "opacity-40" : "opacity-100"}`}
-                key={`${entry.scope}:${entry.id}`}
+                key={`${entry.workflow}:${entry.nodePath}`}
                 style={{ height: CACHE_NODE_HEIGHT, left: x, top: y, width: CACHE_NODE_WIDTH }}
               >
                 <div className="flex items-start gap-2.5">
@@ -138,7 +137,7 @@ export function CacheGraph({
                     <button
                       aria-pressed={selectedId === entry.id}
                       className={`inline-flex items-center gap-1 rounded px-1.5 py-1 text-[10px] font-medium transition ${selectedId === entry.id ? "bg-amber-600 text-white hover:bg-amber-700" : "text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900"}`}
-                      disabled={Boolean(invalidatingId) || Boolean(activeRun)}
+                      disabled={Boolean(invalidatingId) || activeRun?.status === "running"}
                       onBlur={() => setHoveredId(undefined)}
                       onClick={() => {
                         if (selectedId === entry.id) onInvalidate(entry);
@@ -164,7 +163,6 @@ export function CacheGraph({
           })}
         </div>
       </div>
-      {activeRun && activeFlow ? <CacheRunOutput flow={activeFlow} run={activeRun} /> : null}
     </div>
   );
 }
