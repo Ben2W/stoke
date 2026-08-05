@@ -1,49 +1,32 @@
-import { createServer, type IncomingMessage } from "node:http";
-import { WebSocket, WebSocketServer, type RawData } from "ws";
-import { verifyRunSocketTicket, type RunSocketClaims } from "../src/server/run-tickets.js";
+import {
+  experimental_upgradeWebSocket,
+  type WebSocket,
+  type WebSocketData,
+} from "@vercel/functions";
+import { verifyRunSocketTicket, type RunSocketClaims } from "./run-tickets.ts";
 import {
   appendRunEvent,
   getRun,
   heartbeatRun,
   listRunEvents,
-} from "../src/server/runs.js";
+} from "./runs.ts";
 
-type RunRequest = IncomingMessage & { runClaims?: RunSocketClaims };
-
-const server = createServer((_request, response) => {
-  response.writeHead(426, { "content-type": "application/json" });
-  response.end(JSON.stringify({ error: "websocket_upgrade_required" }));
-});
-const sockets = new WebSocketServer({ noServer: true });
-
-server.on("upgrade", async (request: RunRequest, socket, head) => {
+export async function upgradeManagedRunSocket(request: Request): Promise<Response> {
+  let claims: RunSocketClaims;
   try {
-    const url = new URL(request.url ?? "/", "http://localhost");
-    if (url.pathname !== "/api/ws") throw new Error("Unknown WebSocket route");
-    const ticket = url.searchParams.get("ticket");
+    const ticket = new URL(request.url).searchParams.get("ticket");
     if (!ticket) throw new Error("Missing run socket ticket");
-    const claims = verifyRunSocketTicket(ticket);
+    claims = verifyRunSocketTicket(ticket);
     await getRun(claims.userId, claims.runId);
-    request.runClaims = claims;
-    sockets.handleUpgrade(request, socket, head, (webSocket) => {
-      sockets.emit("connection", webSocket, request);
-    });
   } catch {
-    socket.write("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
-    socket.destroy();
-  }
-});
-
-sockets.on("connection", (socket, request: RunRequest) => {
-  const claims = request.runClaims;
-  if (!claims) {
-    socket.close(1008, "Missing run claims");
-    return;
+    return Response.json({ error: "unauthorized" }, { status: 401 });
   }
 
-  if (claims.role === "producer") attachProducer(socket, claims);
-  else attachViewer(socket, claims);
-});
+  return experimental_upgradeWebSocket((socket) => {
+    if (claims.role === "producer") attachProducer(socket, claims);
+    else attachViewer(socket, claims);
+  });
+}
 
 function attachProducer(socket: WebSocket, claims: RunSocketClaims): void {
   let chain = Promise.resolve();
@@ -79,7 +62,7 @@ function attachViewer(socket: WebSocket, claims: RunSocketClaims): void {
   let closed = false;
 
   const poll = async () => {
-    if (polling || closed || socket.readyState !== WebSocket.OPEN) return;
+    if (polling || closed || socket.readyState !== socket.OPEN) return;
     polling = true;
     try {
       const [run, events] = await Promise.all([
@@ -93,7 +76,7 @@ function attachViewer(socket: WebSocket, claims: RunSocketClaims): void {
       send(socket, { type: "run", run });
       if (run.status !== "running") {
         clearInterval(interval);
-        windowlessTimeout(() => socket.close(1000, "Run finished"), 250);
+        setTimeout(() => socket.close(1000, "Run finished"), 250);
       }
     } catch (error) {
       send(socket, { type: "error", message: error instanceof Error ? error.message : String(error) });
@@ -119,7 +102,7 @@ function attachViewer(socket: WebSocket, claims: RunSocketClaims): void {
   void poll();
 }
 
-function parseMessage(raw: RawData): Record<string, unknown> {
+function parseMessage(raw: WebSocketData): Record<string, unknown> {
   const value = JSON.parse(raw.toString()) as unknown;
   if (typeof value !== "object" || value === null || Array.isArray(value) || !("type" in value)) {
     throw new Error("Invalid WebSocket message");
@@ -128,13 +111,5 @@ function parseMessage(raw: RawData): Record<string, unknown> {
 }
 
 function send(socket: WebSocket, message: unknown): void {
-  if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message));
+  if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(message));
 }
-
-function windowlessTimeout(callback: () => void, delay: number): void {
-  setTimeout(callback, delay);
-}
-
-export default server;
-
-export const maxDuration = 300;

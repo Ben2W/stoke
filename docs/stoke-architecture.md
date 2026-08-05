@@ -156,10 +156,11 @@ discarded with the Sandbox; it is not a second state store. Local development
 and Vercel Sandbox therefore consume the same managed cache.
 
 The sandbox CLI publishes the same engine events produced by a local CLI to a
-short-lived, run-scoped WebSocket. The control plane authenticates and persists
-each event in Postgres before broadcasting it to dashboard viewers; terminal
-run completion remains control-plane-owned. Reconnecting viewers replay the
-persisted event log before receiving live events.
+short-lived, run-scoped WebSocket implemented with Vercel's native Function
+upgrade API. The control plane authenticates and persists each event in
+Postgres before broadcasting it to dashboard viewers; terminal run completion
+remains control-plane-owned. Reconnecting viewers replay the persisted event
+log before receiving live events.
 
 ## Build order
 
