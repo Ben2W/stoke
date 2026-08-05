@@ -7,7 +7,7 @@ import {
 } from "./capabilities.ts";
 import { readStokeAccessToken } from "./provider.ts";
 
-export type OpenInteractiveSsh = (sandbox: string) => Promise<void>;
+export type OpenInteractiveSsh = (sandbox: string, cwd?: string) => Promise<void>;
 
 export function createVercelSandboxSshHostCapability(
   options: { open?: OpenInteractiveSsh } = {},
@@ -18,7 +18,7 @@ export function createVercelSandboxSshHostCapability(
       const input = parseVercelSandboxSshInput(params);
       return {
         attached: true,
-        closed: (options.open ?? openManagedInteractiveShell)(input.sandbox),
+        closed: (options.open ?? openManagedInteractiveShell)(input.sandbox, input.cwd),
       };
     },
   });
@@ -28,7 +28,7 @@ export const vercelSandboxHostCapabilities = [
   createVercelSandboxSshHostCapability(),
 ] as const;
 
-async function openManagedInteractiveShell(sandbox: string): Promise<void> {
+async function openManagedInteractiveShell(sandbox: string, cwd?: string): Promise<void> {
   const projectId = process.env.STOKE_PROJECT_ID;
   if (!projectId) throw new Error("A managed Stoke project must be selected before opening SSH");
   const client = createManagedClient({
@@ -36,10 +36,10 @@ async function openManagedInteractiveShell(sandbox: string): Promise<void> {
     token: readStokeAccessToken,
   });
   const interactive = await client.openSandboxInteractive(sandbox, projectId);
-  await bridgeTerminal(interactive.url, interactive.token);
+  await bridgeTerminal(interactive.url, interactive.token, cwd ?? "/vercel/sandbox");
 }
 
-async function bridgeTerminal(url: string, token: string): Promise<void> {
+async function bridgeTerminal(url: string, token: string, cwd: string): Promise<void> {
   const socket = new WebSocket(`${url}?token=${encodeURIComponent(token)}`);
   await new Promise<void>((resolve, reject) => {
     socket.once("open", resolve);
@@ -64,7 +64,7 @@ async function bridgeTerminal(url: string, token: string): Promise<void> {
   socket.send(JSON.stringify({
     type: "start",
     command: "bash",
-    args: ["-l"],
+    args: ["-lc", "cd -- \"$1\" && exec bash -l", "stoke-shell", cwd],
     env: [`TERM=${process.env.TERM ?? "xterm-256color"}`],
     cols: stdout.columns ?? 80,
     rows: stdout.rows ?? 24,

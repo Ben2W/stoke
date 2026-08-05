@@ -4,7 +4,8 @@ import { CircleDashed } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { openWorkspaceTerminal } from "../../lib/api-client.ts";
 
-export function WorkspaceTerminal({ projectId, sandbox }: {
+export function WorkspaceTerminal({ cwd, projectId, sandbox }: {
+  cwd: string;
   projectId: string;
   sandbox: string;
 }) {
@@ -53,7 +54,7 @@ export function WorkspaceTerminal({ projectId, sandbox }: {
           socket?.send(JSON.stringify({
             type: "start",
             command: "bash",
-            args: ["-l"],
+            args: ["-lc", "cd -- \"$1\" && exec bash -l", "stoke-shell", cwd],
             env: ["TERM=xterm-256color"],
             cols: terminal?.cols ?? 80,
             rows: terminal?.rows ?? 28,
@@ -94,7 +95,7 @@ export function WorkspaceTerminal({ projectId, sandbox }: {
       terminal?.dispose();
       terminalRef.current = null;
     };
-  }, [projectId, sandbox]);
+  }, [cwd, projectId, sandbox]);
 
   return (
     <div className="relative min-h-0 flex-1 bg-zinc-950" onMouseDown={() => terminalRef.current?.focus()}>

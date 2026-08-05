@@ -9,6 +9,7 @@ export default async function TerminalPage({ searchParams }: {
       projectId={singleValue(query.project)}
       sandbox={singleValue(query.sandbox)}
       title={singleValue(query.title) ?? "SSH"}
+      cwd={singleValue(query.cwd) ?? "/vercel/sandbox"}
     />
   );
 }

@@ -170,11 +170,12 @@ function browserUrl(params: unknown): string | undefined {
   }
 }
 
-function sandboxTerminalRequest(params: unknown, fallbackTitle: string): { sandbox: string; title: string } | undefined {
+function sandboxTerminalRequest(params: unknown, fallbackTitle: string): { sandbox: string; title: string; cwd: string } | undefined {
   if (!isRecord(params) || params.provider !== "vercel-sandbox" || typeof params.sandbox !== "string") return undefined;
   return {
     sandbox: params.sandbox,
     title: typeof params.title === "string" && params.title.trim() ? params.title : fallbackTitle,
+    cwd: typeof params.cwd === "string" && params.cwd.trim() ? params.cwd : "/vercel/sandbox",
   };
 }
 
@@ -184,11 +185,12 @@ function terminalLoadingUrl(title: string): string {
   return url.toString();
 }
 
-function terminalUrl(projectId: string, input: { sandbox: string; title: string }): string {
+function terminalUrl(projectId: string, input: { sandbox: string; title: string; cwd: string }): string {
   const url = new URL("/terminal", window.location.origin);
   url.searchParams.set("project", projectId);
   url.searchParams.set("sandbox", input.sandbox);
   url.searchParams.set("title", input.title);
+  url.searchParams.set("cwd", input.cwd);
   return url.toString();
 }
 

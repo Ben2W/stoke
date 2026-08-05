@@ -2,7 +2,8 @@ import { CircleDashed, Terminal } from "lucide-react";
 import { StokeLogo } from "../brand/stoke-logo.tsx";
 import { WorkspaceTerminal } from "./workspace-terminal.tsx";
 
-export function WorkspaceTerminalPage({ projectId, sandbox, title }: {
+export function WorkspaceTerminalPage({ cwd, projectId, sandbox, title }: {
+  cwd: string;
   projectId?: string;
   sandbox?: string;
   title: string;
@@ -20,7 +21,7 @@ export function WorkspaceTerminalPage({ projectId, sandbox, title }: {
         <div className="flex items-center gap-1.5 text-[10px] text-zinc-500"><Terminal size={11} /> usestoke.dev</div>
       </header>
       {projectId && sandbox ? (
-        <WorkspaceTerminal projectId={projectId} sandbox={sandbox} />
+        <WorkspaceTerminal cwd={cwd} projectId={projectId} sandbox={sandbox} />
       ) : (
         <div className="grid flex-1 place-items-center text-zinc-400">
           <div className="text-center"><CircleDashed className="mx-auto animate-spin text-violet-400" size={22} /><p className="mt-3 text-xs">Preparing SSH…</p></div>
