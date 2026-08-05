@@ -32,6 +32,12 @@ export type RemoteExecutionDependencies = {
   runSandbox: (input: RunRemoteSandboxInput) => Promise<RemoteSandboxResult>;
 };
 
+export type StartedRemoteExecution = {
+  run: ManagedRun;
+  disposition: "created" | "joined";
+  completion?: Promise<RemoteExecutionResponse>;
+};
+
 const defaultDependencies: RemoteExecutionDependencies = {
   getProject,
   claimRemoteRun,
@@ -50,6 +56,24 @@ export async function executeRemoteProject(
   request: RemoteExecutionRequest,
   overrides: Partial<RemoteExecutionDependencies> = {},
 ): Promise<RemoteExecutionResponse> {
+  const started = await startRemoteProjectExecution(userId, projectId, request, overrides);
+  if (started.disposition === "joined") {
+    const dependencies = { ...defaultDependencies, ...overrides };
+    return {
+      run: await waitForRun(userId, started.run, dependencies.getRun),
+      disposition: "joined",
+    };
+  }
+  if (!started.completion) throw new Error("Remote execution did not start");
+  return await started.completion;
+}
+
+export async function startRemoteProjectExecution(
+  userId: string,
+  projectId: string,
+  request: RemoteExecutionRequest,
+  overrides: Partial<RemoteExecutionDependencies> = {},
+): Promise<StartedRemoteExecution> {
   const dependencies = { ...defaultDependencies, ...overrides };
   const project = await dependencies.getProject(userId, projectId);
   if (!project) throw new Error("Managed project was not found");
@@ -67,16 +91,35 @@ export async function executeRemoteProject(
   });
 
   if (claimed.disposition === "joined") {
-    return {
-      run: await waitForRun(userId, claimed.run, dependencies.getRun),
-      disposition: "joined",
-    };
+    return { run: claimed.run, disposition: "joined" };
   }
 
+  return {
+    run: claimed.run,
+    disposition: "created",
+    completion: completeRemoteProjectExecution(
+      userId,
+      project,
+      request,
+      revision,
+      claimed.run,
+      dependencies,
+    ),
+  };
+}
+
+async function completeRemoteProjectExecution(
+  userId: string,
+  project: ManagedProject,
+  request: RemoteExecutionRequest,
+  revision: string,
+  run: ManagedRun,
+  dependencies: RemoteExecutionDependencies,
+): Promise<RemoteExecutionResponse> {
   try {
     const projectState = await dependencies.getProjectState(userId, project.id);
     const heartbeat = setInterval(() => {
-      void dependencies.heartbeatRun(userId, claimed.run.id).catch(() => undefined);
+      void dependencies.heartbeatRun(userId, run.id).catch(() => undefined);
     }, HEARTBEAT_INTERVAL_MS);
     let result: unknown;
     try {
@@ -85,13 +128,13 @@ export async function executeRemoteProject(
         request,
         state: projectState,
         producerSocketUrl: createRunSocketUrl(controlPlaneUrl(), {
-          runId: claimed.run.id,
+          runId: run.id,
           userId,
           role: "producer",
         }),
         revision,
         onStage: async (stage) => {
-          await dependencies.appendRunEvent(userId, claimed.run.id, stage);
+          await dependencies.appendRunEvent(userId, run.id, stage);
         },
       });
       result = executed.result;
@@ -102,23 +145,23 @@ export async function executeRemoteProject(
     } finally {
       clearInterval(heartbeat);
     }
-    const observed = await dependencies.getRun(userId, claimed.run.id);
+    const observed = await dependencies.getRun(userId, run.id);
     if (observed.nodeCount === undefined) {
-      await appendResultEvents(userId, claimed.run.id, request, result, dependencies.appendRunEvent);
+      await appendResultEvents(userId, run.id, request, result, dependencies.appendRunEvent);
     }
-    await dependencies.appendRunEvent(userId, claimed.run.id, { type: "run.completed" });
+    await dependencies.appendRunEvent(userId, run.id, { type: "run.completed" });
     return {
-      run: await dependencies.getRun(userId, claimed.run.id),
+      run: await dependencies.getRun(userId, run.id),
       disposition: "created",
       result,
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    await dependencies.appendRunEvent(userId, claimed.run.id, {
+    await dependencies.appendRunEvent(userId, run.id, {
       type: "run.failed",
       error: { message },
     });
-    throw new RemoteExecutionError(message, await dependencies.getRun(userId, claimed.run.id));
+    throw new RemoteExecutionError(message, await dependencies.getRun(userId, run.id));
   }
 }
 

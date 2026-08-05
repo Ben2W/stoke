@@ -1,6 +1,7 @@
 import type { ManagedRun, ManagedRunEvent } from "@stoke/managed";
 import { Check, Circle, CircleDashed, Cloud, Terminal, X } from "lucide-react";
 import { useEffect, useRef } from "react";
+import { shortFingerprint } from "../../lib/fingerprint.ts";
 import { runOriginLabel } from "./run-origin.ts";
 
 export function RunEventList({ events, run }: { events: ManagedRunEvent[]; run: ManagedRun }) {
@@ -18,7 +19,9 @@ export function RunEventList({ events, run }: { events: ManagedRunEvent[]; run: 
         <div className="flex items-center justify-between">
           <div className="min-w-0">
             <p className="truncate text-xs font-medium capitalize text-zinc-900">{run.operation} · {run.workflow}</p>
-            <p className="mt-0.5 truncate text-[11px] text-zinc-500">{runOriginLabel(run)} · {run.id.slice(0, 8)}</p>
+            <p className="mt-0.5 truncate text-[11px] text-zinc-500">
+              {runOriginLabel(run)} · <code className="font-mono" title={run.fingerprint}>{shortFingerprint(run.fingerprint)}</code> · {run.id.slice(0, 8)}
+            </p>
           </div>
           <StatusBadge status={run.status} />
         </div>
@@ -27,7 +30,7 @@ export function RunEventList({ events, run }: { events: ManagedRunEvent[]; run: 
 
       {events.length ? (
         <ol className="max-h-[28rem] flex-1 overflow-y-auto px-5 py-4" ref={timelineRef}>
-          {events.map((event) => <RunEvent event={event} key={event.id} />)}
+          {events.map((event) => <RunEvent event={event} key={event.id} operation={run.operation} />)}
         </ol>
       ) : (
         <div className="grid flex-1 place-items-center px-6 py-14 text-center">
@@ -41,7 +44,7 @@ export function RunEventList({ events, run }: { events: ManagedRunEvent[]; run: 
   );
 }
 
-function RunEvent({ event }: { event: ManagedRunEvent }) {
+function RunEvent({ event, operation }: { event: ManagedRunEvent; operation: ManagedRun["operation"] }) {
   const commandOutput = (event.type === "command.output" || event.type === "log.output") && typeof event.data.data === "string"
     ? event.data.data.trimEnd()
     : undefined;
@@ -52,7 +55,7 @@ function RunEvent({ event }: { event: ManagedRunEvent }) {
       <EventIcon event={event} />
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline justify-between gap-3">
-          <p className="truncate text-xs text-zinc-700">{eventLabel(event)}</p>
+          <p className="truncate text-xs text-zinc-700">{eventLabel(event, operation)}</p>
           <time className="shrink-0 text-[10px] tabular-nums text-zinc-400">{formatEventTime(event.createdAt)}</time>
         </div>
         {commandOutput ? <pre className="mt-1.5 overflow-x-auto rounded bg-zinc-950 px-3 py-2 text-[10px] leading-4 text-zinc-300">{commandOutput}</pre> : null}
@@ -86,7 +89,7 @@ function StatusBadge({ status }: { status: ManagedRun["status"] }) {
   );
 }
 
-function eventLabel(event: ManagedRunEvent): string {
+function eventLabel(event: ManagedRunEvent, operation: ManagedRun["operation"]): string {
   const node = typeof event.data.nodePath === "string" ? event.data.nodePath : undefined;
   const command = typeof event.data.commandName === "string" ? event.data.commandName : undefined;
   const remoteCommand = typeof event.data.command === "string" ? event.data.command : undefined;
@@ -105,8 +108,8 @@ function eventLabel(event: ManagedRunEvent): string {
     case "remote.sandbox.created": return `Vercel Sandbox ${String(event.data.sandboxName ?? "created")}`;
     case "remote.command.started": return `Starting ${formatRemoteCommand(remoteCommand)}`;
     case "remote.command.completed": return `${formatRemoteCommand(remoteCommand)} completed`;
-    case "run.completed": return "Apply completed";
-    case "run.failed": return typeof event.data.error === "object" ? "Apply failed" : "Apply failed";
+    case "run.completed": return operation === "apply" ? "Apply completed" : "Plan completed";
+    case "run.failed": return operation === "apply" ? "Apply failed" : "Plan failed";
     default: return event.type.replaceAll(".", " ");
   }
 }

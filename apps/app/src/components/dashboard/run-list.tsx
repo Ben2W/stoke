@@ -1,5 +1,6 @@
 import type { ManagedProject, ManagedRun } from "@stoke/managed";
 import { CheckCircle2, CircleDashed, XCircle } from "lucide-react";
+import { shortFingerprint } from "../../lib/fingerprint.ts";
 import { runOriginLabel } from "./run-origin.ts";
 
 type RunListProps = {
@@ -31,6 +32,8 @@ export function RunList({ projects, runs, selectedRunId, onSelect }: RunListProp
               <span className="truncate">{run.workflow}</span>
               <span aria-hidden="true">·</span>
               <span className="truncate">{runOriginLabel(run)}</span>
+              <span aria-hidden="true">·</span>
+              <code className="truncate font-mono" title={run.fingerprint}>{shortFingerprint(run.fingerprint)}</code>
             </span>
           </span>
         </button>

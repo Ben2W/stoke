@@ -1,6 +1,7 @@
 import type { ManagedCacheEntry } from "@stoke/managed";
 import { Database, RotateCcw, Waypoints } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { shortFingerprint } from "../../lib/fingerprint.ts";
 import {
   CACHE_NODE_HEIGHT,
   CACHE_NODE_WIDTH,
@@ -47,7 +48,7 @@ export function CacheGraph({
           </div>
           <div>
             <p className="text-xs font-medium text-zinc-800">Dependency graph</p>
-            <p className="mt-0.5 text-[11px] text-zinc-500">Select an invalidation to preview its downstream impact.</p>
+            <p className="mt-0.5 text-[11px] text-zinc-500">Each node shows its cache fingerprint. Select an invalidation to preview its downstream impact.</p>
           </div>
         </div>
         <div className="flex items-center gap-3 text-[10px] text-zinc-400">
@@ -99,7 +100,9 @@ export function CacheGraph({
                   <Database className={entry.invalidated ? "text-zinc-300" : affected ? "text-amber-600" : "text-zinc-400"} size={14} />
                   <div className="min-w-0 flex-1">
                     <h3 className="truncate text-xs font-medium text-zinc-800">{entry.nodePath}</h3>
-                    <p className="mt-0.5 truncate text-[10px] text-zinc-400">{entry.workflow} · {entry.scope}</p>
+                    <p className="mt-0.5 truncate text-[10px] text-zinc-400">
+                      <code className="font-mono text-zinc-500" title={entry.fingerprint}>{shortFingerprint(entry.fingerprint)}</code> · {entry.workflow} · {entry.scope}
+                    </p>
                   </div>
                 </div>
                 <div className="mt-auto flex items-center justify-between gap-2">

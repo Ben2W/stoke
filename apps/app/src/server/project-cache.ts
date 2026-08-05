@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type {
   InvalidateProjectCacheRequest,
   ManagedCacheEntry,
@@ -122,6 +123,7 @@ function parseCacheEntry(value: unknown): {
   nodePath: string;
   nodeName: string;
   nodeKind: string;
+  fingerprint: string;
   upstreamRunIds: string[];
   invalidated: boolean;
   createdAt: string;
@@ -129,6 +131,7 @@ function parseCacheEntry(value: unknown): {
   const run = parseNodeRun(value);
   if (!run || typeof run.workflow !== "string" || typeof run.nodePath !== "string"
     || typeof run.nodeName !== "string" || typeof run.nodeKind !== "string"
+    || typeof run.nodeKey !== "string" || typeof run.providerFingerprint !== "string"
     || typeof run.createdAt !== "string" || Number.isNaN(Date.parse(run.createdAt))) return undefined;
   return {
     id: run.id,
@@ -136,6 +139,11 @@ function parseCacheEntry(value: unknown): {
     nodePath: run.nodePath,
     nodeName: run.nodeName,
     nodeKind: run.nodeKind,
+    fingerprint: `cache:${createHash("sha256").update(JSON.stringify({
+      nodeKey: run.nodeKey,
+      providerFingerprint: run.providerFingerprint,
+      upstreamRunIds: run.upstreamRunIds,
+    })).digest("hex")}`,
     upstreamRunIds: run.upstreamRunIds,
     invalidated: run.invalidated,
     createdAt: run.createdAt,

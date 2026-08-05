@@ -36,6 +36,7 @@ function cacheEntry(id: string, upstreamRunIds: string[] = []): ManagedCacheEntr
     nodePath: id,
     nodeName: id[0]!.toUpperCase() + id.slice(1),
     nodeKind: "task",
+    fingerprint: `cache:${id.padEnd(64, "0")}`,
     upstreamRunIds,
     invalidated: false,
     createdAt: "2026-08-05T00:00:00.000Z",

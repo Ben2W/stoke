@@ -22,6 +22,7 @@ import {
   RunResponseSchema,
   RunSocketTicketResponseSchema,
 } from "@stoke/managed";
+import { waitUntil } from "@vercel/functions";
 import { Hono } from "hono";
 import { authenticateRequest } from "./auth.ts";
 import { listCheckouts, registerCheckout, registerDevice } from "./devices.ts";
@@ -30,7 +31,11 @@ import { createProject, deleteProject, listProjects, verifyProjectSource } from 
 import { clearProjectCache, invalidateProjectCache, listProjectCache } from "./project-cache.ts";
 import { getProjectState, ProjectStateConflictError, updateProjectState } from "./project-state.ts";
 import { listProjectWorkspaces } from "./project-workspaces.ts";
-import { executeRemoteProject, RemoteExecutionError } from "./remote-executions.ts";
+import {
+  executeRemoteProject,
+  RemoteExecutionError,
+  startRemoteProjectExecution,
+} from "./remote-executions.ts";
 import { createRunSocketUrl } from "./run-tickets.ts";
 import { claimRun, getRun, listRunEvents, listRuns } from "./runs.ts";
 
@@ -50,6 +55,7 @@ type ApiDependencies = {
   listRunEvents: typeof listRunEvents;
   listRuns: typeof listRuns;
   executeRemoteProject: typeof executeRemoteProject;
+  startRemoteProjectExecution: typeof startRemoteProjectExecution;
   getProjectState: typeof getProjectState;
   updateProjectState: typeof updateProjectState;
   listProjectWorkspaces: typeof listProjectWorkspaces;
@@ -72,6 +78,7 @@ const defaultDependencies: ApiDependencies = {
   listRunEvents,
   listRuns,
   executeRemoteProject,
+  startRemoteProjectExecution,
   getProjectState,
   updateProjectState,
   listProjectWorkspaces,
@@ -147,11 +154,21 @@ export function createApi(overrides: Partial<ApiDependencies> = {}) {
     if (!parsed.success) {
       return context.json({ error: "invalid_request", issues: parsed.error.issues }, 400);
     }
-    const executed = await dependencies.executeRemoteProject(
-      context.get("user").id,
-      context.req.param("projectId"),
-      parsed.data,
-    );
+    const userId = context.get("user").id;
+    const projectId = context.req.param("projectId");
+    if (parsed.data.origin === "dashboard") {
+      const started = await dependencies.startRemoteProjectExecution(userId, projectId, parsed.data);
+      if (started.completion) {
+        waitUntil(started.completion.catch((error) => {
+          console.error("Background remote execution failed", error);
+        }));
+      }
+      return context.json(RemoteExecutionResponseSchema.parse({
+        run: started.run,
+        disposition: started.disposition,
+      }), 202);
+    }
+    const executed = await dependencies.executeRemoteProject(userId, projectId, parsed.data);
     return context.json(RemoteExecutionResponseSchema.parse(executed));
   });
 

@@ -1,5 +1,6 @@
 import type { ManagedCheckout, ManagedProject, ManagedRun } from "@stoke/managed";
 import { ArrowUpRight, Check, GitBranch, Laptop, MapPin } from "lucide-react";
+import { shortFingerprint } from "../../lib/fingerprint.ts";
 
 type ProjectCardProps = {
   project: ManagedProject;
@@ -58,8 +59,11 @@ export function ProjectCard({ project, checkouts, run, now, onSelect }: ProjectC
         <code className="truncate text-[11px] text-zinc-500">stoke use {project.slug}</code>
         {run?.status === "running" ? (
           <span className="inline-flex shrink-0 items-center gap-1.5 text-[10px] font-medium text-emerald-700">
-            <span className="size-1.5 animate-pulse rounded-full bg-emerald-500" /> Applying now
+            <span className="size-1.5 animate-pulse rounded-full bg-emerald-500" />
+            {run.operation === "apply" ? "Applying" : "Planning"} <code className="font-mono" title={run.fingerprint}>{shortFingerprint(run.fingerprint)}</code>
           </span>
+        ) : run ? (
+          <code className="shrink-0 font-mono text-[10px] text-zinc-400" title={run.fingerprint}>{shortFingerprint(run.fingerprint)}</code>
         ) : (
           <span className="shrink-0 text-[10px] text-zinc-400">Updated {relativeTime(project.updatedAt, now)}</span>
         )}

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { ManagedProject, ManagedRun } from "@stoke/managed";
-import { executeRemoteProject } from "./remote-executions.ts";
+import { executeRemoteProject, startRemoteProjectExecution } from "./remote-executions.ts";
 
 const project: ManagedProject = {
   id: "f95df42b-48da-4a02-926b-60def0ee77cf",
@@ -27,6 +27,60 @@ const running: ManagedRun = {
 const managedState = { revision: 0, snapshot: { version: 1 as const, scopes: {} } };
 
 describe("remote managed execution", () => {
+  test("returns a claimed run before the sandbox completes", async () => {
+    let releaseSandbox!: () => void;
+    const sandboxGate = new Promise<void>((resolve) => {
+      releaseSandbox = resolve;
+    });
+    const events: unknown[] = [];
+    const started = await startRemoteProjectExecution(
+      "user-1",
+      project.id,
+      { operation: "plan", origin: "dashboard" },
+      {
+        getProject: async () => project,
+        claimRemoteRun: async () => ({ run: running, disposition: "created" }),
+        getRun: async () => ({
+          ...running,
+          status: events.some((event) => (event as { type?: string }).type === "run.completed")
+            ? "completed"
+            : "running",
+        }),
+        appendRunEvent: async (_userId, _runId, event) => {
+          events.push(event);
+          return {
+            id: events.length,
+            runId: running.id,
+            type: (event as { type: string }).type,
+            data: event as Record<string, unknown>,
+            createdAt: "2026-08-04T00:00:00.000Z",
+          };
+        },
+        heartbeatRun: async () => undefined,
+        getProjectState: async () => managedState,
+        updateProjectState: async (_userId, _projectId, input) => ({
+          revision: input.expectedRevision + 1,
+          snapshot: input.snapshot,
+        }),
+        resolveGitHubRevision: async () => "e587a05a934ac7be12bf5233102939d4479f8625",
+        runSandbox: async () => {
+          await sandboxGate;
+          return {
+            result: { workflow: "default", nodeCount: 1, cachedNodeCount: 0, nodes: [] },
+            state: managedState,
+          };
+        },
+      },
+    );
+
+    expect(started).toMatchObject({ run: running, disposition: "created" });
+    expect(started.completion).toBeInstanceOf(Promise);
+    expect(events).toEqual([]);
+    releaseSandbox();
+    await started.completion;
+    expect(events.at(-1)).toEqual({ type: "run.completed" });
+  });
+
   test("claims a cloud run and publishes sandbox lifecycle events", async () => {
     const events: unknown[] = [];
     const plan = {

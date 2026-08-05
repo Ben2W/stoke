@@ -213,17 +213,15 @@ describe("Hono control-plane API", () => {
     });
   });
 
-  test("starts remote project execution through the managed API", async () => {
-    const plan = { workflow: "default", nodeCount: 2, cachedNodeCount: 1, nodes: [] };
+  test("returns dashboard runs before their remote execution completes", async () => {
     const api = createApi({
       authenticate: async () => user,
-      executeRemoteProject: async (userId, projectId, input) => {
+      startRemoteProjectExecution: async (userId, projectId, input) => {
         expect([userId, projectId]).toEqual([user.id, project.id]);
         expect(input).toEqual({ operation: "plan", workflow: "default", origin: "dashboard" });
         return {
-          run: { ...run, operation: "plan", status: "completed" },
+          run: { ...run, operation: "plan", origin: "dashboard" },
           disposition: "created",
-          result: plan,
         };
       },
     });
@@ -233,8 +231,31 @@ describe("Hono control-plane API", () => {
       body: JSON.stringify({ operation: "plan", workflow: "default", origin: "dashboard" }),
     });
 
+    expect(response.status).toBe(202);
+    expect(await response.json()).toMatchObject({
+      disposition: "created",
+      run: { operation: "plan", status: "running" },
+    });
+  });
+
+  test("keeps CLI remote execution responses synchronous", async () => {
+    const result = { workflow: "default", nodeCount: 2, cachedNodeCount: 1, nodes: [] };
+    const api = createApi({
+      authenticate: async () => user,
+      executeRemoteProject: async (_userId, _projectId, input) => ({
+        run: { ...run, operation: input.operation, origin: "cli", status: "completed" },
+        disposition: "created",
+        result,
+      }),
+    });
+    const response = await api.request(`http://localhost/api/v1/projects/${project.id}/executions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ operation: "plan", workflow: "default", origin: "cli" }),
+    });
+
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ disposition: "created", result: plan });
+    expect(await response.json()).toMatchObject({ result });
   });
 
   test("reads and updates revisioned managed project state", async () => {
@@ -272,6 +293,7 @@ describe("Hono control-plane API", () => {
         nodePath: "build",
         nodeName: "Build",
         nodeKind: "task",
+        fingerprint: "cache:7d860e",
         upstreamRunIds: [],
         invalidated: false,
         createdAt: "2026-08-04T00:00:00.000Z",

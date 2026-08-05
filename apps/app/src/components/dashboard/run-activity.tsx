@@ -1,26 +1,17 @@
 "use client";
 
-import type { ManagedProject, ManagedRun, ManagedRunEvent } from "@stoke/managed";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import type { ManagedProject } from "@stoke/managed";
 import { Activity } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
-import { createRunTicket } from "../../lib/api-client.ts";
-import { queryKeys, runEventsQuery, runsQuery } from "../../lib/queries.ts";
+import { useEffect, useState } from "react";
 import { RunEventListSkeleton } from "./run-event-list-skeleton.tsx";
 import { RunEventList } from "./run-event-list.tsx";
 import { RunList } from "./run-list.tsx";
+import { useRunObserver } from "./use-run-observer.ts";
 
 export function RunActivity({ project }: { project: ManagedProject }) {
-  const queryClient = useQueryClient();
-  const runsResult = useQuery(runsQuery);
-  const runs = (runsResult.data ?? []).filter((run) => run.projectId === project.id);
   const [selectedRunId, setSelectedRunId] = useState<string>();
-  const selectedRun = useMemo(
-    () => runs.find((run) => run.id === selectedRunId),
-    [runs, selectedRunId],
-  );
-  const eventsResult = useQuery(runEventsQuery(selectedRunId));
-  const { mutateAsync: createTicketForRun } = useMutation({ mutationFn: createRunTicket });
+  const { eventsResult, run: selectedRun, runsResult } = useRunObserver(selectedRunId);
+  const runs = (runsResult.data ?? []).filter((run) => run.projectId === project.id);
 
   useEffect(() => {
     const activeRun = runs.find((run) => run.status === "running");
@@ -31,60 +22,6 @@ export function RunActivity({ project }: { project: ManagedProject }) {
     if (selectedRunId && runs.some((run) => run.id === selectedRunId)) return;
     setSelectedRunId(activeRun?.id ?? runs[0]?.id);
   }, [runs, selectedRun?.status, selectedRunId]);
-
-  useEffect(() => {
-    if (!selectedRunId || selectedRun?.status !== "running") return;
-    let disposed = false;
-    let terminal = false;
-    let reconnect: ReturnType<typeof setTimeout> | undefined;
-    let socket: WebSocket | undefined;
-
-    const mergeEvents = (next: ManagedRunEvent[]) => {
-      if (disposed) return;
-      queryClient.setQueryData<ManagedRunEvent[]>(queryKeys.runEvents(selectedRunId), (current = []) => {
-        const merged = new Map(current.map((event) => [event.id, event]));
-        for (const event of next) merged.set(event.id, event);
-        return [...merged.values()].sort((left, right) => left.id - right.id);
-      });
-    };
-
-    const updateRun = (run: ManagedRun) => {
-      if (disposed) return;
-      terminal = run.status !== "running";
-      queryClient.setQueryData<ManagedRun[]>(queryKeys.runs, (current = []) =>
-        current.map((candidate) => candidate.id === run.id ? run : candidate));
-    };
-
-    const connect = async () => {
-      if (disposed || terminal) return;
-      try {
-        const socketUrl = await createTicketForRun(selectedRunId);
-        if (disposed) return;
-        socket = new WebSocket(socketUrl);
-        socket.addEventListener("message", (message) => {
-          const data = JSON.parse(String(message.data)) as {
-            type?: string;
-            events?: ManagedRunEvent[];
-            run?: ManagedRun;
-          };
-          if (data.type === "events" && data.events) mergeEvents(data.events);
-          if (data.type === "run" && data.run) updateRun(data.run);
-        });
-        socket.addEventListener("close", () => {
-          if (!disposed && !terminal) reconnect = setTimeout(connect, 1_500);
-        });
-      } catch {
-        if (!disposed && !terminal) reconnect = setTimeout(connect, 2_500);
-      }
-    };
-
-    void connect();
-    return () => {
-      disposed = true;
-      if (reconnect) clearTimeout(reconnect);
-      socket?.close();
-    };
-  }, [createTicketForRun, queryClient, selectedRun?.status, selectedRunId]);
 
   return (
     <section className="mt-8" aria-labelledby="activity-heading">
