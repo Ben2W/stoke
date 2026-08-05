@@ -88,6 +88,16 @@ Stoke records the project once in the managed service and links each local copy
 as a checkout on a stable device identity. Use `--project <id|slug|name|path>`
 for a one-command override without changing the saved selection.
 
+For a local single-workflow project, `stoke add` uses the workflow name from
+`rigkit/index.ts` as the managed project name. `--name <name>` always overrides
+that default. If the source or name already exists, interactive use asks whether
+to attach the checkout or create a separate project with a different name;
+automation uses `--project <project>` or `--new --name <name>` explicitly.
+
+`stoke ls` does not require a checkout on the current device. It shows the
+selected project and its last managed workflow activity; richer local workflow,
+cache, and workspace details appear when a checkout is available.
+
 Remove a project from the managed control plane with:
 
 ```sh

@@ -38,6 +38,7 @@ export const CreateProjectRequestSchema = z.object({
     .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)
     .optional(),
   source: ProjectSourceSchema,
+  forceNew: z.boolean().optional(),
 });
 
 export const ProjectResponseSchema = z.object({ project: ManagedProjectSchema });

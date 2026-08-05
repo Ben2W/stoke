@@ -16,7 +16,13 @@ import {
   type WorkflowPlan,
   type WorkspaceRecord,
 } from "@rigkit/engine";
-import type { ManagedCheckout, ManagedProject, ProjectSource } from "@stoke/managed";
+import type {
+  ManagedCheckout,
+  ManagedClient,
+  ManagedProject,
+  ManagedRun,
+  ProjectSource,
+} from "@stoke/managed";
 import {
   cmuxHostCapabilities,
   type CmuxHostCapabilityHandler,
@@ -60,6 +66,7 @@ import {
   revokeStokeSession,
   resolveProjectSource,
   setCurrentProject,
+  type StokeDeviceIdentity,
   writeStokeCredential,
 } from "./managed.ts";
 
@@ -1152,43 +1159,62 @@ async function runManagedAdd(
     ? checkouts.find((checkout) => checkout.path === resolved.checkout?.path)
     : undefined;
   const sourceProject = projects.find((project) => sameProjectSource(project, resolved.source));
+  let name = options.name?.trim() || await resolveManagedProjectName(invocation, resolved);
+  let forceNew = options.newProject;
   let project = options.project
     ? resolveManagedProjectSelector(options.project, projects, checkouts, {
         cwd: resolve(process.cwd(), invocation.global.chdir ?? "."),
         deviceId: device.id,
       })
-    : existingCheckout
+    : existingCheckout && !options.newProject
       ? projects.find((candidate) => candidate.id === existingCheckout.projectId)
-      : sourceProject;
+      : !resolved.checkout && !options.newProject
+        ? sourceProject
+        : undefined;
   let created = false;
 
   if (!project) {
-    const name = options.name?.trim() || resolved.name;
     const nameMatches = projects.filter((candidate) => candidate.name.toLowerCase() === name.toLowerCase());
-    if (nameMatches.length > 0 && !options.newProject) {
+    const conflict = sourceProject ?? nameMatches[0];
+    if (conflict && !options.newProject) {
       if (!resolved.checkout || wantsJson(invocation) || !canPrompt()) {
         throw new Error([
-          `A managed project named ${JSON.stringify(name)} already exists.`,
+          `Managed project ${conflict.slug} already matches this ${sourceProject ? "source" : "name"}.`,
           resolved.checkout
-            ? `Run \`stoke add ${JSON.stringify(input)} --project ${nameMatches[0]!.slug}\` to link this checkout, or add \`--new\` to create a separate project.`
-            : `Choose another --name or add --new to create a separate project.`,
+            ? `Run \`stoke add ${JSON.stringify(input)} --project ${conflict.slug}\` to attach this checkout, or use \`--new --name <name>\` to create a separate project.`
+            : `Choose another --name or use \`--new --name <name>\` to create a separate project.`,
         ].join(" "));
       }
       const answer = await inquirer.prompt<{ action: "link" | "new" | "cancel" }>([{
         type: "select",
         name: "action",
-        message: `A project named ${name} already exists. What would you like to do?`,
+        message: `${conflict.name} already exists in Stoke. What would you like to do?`,
         choices: [
-          { name: `Link this checkout to ${nameMatches[0]!.slug}`, value: "link" },
-          { name: "Create a separate managed project", value: "new" },
+          { name: `Attach this checkout to ${conflict.slug}`, value: "link" },
+          { name: "Create a new project with a different name", value: "new" },
           { name: "Cancel", value: "cancel" },
         ],
       }]);
       if (answer.action === "cancel") return;
-      if (answer.action === "link") project = nameMatches[0];
+      if (answer.action === "link") project = conflict;
+      if (answer.action === "new") {
+        forceNew = true;
+        name = await promptForNewManagedProjectName(name, projects);
+      }
+    } else if (conflict && options.newProject && !options.name?.trim()) {
+      throw new Error(
+        `Creating a separate project for ${conflict.slug} requires a different name. Pass \`--name <name>\`.`,
+      );
+    }
+    if (forceNew && projects.some((candidate) => candidate.name.toLowerCase() === name.toLowerCase())) {
+      throw new Error(`A managed project named ${JSON.stringify(name)} already exists. Choose a different --name.`);
     }
     if (!project) {
-      project = await client.createProject({ name, source: resolved.source });
+      project = await client.createProject({
+        name,
+        source: resolved.source,
+        ...(forceNew ? { forceNew: true } : {}),
+      });
       created = true;
     }
   }
@@ -1200,7 +1226,9 @@ async function runManagedAdd(
         deviceId: device.id,
         path: resolved.checkout.path,
         gitRemote: resolved.checkout.gitRemote,
-        relink: Boolean(options.project) || Boolean(existingCheckout && existingCheckout.projectId !== project.id),
+        relink: Boolean(options.project)
+          || forceNew
+          || Boolean(existingCheckout && existingCheckout.projectId !== project.id),
       })
     : undefined;
   setCurrentProject(project.id);
@@ -1216,6 +1244,57 @@ async function runManagedAdd(
     ["source", formatManagedProjectSource(project)],
     ...(checkout ? [["checkout", `${checkout.deviceName} · ${checkout.path}`] as [string, string]] : []),
   ]));
+}
+
+async function resolveManagedProjectName(
+  invocation: CliInvocation,
+  resolved: ReturnType<typeof resolveProjectSource>,
+): Promise<string> {
+  if (!resolved.checkout) return resolved.name;
+  const configPath = join(resolved.checkout.path, DEFAULT_CONFIG_PATH);
+  if (!existsSync(configPath)) return resolved.name;
+
+  const runtime = await getOrStartRuntime({
+    projectDir: resolved.checkout.path,
+    configPath,
+    statePath: invocation.global.state
+      ? resolve(resolved.checkout.path, invocation.global.state)
+      : undefined,
+  });
+  const project = await readRuntimeProject(runtime);
+  return project.workflows.length === 1 ? project.workflows[0]!.name : resolved.name;
+}
+
+async function promptForNewManagedProjectName(
+  defaultName: string,
+  projects: ManagedProject[],
+): Promise<string> {
+  const suggested = nextAvailableManagedProjectName(defaultName, projects);
+  const answer = await inquirer.prompt<{ name: string }>([{
+    type: "input",
+    name: "name",
+    message: "Project name",
+    default: suggested,
+    validate(value: string) {
+      const name = value.trim();
+      if (!name) return "Enter a project name";
+      if (projects.some((project) => project.name.toLowerCase() === name.toLowerCase())) {
+        return "Choose a name that is not already in use";
+      }
+      return true;
+    },
+  }]);
+  return answer.name.trim();
+}
+
+function nextAvailableManagedProjectName(defaultName: string, projects: ManagedProject[]): string {
+  const names = new Set(projects.map((project) => project.name.toLowerCase()));
+  if (!names.has(defaultName.toLowerCase())) return defaultName;
+  for (let suffix = 2; suffix < 10_000; suffix += 1) {
+    const candidate = `${defaultName}-${suffix}`;
+    if (!names.has(candidate.toLowerCase())) return candidate;
+  }
+  return `${defaultName}-${Date.now()}`;
 }
 
 async function runUse(
@@ -1355,11 +1434,33 @@ async function runManagedProjects(invocation: CliInvocation): Promise<void> {
 }
 
 async function runSelectedProject(invocation: CliInvocation, workflow: string | undefined): Promise<void> {
-  const { runtime, managedProject } = await loadRuntimeContext(invocation);
+  const managed = await resolveManagedProjectContext(invocation, { requireCheckout: false });
+  if (managed && !managed.checkout) {
+    await runManagedProjectWithoutCheckout(invocation, managed, workflow);
+    return;
+  }
+
+  const runtimeContext = managed?.checkout
+    ? {
+        project: managed.project,
+        source: {
+          projectId: managed.project.id,
+          checkoutId: managed.checkout.id,
+          deviceId: managed.device.id,
+        },
+      }
+    : undefined;
+  const { runtime, managedProject } = await startRuntimeContext(invocation, {}, runtimeContext);
   const workflows = await readWorkflowOverview(invocation, runtime, workflow);
 
   if (wantsJson(invocation)) {
-    printJson({ project: managedProject ?? null, workflows });
+    printJson({
+      project: managedProject ?? null,
+      execution: managed?.checkout
+        ? { kind: "local", deviceId: managed.device.id, checkoutId: managed.checkout.id }
+        : { kind: "local" },
+      workflows,
+    });
     return;
   }
 
@@ -1373,6 +1474,61 @@ async function runSelectedProject(invocation: CliInvocation, workflow: string | 
   }
   console.log("");
   printWorkflowWorkspaces(workflows);
+}
+
+async function runManagedProjectWithoutCheckout(
+  invocation: CliInvocation,
+  managed: ResolvedManagedProjectContext,
+  workflow: string | undefined,
+): Promise<void> {
+  const runs = await managed.client.listRuns(managed.project.id);
+  const workflows = managedWorkflowOverview(runs, workflow);
+  const execution = {
+    kind: "unavailable" as const,
+    reason: "no_checkout" as const,
+    deviceId: managed.device.id,
+    deviceName: managed.device.name,
+  };
+
+  if (wantsJson(invocation)) {
+    printJson({ project: managed.project, execution, workflows });
+    return;
+  }
+
+  console.log(`${ui.bold(managed.project.name)}  ${ui.dim(managed.project.slug)}`);
+  console.log(ui.dim(formatManagedProjectSource(managed.project)));
+  console.log("");
+  console.log(ui.warn(`No local checkout on ${managed.device.name}. Showing managed state.`));
+  console.log(ui.dim("A local checkout is optional; Stoke needs one only for local execution."));
+  console.log("");
+  if (workflows.length === 0) {
+    console.log(ui.bold("workflows"));
+    console.log(`  ${ui.dim(workflow ? `no managed activity for ${workflow}` : "no managed workflow state yet")}`);
+  } else {
+    printWorkflowsSection(workflows);
+  }
+  console.log("");
+  console.log(ui.bold("workspaces"));
+  console.log(`  ${ui.dim("not synced yet")}`);
+}
+
+function managedWorkflowOverview(runs: ManagedRun[], workflow: string | undefined): WorkflowOverview[] {
+  const latestByWorkflow = new Map<string, ManagedRun>();
+  for (const run of [...runs].sort((left, right) => Date.parse(right.startedAt) - Date.parse(left.startedAt))) {
+    if (workflow && run.workflow !== workflow) continue;
+    if (!latestByWorkflow.has(run.workflow)) latestByWorkflow.set(run.workflow, run);
+  }
+  return [...latestByWorkflow.values()].map((run) => ({
+    name: run.workflow,
+    cached: run.nodeCount === undefined || run.cachedNodeCount === undefined
+      ? null
+      : run.nodeCount === run.cachedNodeCount,
+    cachedNodeCount: run.cachedNodeCount,
+    nodeCount: run.nodeCount,
+    lastAppliedAt: run.completedAt ?? run.updatedAt,
+    planError: run.error ?? undefined,
+    workspaces: [],
+  }));
 }
 
 async function runManagedProjectRemove(
@@ -2282,6 +2438,17 @@ async function loadRuntimeContext(
   options: { checkCompatibility?: boolean } = {},
 ): Promise<{ runtime: RuntimeClient; managedProject?: ManagedProject }> {
   const managed = await resolveManagedRuntimeContext(invocation);
+  return await startRuntimeContext(invocation, options, managed);
+}
+
+async function startRuntimeContext(
+  invocation: CliInvocation,
+  options: { checkCompatibility?: boolean } = {},
+  managed?: {
+    project: ManagedProject;
+    source: { projectId: string; checkoutId: string; deviceId: string };
+  },
+): Promise<{ runtime: RuntimeClient; managedProject?: ManagedProject }> {
   const engineOptions = resolveEngineOptions(invocation);
   if (managed) engineOptions.source = managed.source;
   const runtime = await getOrStartRuntime(engineOptions);
@@ -2297,6 +2464,29 @@ async function resolveManagedRuntimeContext(
   project: ManagedProject;
   source: { projectId: string; checkoutId: string; deviceId: string };
 } | undefined> {
+  const managed = await resolveManagedProjectContext(invocation, { requireCheckout: true });
+  if (!managed) return undefined;
+  return {
+    project: managed.project,
+    source: {
+      projectId: managed.project.id,
+      checkoutId: managed.checkout!.id,
+      deviceId: managed.device.id,
+    },
+  };
+}
+
+type ResolvedManagedProjectContext = {
+  client: ManagedClient;
+  device: StokeDeviceIdentity;
+  project: ManagedProject;
+  checkout?: ManagedCheckout;
+};
+
+async function resolveManagedProjectContext(
+  invocation: CliInvocation,
+  options: { requireCheckout: boolean },
+): Promise<ResolvedManagedProjectContext | undefined> {
   const settings = readStokeSettings();
   const selector = invocation.global.project ?? process.env.STOKE_PROJECT ?? settings?.currentProjectId;
   if (!selector) return undefined;
@@ -2339,18 +2529,18 @@ async function resolveManagedRuntimeContext(
     }
   }
   if (!checkout) {
-    throw new Error(
-      `Project ${project.slug} has no checkout on ${device.name}. Run \`stoke add <local-dir> --project ${project.slug}\` first.`,
-    );
+    if (options.requireCheckout) {
+      throw new Error(
+        `Project ${project.slug} has no checkout on ${device.name}. Run \`stoke add <local-dir> --project ${project.slug}\` for local execution.`,
+      );
+    }
+    return { client, device, project };
   }
   if (!invocation.global.chdir) invocation.global.chdir = checkout.path;
   process.env.STOKE_PROJECT_ID = project.id;
   process.env.STOKE_CHECKOUT_ID = checkout.id;
   process.env.STOKE_DEVICE_ID = device.id;
-  return {
-    project,
-    source: { projectId: project.id, checkoutId: checkout.id, deviceId: device.id },
-  };
+  return { client, device, project, checkout };
 }
 
 function isPathWithin(path: string, parent: string): boolean {

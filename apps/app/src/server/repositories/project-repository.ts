@@ -28,6 +28,7 @@ export const projectRepository = {
       .select()
       .from(projects)
       .where(and(eq(projects.userId, userId), eq(projects.sourceKey, sourceKey)))
+      .orderBy(desc(projects.updatedAt))
       .limit(1);
     return row;
   },
@@ -48,7 +49,7 @@ export const projectRepository = {
     return rows.map((row) => row.slug);
   },
 
-  async upsert(input: {
+  async create(input: {
     id: string;
     userId: string;
     slug: string;
@@ -63,10 +64,6 @@ export const projectRepository = {
         ...input,
         createdAt: input.now,
         updatedAt: input.now,
-      })
-      .onConflictDoUpdate({
-        target: [projects.userId, projects.sourceKey],
-        set: { name: input.name, source: input.source, updatedAt: input.now },
       })
       .returning();
     if (!row) throw new Error("Postgres did not return the created project");

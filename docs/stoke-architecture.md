@@ -92,20 +92,26 @@ server functions for product behavior.
 - `stoke add owner/repository` registers a GitHub source.
 - `stoke add ./local-directory` inspects its Git remote, registers or finds the
   managed project, and links that path as a checkout on the current device.
-- Adding another checkout for an existing repository links it automatically.
-  Ambiguous name collisions require an explicit link or `--new`.
+- A local single-workflow project defaults to the workflow name defined in
+  `rigkit/index.ts`; multi-workflow and remote-only projects default to the
+  repository or directory name. `--name` overrides either default.
+- Adding a new local checkout for an existing source or name prompts to attach
+  it to the existing project or create a separate project with a different
+  name. Non-interactive callers use `--project` or `--new --name`.
 - `stoke use <project>` chooses the persistent current project. `stoke use
   --clear` removes that preference.
 - `--project <id|slug|name|path>` and `STOKE_PROJECT` select a project for one
   invocation without changing the saved preference. Explicit CLI selection
   wins over the environment and saved selection.
 - Runtime commands resolve the selected project's checkout on the current
-  device and run from that path. Multiple checkouts require an explicit path;
-  a missing checkout produces an attach command instead of guessing.
+  device and run from that path. Multiple checkouts require an explicit path.
+  A local checkout is an execution target, not a requirement for managed
+  project identity or listing.
 - `stoke project ls` lists managed projects, their checkout locations, and the
   current selection. `stoke project rm` removes one managed project.
-- `stoke ls` lists the selected project first, followed by its workflows,
-  cache status, and workspaces from the local runtime.
+- `stoke ls` always lists the selected managed project. With a local checkout it
+  follows with live workflow, cache, and workspace state; without one it shows
+  the latest managed workflow activity without failing.
 - `stoke discover` finds local Stoke configurations when that lower-level view is
   needed.
 - Existing workspace commands (`stoke create`, `stoke run`, `stoke rm`) continue

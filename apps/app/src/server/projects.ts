@@ -10,11 +10,13 @@ export async function listProjects(userId: string): Promise<ManagedProject[]> {
 export async function createProject(userId: string, input: CreateProjectRequest): Promise<ManagedProject> {
   const source = normalizeProjectSource(input.source);
   const sourceKey = keyForProjectSource(source);
-  const existing = await findProjectBySource(userId, source);
-  if (existing) return existing;
+  if (!input.forceNew) {
+    const existing = await findProjectBySource(userId, source);
+    if (existing) return existing;
+  }
   const slug = await availableSlug(userId, input.slug ?? defaultProjectSlug(input.name, source));
   const now = new Date();
-  const row = await projectRepository.upsert({
+  const row = await projectRepository.create({
     id: randomUUID(),
     userId,
     slug,

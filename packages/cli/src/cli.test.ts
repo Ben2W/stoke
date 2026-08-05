@@ -376,6 +376,79 @@ describe("CLI entrypoint", () => {
     });
   });
 
+  test("defaults a managed project name to its single Rigkit workflow", async () => {
+    const projectDir = realpathSync(mkdtempSync(join(tmpdir(), "rigkit-cli-managed-name-")));
+
+    await withWorkspaceRuntime({ projectDir }, async ({ env }) => {
+      let createBody: Record<string, unknown> | undefined;
+      const server = Bun.serve({
+        hostname: "127.0.0.1",
+        port: 0,
+        async fetch(request) {
+          const url = new URL(request.url);
+          const body = request.method === "POST" ? await request.json() as Record<string, unknown> : undefined;
+          if (url.pathname === "/api/v1/devices") {
+            return Response.json({
+              device: {
+                ...body,
+                createdAt: "2026-08-04T00:00:00.000Z",
+                lastSeenAt: "2026-08-04T00:00:00.000Z",
+              },
+            });
+          }
+          if (url.pathname === "/api/v1/projects" && request.method === "POST") {
+            createBody = body;
+            return Response.json({
+              project: {
+                id: "73d1f165-c7e2-4ef9-a799-bd99a81a7c2b",
+                slug: "smoke",
+                name: body?.name,
+                source: body?.source,
+                createdAt: "2026-08-04T00:00:00.000Z",
+                updatedAt: "2026-08-04T00:00:00.000Z",
+              },
+            });
+          }
+          if (url.pathname === "/api/v1/projects") return Response.json({ projects: [] });
+          if (url.pathname === "/api/v1/checkouts" && request.method === "POST") {
+            return Response.json({
+              checkout: {
+                id: "a73d1f16-c7e2-4ef9-a799-bd99a81a7c2b",
+                projectId: body?.projectId,
+                deviceId: body?.deviceId,
+                deviceName: "Test Mac",
+                path: body?.path,
+                createdAt: "2026-08-04T00:00:00.000Z",
+                lastSeenAt: "2026-08-04T00:00:00.000Z",
+              },
+            });
+          }
+          if (url.pathname === "/api/v1/checkouts") return Response.json({ checkouts: [] });
+          return Response.json({ error: "not_found" }, { status: 404 });
+        },
+      });
+
+      try {
+        const result = await runCli([`--chdir=${projectDir}`, "add", ".", "--json"], {
+          env: {
+            ...env,
+            STOKE_API_URL: `http://127.0.0.1:${server.port}`,
+            STOKE_TOKEN: "test-secret",
+            STOKE_DEVICE_ID: "device-1",
+            STOKE_DEVICE_NAME: "Test Mac",
+          },
+        });
+
+        expect(result.stderr).toBe("");
+        expect(result.exitCode).toBe(0);
+        expect(createBody).toMatchObject({ name: "smoke" });
+        expect(JSON.parse(result.stdout)).toMatchObject({ project: { name: "smoke" } });
+      } finally {
+        server.stop(true);
+      }
+    });
+  });
+
   test("explains workflow cache decisions", async () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-cli-cache-explain-"));
 
@@ -542,6 +615,7 @@ async function withWorkspaceRuntime(
   run: (context: { env: Record<string, string> }) => Promise<void>,
 ): Promise<void> {
   const rigkitHome = mkdtempSync(join(tmpdir(), "rigkit-home-"));
+  const stokeHome = mkdtempSync(join(tmpdir(), "stoke-home-"));
   const token = "test-token";
   mkdirSync(input.projectDir, { recursive: true });
   const configPath = writeRigkitIndex(input.projectDir);
@@ -583,6 +657,21 @@ async function withWorkspaceRuntime(
           engineVersion,
           runtimeVersion,
           protocolHash: "test-protocol",
+        });
+      }
+      if (pathname === "/project") {
+        return runtimeJson({
+          projectDir: input.projectDir,
+          configPath,
+          statePath: join(input.projectDir, ".rigkit", "state.sqlite"),
+          workflows: [{
+            name: "smoke",
+            providers: [],
+            nodes: ["ready"],
+            operations: [],
+            createsWorkspace: true,
+            lastAppliedAt: now,
+          }],
         });
       }
       if (pathname === "/workspaces") {
@@ -821,10 +910,11 @@ async function withWorkspaceRuntime(
   );
 
   try {
-    await run({ env: { RIGKIT_HOME: rigkitHome } });
+    await run({ env: { RIGKIT_HOME: rigkitHome, STOKE_HOME: stokeHome } });
   } finally {
     server.stop(true);
     rmSync(rigkitHome, { recursive: true, force: true });
+    rmSync(stokeHome, { recursive: true, force: true });
     rmSync(input.projectDir, { recursive: true, force: true });
   }
 }

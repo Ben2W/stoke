@@ -142,6 +142,35 @@ describe("Hono control-plane API", () => {
     expect(await unauthorized.json()).toEqual({ error: "unauthorized" });
   });
 
+  test("passes explicit duplicate-project creation through the API", async () => {
+    const api = createApi({
+      authenticate: async () => user,
+      createProject: async (userId, input) => {
+        expect(userId).toBe(user.id);
+        expect(input).toMatchObject({
+          name: "stoke-preview",
+          source: project.source,
+          forceNew: true,
+        });
+        return { ...project, name: input.name, slug: "ben2w-stoke-2" };
+      },
+    });
+    const response = await api.request("http://localhost/api/v1/projects", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        name: "stoke-preview",
+        source: project.source,
+        forceNew: true,
+      }),
+    });
+
+    expect(response.status).toBe(201);
+    expect(await response.json()).toMatchObject({
+      project: { name: "stoke-preview", slug: "ben2w-stoke-2" },
+    });
+  });
+
   test("centralizes managed resource conflicts", async () => {
     const api = createApi({
       authenticate: async () => user,

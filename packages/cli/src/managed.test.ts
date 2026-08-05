@@ -293,6 +293,183 @@ describe("managed project source resolution", () => {
       rmSync(cwd, { recursive: true, force: true });
     }
   });
+
+  test("lists managed state when the selected project has no checkout on this device", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "stoke-cli-remote-list-"));
+    const project = {
+      id: "73d1f165-c7e2-4ef9-a799-bd99a81a7c2b",
+      slug: "ben2w-stoke-example",
+      name: "stoke-example",
+      source: {
+        kind: "github" as const,
+        owner: "ben2w",
+        repository: "stoke-example",
+        url: "https://github.com/ben2w/stoke-example",
+      },
+      createdAt: "2026-08-04T00:00:00.000Z",
+      updatedAt: "2026-08-04T00:00:00.000Z",
+    };
+    const server = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      async fetch(request) {
+        const url = new URL(request.url);
+        if (url.pathname === "/api/v1/devices") {
+          const input = await request.json() as { id: string; name: string };
+          return Response.json({
+            device: {
+              ...input,
+              createdAt: "2026-08-04T00:00:00.000Z",
+              lastSeenAt: "2026-08-04T00:00:00.000Z",
+            },
+          });
+        }
+        if (url.pathname === "/api/v1/projects") return Response.json({ projects: [project] });
+        if (url.pathname === "/api/v1/checkouts") return Response.json({ checkouts: [] });
+        if (url.pathname === "/api/v1/runs") return Response.json({ runs: [] });
+        return Response.json({ error: "not_found" }, { status: 404 });
+      },
+    });
+
+    try {
+      const environment = {
+        STOKE_API_URL: `http://127.0.0.1:${server.port}`,
+        STOKE_TOKEN: "test-secret",
+        STOKE_HOME: join(cwd, ".stoke"),
+        STOKE_DEVICE_ID: "device-1",
+        STOKE_DEVICE_NAME: "Benjamin's MacBook",
+      };
+      setCurrentProject(project.id, environment);
+      const result = await runManagedCli(["ls", "--json"], cwd, environment);
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stderr).toBe("");
+      expect(JSON.parse(result.stdout)).toEqual({
+        project,
+        execution: {
+          kind: "unavailable",
+          reason: "no_checkout",
+          deviceId: "device-1",
+          deviceName: "Benjamin's MacBook",
+        },
+        workflows: [],
+      });
+    } finally {
+      server.stop(true);
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("requires an explicit choice when a local checkout matches an existing project", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "stoke-cli-conflict-"));
+    expect(Bun.spawnSync(["git", "init", "-q"], { cwd }).exitCode).toBe(0);
+    expect(Bun.spawnSync(
+      ["git", "remote", "add", "origin", "git@github.com:vercel/next.js.git"],
+      { cwd },
+    ).exitCode).toBe(0);
+    const existing = {
+      id: "73d1f165-c7e2-4ef9-a799-bd99a81a7c2b",
+      slug: "vercel-next-js",
+      name: "next.js",
+      source: {
+        kind: "github" as const,
+        owner: "vercel",
+        repository: "next.js",
+        url: "https://github.com/vercel/next.js",
+      },
+      createdAt: "2026-08-04T00:00:00.000Z",
+      updatedAt: "2026-08-04T00:00:00.000Z",
+    };
+    const created = {
+      ...existing,
+      id: "83d1f165-c7e2-4ef9-a799-bd99a81a7c2b",
+      slug: "vercel-next-js-2",
+      name: "next-local",
+    };
+    const requests: Array<{ path: string; method: string; body?: unknown }> = [];
+    const server = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      async fetch(request) {
+        const url = new URL(request.url);
+        const body = request.method === "POST" ? await request.json() : undefined;
+        requests.push({ path: `${url.pathname}${url.search}`, method: request.method, body });
+        if (url.pathname === "/api/v1/devices") {
+          const input = body as { id: string; name: string };
+          return Response.json({
+            device: {
+              ...input,
+              createdAt: "2026-08-04T00:00:00.000Z",
+              lastSeenAt: "2026-08-04T00:00:00.000Z",
+            },
+          });
+        }
+        if (url.pathname === "/api/v1/projects" && request.method === "POST") {
+          return Response.json({ project: created });
+        }
+        if (url.pathname === "/api/v1/projects") return Response.json({ projects: [existing] });
+        if (url.pathname === "/api/v1/checkouts" && request.method === "POST") {
+          const input = body as { projectId: string; deviceId: string; path: string; gitRemote?: string };
+          return Response.json({
+            checkout: {
+              id: "a73d1f16-c7e2-4ef9-a799-bd99a81a7c2b",
+              ...input,
+              deviceName: "Benjamin's MacBook",
+              createdAt: "2026-08-04T00:00:00.000Z",
+              lastSeenAt: "2026-08-04T00:00:00.000Z",
+            },
+          });
+        }
+        if (url.pathname === "/api/v1/checkouts") return Response.json({ checkouts: [] });
+        return Response.json({ error: "not_found" }, { status: 404 });
+      },
+    });
+
+    try {
+      const environment = {
+        STOKE_API_URL: `http://127.0.0.1:${server.port}`,
+        STOKE_TOKEN: "test-secret",
+        STOKE_HOME: join(cwd, ".stoke"),
+        STOKE_DEVICE_ID: "device-1",
+        STOKE_DEVICE_NAME: "Benjamin's MacBook",
+      };
+      const ambiguous = await runManagedCli(["add", ".", "--json"], cwd, environment);
+      expect(ambiguous.exitCode).toBe(1);
+      expect(ambiguous.stderr).toContain("--project vercel-next-js");
+      expect(ambiguous.stderr).toContain("--new --name <name>");
+
+      const separate = await runManagedCli(
+        ["add", ".", "--new", "--name", "next-local", "--json"],
+        cwd,
+        environment,
+      );
+      expect(separate.exitCode).toBe(0);
+      expect(JSON.parse(separate.stdout)).toMatchObject({ project: created, created: true });
+      expect(requests).toContainEqual({
+        path: "/api/v1/projects",
+        method: "POST",
+        body: {
+          name: "next-local",
+          source: existing.source,
+          forceNew: true,
+        },
+      });
+      expect(requests).toContainEqual({
+        path: "/api/v1/checkouts",
+        method: "POST",
+        body: {
+          projectId: created.id,
+          deviceId: "device-1",
+          path: realpathSync(cwd),
+          gitRemote: "git@github.com:vercel/next.js.git",
+          relink: true,
+        },
+      });
+    } finally {
+      server.stop(true);
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
 });
 
 async function runManagedCli(
