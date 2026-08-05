@@ -1,5 +1,5 @@
 {
-  "name": "rigkit-monorepo",
+  "name": "stoke-monorepo",
   "version": "0.0.0",
   "private": true,
   "license": "MIT",
@@ -9,24 +9,7 @@
     "dev": "turbo dev",
     "typecheck": "turbo typecheck",
     "test": "turbo test",
-    "release:check": "bun scripts/release/check.ts",
-    "release:check-github-token": "bun scripts/release/check-github-token.ts",
-    "release:preflight": "bun scripts/release/preflight.ts",
-    "release:plan": "bun scripts/release/plan.ts",
-    "release:bump": "bun scripts/release/bump.ts",
-    "release:update-workflows": "bun scripts/release/update-workflow-options.ts",
-    "release:prepare": "bun scripts/release/prepare.ts",
-    "release:version": "bun scripts/release/version.ts",
-    "release:pack": "bun scripts/release/pack.ts",
-    "release:publish": "bun scripts/release/publish.ts",
-    "release:trust-commands": "bun scripts/release/trust-commands.ts",
-    "release:canary-version": "bun scripts/release/canary-version.ts",
-    "release:canary-main-version": "bun scripts/release/canary-main-version.ts",
-    "release:sync-latest": "bun scripts/release/sync-latest-release.ts",
-    "build:cli-binaries": "bun scripts/build-cli-binaries.ts",
-    "docs:version": "bun scripts/docs/version.ts",
-    "docs:check-version": "bun scripts/docs/check-version.ts",
-    "docs:broken-links": "pnpm --filter @rigkit/docs broken-links"
+    "build:cli-binaries": "bun scripts/build-cli-binaries.ts"
   },
   "devDependencies": {
     "playwright": "^1.59.1",

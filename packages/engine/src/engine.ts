@@ -29,6 +29,7 @@ import {
 } from "./state.ts";
 import type {
   EventHandler,
+  HostCapabilityRequirement,
   JsonObject,
   JsonValue,
   LoadedProviderDefinition,
@@ -227,6 +228,7 @@ export type EngineOperationSummary = {
   createsWorkspace?: boolean;
   inputFields: readonly WorkflowInputFieldDefinition[];
   inputSchema?: Record<string, unknown>;
+  requiredCapabilities?: readonly HostCapabilityRequirement[];
   cli?: EngineOperationCli;
 };
 
@@ -409,7 +411,7 @@ export class DevMachineEngine {
     this.configPath = requestedConfigPath ?? canonicalConfigPath(this.projectDir);
     const expectedConfigPath = canonicalConfigPath(this.projectDir);
     if (this.configPath !== expectedConfigPath) {
-      throw new Error(`Rigkit config must be ${expectedConfigPath}; ${this.configPath} is not supported.`);
+      throw new Error(`Stoke config must be ${expectedConfigPath}; ${this.configPath} is not supported.`);
     }
     this.state = options.state;
     this.providers = options.providers ?? [];
@@ -443,7 +445,7 @@ export class DevMachineEngine {
 
     if (!existsSync(this.configPath)) {
       throw new Error(
-        `No Rigkit config found at ${this.configPath}. Run "rig init".`,
+        `No Stoke config found at ${this.configPath}. Run "stoke init".`,
       );
     }
 
@@ -572,6 +574,7 @@ export class DevMachineEngine {
           source: "config" as const,
           title: operation.title,
           description: operation.description,
+          requiredCapabilities: requiredCapabilitiesForScope(operation.providerScope),
           inputFields: [],
           inputSchema: operation.input ? operationInputJsonSchema(operation) : undefined,
         };
@@ -624,6 +627,7 @@ export class DevMachineEngine {
       kind: "workspace-action" as const,
       title: operation.title,
       description: operation.description,
+      requiredCapabilities: requiredCapabilitiesForScope(operation.providerScope),
       inputFields: [],
       inputSchema: operation.input ? operationInputJsonSchema(operation) : undefined,
     };
@@ -2262,7 +2266,7 @@ export class DevMachineEngine {
     const plugin = this.providers.find((provider) => provider.providerId === input.provider.providerId);
     if (!plugin) {
       throw new Error(
-        `Provider ${input.provider.providerId} does not implement the Rigkit workflow provider contract. ` +
+        `Provider ${input.provider.providerId} does not implement the Stoke workflow provider contract. ` +
           `Register a provider plugin to use it in workflow tasks.`,
       );
     }
@@ -2354,7 +2358,7 @@ async function resolveProviderScope(scope: WorkflowProviderMap | undefined): Pro
   const providers: LoadedProviderScope = {};
   for (const [name, definition] of Object.entries(scope ?? {})) {
     if (!isProviderDefinition(definition)) {
-      throw new Error(`Provider ${name} is not a valid Rigkit provider`);
+      throw new Error(`Provider ${name} is not a valid Stoke provider`);
     }
     providers[name] = await resolveProviderDefinition(definition);
   }
@@ -2624,8 +2628,37 @@ function providerPluginFingerprint(plugin: unknown): unknown {
   if (!isBaseProviderPlugin(plugin)) return null;
   return {
     providerId: plugin.providerId,
+    capabilities: plugin.capabilities ?? [],
     createProvider: functionFingerprintFor(plugin.createProvider),
   };
+}
+
+function requiredCapabilitiesForScope(
+  scope: WorkflowProviderMap | LoadedProviderScope | undefined,
+): readonly HostCapabilityRequirement[] {
+  const capabilities = new Map<string, HostCapabilityRequirement>();
+  for (const provider of Object.values(scope ?? {})) {
+    const plugin = provider.plugin;
+    if (!isBaseProviderPlugin(plugin)) continue;
+    for (const capability of plugin.capabilities ?? []) {
+      const existing = capabilities.get(capability.id);
+      if (
+        existing?.schemaHash && capability.schemaHash &&
+        existing.schemaHash !== capability.schemaHash
+      ) {
+        throw new Error(
+          `Host capability ${capability.id} has conflicting schema hashes ` +
+            `${existing.schemaHash} and ${capability.schemaHash}`,
+        );
+      }
+      const schemaHash = capability.schemaHash ?? existing?.schemaHash;
+      capabilities.set(capability.id, {
+        id: capability.id,
+        ...(schemaHash ? { schemaHash } : {}),
+      });
+    }
+  }
+  return [...capabilities.values()].sort((left, right) => left.id.localeCompare(right.id));
 }
 
 function providerScopeOf(node: WorkflowNodeDefinition<any, any, any>): LoadedProviderScope {
@@ -3253,7 +3286,7 @@ const CORE_OPERATION_INPUT_FIELDS: Record<string, readonly string[]> = {
 function assertAllowedConfigOperationId(operationId: string): void {
   if (!RESERVED_HOST_OPERATION_IDS.has(operationId)) return;
   throw new Error(
-    `Config operation "${operationId}" conflicts with a reserved Rigkit host command. ` +
+    `Config operation "${operationId}" conflicts with a reserved Stoke host command. ` +
       `Choose a different operation id.`,
   );
 }
@@ -3466,7 +3499,7 @@ async function selectLocalOption(input: {
 async function requestUnsupportedHostCapability<Result = unknown>(capability: string): Promise<Result> {
   throw new Error(
     `Host capability ${capability} is unavailable outside a runtime host. ` +
-      `Run this operation through Rigkit CLI or another host that supports typed host capabilities.`,
+      `Run this operation through Stoke CLI or another host that supports typed host capabilities.`,
   );
 }
 

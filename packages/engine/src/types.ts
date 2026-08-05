@@ -142,6 +142,11 @@ export type WorkflowProviderDefinition<
   readonly __runtime?: Runtime;
 };
 
+export type HostCapabilityRequirement = {
+  readonly id: string;
+  readonly schemaHash?: string;
+};
+
 export type DevProviderDefinition<
   ProviderId extends string = string,
   Config extends object = Record<string, unknown>,
@@ -538,6 +543,19 @@ export type WorkflowSequenceBuilder<
     Config
   >;
 
+  removeProvider<const Name extends keyof Providers & string>(
+    name: Name,
+  ): WorkflowSequenceBuilder<
+    Simplify<Omit<Providers, Name>>,
+    InputContext,
+    OutputContext,
+    WorkspaceData,
+    OperationIds,
+    WorkspaceOperationIds,
+    PreviousTaskIds,
+    Config
+  >;
+
   task<const Id extends string, Result extends WorkflowTaskResult>(
     name: Id & WorkflowTaskIdConstraint<Id, PreviousTaskIds>,
     handler: WorkflowTaskHandler<Providers, OutputContext, PreviousTaskIds, Result, Config>,
@@ -739,7 +757,7 @@ export type WorkflowOperationIdConstraint<
   : Id extends Existing
     ? WorkflowOperationIdError<`Operation id "${Id}" is already defined`>
     : Id extends ReservedWorkflowOperationId
-      ? WorkflowOperationIdError<`Operation id "${Id}" is reserved by Rigkit`>
+      ? WorkflowOperationIdError<`Operation id "${Id}" is reserved by Stoke`>
       : Id extends `${string}/${string}`
         ? WorkflowOperationIdError<`Operation id "${Id}" cannot contain "/"`>
         : unknown;

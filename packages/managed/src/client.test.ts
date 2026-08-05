@@ -3,9 +3,9 @@ import { createManagedClient, ManagedApiError } from "./client.ts";
 
 const project = {
   id: "fe055b36-1dbd-439a-9c11-21aab123ac74",
-  slug: "freestyle-sh-rigkit",
-  name: "Rigkit",
-  source: { kind: "github" as const, owner: "freestyle-sh", repository: "rigkit" },
+  slug: "vercel-sh-rigkit",
+  name: "Stoke",
+  source: { kind: "github" as const, owner: "vercel-sh", repository: "rigkit" },
   createdAt: "2026-08-04T00:00:00.000Z",
   updatedAt: "2026-08-04T00:00:00.000Z",
 };
@@ -88,7 +88,7 @@ describe("managed client", () => {
       deviceId: device.id,
       deviceName: device.name,
       path: "/Users/ben/src/rigkit",
-      gitRemote: "git@github.com:freestyle-sh/rigkit.git",
+      gitRemote: "git@github.com:vercel-sh/rigkit.git",
       createdAt: "2026-08-04T00:00:00.000Z",
       lastSeenAt: "2026-08-04T00:00:00.000Z",
     };

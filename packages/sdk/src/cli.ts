@@ -21,7 +21,7 @@ type ServeArgs = {
 const [command, ...args] = process.argv.slice(2);
 
 if (command !== "serve") {
-  console.error(`Usage: rigkit-project-runtime serve --project-id <id> --project-dir <dir> --config <file> --handle <file> --token <file>`);
+  console.error(`Usage: stoke-project-runtime serve --project-id <id> --project-dir <dir> --config <file> --handle <file> --token <file>`);
   process.exit(1);
 }
 

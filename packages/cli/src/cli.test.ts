@@ -2,8 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createFileProviderHostStorage } from "@rigkit/engine";
-import { projectIdFor, runtimeFingerprintFor, runtimePaths, SUPPORTED_RUNTIME_API_VERSION } from "@rigkit/runtime-client";
+import { projectIdFor, runtimeFingerprintFor, runtimePaths, SUPPORTED_RUNTIME_API_VERSION } from "@stoke/runtime-client";
 import { STOKE_CLI_VERSION } from "./version.ts";
 
 const cliPath = join(import.meta.dir, "cli.ts");
@@ -12,7 +11,7 @@ function rigkitIndexPath(projectDir: string): string {
   return join(projectDir, "rigkit", "index.ts");
 }
 
-function writeRigkitIndex(projectDir: string): string {
+function writeStokeIndex(projectDir: string): string {
   const configPath = rigkitIndexPath(projectDir);
   mkdirSync(join(projectDir, "rigkit"), { recursive: true });
   writeFileSync(configPath, "export const dev = {}\n");
@@ -39,7 +38,6 @@ describe("CLI entrypoint", () => {
     expect(rootHelp.stdout).toContain("rm          Remove a workspace");
     expect(rootHelp.stdout).toContain("run         Run a workspace operation");
     expect(rootHelp.stdout).toContain("cache       Inspect and clear workflow cache");
-    expect(rootHelp.stdout).toContain("providers   Manage provider-owned local state");
 
     const version = await runCli(["version"]);
     expect(version.exitCode).toBe(0);
@@ -54,77 +52,6 @@ describe("CLI entrypoint", () => {
     expect(help.stdout).toContain("rm          Remove a workspace");
     expect(help.stdout).toContain("run         Run a workspace operation");
     expect(help.stdout).toContain("cache       Inspect and clear workflow cache");
-    expect(help.stdout).toContain("providers   Manage provider-owned local state");
-  });
-
-  test("prints an update notice when latest metadata is newer", async () => {
-    const rigkitHome = mkdtempSync(join(tmpdir(), "rigkit-cli-update-"));
-    const latestVersion = nextPatchVersion(STOKE_CLI_VERSION);
-    const server = Bun.serve({
-      hostname: "127.0.0.1",
-      port: 0,
-      fetch() {
-        return Response.json({
-          version: latestVersion,
-          installerUrl: "https://www.rigkit.dev/install",
-        });
-      },
-    });
-
-    try {
-      const result = await runCli(["doctor", "--cli"], {
-        env: {
-          RIGKIT_HOME: rigkitHome,
-          RIGKIT_UPDATE_CHECK: "1",
-          RIGKIT_UPDATE_TIMEOUT_MS: "2000",
-          RIGKIT_UPDATE_URL: `http://127.0.0.1:${server.port}/latest.json`,
-        },
-      });
-
-      expect(result.exitCode).toBe(0);
-      expect(result.stdout).toContain(STOKE_CLI_VERSION);
-      expect(result.stderr).toContain(`stoke ${latestVersion} is available`);
-      expect(result.stderr).toContain("update with: curl -fsSL https://www.rigkit.dev/install | sh");
-    } finally {
-      server.stop(true);
-      rmSync(rigkitHome, { recursive: true, force: true });
-    }
-  });
-
-  test("does not print update notices for JSON output", async () => {
-    const rigkitHome = mkdtempSync(join(tmpdir(), "rigkit-cli-update-json-"));
-    let requests = 0;
-    const server = Bun.serve({
-      hostname: "127.0.0.1",
-      port: 0,
-      fetch() {
-        requests += 1;
-        return Response.json({
-          version: nextPatchVersion(STOKE_CLI_VERSION),
-          installerUrl: "https://www.rigkit.dev/install",
-        });
-      },
-    });
-
-    try {
-      const result = await runCli(["doctor", "--cli", "--json"], {
-        env: {
-          RIGKIT_HOME: rigkitHome,
-          RIGKIT_UPDATE_CHECK: "1",
-          RIGKIT_UPDATE_URL: `http://127.0.0.1:${server.port}/latest.json`,
-        },
-      });
-
-      expect(result.exitCode).toBe(0);
-      expect(result.stderr).toBe("");
-      expect(JSON.parse(result.stdout)).toMatchObject({
-        cliVersion: STOKE_CLI_VERSION,
-      });
-      expect(requests).toBe(0);
-    } finally {
-      server.stop(true);
-      rmSync(rigkitHome, { recursive: true, force: true });
-    }
   });
 
   test("rejects operation shorthand at the root", async () => {
@@ -146,7 +73,7 @@ describe("CLI entrypoint", () => {
   test("discovers projects without starting a runtime", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "rigkit-cli-projects-"));
     mkdirSync(join(cwd, "api"));
-    writeRigkitIndex(join(cwd, "api"));
+    writeStokeIndex(join(cwd, "api"));
 
     try {
       const result = await runCli(["discover", "--json"], { cwd });
@@ -173,7 +100,7 @@ describe("CLI entrypoint", () => {
 
       expect(result.exitCode).toBe(1);
       expect(result.stdout).toBe("");
-      expect(result.stderr).toContain("No Rigkit config found from");
+      expect(result.stderr).toContain("No Stoke config found from");
       expect(result.stderr).toContain("stoke init");
     } finally {
       rmSync(cwd, { recursive: true, force: true });
@@ -248,7 +175,7 @@ describe("CLI entrypoint", () => {
   test("accepts conventional double-dash global options", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "rigkit-cli-global-options-"));
     mkdirSync(join(cwd, "api"));
-    writeRigkitIndex(join(cwd, "api"));
+    writeStokeIndex(join(cwd, "api"));
 
     try {
       const result = await runCli(["--chdir=api", "discover", "--json"], { cwd });
@@ -276,31 +203,6 @@ describe("CLI entrypoint", () => {
       expect(result.stderr).toBe("");
       expect(JSON.parse(result.stdout)).toEqual({ ok: true, deleted: 1 });
     });
-  });
-
-  test("clears Freestyle provider host storage without loading a project", async () => {
-    const storageRoot = mkdtempSync(join(tmpdir(), "rigkit-provider-storage-"));
-    const storage = createFileProviderHostStorage({ providerId: "freestyle", rootDir: storageRoot });
-    storage.set("stack-auth:test", { refreshToken: "refresh-token", updatedAt: 1 });
-    storage.set("identity:test", { token: "ssh-token" });
-
-    try {
-      const result = await runCli(["providers", "freestyle", "clear", "--json"], {
-        env: { RIGKIT_HOST_STORAGE_DIR: storageRoot },
-      });
-
-      expect(result.exitCode).toBe(0);
-      expect(result.stderr).toBe("");
-      expect(JSON.parse(result.stdout)).toMatchObject({
-        ok: true,
-        providerId: "freestyle",
-        deleted: 2,
-        storageRoot,
-      });
-      expect(storage.entries()).toEqual([]);
-    } finally {
-      rmSync(storageRoot, { recursive: true, force: true });
-    }
   });
 
   test("does not render a success marker when cache invalidation is a no-op", async () => {
@@ -376,7 +278,7 @@ describe("CLI entrypoint", () => {
     });
   });
 
-  test("defaults a managed project name to its single Rigkit workflow", async () => {
+  test("defaults a managed project name to its single Stoke workflow", async () => {
     const projectDir = realpathSync(mkdtempSync(join(tmpdir(), "rigkit-cli-managed-name-")));
 
     await withWorkspaceRuntime({ projectDir }, async ({ env }) => {
@@ -553,8 +455,8 @@ describe("CLI entrypoint", () => {
     const cwd = mkdtempSync(join(tmpdir(), "rigkit-cli-run-discover-"));
     mkdirSync(join(cwd, "api"));
     mkdirSync(join(cwd, "web"));
-    writeRigkitIndex(join(cwd, "api"));
-    writeRigkitIndex(join(cwd, "web"));
+    writeStokeIndex(join(cwd, "api"));
+    writeStokeIndex(join(cwd, "web"));
 
     try {
       const result = await runCli(["plan", "--discover", "--json"], { cwd });
@@ -597,12 +499,6 @@ async function runCli(
   return { exitCode, stdout, stderr };
 }
 
-function nextPatchVersion(version: string): string {
-  const match = version.match(/^(\d+)\.(\d+)\.(\d+)/);
-  if (!match) return "999.0.0";
-  return `${match[1]}.${match[2]}.${Number(match[3]) + 1}`;
-}
-
 async function withWorkspaceRuntime(
   input: {
     projectDir: string;
@@ -618,7 +514,7 @@ async function withWorkspaceRuntime(
   const stokeHome = mkdtempSync(join(tmpdir(), "stoke-home-"));
   const token = "test-token";
   mkdirSync(input.projectDir, { recursive: true });
-  const configPath = writeRigkitIndex(input.projectDir);
+  const configPath = writeStokeIndex(input.projectDir);
   const projectId = projectIdFor({ projectDir: input.projectDir, configPath });
   const runtimeFingerprint = runtimeFingerprintFor({ projectDir: input.projectDir, configPath });
   const paths = runtimePaths(projectId, rigkitHome);

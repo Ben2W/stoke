@@ -2,6 +2,7 @@ import type {
   EventHandler,
   ExecOptions,
   ExecResult,
+  HostCapabilityRequirement,
   JsonObject,
   JsonValue,
   LoadedProviderDefinition,
@@ -115,6 +116,8 @@ export interface ProviderStorage {
 
 export type BaseProviderPlugin = {
   providerId: string;
+  /** Host-side capabilities required by code using this provider. */
+  capabilities?: readonly HostCapabilityRequirement[];
   createProvider(input: ProviderFactoryInput): WorkflowProviderController | Promise<WorkflowProviderController>;
 };
 

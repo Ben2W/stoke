@@ -11,7 +11,7 @@ export function SiteHeader() {
         </a>
         <nav className="flex items-center gap-5 text-sm text-zinc-500" aria-label="Primary navigation">
           <a className="hidden transition hover:text-zinc-950 sm:block" href="#product">Product</a>
-          <a className="hidden transition hover:text-zinc-950 sm:block" href="https://www.rigkit.dev/docs/bash">Docs</a>
+          <a className="hidden transition hover:text-zinc-950 sm:block" href="https://github.com/Ben2W/stoke">GitHub</a>
           <SignInButton compact />
         </nav>
       </div>

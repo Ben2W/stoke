@@ -1,3 +1,3 @@
-# @rigkit/runtime-client
+# @stoke/runtime-client
 
-Shared client and daemon manager for Rigkit runtime hosts.
+Shared client and daemon manager for Stoke runtime hosts.

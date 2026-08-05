@@ -13,7 +13,7 @@ import {
 } from "./index.ts";
 import { defineHostCapabilities, defineHostCapability } from "./host.ts";
 
-describe("@rigkit/sdk package boundary", () => {
+describe("@stoke/sdk package boundary", () => {
   test("exports authoring API and project runtime entrypoints", () => {
     expect(RIGKIT_SDK_VERSION).toBe("0.2.17");
     expect(env).toBeTypeOf("function");

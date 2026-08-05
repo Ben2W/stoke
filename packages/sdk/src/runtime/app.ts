@@ -1,4 +1,4 @@
-import { RIGKIT_ENGINE_VERSION } from "@rigkit/engine";
+import { RIGKIT_ENGINE_VERSION } from "@stoke/engine";
 import { RIGKIT_RUNTIME_VERSION } from "./version.ts";
 import { createRuntimeControlApiHandler } from "./api-handlers.ts";
 import {

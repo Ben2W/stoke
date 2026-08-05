@@ -7,7 +7,7 @@ import {
   HttpServerResponse,
 } from "@effect/platform";
 import * as BunHttpServer from "@effect/platform-bun/BunHttpServer";
-import { RIGKIT_ENGINE_VERSION } from "@rigkit/engine";
+import { RIGKIT_ENGINE_VERSION } from "@stoke/engine";
 import { Effect, Exit, Scope } from "effect";
 import { RIGKIT_RUNTIME_VERSION } from "./version.ts";
 import { runtimeJsonError, sessionRunIdFor } from "./app.ts";
@@ -32,7 +32,7 @@ export function serveRuntimeEffect(options: ServeRuntimeOptions): Effect.Effect<
   return Effect.acquireRelease(
     Effect.tryPromise({
       try: () => serveRuntime(options),
-      catch: (cause) => new RuntimeServerError("Failed to start Rigkit runtime server", { cause }),
+      catch: (cause) => new RuntimeServerError("Failed to start Stoke runtime server", { cause }),
     }),
     (server) => Effect.sync(() => server.stop()),
   );

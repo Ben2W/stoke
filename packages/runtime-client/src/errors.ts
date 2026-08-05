@@ -33,7 +33,7 @@ export class RuntimeApiVersionError extends Error {
   constructor(input: { version: string | null; supportedVersion: number }) {
     super(
       input.version
-        ? `Unsupported Rigkit runtime API version ${input.version}; this host supports ${input.supportedVersion}`
+        ? `Unsupported Stoke runtime API version ${input.version}; this host supports ${input.supportedVersion}`
         : `Runtime did not report x-rigkit-api-version; this host requires ${input.supportedVersion}`,
     );
     this.name = "RuntimeApiVersionError";

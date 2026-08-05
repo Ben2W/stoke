@@ -98,7 +98,7 @@ class FileProviderHostStorage implements ProviderStorage {
 
     const parsed = JSON.parse(readFileSync(this.path, "utf8")) as unknown;
     if (!isHostStorageFile(parsed, this.providerId)) {
-      throw new Error(`Invalid Rigkit provider host storage at ${this.path}`);
+      throw new Error(`Invalid Stoke provider host storage at ${this.path}`);
     }
     return parsed;
   }

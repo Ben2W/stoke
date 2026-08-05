@@ -96,7 +96,7 @@ async function getOrStartRuntimeUnsafe(options: GetOrStartRuntimeOptions): Promi
       reason: "missing-runtime",
       projectDir,
       path: configPath,
-      message: `Rigkit config must be ${canonicalConfigPath}; ${configPath} is not supported.`,
+      message: `Stoke config must be ${canonicalConfigPath}; ${configPath} is not supported.`,
     });
   }
   const projectId = projectIdFor({
@@ -136,7 +136,7 @@ async function getOrStartRuntimeUnsafe(options: GetOrStartRuntimeOptions): Promi
     throw new RuntimeStartupError({
       reason: "unhealthy-after-start",
       projectDir,
-      message: `Rigkit runtime did not become healthy for ${projectDir}`,
+      message: `Stoke runtime did not become healthy for ${projectDir}`,
     });
   }
   return started;
@@ -179,12 +179,12 @@ export function runtimeFingerprintFor(options: RuntimeProjectOptions): string {
   for (const file of dotenvFilesFor(projectDir)) updateFileFingerprint(hash, "dotenv", file);
   for (const file of projectFingerprintFiles(projectDir)) updateFileFingerprint(hash, "project-file", file);
   updateProjectSurfaceFingerprint(hash, projectDir);
-  updateRigkitPackageFingerprint(hash, join(projectDir, "node_modules", "@rigkit"));
+  updateStokePackageFingerprint(hash, join(projectDir, "node_modules", "@rigkit"));
 
   return `sha256-${hash.digest("hex")}`;
 }
 
-export function runtimePaths(projectId: string, rigkitHome = defaultRigkitHome()): RuntimePaths {
+export function runtimePaths(projectId: string, rigkitHome = defaultStokeHome()): RuntimePaths {
   const root = join(rigkitHome, "runtimes");
   return {
     root,
@@ -195,7 +195,7 @@ export function runtimePaths(projectId: string, rigkitHome = defaultRigkitHome()
   };
 }
 
-export function defaultRigkitHome(): string {
+export function defaultStokeHome(): string {
   return process.env.RIGKIT_HOME ? resolve(process.env.RIGKIT_HOME) : join(homedir(), ".rigkit");
 }
 
@@ -299,7 +299,7 @@ async function startRuntime(input: GetOrStartRuntimeOptions & {
     throw new RuntimeStartupError({
       reason: "invalid-ready-output",
       projectDir: input.projectDir,
-      message: `Rigkit runtime printed invalid ready output`,
+      message: `Stoke runtime printed invalid ready output`,
       cause,
     });
   }
@@ -389,22 +389,22 @@ async function withRuntimeLock(path: string, run: () => Promise<void>): Promise<
   throw new RuntimeStartupError({
     reason: "lock-timeout",
     path,
-    message: `Timed out waiting for Rigkit runtime lock ${path}`,
+    message: `Timed out waiting for Stoke runtime lock ${path}`,
   });
 }
 
 function resolveRuntimeBin(projectDir: string): string {
   const override = process.env.STOKE_RUNTIME_BIN?.trim();
   if (override && existsSync(override)) return override;
-  const local = join(projectDir, "node_modules", ".bin", process.platform === "win32" ? "rigkit-project-runtime.cmd" : "rigkit-project-runtime");
+  const local = join(projectDir, "node_modules", ".bin", process.platform === "win32" ? "stoke-project-runtime.cmd" : "stoke-project-runtime");
   if (existsSync(local)) return local;
   throw new RuntimeStartupError({
     reason: "missing-runtime",
     projectDir,
     path: local,
     message: [
-      `No project-local Rigkit runtime found at ${local}.`,
-      `Install project dependencies so @rigkit/sdk provides the rigkit-project-runtime binary.`,
+      `No project-local Stoke runtime found at ${local}.`,
+      `Install project dependencies so @stoke/sdk provides the stoke-project-runtime binary.`,
     ].join("\n"),
   });
 }
@@ -444,7 +444,7 @@ function readReadyLine(proc: ChildProcessByStdio<null, Readable, null>, paths: R
       fail(new RuntimeStartupError({
         reason: "startup-timeout",
         projectDir,
-        message: `Timed out waiting for Rigkit runtime to start`,
+        message: `Timed out waiting for Stoke runtime to start`,
       }), { kill: true });
     }, 15_000);
 
@@ -483,7 +483,7 @@ function readReadyLine(proc: ChildProcessByStdio<null, Readable, null>, paths: R
       fail(new RuntimeStartupError({
         reason: "exited-before-ready",
         projectDir,
-        message: `Rigkit runtime exited before ready`,
+        message: `Stoke runtime exited before ready`,
       }));
     }
 
@@ -493,7 +493,7 @@ function readReadyLine(proc: ChildProcessByStdio<null, Readable, null>, paths: R
       fail(new RuntimeStartupError({
         reason: "exited-before-ready",
         projectDir,
-        message: `Rigkit runtime exited before ready (${signal ?? `exit ${code}`})`,
+        message: `Stoke runtime exited before ready (${signal ?? `exit ${code}`})`,
       }));
     }
 
@@ -589,10 +589,10 @@ function updateProjectSurfaceFingerprint(hash: ReturnType<typeof createHash>, pr
   hash.update(entries.join("\n"));
 }
 
-function updateRigkitPackageFingerprint(hash: ReturnType<typeof createHash>, scopeDir: string): void {
+function updateStokePackageFingerprint(hash: ReturnType<typeof createHash>, scopeDir: string): void {
   // Walk every @rigkit scope reachable from the project's node_modules. We
   // recurse into each package's own `node_modules/@rigkit` so that nested
-  // installs (e.g. @rigkit/engine living under @rigkit/sdk/node_modules) are
+  // installs (e.g. @stoke/engine living under @stoke/sdk/node_modules) are
   // hashed too. Without this, edits to a transitive @rigkit package wouldn't
   // shift the runtime fingerprint and the daemon wouldn't auto-restart.
   const visited = new Set<string>();

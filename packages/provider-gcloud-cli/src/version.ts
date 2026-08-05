@@ -1,1 +1,0 @@
-export const RIGKIT_PROVIDER_GCLOUD_CLI_VERSION = "0.2.17";

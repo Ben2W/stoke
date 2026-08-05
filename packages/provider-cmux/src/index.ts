@@ -777,7 +777,7 @@ function cmuxTerminalRequiredMessage(
     "",
     "`cmux new-workspace` and `cmux ssh` are socket commands. With cmux's default socket control mode (`cmuxOnly`), they work from terminals started inside cmux because cmux sets CMUX_SOCKET_PATH/CMUX_WORKSPACE_ID and accepts descendant processes.",
     "",
-    "Run this Rigkit workflow from a cmux terminal, or enable cmux Automation/Password socket control and create the client with `allowExternalAutomation: true`.",
+    "Run this Stoke workflow from a cmux terminal, or enable cmux Automation/Password socket control and create the client with `allowExternalAutomation: true`.",
     output,
   ].filter(Boolean).join("\n");
 }

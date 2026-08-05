@@ -72,6 +72,10 @@ export const RuntimeControlOperationEffectSchema = Schema.Struct({
   createsWorkspace: Schema.optional(Schema.Boolean),
   cli: Schema.optional(RuntimeControlOperationCliEffectSchema),
   inputSchema: UnknownRecord,
+  requiredCapabilities: Schema.optional(Schema.Array(Schema.Struct({
+    id: Schema.String,
+    schemaHash: Schema.optional(Schema.String),
+  }))),
 }).annotations({ identifier: "RuntimeOperation" });
 
 export const RuntimeControlOperationsManifestEffectSchema = Schema.Struct({
@@ -267,7 +271,7 @@ const runId = HttpApiSchema.param("runId", Schema.String);
 const requestId = HttpApiSchema.param("requestId", Schema.String);
 
 export const runtimeControlApi = HttpApi.make("rigkit-runtime")
-  .annotate(OpenApi.Title, "Rigkit runtime")
+  .annotate(OpenApi.Title, "Stoke runtime")
   .annotate(OpenApi.Version, String(SUPPORTED_RUNTIME_API_VERSION))
   .add(
     HttpApiGroup.make("control", { topLevel: true })

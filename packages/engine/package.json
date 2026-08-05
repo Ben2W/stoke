@@ -1,11 +1,12 @@
 {
-  "name": "@rigkit/engine",
+  "name": "@stoke/engine",
   "version": "0.2.17",
+  "private": true,
   "license": "MIT",
   "type": "module",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/freestyle-sh/rigkit.git",
+    "url": "git+https://github.com/Ben2W/stoke.git",
     "directory": "packages/engine"
   },
   "exports": {
@@ -27,8 +28,5 @@
   "devDependencies": {
     "@types/bun": "latest",
     "typescript": "latest"
-  },
-  "publishConfig": {
-    "access": "public"
   }
 }

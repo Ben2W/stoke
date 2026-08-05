@@ -4,7 +4,7 @@ import {
   type StateService,
   type StateServiceFactory,
   type StateSnapshot,
-} from "@rigkit/engine";
+} from "@stoke/engine";
 
 export type RuntimeStateSnapshot = {
   version: 1;

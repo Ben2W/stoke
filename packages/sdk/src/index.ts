@@ -9,8 +9,8 @@ export {
   sequence,
   workflow,
   z,
-} from "@rigkit/engine";
-export type * from "@rigkit/engine";
+} from "@stoke/engine";
+export type * from "@stoke/engine";
 
 export {
   createRuntimeControlApiHandler,

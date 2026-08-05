@@ -7,10 +7,10 @@ const outDir = join(root, "dist", "release");
 const entrypoint = join(root, "packages", "cli", "src", "cli.ts");
 
 const targets = [
-  { target: "bun-darwin-arm64", name: "rig-darwin-arm64" },
-  { target: "bun-darwin-x64", name: "rig-darwin-x64" },
-  { target: "bun-linux-arm64", name: "rig-linux-arm64" },
-  { target: "bun-linux-x64-baseline", name: "rig-linux-x64" },
+  { target: "bun-darwin-arm64", name: "stoke-darwin-arm64" },
+  { target: "bun-darwin-x64", name: "stoke-darwin-x64" },
+  { target: "bun-linux-arm64", name: "stoke-linux-arm64" },
+  { target: "bun-linux-x64-baseline", name: "stoke-linux-x64" },
 ];
 
 rmSync(outDir, { recursive: true, force: true });
@@ -24,4 +24,4 @@ for (const item of targets) {
 }
 
 await $`sh -c "cd ${outDir} && shasum -a 256 *.tar.gz > checksums.txt"`;
-console.log(`built Rigkit CLI binaries in ${outDir}`);
+console.log(`built Stoke CLI binaries in ${outDir}`);

@@ -1,6 +1,6 @@
 import { readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { getOrStartRuntime } from "@rigkit/runtime-client";
+import { getOrStartRuntime } from "@stoke/runtime-client";
 import { managedClientFromEnvironment } from "./managed.ts";
 import { DEFAULT_CONFIG_PATH } from "./project.ts";
 
@@ -35,7 +35,6 @@ type CommandName =
   | "run"
   | "ls"
   | "cache"
-  | "providers"
   | "discover"
   | "doctor"
   | "version"
@@ -134,7 +133,6 @@ const GROUP_VALUES = "Values";
 const GROUP_PATHS = "Paths";
 const GROUP_SHELLS = "Shells";
 const GROUP_CACHE = "Cache entries";
-const GROUP_PROVIDERS = "Providers";
 const GROUP_PROJECTS = "Managed projects";
 
 const COMMANDS: CompletionItem[] = withGroup(GROUP_COMMANDS, [
@@ -153,7 +151,6 @@ const COMMANDS: CompletionItem[] = withGroup(GROUP_COMMANDS, [
   { value: "run", description: "run a workspace operation" },
   { value: "ls", description: "list selected project workflows and workspaces" },
   { value: "cache", description: "inspect and clear workflow cache" },
-  { value: "providers", description: "manage provider-owned local state" },
   { value: "discover", description: "discover Stoke projects" },
   { value: "doctor", description: "show runtime diagnostics" },
   { value: "version", description: "show CLI version" },
@@ -259,9 +256,6 @@ const COMMAND_OPTIONS: Record<CommandName, OptionDefinition[]> = {
   cache: [
     HELP_OPTION,
   ],
-  providers: [
-    HELP_OPTION,
-  ],
   discover: [
     JSON_OPTION,
     HELP_OPTION,
@@ -326,31 +320,6 @@ const CACHE_SUBCOMMAND_OPTIONS: Record<string, OptionDefinition[]> = {
     JSON_OPTION,
     HELP_OPTION,
   ],
-};
-
-const PROVIDER_TARGETS: CompletionItem[] = withGroup(GROUP_PROVIDERS, [
-  { value: "freestyle", description: "Freestyle provider state" },
-]);
-
-const PROVIDER_SUBCOMMANDS: Record<string, CompletionItem[]> = {
-  freestyle: withGroup(GROUP_SUBCOMMANDS, [
-    { value: "clear", description: "clear Freestyle provider local auth and identity state" },
-  ]),
-};
-
-const PROVIDER_TARGET_OPTIONS: Record<string, OptionDefinition[]> = {
-  freestyle: [
-    HELP_OPTION,
-  ],
-};
-
-const PROVIDER_SUBCOMMAND_OPTIONS: Record<string, Record<string, OptionDefinition[]>> = {
-  freestyle: {
-    clear: [
-      JSON_OPTION,
-      HELP_OPTION,
-    ],
-  },
 };
 
 const COMPLETION_SHELLS: CompletionItem[] = withGroup(GROUP_SHELLS, [
@@ -552,14 +521,6 @@ async function optionsForCommandContext(context: CompletionContext): Promise<Opt
     if (cache.subcommand) return CACHE_SUBCOMMAND_OPTIONS[cache.subcommand] ?? [HELP_OPTION];
   }
 
-  if (context.command === "providers") {
-    const providers = parseProvidersArgs(context);
-    if (providers.provider && providers.subcommand) {
-      return PROVIDER_SUBCOMMAND_OPTIONS[providers.provider]?.[providers.subcommand] ?? [HELP_OPTION];
-    }
-    if (providers.provider) return PROVIDER_TARGET_OPTIONS[providers.provider] ?? [HELP_OPTION];
-  }
-
   if (context.command === "project") {
     const project = parseProjectArgs(context);
     if (project.subcommand === "ls") return PROJECT_LS_OPTIONS;
@@ -639,8 +600,6 @@ async function completeCommand(context: CompletionContext): Promise<CompletionIt
       return completeOptionsOnlyCommand(context, COMMAND_OPTIONS.ls);
     case "cache":
       return await completeCacheCommand(context);
-    case "providers":
-      return completeProvidersCommand(context);
     case "project":
       return await completeManagedProjectCommand(context);
     case "completion":
@@ -791,24 +750,6 @@ async function completeCacheCommand(context: CompletionContext): Promise<Complet
   }
 
   return [];
-}
-
-function completeProvidersCommand(context: CompletionContext): CompletionItem[] {
-  const providers = parseProvidersArgs(context);
-  if (!providers.provider) {
-    if (context.current.startsWith("-")) return filterItems(optionItems(COMMAND_OPTIONS.providers), context.current);
-    return filterItems(PROVIDER_TARGETS, context.current);
-  }
-
-  if (!providers.subcommand) {
-    const options = PROVIDER_TARGET_OPTIONS[providers.provider] ?? [HELP_OPTION];
-    const subcommands = PROVIDER_SUBCOMMANDS[providers.provider] ?? [];
-    if (context.current.startsWith("-")) return filterItems(optionItems(options), context.current);
-    return filterItems(subcommands, context.current);
-  }
-
-  const options = PROVIDER_SUBCOMMAND_OPTIONS[providers.provider]?.[providers.subcommand] ?? [HELP_OPTION];
-  return completeOptionsOnlyCommand(context, options);
 }
 
 async function completeManagedProjectCommand(context: CompletionContext): Promise<CompletionItem[]> {
@@ -1035,15 +976,6 @@ function parseCacheArgs(context: CompletionContext): { workflow?: string; subcom
     workflow: workflow?.value,
     subcommand: subcommand?.value,
     args: subcommand ? context.argsBefore.slice(subcommand.index + 1) : [],
-  };
-}
-
-function parseProvidersArgs(context: CompletionContext): { provider?: string; subcommand?: string; args: string[] } {
-  const positionals = positionalsFrom(context.argsBefore, COMMAND_OPTIONS.providers);
-  return {
-    provider: positionals[0],
-    subcommand: positionals[1],
-    args: positionals.slice(2),
   };
 }
 

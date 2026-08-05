@@ -1,5 +1,5 @@
 import { OpenApi } from "@effect/platform";
-import { runtimeControlApi } from "@rigkit/runtime-client";
+import { runtimeControlApi } from "@stoke/runtime-client";
 
 export {
   RuntimeControlHealthEffectSchema as RuntimeHealthEffectSchema,
@@ -28,7 +28,7 @@ export {
   RuntimeControlWorkspaceEffectSchema as WorkspaceEffectSchema,
   RuntimeControlWorkspacesResponseEffectSchema as WorkspacesResponseEffectSchema,
   runtimeControlApi,
-} from "@rigkit/runtime-client";
+} from "@stoke/runtime-client";
 
 export function runtimeControlOpenApiDocument(): OpenApi.OpenAPISpec {
   const spec = OpenApi.fromApi(runtimeControlApi, { additionalPropertiesStrategy: "allow" });

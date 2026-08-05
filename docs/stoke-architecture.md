@@ -2,8 +2,8 @@
 
 ## Product boundary
 
-Stoke is Rigkit's typed workflow engine plus a managed control plane. It has one
-cloud platform: Vercel.
+Stoke is a typed workflow engine plus a managed control plane. It has one cloud
+platform: Vercel.
 
 - The CLI evaluates `rigkit/index.ts` in a local checkout when one is available.
   Checkout-free `plan` and `apply` requests evaluate the same configuration in
@@ -17,8 +17,7 @@ cloud platform: Vercel.
 - Cloud development environments will run in Vercel Sandbox.
 - cmux remains a first-class local host capability.
 
-The inherited Cloudflare applications are not Stoke deployment targets. They
-remain in the fork only while the product surface is extracted.
+The product has no Cloudflare deployment surface.
 
 ## Project identity
 
@@ -193,4 +192,4 @@ log before receiving live events.
 - No arbitrary TypeScript evaluation in the control plane.
 - No organization/RBAC model in the first private preview.
 - No CI product surface in the interview project.
-- No global rewrite of inherited `@rigkit/*` internals.
+- No public package-release surface during the interview project.

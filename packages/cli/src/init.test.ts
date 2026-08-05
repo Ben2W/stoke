@@ -6,7 +6,7 @@ import { initProject } from "./init.ts";
 import { STOKE_CLI_VERSION } from "./version.ts";
 
 describe("initProject", () => {
-  test("creates the canonical Rigkit config and package metadata", () => {
+  test("creates the canonical Stoke config and package metadata", () => {
     const projectDir = join(mkdtempSync(join(tmpdir(), "rigkit-init-")), "My Project");
     const result = initProject({ projectDir });
     const configPath = join(projectDir, "rigkit", "index.ts");
@@ -41,20 +41,15 @@ describe("initProject", () => {
         plan: "stoke plan",
       },
       devDependencies: {
-        "@rigkit/provider-cmux": STOKE_CLI_VERSION,
-        "@rigkit/provider-freestyle": STOKE_CLI_VERSION,
-        "@rigkit/sdk": STOKE_CLI_VERSION,
+        "@stoke/provider-vercel-sandbox": STOKE_CLI_VERSION,
+        "@stoke/sdk": STOKE_CLI_VERSION,
       },
     });
 
     const config = readFileSync(configPath, "utf8");
     expect(config).toContain('workflow("dev"');
-    expect(config).toContain('cmux.provider()');
-    expect(config).toContain('freestyle.terminal()');
-    expect(config).toContain('gh auth login --hostname github.com');
-    expect(config).toContain('gh repo clone ${shellQuote(repo)} ${shellQuote(repoPath)}');
-    expect(config).toContain('.workspaceOperation("open-cmux"');
-    expect(config).toContain('.workspaceOperation("open-vscode"');
+    expect(config).toContain('vercelSandbox.provider()');
+    expect(config).toContain('vercelSandbox.terminal()');
     expect(config).toContain('.workspaceOperation("ssh"');
     expect(config).not.toContain("stoke.config.ts");
   });
@@ -68,7 +63,7 @@ describe("initProject", () => {
         test: "echo ok",
       },
       dependencies: {
-        "@rigkit/sdk": "0.0.1",
+        "@stoke/sdk": "0.0.1",
       },
     }, null, 2)}\n`);
 
@@ -84,9 +79,8 @@ describe("initProject", () => {
       plan: "stoke plan",
       test: "echo ok",
     });
-    expect(pkg.dependencies["@rigkit/sdk"]).toBe(STOKE_CLI_VERSION);
-    expect(pkg.devDependencies["@rigkit/provider-cmux"]).toBe(STOKE_CLI_VERSION);
-    expect(pkg.devDependencies["@rigkit/provider-freestyle"]).toBe(STOKE_CLI_VERSION);
+    expect(pkg.dependencies["@stoke/sdk"]).toBe(STOKE_CLI_VERSION);
+    expect(pkg.devDependencies["@stoke/provider-vercel-sandbox"]).toBe(STOKE_CLI_VERSION);
   });
 
   test("rejects an existing canonical config", () => {

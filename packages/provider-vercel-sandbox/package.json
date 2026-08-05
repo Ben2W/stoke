@@ -1,16 +1,13 @@
 {
-  "name": "@stoke/sdk",
-  "version": "0.2.17",
+  "name": "@stoke/provider-vercel-sandbox",
+  "version": "0.0.0",
   "private": true,
   "license": "MIT",
   "type": "module",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Ben2W/stoke.git",
-    "directory": "packages/sdk"
-  },
-  "bin": {
-    "stoke-project-runtime": "./src/cli.ts"
+    "directory": "packages/provider-vercel-sandbox"
   },
   "exports": {
     ".": "./src/index.ts",
@@ -27,17 +24,9 @@
     "test": "bun test"
   },
   "dependencies": {
-    "@stoke/managed": "workspace:*",
-    "@effect/cluster": "0.58.2",
-    "@effect/experimental": "0.60.0",
-    "@effect/platform": "0.96.1",
-    "@effect/platform-bun": "0.89.0",
-    "@effect/rpc": "0.75.1",
-    "@effect/sql": "0.51.1",
-    "@effect/workflow": "0.18.1",
     "@stoke/engine": "workspace:*",
-    "@stoke/runtime-client": "workspace:*",
-    "effect": "^3.21.2"
+    "@stoke/sdk": "workspace:*",
+    "@vercel/sandbox": "2.9.2"
   },
   "devDependencies": {
     "@types/bun": "latest",

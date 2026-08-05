@@ -1,7 +1,7 @@
 import {
   EngineOperationNotFoundError,
   EngineOperationValidationError,
-} from "@rigkit/engine";
+} from "@stoke/engine";
 
 export type RuntimeFailureCode =
   | "ENGINE_FAILED"

@@ -25,7 +25,7 @@ function rigkitIndexPath(projectDir: string): string {
   return join(projectDir, "rigkit", "index.ts");
 }
 
-function writeRigkitIndex(projectDir: string, contents: string): string {
+function writeStokeIndex(projectDir: string, contents: string): string {
   const configPath = rigkitIndexPath(projectDir);
   mkdirSync(join(projectDir, "rigkit"), { recursive: true });
   writeFileSync(configPath, contents);
@@ -183,7 +183,7 @@ describe("runtime HTTP app", () => {
 
   test("loads config before reporting runtime readiness", async () => {
     const root = mkdtempSync(join(tmpdir(), "rigkit-runtime-startup-config-"));
-    const configPath = writeRigkitIndex(root, "throw new Error('startup config failed');\n");
+    const configPath = writeStokeIndex(root, "throw new Error('startup config failed');\n");
 
     try {
       await expect(serveRuntime({
@@ -408,7 +408,7 @@ describe("runtime HTTP app", () => {
 
   test("rejects config operation ids reserved by host commands", async () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-runtime-reserved-operation-"));
-    const configPath = writeRigkitIndex(projectDir,
+    const configPath = writeStokeIndex(projectDir,
       `
         import { sequence } from "${import.meta.dir}/../../../engine/src/index.ts";
 
@@ -420,7 +420,7 @@ describe("runtime HTTP app", () => {
 
     try {
       await expect(loadEngine({ projectDir, configPath }))
-        .rejects.toThrow("reserved by the Rigkit host");
+        .rejects.toThrow("reserved by the Stoke host");
     } finally {
       rmSync(projectDir, { recursive: true, force: true });
     }
@@ -428,7 +428,7 @@ describe("runtime HTTP app", () => {
 
   test("negotiates run sessions with hello acknowledgements and heartbeats", async () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-runtime-session-"));
-    const configPath = writeRigkitIndex(projectDir,
+    const configPath = writeStokeIndex(projectDir,
       `
         import { sequence } from "${import.meta.dir}/../../../engine/src/index.ts";
 
@@ -480,7 +480,7 @@ describe("runtime HTTP app", () => {
 
   test("exposes persisted workspace payload as workspace context", async () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-runtime-workspace-ctx-"));
-    const configPath = writeRigkitIndex(projectDir,
+    const configPath = writeStokeIndex(projectDir,
       `
         import { sequence } from "${import.meta.dir}/../../../engine/src/index.ts";
 
@@ -535,7 +535,7 @@ describe("runtime HTTP app", () => {
 
   test("reports typed operation validation failures on run events", async () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-runtime-validation-"));
-    const configPath = writeRigkitIndex(projectDir,
+    const configPath = writeStokeIndex(projectDir,
       `
         import { sequence } from "${import.meta.dir}/../../../engine/src/index.ts";
 
@@ -774,7 +774,7 @@ describe("runtime HTTP app", () => {
 });
 
 function writeNoopConfig(projectDir: string): void {
-  writeRigkitIndex(projectDir,
+  writeStokeIndex(projectDir,
     `
       import { sequence } from "${import.meta.dir}/../../../engine/src/index.ts";
 
@@ -785,7 +785,7 @@ function writeNoopConfig(projectDir: string): void {
 
 async function serveRuntimeFixture(prefix: string, configBody: string) {
   const projectDir = mkdtempSync(join(tmpdir(), prefix));
-  const configPath = writeRigkitIndex(projectDir,
+  const configPath = writeStokeIndex(projectDir,
     `
       import { sequence } from "${import.meta.dir}/../../../engine/src/index.ts";
 

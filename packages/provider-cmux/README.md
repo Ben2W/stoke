@@ -1,9 +1,9 @@
-# @rigkit/provider-cmux
+# @stoke/provider-cmux
 
-Small SDK and Rigkit provider facade for driving local `cmux`.
+Small SDK and Stoke provider facade for driving local `cmux`.
 
 ```ts
-import { createCmuxClient } from "@rigkit/provider-cmux";
+import { createCmuxClient } from "@stoke/provider-cmux";
 
 const cmux = createCmuxClient();
 
@@ -48,5 +48,5 @@ await providers.cmux.send({
 await providers.cmux.selectWorkspace(workspace.workspaceId);
 ```
 
-Local hosts can import `@rigkit/provider-cmux/host` to register the trusted
-`cmux.call` handler. The Rigkit CLI registers this handler automatically.
+Local hosts can import `@stoke/provider-cmux/host` to register the trusted
+`cmux.call` handler. The Stoke CLI registers this handler automatically.

@@ -46,8 +46,8 @@ export function evaluateVersionCompatibility(input: {
 
 export function renderVersionCompatibilityNotice(report: VersionCompatibilityReport): string {
   const heading = report.severity === "error"
-    ? `${ui.err(ui.sym.err)} ${ui.bold("Rigkit version mismatch")}`
-    : `${ui.warn("!")} ${ui.bold("Rigkit version mismatch")}`;
+    ? `${ui.err(ui.sym.err)} ${ui.bold("Stoke version mismatch")}`
+    : `${ui.warn("!")} ${ui.bold("Stoke version mismatch")}`;
   const lines = [
     heading,
     `  ${ui.bold("global CLI")}       ${report.cliVersion}`,
@@ -76,8 +76,8 @@ function compareCliRuntime(cliVersion: string, runtimeVersion: string): VersionC
       subject: "cli-runtime",
       message: `Global CLI ${cliVersion} and project runtime ${runtimeVersion} use different major versions.`,
       recommendation: cli.major < runtime.major
-        ? "Update the global CLI with: curl -fsSL https://www.rigkit.dev/install | sh"
-        : `Update project @rigkit/* packages to match CLI ${cliVersion}.`,
+        ? `Update the global CLI with: pnpm add -g @stoke/cli@${runtimeVersion}`
+        : `Update project @stoke/* packages to match CLI ${cliVersion}.`,
     };
   }
   if (cli.minor !== runtime.minor) {
@@ -86,8 +86,8 @@ function compareCliRuntime(cliVersion: string, runtimeVersion: string): VersionC
       subject: "cli-runtime",
       message: `Global CLI ${cliVersion} and project runtime ${runtimeVersion} use different minor versions.`,
       recommendation: cli.minor < runtime.minor
-        ? "Update the global CLI with: curl -fsSL https://www.rigkit.dev/install | sh"
-        : `Update project @rigkit/* packages to match CLI ${cliVersion}.`,
+        ? `Update the global CLI with: pnpm add -g @stoke/cli@${runtimeVersion}`
+        : `Update project @stoke/* packages to match CLI ${cliVersion}.`,
     };
   }
   return undefined;
@@ -102,7 +102,7 @@ function compareRuntimeEngine(runtimeVersion: string, engineVersion: string): Ve
       severity: "error",
       subject: "runtime-engine",
       message: `Project runtime ${runtimeVersion} and engine ${engineVersion} use different major versions.`,
-      recommendation: "Install matching @rigkit/sdk and @rigkit/engine versions in the project.",
+      recommendation: "Install matching @stoke/sdk and @stoke/engine versions in the project.",
     };
   }
   if (runtime.minor !== engine.minor) {
@@ -110,7 +110,7 @@ function compareRuntimeEngine(runtimeVersion: string, engineVersion: string): Ve
       severity: "warning",
       subject: "runtime-engine",
       message: `Project runtime ${runtimeVersion} and engine ${engineVersion} use different minor versions.`,
-      recommendation: "Install matching @rigkit/sdk and @rigkit/engine versions in the project.",
+      recommendation: "Install matching @stoke/sdk and @stoke/engine versions in the project.",
     };
   }
   return undefined;

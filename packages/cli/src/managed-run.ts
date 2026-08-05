@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import type { RuntimeClient } from "@rigkit/runtime-client";
+import type { RuntimeClient } from "@stoke/runtime-client";
 import type {
   ManagedClient,
   ManagedRun,

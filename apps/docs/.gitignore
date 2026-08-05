@@ -1,9 +1,0 @@
-node_modules
-.astro
-.wrangler
-dist
-.turbo
-*.log
-src/content/docs/v[0-9]*.[0-9]*/
-src/content/docs/v[0-9]*.[0-9]*.[0-9]*/
-wrangler.rigkit-docs*.generated.jsonc

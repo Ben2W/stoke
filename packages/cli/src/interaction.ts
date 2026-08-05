@@ -1,4 +1,4 @@
-import type { InteractionPresenter } from "@rigkit/engine";
+import type { InteractionPresenter } from "@stoke/engine";
 
 export function createLocalInteractionPresenter(): InteractionPresenter {
   return async (request) => {

@@ -15,7 +15,7 @@ import {
   defineHostCapability,
   type HostCapabilityContext,
   type HostCapabilityHandler,
-} from "@rigkit/sdk/host";
+} from "@stoke/sdk/host";
 import {
   CMUX_CALL_CAPABILITY,
   type CmuxCallInput,

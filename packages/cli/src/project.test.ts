@@ -31,7 +31,7 @@ describe("CLI project resolution", () => {
     const cwd = mkdtempSync(join(tmpdir(), "rigkit-cli-"));
 
     expect(() => resolveConfigPaths({ cwd })).toThrow(
-      /No Rigkit config found from .* upward/,
+      /No Stoke config found from .* upward/,
     );
   });
 
@@ -40,7 +40,7 @@ describe("CLI project resolution", () => {
     writeFileSync(join(cwd, "stoke.config.ts"), "export const dev = {}\n");
 
     expect(() => resolveConfigPaths({ cwd })).toThrow(
-      /No Rigkit config found from .* upward/,
+      /No Stoke config found from .* upward/,
     );
     expect(discoverProjectConfigs({ cwd })).toEqual([]);
   });

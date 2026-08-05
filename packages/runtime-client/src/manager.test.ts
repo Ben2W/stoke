@@ -54,7 +54,7 @@ describe("runtime manager", () => {
         configPath,
         rigkitHome,
       })).rejects.toThrow(
-        `Rigkit config must be ${join(projectDir, "rigkit", "index.ts")}; ${configPath} is not supported.`,
+        `Stoke config must be ${join(projectDir, "rigkit", "index.ts")}; ${configPath} is not supported.`,
       );
     } finally {
       rmSync(projectDir, { recursive: true, force: true });
@@ -236,7 +236,7 @@ describe("runtime manager", () => {
         token: "test-token",
       });
 
-      await expect(runtime.runEvents("run/id", () => {})).rejects.toThrow("Unsupported Rigkit runtime API version");
+      await expect(runtime.runEvents("run/id", () => {})).rejects.toThrow("Unsupported Stoke runtime API version");
       await expect(runtime.runEvents("run/id", () => {})).rejects.toBeInstanceOf(RuntimeApiVersionError);
       expect(path).toBe("/runs/run%2Fid/events");
     } finally {
@@ -300,7 +300,7 @@ describe("runtime manager", () => {
         token: "test-token",
       });
 
-      await expect(runtime.control.runtime()).rejects.toThrow("Unsupported Rigkit runtime API version");
+      await expect(runtime.control.runtime()).rejects.toThrow("Unsupported Stoke runtime API version");
       await expect(runtime.control.runtime()).rejects.toBeInstanceOf(RuntimeApiVersionError);
     } finally {
       server.stop(true);
@@ -379,7 +379,7 @@ describe("runtime manager", () => {
 function writeFakeRuntimeBin(projectDir: string): void {
   const binDir = join(projectDir, "node_modules", ".bin");
   mkdirSync(binDir, { recursive: true });
-  const binPath = join(binDir, process.platform === "win32" ? "rigkit-project-runtime.cmd" : "rigkit-project-runtime");
+  const binPath = join(binDir, process.platform === "win32" ? "stoke-project-runtime.cmd" : "stoke-project-runtime");
   writeFileSync(
     binPath,
     `#!/usr/bin/env bun

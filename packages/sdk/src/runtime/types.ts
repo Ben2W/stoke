@@ -1,4 +1,4 @@
-import type { JsonValue } from "@rigkit/engine";
+import type { JsonValue } from "@stoke/engine";
 
 export type ServeRuntimeOptions = {
   projectId: string;

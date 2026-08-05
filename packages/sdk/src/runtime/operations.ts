@@ -5,7 +5,7 @@ import {
   type JsonValue,
   type LocalHostCapabilityRequestOptions,
   type WorkspaceRecord,
-} from "@rigkit/engine";
+} from "@stoke/engine";
 import { normalizeRuntimeRunError } from "./errors.ts";
 import {
   HostCommandResultSchema,
@@ -171,6 +171,7 @@ function runtimeOperationForEngineOperation(engine: DevMachineEngine, operation:
     createsWorkspace: operation.createsWorkspace,
     ...(cli ? { cli } : {}),
     inputSchema,
+    requiredCapabilities: operation.requiredCapabilities?.map((capability) => ({ ...capability })) ?? [],
   };
 }
 

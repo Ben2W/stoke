@@ -192,6 +192,28 @@ function createSequence<
         nodeOptions,
       );
     },
+    removeProvider: (providerName: string) => {
+      if (!(providerName in providers)) {
+        throw new Error(`Provider ${providerName} is not configured in this scope`);
+      }
+      const nextProviders = { ...providers } as WorkflowProviderMap;
+      delete nextProviders[providerName];
+      return createSequence(
+        app as unknown as WorkflowDefinition<string, typeof nextProviders>,
+        name,
+        children,
+        nextProviders,
+        workspace as unknown as WorkflowWorkspaceDefinition<typeof nextProviders, OutputContext, any> | undefined,
+        operations as unknown as readonly WorkflowOperationDefinition<typeof nextProviders, any>[],
+        workspaceOperations as unknown as readonly WorkflowWorkspaceOperationDefinition<
+          typeof nextProviders,
+          OutputContext,
+          WorkspaceData,
+          any
+        >[],
+        nodeOptions,
+      );
+    },
     add: (child: WorkflowNodeDefinition<any, any, any>) => {
       return createSequence(
         app,
@@ -284,7 +306,7 @@ function createOperation<Providers extends WorkflowProviderMap, Input extends ob
   const normalized = id.trim();
   if (!normalized) throw new Error(`Operation ids must be non-empty`);
   if (reservedHostOperationIds.has(normalized)) {
-    throw new Error(`Operation id ${normalized} is reserved by the Rigkit host`);
+    throw new Error(`Operation id ${normalized} is reserved by the Stoke host`);
   }
   return {
     id: normalized,
@@ -310,7 +332,7 @@ function createWorkspaceOperation<
   if (!normalized) throw new Error(`Workspace operation ids must be non-empty`);
   if (normalized.includes("/")) throw new Error(`Workspace operation ids cannot contain "/"`);
   if (reservedHostOperationIds.has(normalized)) {
-    throw new Error(`Workspace operation id ${normalized} is reserved by the Rigkit host`);
+    throw new Error(`Workspace operation id ${normalized} is reserved by the Stoke host`);
   }
   return {
     id: normalized,
@@ -445,7 +467,7 @@ function validateProvider(name: string, provider: WorkflowProviderDefinition): v
     throw new Error(`Provider name ${name} is reserved by the task context`);
   }
   if (!isProviderDefinition(provider)) {
-    throw new Error(`Provider ${name} is not a valid Rigkit provider`);
+    throw new Error(`Provider ${name} is not a valid Stoke provider`);
   }
 }
 

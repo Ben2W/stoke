@@ -2,9 +2,10 @@ import {
   defineProvider,
   type LocalWorkspaceRuntime,
   type WorkflowProviderDefinition,
-} from "@rigkit/sdk";
-import type { BaseProviderPlugin, WorkflowProviderController } from "@rigkit/engine";
+} from "@stoke/sdk";
+import type { BaseProviderPlugin, WorkflowProviderController } from "@stoke/engine";
 import {
+  CMUX_CALL_CAPABILITY,
   CMUX_CALL_CAPABILITY_ID,
   type CmuxBrowserOpenInput,
   type CmuxCallInput,
@@ -50,6 +51,7 @@ export const cmux = {
 
 export const cmuxProviderPlugin: BaseProviderPlugin = {
   providerId: CMUX_PROVIDER_ID,
+  capabilities: [CMUX_CALL_CAPABILITY],
   createProvider(): WorkflowProviderController<CmuxRuntime> {
     return {
       providerId: CMUX_PROVIDER_ID,

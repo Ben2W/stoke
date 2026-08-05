@@ -12,7 +12,7 @@ const capabilities = [
   {
     icon: Terminal,
     title: "Local TypeScript workflows",
-    copy: "Keep Rigkit’s typed workflow engine on the machine doing the work, including cmux integration.",
+    copy: "Evaluate Stoke’s typed workflows where the work runs, with trusted local capabilities such as cmux.",
   },
   {
     icon: Cloud,
@@ -60,7 +60,7 @@ export function LandingPage() {
 
       <section className="mx-auto max-w-7xl px-5 py-20 sm:px-8 sm:py-28" id="product">
         <div className="mb-12 max-w-2xl">
-          <p className="text-sm font-medium text-zinc-500">The managed layer Rigkit was missing</p>
+          <p className="text-sm font-medium text-zinc-500">One control plane for every environment</p>
           <h2 className="mt-3 text-3xl font-semibold tracking-[-0.04em] sm:text-4xl">Stable projects. Replaceable environments.</h2>
           <p className="mt-4 text-base leading-7 text-zinc-600">A checkout is a location, not the identity. Stoke keeps the project stable while laptops, paths, runners, and sandboxes change.</p>
         </div>

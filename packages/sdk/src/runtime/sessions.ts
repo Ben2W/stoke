@@ -1,5 +1,5 @@
 import { Socket } from "@effect/platform";
-import { RIGKIT_ENGINE_VERSION } from "@rigkit/engine";
+import { RIGKIT_ENGINE_VERSION } from "@stoke/engine";
 import { Effect, type Scope } from "effect";
 import { RIGKIT_RUNTIME_VERSION } from "./version.ts";
 import {

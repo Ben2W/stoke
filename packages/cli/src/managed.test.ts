@@ -17,12 +17,12 @@ describe("managed project source resolution", () => {
       owner: "vercel",
       repository: "next.js",
     });
-    expect(parseGitHubRepository("https://github.com/freestyle-sh/rigkit.git")).toEqual({
-      owner: "freestyle-sh",
+    expect(parseGitHubRepository("https://github.com/vercel-sh/rigkit.git")).toEqual({
+      owner: "vercel-sh",
       repository: "rigkit",
     });
-    expect(parseGitHubRepository("git@github.com:freestyle-sh/rigkit.git")).toEqual({
-      owner: "freestyle-sh",
+    expect(parseGitHubRepository("git@github.com:vercel-sh/rigkit.git")).toEqual({
+      owner: "vercel-sh",
       repository: "rigkit",
     });
   });

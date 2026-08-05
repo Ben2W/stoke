@@ -12,8 +12,8 @@ describe("createRunPresenter", () => {
         type: "log.output",
         stream: "error",
         data: [
-          "Freestyle API request failed. Replay request:",
-          'await fetch("https://api.freestyle.sh/v1/vms", {',
+          "Vercel API request failed. Replay request:",
+          'await fetch("https://api.vercel.sh/v1/vms", {',
           '  method: "POST",',
           `  headers: { "x-long": "${longValue}" },`,
           "});",
@@ -24,7 +24,7 @@ describe("createRunPresenter", () => {
     }, { columns: 24 });
 
     const plain = stripAnsi(output);
-    expect(plain).toContain(`    ${sym.err} Freestyle API request failed. Replay request:\n      await fetch`);
+    expect(plain).toContain(`    ${sym.err} Vercel API request failed. Replay request:\n      await fetch`);
     expect(plain).not.toContain(`${sym.err} await fetch`);
     expect(plain).not.toContain(`${sym.err}   method`);
     expect(plain).toContain(longValue);

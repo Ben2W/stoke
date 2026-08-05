@@ -15,7 +15,7 @@ function rigkitIndexPath(projectDir: string): string {
   return join(projectDir, "rigkit", "index.ts");
 }
 
-function writeRigkitIndex(projectDir: string, contents: string): string {
+function writeStokeIndex(projectDir: string, contents: string): string {
   const configPath = rigkitIndexPath(projectDir);
   mkdirSync(join(projectDir, "rigkit"), { recursive: true });
   writeFileSync(configPath, contents);
@@ -41,19 +41,47 @@ function createScopedTestState(projectDir: string) {
 }
 
 describe("DevMachineEngine workflow runtime", () => {
+  test("infers operation host capabilities from the captured provider scope", async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), "rigkit-capability-manifest-"));
+    writeStokeIndex(projectDir, `
+      import { defineProvider, workflow } from "${import.meta.dir}/index.ts";
+
+      const terminal = defineProvider("terminal", {}, {
+        providerId: "terminal",
+        capabilities: [{ id: "ssh", schemaHash: "sha256:ssh-v1" }],
+        createProvider: () => ({ providerId: "terminal", runtime: () => ({}) }),
+      });
+
+      export const root = workflow("capabilities")
+        .sequence("capabilities")
+        .addProvider("terminal", terminal)
+        .operation("shell", { run: async () => ({ ok: true }) })
+        .removeProvider("terminal")
+        .operation("status", { run: async () => ({ ok: true }) });
+    `);
+
+    const engine = await createDevMachineEngine({ projectDir });
+    await engine.load();
+
+    expect(engine.listRuntimeOperations().find((operation) => operation.id === "shell")?.requiredCapabilities)
+      .toEqual([{ id: "ssh", schemaHash: "sha256:ssh-v1" }]);
+    expect(engine.listRuntimeOperations().find((operation) => operation.id === "status")?.requiredCapabilities)
+      .toEqual([]);
+  });
+
   test("rejects non-canonical config paths", async () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-noncanonical-config-"));
     const configPath = join(projectDir, "rig.config.ts");
     writeFileSync(configPath, "export const dev = {}\n");
 
     await expect(createDevMachineEngine({ projectDir, configPath })).rejects.toThrow(
-      `Rigkit config must be ${rigkitIndexPath(projectDir)}; ${configPath} is not supported.`,
+      `Stoke config must be ${rigkitIndexPath(projectDir)}; ${configPath} is not supported.`,
     );
   });
 
   test("plans, applies graph nodes, reuses graph cache, and forks workspaces", async () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-"));
-    writeRigkitIndex(projectDir,
+    writeStokeIndex(projectDir,
       `
         import { defineProvider, workflow, z } from "${import.meta.dir}/index.ts";
 
@@ -207,7 +235,7 @@ describe("DevMachineEngine workflow runtime", () => {
 
   test("creates workspaces from workspace definitions and exposes persisted workspace context", async () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-"));
-    writeRigkitIndex(projectDir,
+    writeStokeIndex(projectDir,
       `
         import { defineProvider, workflow } from "${import.meta.dir}/index.ts";
 
@@ -305,7 +333,7 @@ describe("DevMachineEngine workflow runtime", () => {
 
   test("runs workspace operations with scalar inputs", async () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-"));
-    writeRigkitIndex(projectDir,
+    writeStokeIndex(projectDir,
       `
         import { sequence, z } from "${import.meta.dir}/index.ts";
 
@@ -393,7 +421,7 @@ describe("DevMachineEngine workflow runtime", () => {
 
   test("rejects workspace names that are not shell-safe", async () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-"));
-    writeRigkitIndex(projectDir,
+    writeStokeIndex(projectDir,
       `
         import { sequence } from "${import.meta.dir}/index.ts";
 
@@ -419,7 +447,7 @@ describe("DevMachineEngine workflow runtime", () => {
 
   test("loads multiple named workflow exports", async () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-"));
-    writeRigkitIndex(projectDir,
+    writeStokeIndex(projectDir,
       `
         import { sequence } from "${import.meta.dir}/index.ts";
 
@@ -442,7 +470,7 @@ describe("DevMachineEngine workflow runtime", () => {
 
   test("creates state through an injectable state service factory", async () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-"));
-    writeRigkitIndex(projectDir,
+    writeStokeIndex(projectDir,
       `
         import { sequence } from "${import.meta.dir}/index.ts";
 
@@ -489,7 +517,7 @@ describe("DevMachineEngine workflow runtime", () => {
     const secondProjectDir = join(rootDir, "two");
     const state = createStateStore({ projectDir: rootDir });
     const writeConfig = (projectDir: string, value: string) =>
-      writeRigkitIndex(
+      writeStokeIndex(
         projectDir,
         `
           import { workflow } from "${import.meta.dir}/index.ts";
@@ -538,7 +566,7 @@ describe("DevMachineEngine workflow runtime", () => {
     const secondProjectDir = join(rootDir, "two");
     const state = createStateStore({ projectDir: rootDir });
     const writeConfig = (projectDir: string, value: string) =>
-      writeRigkitIndex(
+      writeStokeIndex(
         projectDir,
         `
           import { workflow } from "${import.meta.dir}/index.ts";
@@ -581,7 +609,7 @@ describe("DevMachineEngine workflow runtime", () => {
     const secondProjectDir = join(rootDir, "two");
     const state = createStateStore({ projectDir: rootDir });
     const writeConfig = (projectDir: string, includeExtra: boolean) =>
-      writeRigkitIndex(
+      writeStokeIndex(
         projectDir,
         `
           import { workflow } from "${import.meta.dir}/index.ts";
@@ -625,7 +653,7 @@ describe("DevMachineEngine workflow runtime", () => {
     const secondProjectDir = join(rootDir, "two");
     const state = createStateStore({ projectDir: rootDir });
     const previous = process.env.RIGKIT_TASK_VERSION;
-    const writeConfig = (projectDir: string) => writeRigkitIndex(projectDir,
+    const writeConfig = (projectDir: string) => writeStokeIndex(projectDir,
       `
         import { workflow } from "${import.meta.dir}/index.ts";
 
@@ -675,7 +703,7 @@ describe("DevMachineEngine workflow runtime", () => {
     const managedState = createScopedTestState(rootDir);
 
     const writeConfig = (projectDir: string, value: string) =>
-      writeRigkitIndex(
+      writeStokeIndex(
         projectDir,
         `
           import { sequence } from "${import.meta.dir}/index.ts";
@@ -727,7 +755,7 @@ describe("DevMachineEngine workflow runtime", () => {
   test("lists cache entries in workflow plan order", async () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-cache-order-"));
 
-    writeRigkitIndex(projectDir,
+    writeStokeIndex(projectDir,
       `
         import { sequence } from "${import.meta.dir}/index.ts";
 
@@ -763,7 +791,7 @@ describe("DevMachineEngine workflow runtime", () => {
     const secondProjectDir = join(rootDir, "two");
     const state = createStateStore({ projectDir: rootDir });
     const writeConfig = (projectDir: string, value: string) =>
-      writeRigkitIndex(
+      writeStokeIndex(
         projectDir,
         `
           import { sequence } from "${import.meta.dir}/index.ts";
@@ -803,7 +831,7 @@ describe("DevMachineEngine workflow runtime", () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-global-cache-invalidate-"));
     const managedState = createScopedTestState(projectDir);
 
-    writeRigkitIndex(projectDir,
+    writeStokeIndex(projectDir,
       `
         import { sequence } from "${import.meta.dir}/index.ts";
 
@@ -852,7 +880,7 @@ describe("DevMachineEngine workflow runtime", () => {
     process.env.RIGKIT_LOCAL_CHECK_COUNT = "0";
     process.env.RIGKIT_FORCE_GLOBAL_REAUTH = "0";
 
-    writeRigkitIndex(projectDir,
+    writeStokeIndex(projectDir,
       `
         import { sequence } from "${import.meta.dir}/index.ts";
 
@@ -925,7 +953,7 @@ describe("DevMachineEngine workflow runtime", () => {
     }
   });
 
-  test("stores provider JSON state in Rigkit-owned provider storage", async () => {
+  test("stores provider JSON state in Stoke-owned provider storage", async () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-"));
     const state = createStateStore({ projectDir });
     const plugin: BaseProviderPlugin = {
@@ -936,7 +964,7 @@ describe("DevMachineEngine workflow runtime", () => {
       },
     };
 
-    writeRigkitIndex(projectDir,
+    writeStokeIndex(projectDir,
       `
         import { defineProvider, workflow } from "${import.meta.dir}/index.ts";
 
@@ -976,7 +1004,7 @@ describe("DevMachineEngine workflow runtime", () => {
       },
     };
 
-    writeRigkitIndex(projectDir,
+    writeStokeIndex(projectDir,
       `
         import { defineProvider, workflow } from "${import.meta.dir}/index.ts";
 
@@ -1016,7 +1044,7 @@ describe("DevMachineEngine workflow runtime", () => {
 
   test("includes provider checks in workflow plans", async () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-provider-status-"));
-    writeRigkitIndex(projectDir,
+    writeStokeIndex(projectDir,
       `
         import { defineProvider, workflow } from "${import.meta.dir}/index.ts";
 
@@ -1057,7 +1085,7 @@ describe("DevMachineEngine workflow runtime", () => {
 
   test("requires provider checks before applying workflow tasks", async () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-provider-check-required-"));
-    writeRigkitIndex(projectDir,
+    writeStokeIndex(projectDir,
       `
         import { defineProvider, workflow } from "${import.meta.dir}/index.ts";
 
@@ -1095,7 +1123,7 @@ describe("DevMachineEngine workflow runtime", () => {
 
   test("rejects task outputs that are not JSON serializable", async () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-"));
-    writeRigkitIndex(projectDir,
+    writeStokeIndex(projectDir,
       `
         import { workflow } from "${import.meta.dir}/index.ts";
 
@@ -1118,7 +1146,7 @@ describe("DevMachineEngine workflow runtime", () => {
 
   test("routes terminal interactions through provider runtimes", async () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-"));
-    writeRigkitIndex(projectDir,
+    writeStokeIndex(projectDir,
       `
         import { defineProvider, workflow } from "${import.meta.dir}/index.ts";
 
@@ -1161,7 +1189,7 @@ describe("DevMachineEngine workflow runtime", () => {
 
   test("waits for provider-owned interaction completion before resuming tasks", async () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-"));
-    writeRigkitIndex(projectDir,
+    writeStokeIndex(projectDir,
       `
         import { defineProvider, workflow } from "${import.meta.dir}/index.ts";
 
@@ -1212,7 +1240,7 @@ describe("DevMachineEngine workflow runtime", () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-"));
     const state = createStateStore({ projectDir });
     const previousToken = process.env.RIGKIT_TEST_PROVIDER_TOKEN;
-    writeRigkitIndex(projectDir,
+    writeStokeIndex(projectDir,
       `
         import { defineProvider, workflow } from "${import.meta.dir}/index.ts";
 
@@ -1261,7 +1289,7 @@ describe("DevMachineEngine workflow runtime", () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-scoped-provider-cache-"));
     const state = createStateStore({ projectDir });
     const previousToken = process.env.RIGKIT_TEST_PROVIDER_TOKEN;
-    writeRigkitIndex(projectDir,
+    writeStokeIndex(projectDir,
       `
         import { defineProvider, workflow } from "${import.meta.dir}/index.ts";
 
@@ -1308,7 +1336,7 @@ describe("DevMachineEngine workflow runtime", () => {
 
   test("child provider scopes can override parent provider definitions", async () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-provider-override-"));
-    writeRigkitIndex(projectDir,
+    writeStokeIndex(projectDir,
       `
         import { defineProvider, workflow } from "${import.meta.dir}/index.ts";
 
@@ -1354,7 +1382,7 @@ describe("DevMachineEngine workflow runtime", () => {
 
   test("generic fragments can consume providers from the parent chain", async () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-parent-provider-fragment-"));
-    writeRigkitIndex(projectDir,
+    writeStokeIndex(projectDir,
       `
         import { defineProvider, sequence, workflow } from "${import.meta.dir}/index.ts";
 
@@ -1390,7 +1418,7 @@ describe("DevMachineEngine workflow runtime", () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-operation-provider-cache-"));
     const state = createStateStore({ projectDir });
     const previousToken = process.env.RIGKIT_TEST_PROVIDER_TOKEN;
-    writeRigkitIndex(projectDir,
+    writeStokeIndex(projectDir,
       `
         import { defineProvider, workflow } from "${import.meta.dir}/index.ts";
 
@@ -1440,7 +1468,7 @@ describe("DevMachineEngine workflow runtime", () => {
   test("treats cached output schema failures as cache misses", async () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-"));
     const previousMode = process.env.RIGKIT_SCHEMA_MODE;
-    writeRigkitIndex(projectDir,
+    writeStokeIndex(projectDir,
       `
         import { workflow } from "${import.meta.dir}/index.ts";
 
@@ -1495,7 +1523,7 @@ describe("DevMachineEngine workflow runtime", () => {
   test("expires task cache when cacheTTL has elapsed", async () => {
     const projectDir = mkdtempSync(join(tmpdir(), "rigkit-cache-ttl-"));
     const state = createStateStore({ projectDir });
-    writeRigkitIndex(projectDir,
+    writeStokeIndex(projectDir,
       `
         import { sequence } from "${import.meta.dir}/index.ts";
 
@@ -1532,7 +1560,7 @@ describe("DevMachineEngine workflow runtime", () => {
     process.env.RIGKIT_CHECK_COUNT = "0";
     process.env.RIGKIT_FORCE_REAUTH = "0";
 
-    writeRigkitIndex(projectDir,
+    writeStokeIndex(projectDir,
       `
         import { sequence } from "${import.meta.dir}/index.ts";
 

@@ -1,5 +1,5 @@
 import { Schema } from "effect";
-import type { WorkflowEvent } from "@rigkit/engine";
+import type { WorkflowEvent } from "@stoke/engine";
 
 export const RUNTIME_API_VERSION = 1;
 export const RUNTIME_PROTOCOL_HASH = "sha256:ac8d4a503b56c15b333ea51f57ab1f6fca776bea93f498120b10ab601cc0960a";
@@ -159,6 +159,7 @@ export type RuntimeOperation = {
   createsWorkspace?: boolean;
   cli?: RuntimeOperationCli;
   inputSchema: JsonSchema;
+  requiredCapabilities: Array<{ id: string; schemaHash?: string }>;
 };
 
 export type RuntimeOperationsManifest = {

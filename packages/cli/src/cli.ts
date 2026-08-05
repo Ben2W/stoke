@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { existsSync, rmSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Command, CommanderError, Option } from "commander";
@@ -9,14 +9,12 @@ import {
   getOrStartRuntime,
   type RuntimeClient,
   type RuntimeControlCacheExplanation,
-} from "@rigkit/runtime-client";
+} from "@stoke/runtime-client";
 import {
-  createFileProviderHostStorage,
-  defaultProviderHostStorageDir,
   type DevMachineEvent,
   type WorkflowPlan,
   type WorkspaceRecord,
-} from "@rigkit/engine";
+} from "@stoke/engine";
 import type {
   ManagedCheckout,
   ManagedClient,
@@ -26,9 +24,10 @@ import type {
   RemoteExecutionRequest,
 } from "@stoke/managed";
 import {
-  cmuxHostCapabilities,
-  type CmuxHostCapabilityHandler,
-} from "@rigkit/provider-cmux/host";
+  assertHostCapabilities,
+  CLI_HOST_CAPABILITY_HANDLERS,
+  effectiveCliHostCapabilities,
+} from "./host-capabilities.ts";
 import { DEFAULT_CONFIG_PATH, discoverProjectConfigs, resolveConfigPaths } from "./project.ts";
 import { STOKE_CLI_VERSION } from "./version.ts";
 import { initProject, type InitProjectResult } from "./init.ts";
@@ -41,7 +40,6 @@ import {
   managedRunResult,
   tryClaimManagedApply,
 } from "./managed-run.ts";
-import { maybePrintUpdateNotice } from "./update-check.ts";
 import {
   evaluateVersionCompatibility,
   formatVersionCompatibilitySummary,
@@ -184,6 +182,7 @@ type RuntimeOperationDefinition = {
     properties?: Record<string, JsonSchemaProperty>;
     required?: string[];
   };
+  requiredCapabilities?: Array<{ id: string; schemaHash?: string }>;
 };
 
 type RuntimeOperationCliOption = NonNullable<NonNullable<RuntimeOperationDefinition["cli"]>["options"]>[number];
@@ -209,17 +208,6 @@ const CLI_HOST_METHODS = [
   { id: "host.command.run", modes: ["capture", "interactive"] },
 ];
 
-const CLI_HOST_CAPABILITY_HANDLERS = new Map<string, CmuxHostCapabilityHandler>(
-  cmuxHostCapabilities.map((capability) => [capability.id, capability]),
-);
-
-const CLI_HOST_CAPABILITIES: Array<{ id: string; schemaHash?: string }> = [
-  ...CLI_HOST_CAPABILITY_HANDLERS.values(),
-].map((capability) => ({
-  id: capability.id,
-  ...(capability.schemaHash ? { schemaHash: capability.schemaHash } : {}),
-}));
-
 process.env.STOKE_RUNTIME_BIN ||= bundledRuntimeBin();
 
 if (process.argv[2] === "__complete") {
@@ -230,7 +218,7 @@ if (process.argv[2] === "__complete") {
 
 function bundledRuntimeBin(): string | undefined {
   try {
-    return fileURLToPath(new URL("./src/cli.ts", import.meta.resolve("@rigkit/sdk/package.json")));
+    return fileURLToPath(new URL("./src/cli.ts", import.meta.resolve("@stoke/sdk/package.json")));
   } catch {
     return undefined;
   }
@@ -261,14 +249,6 @@ async function runCli(argv: string[]): Promise<void> {
       if (command) program.error(`unknown command '${command}'`);
       await runHelp(makeInvocation(rootOptions(program)));
     });
-
-  program.hook("postAction", async (_thisCommand, actionCommand) => {
-    await maybePrintUpdateNotice({
-      commandName: actionCommand.name(),
-      currentVersion: STOKE_CLI_VERSION,
-      json: commandWantsJson(program, actionCommand),
-    });
-  });
 
   program
     .command("init")
@@ -469,22 +449,6 @@ async function runCli(argv: string[]): Promise<void> {
         all: Boolean(options.all),
         yes: Boolean(options.yes),
       });
-    });
-
-  const providers = program
-    .command("providers")
-    .description("Manage provider-owned local state");
-
-  const freestyleProvider = providers
-    .command("freestyle")
-    .description("Manage Freestyle provider local state");
-
-  freestyleProvider
-    .command("clear")
-    .description("Clear Freestyle provider local auth and identity state")
-    .option("--json", "Print machine-readable JSON")
-    .action(async (options: { json?: boolean }) => {
-      await runProvidersFreestyleClear(makeInvocation(rootOptions(program), options.json));
     });
 
   program
@@ -1785,32 +1749,6 @@ async function runCacheClear(invocation: CliInvocation, options: CacheClearOptio
   console.log(`Cleared ${result.deleted} cache ${result.deleted === 1 ? "entry" : "entries"}.`);
 }
 
-async function runProvidersFreestyleClear(invocation: CliInvocation): Promise<void> {
-  const providerId = "freestyle";
-  const storageRoot = defaultProviderHostStorageDir();
-  const storage = createFileProviderHostStorage({ providerId, rootDir: storageRoot });
-  const keys = storage.entries().map((entry) => entry.key);
-  for (const key of keys) storage.delete(key);
-
-  const result = {
-    ok: true,
-    providerId,
-    deleted: keys.length,
-    storageRoot,
-  };
-
-  if (wantsJson(invocation)) {
-    printJson(result);
-    return;
-  }
-
-  if (keys.length === 0) {
-    console.log("No Freestyle provider local state to clear.");
-    return;
-  }
-  console.log(`Cleared ${keys.length} Freestyle provider ${keys.length === 1 ? "entry" : "entries"}.`);
-}
-
 type CacheInvalidateOptions = {
   workflow: string;
   task?: string;
@@ -1911,7 +1849,7 @@ async function executeRuntimeOperation(
   const manifest = await readRuntimeOperations(runtime);
   const resolved = findRuntimeOperation(manifest, requestedOperation);
   if (!resolved) {
-    throw new Error(`This project does not define a Rigkit operation named "${requestedOperation}".`);
+    throw new Error(`This project does not define a Stoke operation named "${requestedOperation}".`);
   }
   const { operation, runOperation } = resolved;
 
@@ -2451,7 +2389,6 @@ async function runHelp(invocation: CliInvocation): Promise<void> {
         { name: "run", description: "Run a workspace operation" },
         { name: "ls", description: "List selected project workflows and workspaces" },
         { name: "cache", description: "Inspect and clear workflow cache" },
-        { name: "providers", description: "Manage provider-owned local state" },
         { name: "discover", description: "Discover Stoke projects below the current directory" },
         { name: "doctor", description: "Show Stoke runtime diagnostics" },
         { name: "version", description: "Show Stoke CLI version" },
@@ -2487,7 +2424,6 @@ async function runHelp(invocation: CliInvocation): Promise<void> {
     cmd("project",    "Manage Stoke projects"),
     cmd("ls",         "List selected project workflows and workspaces"),
     cmd("cache",      "Inspect and clear workflow cache"),
-    cmd("providers",  "Manage provider-owned local state"),
     cmd("discover",   "Discover Stoke projects below the current directory"),
     cmd("doctor",     "Show Stoke runtime diagnostics"),
     cmd("version",    "Show Stoke CLI version"),
@@ -2702,6 +2638,7 @@ async function runRuntimeOperation<T>(
   input: Record<string, unknown>,
   options: { renderEvents: boolean },
 ): Promise<T> {
+  await assertOperationCapabilities(runtime, operation, input);
   const externalManagedSocketUrl = process.env.STOKE_MANAGED_RUN_SOCKET_URL?.trim();
   const managedClaim = externalManagedSocketUrl
     ? undefined
@@ -2850,7 +2787,7 @@ async function runRuntimeOperation<T>(
             version: STOKE_CLI_VERSION,
           },
           hostMethods: CLI_HOST_METHODS,
-          hostCapabilities: CLI_HOST_CAPABILITIES,
+          hostCapabilities: effectiveCliHostCapabilities(),
         },
         onOpen(session) {
           return installRunCancelHandler(session);
@@ -2902,6 +2839,28 @@ async function runRuntimeOperation<T>(
   }
   if (result === undefined) throw new Error(`Runtime operation ${operation} finished without a result`);
   return result;
+}
+
+async function assertOperationCapabilities(
+  runtime: RuntimeClient,
+  operationName: string,
+  input: Record<string, unknown>,
+): Promise<void> {
+  const manifest = await readRuntimeOperations(runtime);
+  const operationId = operationName.includes("/")
+    ? operationName.slice(operationName.lastIndexOf("/") + 1)
+    : operationName;
+  const workflow = typeof input.workflow === "string" ? input.workflow : undefined;
+  const candidates = operationName.includes("/")
+    ? manifest.workspaceOperations ?? []
+    : manifest.operations;
+  const operation = candidates.find((candidate) =>
+    (candidate.id === operationId || candidate.aliases?.includes(operationId)) &&
+    (!workflow || !candidate.workflow || candidate.workflow === workflow)
+  );
+  if (!operation?.requiredCapabilities?.length) return;
+
+  assertHostCapabilities(operation, effectiveCliHostCapabilities());
 }
 
 function isRemoteControlledLifecycleEvent(type: unknown): boolean {
@@ -3042,7 +3001,7 @@ type HostCapabilityRequestHandlingOptions = {
 class UnsupportedHostCapabilityError extends Error {
   constructor(capability: string) {
     super(
-      `Host capability "${capability}" is not registered in this Rigkit CLI host. ` +
+      `Host capability "${capability}" is not registered in this Stoke CLI host. ` +
         `Install or enable a local host capability handler to use it from this host.`,
     );
     this.name = "UnsupportedHostCapabilityError";
@@ -3161,6 +3120,8 @@ function hostCapabilityNeedsTerminal(event: HostCapabilityRequestEvent): boolean
   switch (event.capability) {
     case "cmux.call":
       return false;
+    case "ssh":
+      return true;
     default:
       return true;
   }

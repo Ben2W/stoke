@@ -12,13 +12,8 @@ export type InitProjectResult = {
   projectDir: string;
   configPath: string;
   packageJsonPath: string;
-  created: {
-    config: boolean;
-    packageJson: boolean;
-  };
-  updated: {
-    packageJson: boolean;
-  };
+  created: { config: boolean; packageJson: boolean };
+  updated: { packageJson: boolean };
 };
 
 export function initProject(input: InitProjectInput): InitProjectResult {
@@ -26,9 +21,7 @@ export function initProject(input: InitProjectInput): InitProjectResult {
   mkdirSync(input.projectDir, { recursive: true });
   mkdirSync(dirname(configPath), { recursive: true });
 
-  if (existsSync(configPath)) {
-    throw new Error(`${configPath} already exists.`);
-  }
+  if (existsSync(configPath)) throw new Error(`${configPath} already exists.`);
 
   writeFileSync(configPath, starterConfig());
   const packageJson = ensureProjectPackageJson(input.projectDir);
@@ -38,13 +31,8 @@ export function initProject(input: InitProjectInput): InitProjectResult {
     projectDir: input.projectDir,
     configPath,
     packageJsonPath: packageJson.path,
-    created: {
-      config: true,
-      packageJson: packageJson.created,
-    },
-    updated: {
-      packageJson: packageJson.updated,
-    },
+    created: { config: true, packageJson: packageJson.created },
+    updated: { packageJson: packageJson.updated },
   };
 }
 
@@ -57,35 +45,22 @@ function ensureProjectPackageJson(projectDir: string): {
   const path = join(projectDir, "package.json");
   const created = !existsSync(path);
   const pkg = created
-    ? {
-        name: defaultPackageName(projectDir),
-        private: true,
-        type: "module",
-      }
+    ? { name: defaultPackageName(projectDir), private: true, type: "module" }
     : JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
   const name = typeof pkg.name === "string" && pkg.name.trim()
     ? pkg.name.trim()
     : defaultPackageName(projectDir);
 
   let changed = false;
-  if (pkg.name !== name) {
-    pkg.name = name;
-    changed = true;
-  }
-  if (pkg.private !== true) {
-    pkg.private = true;
-    changed = true;
-  }
-  if (pkg.type !== "module") {
-    pkg.type = "module";
-    changed = true;
+  for (const [key, value] of Object.entries({ name, private: true, type: "module" })) {
+    if (pkg[key] !== value) {
+      pkg[key] = value;
+      changed = true;
+    }
   }
 
   const scripts = isRecord(pkg.scripts) ? pkg.scripts : {};
-  for (const [key, value] of Object.entries({
-    apply: "stoke apply",
-    plan: "stoke plan",
-  })) {
+  for (const [key, value] of Object.entries({ apply: "stoke apply", plan: "stoke plan" })) {
     if (scripts[key] !== value) {
       scripts[key] = value;
       changed = true;
@@ -93,23 +68,19 @@ function ensureProjectPackageJson(projectDir: string): {
   }
   pkg.scripts = sortObject(scripts);
 
-  for (const [name, version] of Object.entries(rigkitDevDependencies())) {
-    changed = upsertProjectDependency(pkg, name, version) || changed;
+  for (const [dependency, version] of Object.entries(stokeDevDependencies())) {
+    changed = upsertProjectDependency(pkg, dependency, version) || changed;
   }
 
-  if (created || changed) {
-    writeFileSync(path, `${JSON.stringify(pkg, null, 2)}\n`);
-  }
-
-  return {
-    name,
-    path,
-    created,
-    updated: !created && changed,
-  };
+  if (created || changed) writeFileSync(path, `${JSON.stringify(pkg, null, 2)}\n`);
+  return { name, path, created, updated: !created && changed };
 }
 
-function upsertProjectDependency(pkg: Record<string, unknown>, name: string, version: string): boolean {
+function upsertProjectDependency(
+  pkg: Record<string, unknown>,
+  name: string,
+  version: string,
+): boolean {
   const dependencies = isRecord(pkg.dependencies) ? pkg.dependencies : undefined;
   if (dependencies && Object.prototype.hasOwnProperty.call(dependencies, name)) {
     if (dependencies[name] === version) return false;
@@ -125,16 +96,15 @@ function upsertProjectDependency(pkg: Record<string, unknown>, name: string, ver
   return true;
 }
 
-function rigkitDevDependencies(): Record<string, string> {
+function stokeDevDependencies(): Record<string, string> {
   return {
-    "@rigkit/provider-cmux": STOKE_CLI_VERSION,
-    "@rigkit/provider-freestyle": STOKE_CLI_VERSION,
-    "@rigkit/sdk": STOKE_CLI_VERSION,
+    "@stoke/provider-vercel-sandbox": STOKE_CLI_VERSION,
+    "@stoke/sdk": STOKE_CLI_VERSION,
   };
 }
 
 function defaultPackageName(projectDir: string): string {
-  const name = basename(projectDir) || "rigkit-project";
+  const name = basename(projectDir) || "stoke-project";
   return normalizePackageName(name);
 }
 
@@ -144,7 +114,7 @@ function normalizePackageName(value: string): string {
     .toLowerCase()
     .replace(/[^a-z0-9._-]+/g, "-")
     .replace(/^[._-]+|[._-]+$/g, "");
-  return name || "rigkit-project";
+  return name || "stoke-project";
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -156,207 +126,37 @@ function sortObject<T>(value: Record<string, T>): Record<string, T> {
 }
 
 export function starterConfig(): string {
-  const workflowName = JSON.stringify("dev");
+  return `import { workflow } from "@stoke/sdk";
+import { vercelSandbox } from "@stoke/provider-vercel-sandbox";
 
-  return `import { workflow } from "@rigkit/sdk";
-import { cmux } from "@rigkit/provider-cmux";
-import { freestyle } from "@rigkit/provider-freestyle";
+const sandbox = vercelSandbox.provider();
+const terminal = vercelSandbox.terminal();
 
-const repo = "octocat/Hello-World";
-const repoPath = "/workspace/Hello-World";
-const vmHome = "/root";
-const vmIdleTimeoutSeconds = 3600;
-
-const freestyleProvider = freestyle.provider();
-const terminalProvider = freestyle.terminal();
-
-export const dev = workflow(${workflowName})
+export const dev = workflow("dev")
   .sequence("dev")
-  .addProvider("freestyle", freestyleProvider)
-  .addProvider("terminal", terminalProvider)
-  .step("install-dependencies", async ({ providers }) => {
-    console.log("installing base dependencies");
-    const { vm, vmId } = await providers.freestyle.client.vms.create({
-      idleTimeoutSeconds: vmIdleTimeoutSeconds,
-      logger: console.log,
-    });
-    try {
-      const dependencies = await vm.exec({
-        command: installDependenciesCommand(),
-        timeoutMs: 10 * 60 * 1000,
-      });
-      if ((dependencies.statusCode ?? 0) !== 0) {
-        throw new Error(\`Base dependency install failed:\\n\${dependencies.stdout ?? ""}\${dependencies.stderr ?? ""}\`.trim());
-      }
-
-      const result = await vm.exec("node --version");
-      if ((result.statusCode ?? 0) !== 0 || !result.stdout.trim().startsWith("v22.")) {
-        throw new Error(\`Expected Node.js v22, got: \${result.stdout}\${result.stderr}\`);
-      }
-      const snapshot = await vm.snapshot();
-      return { ctx: { snapshotId: snapshot.snapshotId } };
-    } finally {
-      await providers.freestyle.client.vms.delete({ vmId });
-    }
-  })
-  .step("github-auth", async ({ providers, step }) => {
-    const { vm, vmId } = await providers.freestyle.client.vms.create({
-      snapshotId: step.ctx.snapshotId,
-      idleTimeoutSeconds: vmIdleTimeoutSeconds,
-      logger: console.log,
-    });
-    try {
-      const authenticated = await vm.exec(withVmHome("gh auth status -h github.com >/dev/null 2>&1"));
-      if ((authenticated.statusCode ?? 0) !== 0) {
-        await providers.terminal.open("Log in to GitHub", {
-          ssh: await providers.freestyle.createSSHOptions({ vmId }),
-          command: "gh auth login --hostname github.com --git-protocol https --web",
-          keepOpenAfterCommand: true,
-          instructions: "Complete the GitHub browser login in this terminal. After gh succeeds, type exit to continue.",
-        });
-
-        const verified = await vm.exec(withVmHome("gh auth status -h github.com >/dev/null 2>&1"));
-        if ((verified.statusCode ?? 0) !== 0) {
-          const status = await vm.exec(withVmHome("gh auth status -h github.com 2>&1"));
-          throw new Error(\`GitHub CLI is not authenticated:\\n\${status.stdout || status.stderr}\`.trim());
-        }
-      }
-
-      const snapshot = await vm.snapshot();
-      return { ctx: { snapshotId: snapshot.snapshotId } };
-    } finally {
-      await providers.freestyle.client.vms.delete({ vmId });
-    }
-  })
-  .step("clone-hello-world", async ({ providers, step }) => {
-    const { vm, vmId } = await providers.freestyle.client.vms.create({
-      snapshotId: step.ctx.snapshotId,
-      idleTimeoutSeconds: vmIdleTimeoutSeconds,
-      logger: console.log,
-    });
-    try {
-      const clone = await vm.exec({
-        command: [
-          "set -e",
-          \`export HOME=\${shellQuote(vmHome)}\`,
-          \`mkdir -p \${shellQuote(dirname(repoPath))}\`,
-          \`rm -rf \${shellQuote(repoPath)}\`,
-          \`gh repo clone \${shellQuote(repo)} \${shellQuote(repoPath)}\`,
-          \`git -C \${shellQuote(repoPath)} status --short\`,
-        ].join("\\n"),
-        timeoutMs: 5 * 60 * 1000,
-      });
-      if ((clone.statusCode ?? 0) !== 0) {
-        throw new Error(\`Hello-World clone failed:\\n\${clone.stdout ?? ""}\${clone.stderr ?? ""}\`.trim());
-      }
-
-      const snapshot = await vm.snapshot();
-      return { ctx: { snapshotId: snapshot.snapshotId, repoPath } };
-    } finally {
-      await providers.freestyle.client.vms.delete({ vmId });
-    }
-  })
+  .addProvider("vercel", sandbox)
   .workspace({
-    create: async ({ workflow, providers }) => {
-      console.log("booting workspace vm");
-      const { vmId } = await providers.freestyle.client.vms.create({
-        snapshotId: workflow.ctx.snapshotId,
-        idleTimeoutSeconds: vmIdleTimeoutSeconds,
-        logger: console.log,
+    create: async ({ providers }) => {
+      const environment = await providers.vercel.client.create({
+        runtime: "node24",
+        timeout: 60 * 60 * 1000,
       });
-      return {
-        vmId,
-        repoPath: workflow.ctx.repoPath,
-      };
+      return { sandbox: environment.name };
     },
     remove: async ({ providers, workspace }) => {
-      await providers.freestyle.client.vms.delete({ vmId: workspace.ctx.vmId });
+      await providers.vercel.ref(workspace.ctx.sandbox).stop();
     },
   })
-  .addProvider("cmux", cmux.provider())
-  .workspaceOperation("open-cmux", {
-    title: "Open cmux",
-    description: "Open the workspace in cmux",
-    run: async ({ providers, workspace }) => {
-      const cmuxWorkspace = await providers.cmux.ssh({
-        ...await providers.freestyle.cmux.createSshOptions({
-          vmId: workspace.ctx.vmId,
-        }),
-        name: workspace.name,
-      });
-      const terminal = await providers.cmux.newSurface({
-        workspace: cmuxWorkspace.workspaceId,
-        type: "terminal",
-        focus: true,
-      });
-      await providers.cmux.send({
-        workspace: cmuxWorkspace.workspaceId,
-        surface: terminal.surfaceId,
-        text: \`cd \${shellQuote(workspace.ctx.repoPath)} && git status && exec bash -l\\n\`,
-      });
-      await providers.cmux.selectWorkspace(cmuxWorkspace.workspaceId);
-    },
-  })
-  .workspaceOperation("open-vscode", {
-    title: "Open VS Code",
-    description: "Open the workspace in VS Code",
-    run: async ({ providers, workspace, local }) => {
-      const url = await providers.freestyle.vscode.createUrl({
-        vmId: workspace.ctx.vmId,
-        cwd: workspace.ctx.repoPath,
-      });
-      await local.open(url);
-    },
-  })
+  .addProvider("terminal", terminal)
   .workspaceOperation("ssh", {
     title: "SSH",
-    description: "Open an interactive SSH session",
+    description: "Open an interactive Vercel Sandbox terminal",
     run: async ({ providers, workspace }) => {
-      await providers.terminal.open(\`SSH \${workspace.name}\`, {
-        ssh: await providers.freestyle.createSSHOptions({
-          vmId: workspace.ctx.vmId,
-        }),
-        command: \`cd \${shellQuote(workspace.ctx.repoPath)} && exec bash -l\`,
-        keepOpenAfterCommand: true,
-        instructions: "Exit the SSH session when you are done.",
+      await providers.terminal.open({
+        sandbox: workspace.ctx.sandbox,
+        title: "SSH " + workspace.name,
       });
     },
   });
-
-function dirname(path: string): string {
-  const index = path.lastIndexOf("/");
-  return index <= 0 ? "/" : path.slice(0, index);
-}
-
-function installDependenciesCommand(): string {
-  return [
-    "set -e",
-    "export DEBIAN_FRONTEND=noninteractive",
-    "apt-get update -qq",
-    "apt-get install -y -qq ca-certificates curl git gnupg openssh-client",
-    "mkdir -p /etc/apt/keyrings",
-    "curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /etc/apt/keyrings/githubcli-archive-keyring.gpg",
-    "chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg",
-    "printf 'deb [arch=%s signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main\\\\n' \\"$(dpkg --print-architecture)\\" > /etc/apt/sources.list.d/github-cli.list",
-    "curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg",
-    "chmod go+r /etc/apt/keyrings/nodesource.gpg",
-    "printf 'deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_22.x nodistro main\\\\n' > /etc/apt/sources.list.d/nodesource.list",
-    "apt-get update -qq",
-    "apt-get install -y -qq gh nodejs",
-    "git config --system init.defaultBranch main",
-    "node --version",
-    "npm --version",
-    "gh --version",
-    "rm -rf /var/lib/apt/lists/*",
-  ].join("\\n");
-}
-
-function withVmHome(command: string): string {
-  return \`HOME=\${shellQuote(vmHome)} \${command}\`;
-}
-
-function shellQuote(value: string): string {
-  return \`'\${value.replaceAll("'", \`'\\\\''\`)}'\`;
-}
 `;
 }

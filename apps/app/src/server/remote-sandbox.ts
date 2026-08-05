@@ -82,7 +82,6 @@ export async function runRemoteSandbox(input: RunRemoteSandboxInput): Promise<Re
   });
 
   const baseCommandEnvironment = {
-    RIGKIT_UPDATE_CHECK: "0",
     NO_COLOR: "1",
     FORCE_COLOR: "0",
     STOKE_STATE_FILE: STATE_FILE,

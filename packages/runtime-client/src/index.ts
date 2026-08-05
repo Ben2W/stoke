@@ -1,5 +1,5 @@
 export {
-  defaultRigkitHome,
+  defaultStokeHome,
   getOrStartRuntime,
   connectRemoteRuntime,
   projectIdFor,

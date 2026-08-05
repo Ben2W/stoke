@@ -2,14 +2,14 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { projectIdFor, runtimeFingerprintFor, runtimePaths, SUPPORTED_RUNTIME_API_VERSION } from "@rigkit/runtime-client";
+import { projectIdFor, runtimeFingerprintFor, runtimePaths, SUPPORTED_RUNTIME_API_VERSION } from "@stoke/runtime-client";
 import { completeRig, formatCompletionItems, formatWorkspaceAge, renderCompletionScript } from "./completion.ts";
 
 function rigkitIndexPath(projectDir: string): string {
   return join(projectDir, "rigkit", "index.ts");
 }
 
-function writeRigkitIndex(projectDir: string): string {
+function writeStokeIndex(projectDir: string): string {
   const configPath = rigkitIndexPath(projectDir);
   mkdirSync(join(projectDir, "rigkit"), { recursive: true });
   writeFileSync(configPath, "export const dev = {}\n");
@@ -234,7 +234,7 @@ describe("CLI completion", () => {
         currentIndex: 1,
       });
 
-      expect(items.map((item) => item.value)).toEqual(["project", "plan", "providers"]);
+      expect(items.map((item) => item.value)).toEqual(["project", "plan"]);
     });
   });
 
@@ -280,40 +280,6 @@ describe("CLI completion", () => {
         "--help",
       ]);
     });
-  });
-
-  test("completes provider targets, subcommands, and flags", async () => {
-    const targets = await completeRig({
-      cwd: process.cwd(),
-      words: ["stoke", "providers", ""],
-      currentIndex: 2,
-    });
-
-    expect(targets.map((item) => item.value)).toEqual(["freestyle"]);
-
-    const targetFlags = await completeRig({
-      cwd: process.cwd(),
-      words: ["stoke", "providers", "--"],
-      currentIndex: 2,
-    });
-
-    expect(targetFlags.map((item) => item.value)).toEqual(["--help"]);
-
-    const subcommands = await completeRig({
-      cwd: process.cwd(),
-      words: ["stoke", "providers", "freestyle", ""],
-      currentIndex: 3,
-    });
-
-    expect(subcommands.map((item) => item.value)).toEqual(["clear"]);
-
-    const clearFlags = await completeRig({
-      cwd: process.cwd(),
-      words: ["stoke", "providers", "freestyle", "clear", "--"],
-      currentIndex: 4,
-    });
-
-    expect(clearFlags.map((item) => item.value)).toEqual(["--json", "--help"]);
   });
 
   test("completes project operation flags and workflow values", async () => {
@@ -506,7 +472,7 @@ async function withWorkspaceRuntime(
   const rigkitHome = mkdtempSync(join(tmpdir(), "rigkit-home-"));
   const token = "test-token";
   mkdirSync(input.projectDir, { recursive: true });
-  const configPath = writeRigkitIndex(input.projectDir);
+  const configPath = writeStokeIndex(input.projectDir);
   const projectId = projectIdFor({ projectDir: input.projectDir, configPath });
   const runtimeFingerprint = runtimeFingerprintFor({ projectDir: input.projectDir, configPath });
   const paths = runtimePaths(projectId, rigkitHome);
