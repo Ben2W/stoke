@@ -1,5 +1,6 @@
 import { ArrowRight } from "lucide-react";
 import { SignInButton } from "../auth/auth-buttons.tsx";
+import { DevelopmentEnvironmentShowcase } from "./development-environment-showcase.tsx";
 import { ProductPreview } from "./product-preview.tsx";
 import { SiteHeader } from "./site-header.tsx";
 import { WorkflowShowcase } from "./workflow-showcase.tsx";
@@ -22,12 +23,22 @@ export function LandingPage() {
             </p>
             <div className="mt-8 flex flex-wrap items-center gap-4">
               <SignInButton />
-              <a className="inline-flex h-11 items-center gap-2 px-1 text-sm font-medium text-zinc-600 transition hover:text-zinc-950" href="#product">
+              <a className="inline-flex h-11 items-center gap-2 px-1 text-sm font-medium text-zinc-600 transition hover:text-zinc-950" href="#environment">
                 See how it works <ArrowRight size={15} />
               </a>
             </div>
           </div>
           <ProductPreview />
+        </div>
+      </section>
+
+      <section className="border-b border-zinc-200" id="environment">
+        <div className="mx-auto max-w-7xl px-5 py-20 sm:px-8 sm:py-28">
+          <div className="mb-12 max-w-2xl">
+            <h2 className="text-3xl font-semibold tracking-[-0.04em] sm:text-4xl">Create a development environment. Open it in cmux.</h2>
+            <p className="mt-4 text-base leading-7 text-zinc-600">Start an isolated Vercel Sandbox, then bring its terminal and preview into your local workspace—already connected to the same Stoke project.</p>
+          </div>
+          <DevelopmentEnvironmentShowcase />
         </div>
       </section>
 
