@@ -437,6 +437,39 @@ describe("CLI entrypoint", () => {
     });
   });
 
+  test("coerces integer and false boolean workspace operation flags from JSON Schema", async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), "stoke-cli-run-typed-input-"));
+    let receivedInput: Record<string, unknown> | undefined;
+
+    await withWorkspaceRuntime({
+      projectDir,
+      typedWorkspaceOperation: true,
+      onRunInput: (input) => { receivedInput = input; },
+    }, async ({ env }) => {
+      const result = await runCli([
+        `--chdir=${projectDir}`,
+        "run",
+        "api",
+        "input-example",
+        "--workflow",
+        "smoke",
+        "--count=3",
+        "--enabled=false",
+        "--message=Hello from Stoke",
+        "--json",
+      ], { env });
+
+      expect(result.stderr).toBe("");
+      expect(result.exitCode).toBe(0);
+      expect(receivedInput).toEqual({
+        workflow: "smoke",
+        count: 3,
+        enabled: false,
+        message: "Hello from Stoke",
+      });
+    });
+  });
+
   test("requires discovered projects for operation --all", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "stoke-cli-run-all-"));
 
@@ -505,6 +538,8 @@ async function withWorkspaceRuntime(
     cacheInvalidated?: number;
     requireCacheInvalidateWorkflow?: boolean;
     duplicateWorkspaceName?: boolean;
+    typedWorkspaceOperation?: boolean;
+    onRunInput?: (input: Record<string, unknown>) => void;
     engineVersion?: string;
     runtimeVersion?: string;
   },
@@ -733,11 +768,30 @@ async function withWorkspaceRuntime(
                 properties: {},
               },
             }] : []),
+            ...(input.typedWorkspaceOperation ? [{
+              workflow: "smoke",
+              id: "input-example",
+              kind: "workspace-action",
+              source: "config",
+              title: "Input parameter example",
+              description: "typed input",
+              inputSchema: {
+                type: "object",
+                additionalProperties: false,
+                properties: {
+                  count: { type: "integer" },
+                  enabled: { type: "boolean" },
+                  message: { type: "string" },
+                },
+                required: ["count", "enabled", "message"],
+              },
+            }] : []),
           ],
         });
       }
       if (pathname === "/runs") {
-        const body = await request.json() as { operation?: string; input?: { name?: string } };
+        const body = await request.json() as { operation?: string; input?: Record<string, unknown> & { name?: string } };
+        if (body.operation === "api/input-example") input.onRunInput?.(body.input ?? {});
         runResult = body.operation === "plan"
           ? {
             workflow: "smoke",

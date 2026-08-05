@@ -400,10 +400,9 @@ function remoteCliArgs(request: RemoteExecutionRequest, workflow: string | undef
 }
 
 function operationInputArgs(input: Record<string, string | number | boolean>): string[] {
-  return Object.entries(input).flatMap(([name, value]) => {
+  return Object.entries(input).map(([name, value]) => {
     const flag = `--${name.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}`;
-    if (typeof value === "boolean") return value ? [flag] : [];
-    return [flag, String(value)];
+    return `${flag}=${String(value)}`;
   });
 }
 

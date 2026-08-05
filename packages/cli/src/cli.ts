@@ -2210,7 +2210,11 @@ function inferCliMetadata(operation: RuntimeOperationDefinition): Required<NonNu
       name,
       flag: `--${dashCase(name)}`,
       required: operation.inputSchema?.required?.includes(name),
-      type: schema.type === "boolean" ? "boolean" : schema.type === "number" ? "number" : "string",
+      type: schema.type === "boolean"
+        ? "boolean"
+        : schema.type === "number" || schema.type === "integer"
+          ? "number"
+          : "string",
     })),
   };
 }

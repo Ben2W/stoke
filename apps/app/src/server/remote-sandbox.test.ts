@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { ManagedProject, ProjectStateResponse } from "@usestoke/managed";
+import type { ManagedProject, ProjectStateResponse, RemoteExecutionRequest } from "@usestoke/managed";
 import { evaluatorRuntimeRevision, runRemoteSandbox } from "./remote-sandbox.ts";
 
 const project: ManagedProject = {
@@ -41,11 +41,12 @@ describe("persistent remote evaluator", () => {
         commands.push(command);
         const isDiscovery = command.cmd === "bun" && command.args?.includes("ls");
         const isPlan = command.cmd === "bun" && command.args?.includes("plan");
+        const isStokeOperation = command.cmd === "bun" && command.args?.[0] === "/tmp/stoke-cli.js";
         const stdout = isDiscovery
           ? JSON.stringify({ workflows: [{ name: "stoke-example" }] })
           : isPlan
             ? JSON.stringify({ workflow: "stoke-example", nodeCount: 0, cachedNodeCount: 0, nodes: [] })
-            : "";
+            : isStokeOperation ? JSON.stringify({ ok: true }) : "";
         return {
           exitCode: 0,
           durationMs: 1,
@@ -63,9 +64,9 @@ describe("persistent remote evaluator", () => {
       return sandbox as any;
     };
     let sandboxToken = "sandbox-token-one";
-    const run = () => runRemoteSandbox({
+    const run = (request: RemoteExecutionRequest = { operation: "plan", origin: "dashboard" }) => runRemoteSandbox({
       project,
-      request: { operation: "plan", origin: "dashboard" },
+      request,
       state,
       producerSocketUrl: "wss://usestoke.dev/runs/test",
       revision: "e587a05a934ac7be12bf5233102939d4479f8625",
@@ -75,6 +76,14 @@ describe("persistent remote evaluator", () => {
     const first = await run();
     sandboxToken = "sandbox-token-two";
     const second = await run();
+    await run({
+      operation: "run",
+      workflow: "stoke-example",
+      workspace: "demo",
+      workspaceOperation: "input-example",
+      input: { count: 3, enabled: false, message: "Hello from Stoke" },
+      origin: "dashboard",
+    });
 
     expect(first.result).toMatchObject({ workflow: "stoke-example" });
     expect(second.result).toMatchObject({ workflow: "stoke-example" });
@@ -88,6 +97,9 @@ describe("persistent remote evaluator", () => {
       STOKE_TOKEN_FILE: "/tmp/stoke-sandbox-token",
       STOKE_WORKSPACE_ORIGIN: "dashboard",
     });
+    expect(commands.at(-1)?.args).toContain("--count=3");
+    expect(commands.at(-1)?.args).toContain("--enabled=false");
+    expect(commands.at(-1)?.args).toContain("--message=Hello from Stoke");
     expect(files.get("/tmp/stoke-sandbox-token")?.toString()).toBe("sandbox-token-two\n");
   });
 
