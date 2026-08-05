@@ -155,6 +155,37 @@ describe("managed client", () => {
     ]);
   });
 
+  test("creates and snapshots managed sandboxes", async () => {
+    const requests: Request[] = [];
+    const client = createManagedClient({
+      baseUrl: "https://usestoke.dev",
+      token: "secret",
+      fetch: async (input, init) => {
+        const request = new Request(input, init);
+        requests.push(request);
+        if (request.url.endsWith("/snapshots")) {
+          return Response.json({ snapshot: { snapshotId: "snap_prepared" } }, { status: 201 });
+        }
+        return Response.json({ sandbox: { name: "setup-sandbox", domains: {} } }, { status: 201 });
+      },
+    });
+
+    expect(await client.createSandbox({
+      projectId: project.id,
+      source: { type: "empty" },
+      runtime: "node24",
+      ports: [],
+    })).toEqual({ name: "setup-sandbox", domains: {} });
+    expect(await client.snapshotSandbox("setup-sandbox", {
+      projectId: project.id,
+      expiration: 0,
+    })).toEqual({ snapshotId: "snap_prepared" });
+    expect(requests.map((request) => `${request.method} ${new URL(request.url).pathname}`)).toEqual([
+      "POST /api/v1/sandboxes",
+      "POST /api/v1/sandboxes/setup-sandbox/snapshots",
+    ]);
+  });
+
   test("claims and observes managed apply runs", async () => {
     const requests: Request[] = [];
     const event = {

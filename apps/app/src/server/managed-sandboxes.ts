@@ -2,8 +2,10 @@ import { createHash } from "node:crypto";
 import { Sandbox } from "@vercel/sandbox";
 import type {
   CreateManagedSandboxRequest,
+  CreateManagedSandboxSnapshotRequest,
   ManagedSandbox,
   ManagedSandboxCommandResponse,
+  ManagedSandboxSnapshot,
   RunManagedSandboxCommandRequest,
 } from "@usestoke/managed";
 import { getProject } from "./projects.ts";
@@ -34,18 +36,11 @@ export async function createManagedSandbox(
   const dependencies = { ...defaultDependencies, ...overrides };
   const project = await dependencies.getProject(userId, input.projectId);
   if (!project) throw new ManagedSandboxNotFoundError("Stoke project not found");
-  if (project.source.kind !== "github") {
-    throw new Error("Managed Vercel Sandboxes require a GitHub project source");
-  }
 
   const sandbox = await dependencies.create({
-    runtime: input.runtime,
-    source: {
-      type: "git",
-      url: `https://github.com/${project.source.owner}/${project.source.repository}.git`,
-      depth: 1,
-      ...(input.revision ? { revision: input.revision } : {}),
-    },
+    ...(input.source.type === "snapshot"
+      ? { source: { type: "snapshot" as const, snapshotId: input.source.snapshotId } }
+      : { runtime: input.runtime }),
     ports: input.ports,
     timeout: input.timeout,
     resources: input.resources,
@@ -57,6 +52,22 @@ export async function createManagedSandbox(
     name: sandbox.name,
     domains: Object.fromEntries(input.ports.map((port) => [String(port), sandbox.domain(port)])),
   };
+}
+
+export async function snapshotManagedSandbox(
+  userId: string,
+  sandboxName: string,
+  input: CreateManagedSandboxSnapshotRequest,
+  overrides: Partial<ManagedSandboxDependencies> = {},
+): Promise<ManagedSandboxSnapshot> {
+  const dependencies = { ...defaultDependencies, ...overrides };
+  await requireProject(dependencies, userId, input.projectId);
+  const sandbox = await dependencies.get({ name: sandboxName });
+  requireOwnership(sandbox, userId, input.projectId);
+  const snapshot = await sandbox.snapshot(
+    input.expiration === undefined ? undefined : { expiration: input.expiration },
+  );
+  return { snapshotId: snapshot.snapshotId };
 }
 
 export async function runManagedSandboxCommand(

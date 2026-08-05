@@ -4,12 +4,14 @@ import {
   ClaimRunRequestSchema,
   ClaimRunResponseSchema,
   CreateManagedSandboxRequestSchema,
+  CreateManagedSandboxSnapshotRequestSchema,
   CreateProjectRequestSchema,
   DeviceResponseSchema,
   InvalidateProjectCacheRequestSchema,
   ManagedSandboxCommandResponseSchema,
   ManagedSandboxInteractiveResponseSchema,
   ManagedSandboxResponseSchema,
+  ManagedSandboxSnapshotResponseSchema,
   OpenManagedSandboxInteractiveRequestSchema,
   ProjectCacheMutationResponseSchema,
   ProjectCacheResponseSchema,
@@ -40,6 +42,7 @@ import {
   createManagedSandbox,
   openManagedSandboxInteractive,
   runManagedSandboxCommand,
+  snapshotManagedSandbox,
   stopManagedSandbox,
 } from "./managed-sandboxes.ts";
 import { clearProjectCache, invalidateProjectCache, listProjectCache } from "./project-cache.ts";
@@ -80,6 +83,7 @@ type ApiDependencies = {
   clearProjectCache: typeof clearProjectCache;
   createManagedSandbox: typeof createManagedSandbox;
   runManagedSandboxCommand: typeof runManagedSandboxCommand;
+  snapshotManagedSandbox: typeof snapshotManagedSandbox;
   stopManagedSandbox: typeof stopManagedSandbox;
   openManagedSandboxInteractive: typeof openManagedSandboxInteractive;
 };
@@ -108,6 +112,7 @@ const defaultDependencies: ApiDependencies = {
   clearProjectCache,
   createManagedSandbox,
   runManagedSandboxCommand,
+  snapshotManagedSandbox,
   stopManagedSandbox,
   openManagedSandboxInteractive,
 };
@@ -311,6 +316,22 @@ export function createApi(overrides: Partial<ApiDependencies> = {}) {
       parsed.data,
     );
     return context.json(ManagedSandboxCommandResponseSchema.parse(result));
+  });
+
+  managed.post("/sandboxes/:sandboxName/snapshots", async (context) => {
+    const parsed = CreateManagedSandboxSnapshotRequestSchema.safeParse(await readJson(context.req.raw));
+    if (!parsed.success) {
+      return context.json({ error: "invalid_request", issues: parsed.error.issues }, 400);
+    }
+    if (sandboxProjectId(context.get("user")) && sandboxProjectId(context.get("user")) !== parsed.data.projectId) {
+      return context.json({ error: "forbidden" }, 403);
+    }
+    const snapshot = await dependencies.snapshotManagedSandbox(
+      context.get("user").id,
+      context.req.param("sandboxName"),
+      parsed.data,
+    );
+    return context.json(ManagedSandboxSnapshotResponseSchema.parse({ snapshot }), 201);
   });
 
   managed.delete("/sandboxes/:sandboxName", async (context) => {

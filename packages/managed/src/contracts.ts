@@ -124,8 +124,14 @@ export const CurrentUserResponseSchema = z.object({ user: ManagedUserSchema });
 
 export const CreateManagedSandboxRequestSchema = z.object({
   projectId: z.uuid(),
+  source: z.discriminatedUnion("type", [
+    z.object({ type: z.literal("empty") }),
+    z.object({
+      type: z.literal("snapshot"),
+      snapshotId: z.string().trim().min(1),
+    }),
+  ]),
   runtime: z.string().trim().min(1).default("node24"),
-  revision: z.string().trim().min(1).max(255).optional(),
   ports: z.array(z.number().int().min(1).max(65_535)).max(4).default([]),
   timeout: z.number().int().min(60_000).max(3_600_000).optional(),
   resources: z.object({ vcpus: z.number().int().min(1).max(8) }).optional(),
@@ -137,6 +143,19 @@ export const ManagedSandboxSchema = z.object({
 });
 
 export const ManagedSandboxResponseSchema = z.object({ sandbox: ManagedSandboxSchema });
+
+export const CreateManagedSandboxSnapshotRequestSchema = z.object({
+  projectId: z.uuid(),
+  expiration: z.number().int().nonnegative().optional(),
+});
+
+export const ManagedSandboxSnapshotSchema = z.object({
+  snapshotId: z.string().min(1),
+});
+
+export const ManagedSandboxSnapshotResponseSchema = z.object({
+  snapshot: ManagedSandboxSnapshotSchema,
+});
 
 export const RunManagedSandboxCommandRequestSchema = z.object({
   projectId: z.uuid(),
@@ -322,6 +341,8 @@ export type CreateProjectRequest = z.infer<typeof CreateProjectRequestSchema>;
 export type ManagedUser = z.infer<typeof ManagedUserSchema>;
 export type CreateManagedSandboxRequest = z.infer<typeof CreateManagedSandboxRequestSchema>;
 export type ManagedSandbox = z.infer<typeof ManagedSandboxSchema>;
+export type CreateManagedSandboxSnapshotRequest = z.infer<typeof CreateManagedSandboxSnapshotRequestSchema>;
+export type ManagedSandboxSnapshot = z.infer<typeof ManagedSandboxSnapshotSchema>;
 export type RunManagedSandboxCommandRequest = z.infer<typeof RunManagedSandboxCommandRequestSchema>;
 export type ManagedSandboxCommandResponse = z.infer<typeof ManagedSandboxCommandResponseSchema>;
 export type ManagedSandboxInteractiveResponse = z.infer<typeof ManagedSandboxInteractiveResponseSchema>;

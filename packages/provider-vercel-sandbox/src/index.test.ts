@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   SSH_CAPABILITY,
+  createVercelSandboxRuntime,
   parseVercelSandboxSshInput,
   vercelSandbox,
   vercelSandboxTerminalProviderPlugin,
@@ -14,10 +15,14 @@ import { createVercelSandboxSshHostCapability } from "./host.ts";
 
 const originalToken = process.env.STOKE_TOKEN;
 const originalTokenFile = process.env.STOKE_TOKEN_FILE;
+const originalProjectId = process.env.STOKE_PROJECT_ID;
+const originalFetch = globalThis.fetch;
 
 afterEach(() => {
   restoreEnvironment("STOKE_TOKEN", originalToken);
   restoreEnvironment("STOKE_TOKEN_FILE", originalTokenFile);
+  restoreEnvironment("STOKE_PROJECT_ID", originalProjectId);
+  globalThis.fetch = originalFetch;
 });
 
 describe("Vercel Sandbox provider", () => {
@@ -29,6 +34,56 @@ describe("Vercel Sandbox provider", () => {
 
   test("does not expose a direct Vercel credential mode", () => {
     expect(vercelSandbox.provider().config).toEqual({});
+  });
+
+  test("creates setup sandboxes, snapshots them, and restores workspaces", async () => {
+    process.env.STOKE_PROJECT_ID = "f95df42b-48da-4a02-926b-60def0ee77cf";
+    process.env.STOKE_TOKEN = "sandbox-ticket";
+    const requests: Request[] = [];
+    globalThis.fetch = (async (input, init) => {
+      const request = new Request(input, init);
+      requests.push(request);
+      if (request.url.endsWith("/snapshots")) {
+        return Response.json({ snapshot: { snapshotId: "snap_prepared" } }, { status: 201 });
+      }
+      return Response.json({ sandbox: { name: "quiet-otter", domains: {} } }, { status: 201 });
+    }) as typeof fetch;
+
+    const runtime = createVercelSandboxRuntime({ baseUrl: "https://usestoke.dev" });
+    const setup = await runtime.client.create();
+    await expect(setup.snapshot({ expiration: 0 })).resolves.toEqual({ snapshotId: "snap_prepared" });
+    await runtime.client.create({ snapshotId: "snap_prepared", ports: [3000] });
+
+    expect(await Promise.all(requests.map(async (request) => ({
+      path: new URL(request.url).pathname,
+      body: await request.json(),
+    })))).toEqual([
+      {
+        path: "/api/v1/sandboxes",
+        body: {
+          projectId: process.env.STOKE_PROJECT_ID,
+          source: { type: "empty" },
+          runtime: "node24",
+          ports: [],
+        },
+      },
+      {
+        path: "/api/v1/sandboxes/quiet-otter/snapshots",
+        body: {
+          projectId: process.env.STOKE_PROJECT_ID,
+          expiration: 0,
+        },
+      },
+      {
+        path: "/api/v1/sandboxes",
+        body: {
+          projectId: process.env.STOKE_PROJECT_ID,
+          source: { type: "snapshot", snapshotId: "snap_prepared" },
+          runtime: "node24",
+          ports: [3000],
+        },
+      },
+    ]);
   });
 
   test("reads a refreshed sandbox token file before the inherited environment", () => {

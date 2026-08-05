@@ -154,6 +154,10 @@ describe("Hono control-plane API", () => {
         calls.push(["command", userId, name, input.cmd]);
         return { exitCode: 0, stdout: "ok\n", stderr: "" };
       },
+      snapshotManagedSandbox: async (userId, name, input) => {
+        calls.push(["snapshot", userId, name, input.projectId]);
+        return { snapshotId: "snap_prepared" };
+      },
       stopManagedSandbox: async (userId, name, projectId) => {
         calls.push(["stop", userId, name, projectId]);
       },
@@ -165,12 +169,22 @@ describe("Hono control-plane API", () => {
     const created = await api.request("http://localhost/api/v1/sandboxes", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ projectId: project.id, runtime: "node24", ports: [3000] }),
+      body: JSON.stringify({
+        projectId: project.id,
+        source: { type: "empty" },
+        runtime: "node24",
+        ports: [3000],
+      }),
     });
     const command = await api.request("http://localhost/api/v1/sandboxes/quiet-otter/commands", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ projectId: project.id, cmd: "pwd" }),
+    });
+    const snapshot = await api.request("http://localhost/api/v1/sandboxes/quiet-otter/snapshots", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ projectId: project.id, expiration: 0 }),
     });
     const interactive = await api.request("http://localhost/api/v1/sandboxes/quiet-otter/interactive", {
       method: "POST",
@@ -182,10 +196,11 @@ describe("Hono control-plane API", () => {
       { method: "DELETE" },
     );
 
-    expect([created.status, command.status, interactive.status, stopped.status]).toEqual([201, 200, 200, 200]);
+    expect([created.status, command.status, snapshot.status, interactive.status, stopped.status]).toEqual([201, 200, 201, 200, 200]);
     expect(calls).toEqual([
       ["create", user.id, project.id],
       ["command", user.id, "quiet-otter", "pwd"],
+      ["snapshot", user.id, "quiet-otter", project.id],
       ["interactive", user.id, "quiet-otter", project.id],
       ["stop", user.id, "quiet-otter", project.id],
     ]);

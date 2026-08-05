@@ -128,6 +128,7 @@ export async function runRemoteSandbox(
     STOKE_TOKEN_FILE: SANDBOX_TOKEN_FILE,
     STOKE_PROJECT_ID: input.project.id,
     STOKE_API_URL: controlPlaneUrl(),
+    STOKE_SOURCE_REVISION: input.revision,
     STOKE_RUNTIME_STATE_REVISION: String(input.state.revision),
     ...(input.request.origin === "dashboard" ? { STOKE_WORKSPACE_ORIGIN: "dashboard" } : {}),
   };

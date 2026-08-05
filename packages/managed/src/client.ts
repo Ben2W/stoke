@@ -15,7 +15,9 @@ import {
   type RemoteExecutionResponse,
   type ManagedProjectStateSnapshot,
   type CreateManagedSandboxRequest,
+  type CreateManagedSandboxSnapshotRequest,
   type ManagedSandbox,
+  type ManagedSandboxSnapshot,
   type RunManagedSandboxCommandRequest,
   type ManagedSandboxCommandResponse,
   type ProjectStateResponse,
@@ -41,7 +43,9 @@ import {
   ProjectStateResponseSchema,
   UpdateProjectStateRequestSchema,
   CreateManagedSandboxRequestSchema,
+  CreateManagedSandboxSnapshotRequestSchema,
   ManagedSandboxResponseSchema,
+  ManagedSandboxSnapshotResponseSchema,
   RunManagedSandboxCommandRequestSchema,
   ManagedSandboxCommandResponseSchema,
   ManagedSandboxInteractiveResponseSchema,
@@ -87,6 +91,10 @@ export type ManagedClient = {
     snapshot: ManagedProjectStateSnapshot,
   ): Promise<ProjectStateResponse>;
   createSandbox(input: CreateManagedSandboxRequest): Promise<ManagedSandbox>;
+  snapshotSandbox(
+    sandboxName: string,
+    input: CreateManagedSandboxSnapshotRequest,
+  ): Promise<ManagedSandboxSnapshot>;
   runSandboxCommand(
     sandboxName: string,
     input: RunManagedSandboxCommandRequest,
@@ -268,6 +276,15 @@ export function createManagedClient(options: ManagedClientOptions): ManagedClien
       return ManagedSandboxResponseSchema.parse(
         await request("/api/v1/sandboxes", { method: "POST", body: JSON.stringify(payload) }),
       ).sandbox;
+    },
+    async snapshotSandbox(sandboxName, input) {
+      const payload = CreateManagedSandboxSnapshotRequestSchema.parse(input);
+      return ManagedSandboxSnapshotResponseSchema.parse(
+        await request(`/api/v1/sandboxes/${encodeURIComponent(sandboxName)}/snapshots`, {
+          method: "POST",
+          body: JSON.stringify(payload),
+        }),
+      ).snapshot;
     },
     async runSandboxCommand(sandboxName, input) {
       const payload = RunManagedSandboxCommandRequestSchema.parse(input);

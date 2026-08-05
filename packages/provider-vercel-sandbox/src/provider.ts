@@ -25,7 +25,7 @@ export type VercelSandboxProviderConfig = {
 
 export type VercelSandboxCreateInput = {
   runtime?: string;
-  revision?: string;
+  snapshotId?: string;
   ports?: number[];
   timeout?: number;
   resources?: { vcpus: number };
@@ -50,6 +50,7 @@ export type VercelSandboxHandle = {
   runCommand(command: string, args?: string[], options?: RunCommandOptions): Promise<VercelSandboxCommandResult>;
   runCommand(input: RunCommandInput): Promise<VercelSandboxCommandResult>;
   domain(port: number): string;
+  snapshot(options?: { expiration?: number }): Promise<{ snapshotId: string }>;
   stop(): Promise<void>;
 };
 
@@ -131,8 +132,10 @@ export function createVercelSandboxRuntime(
     async create(input = {}) {
       const sandbox = await client.createSandbox({
         projectId,
+        source: input.snapshotId
+          ? { type: "snapshot", snapshotId: input.snapshotId }
+          : { type: "empty" },
         runtime: input.runtime ?? "node24",
-        revision: input.revision,
         ports: input.ports ?? [],
         timeout: input.timeout,
         resources: input.resources,
@@ -177,6 +180,12 @@ function managedHandle(
       const domain = domains[String(port)];
       if (!domain) throw new Error(`Port ${port} is not exposed by Vercel Sandbox ${name}`);
       return domain;
+    },
+    async snapshot(options) {
+      return await client.snapshotSandbox(name, {
+        projectId,
+        ...(options?.expiration === undefined ? {} : { expiration: options.expiration }),
+      });
     },
     async stop() {
       await client.stopSandbox(name, projectId);

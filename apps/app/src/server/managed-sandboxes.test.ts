@@ -4,6 +4,7 @@ import {
   createManagedSandbox,
   ManagedSandboxNotFoundError,
   runManagedSandboxCommand,
+  snapshotManagedSandbox,
   stopManagedSandbox,
 } from "./managed-sandboxes.ts";
 
@@ -17,12 +18,12 @@ const project: ManagedProject = {
 };
 
 describe("managed Vercel Sandboxes", () => {
-  test("creates from the managed project's public GitHub source", async () => {
+  test("creates an empty setup sandbox", async () => {
     let createInput: any;
     const result = await createManagedSandbox("user-1", {
       projectId: project.id,
+      source: { type: "empty" },
       runtime: "node24",
-      revision: "main",
       ports: [3000],
     }, {
       getProject: async () => project,
@@ -38,11 +39,6 @@ describe("managed Vercel Sandboxes", () => {
 
     expect(createInput).toMatchObject({
       runtime: "node24",
-      source: {
-        type: "git",
-        url: "https://github.com/ben2w/stoke-example.git",
-        revision: "main",
-      },
       ports: [3000],
       persistent: true,
       tags: { service: "stoke" },
@@ -51,6 +47,56 @@ describe("managed Vercel Sandboxes", () => {
       name: "quiet-otter",
       domains: { "3000": "https://3000.quiet-otter.example" },
     });
+  });
+
+  test("creates a workspace sandbox from a cached snapshot", async () => {
+    let createInput: any;
+    await createManagedSandbox("user-1", {
+      projectId: project.id,
+      source: { type: "snapshot", snapshotId: "snap_prepared" },
+      runtime: "node24",
+      ports: [3000],
+    }, {
+      getProject: async () => project,
+      create: async (input) => {
+        createInput = input;
+        return {
+          name: "workspace-sandbox",
+          tags: input.tags,
+          domain: (port: number) => `https://${port}.workspace.example`,
+        } as any;
+      },
+    });
+
+    expect(createInput).toMatchObject({
+      source: { type: "snapshot", snapshotId: "snap_prepared" },
+      ports: [3000],
+      persistent: true,
+    });
+    expect(createInput).not.toHaveProperty("runtime");
+  });
+
+  test("snapshots an owned setup sandbox", async () => {
+    const sandbox = {
+      name: "setup-sandbox",
+      tags: {
+        service: "stoke",
+        owner: "c6c289e49e9c05b2145860387b73bcb1",
+        project: "07fd68ba45969a2cfbb949331c69fbf9",
+      },
+      snapshot: async (options: unknown) => {
+        expect(options).toEqual({ expiration: 0 });
+        return { snapshotId: "snap_prepared" };
+      },
+    };
+
+    await expect(snapshotManagedSandbox("user-1", sandbox.name, {
+      projectId: project.id,
+      expiration: 0,
+    }, {
+      getProject: async () => project,
+      get: async () => sandbox as any,
+    })).resolves.toEqual({ snapshotId: "snap_prepared" });
   });
 
   test("rejects a sandbox that is not tagged for the user and project", async () => {
@@ -85,6 +131,7 @@ describe("managed Vercel Sandboxes", () => {
     };
     await createManagedSandbox("user-1", {
       projectId: project.id,
+      source: { type: "empty" },
       runtime: "node24",
       ports: [],
     }, dependencies as any);
