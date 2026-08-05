@@ -1,9 +1,19 @@
 # @usestoke/cli
 
-The private Stoke command-line application.
+The Stoke command-line application for managed development environments.
+
+## Install
+
+The CLI requires [Bun](https://bun.sh). Install Bun first if needed, then install Stoke globally and sign in:
 
 ```bash
+bun add --global @usestoke/cli
 stoke login
+```
+
+## Usage
+
+```bash
 stoke add owner/repository
 stoke use my-project
 stoke plan

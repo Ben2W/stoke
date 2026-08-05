@@ -1,5 +1,6 @@
 import { ArrowRight } from "lucide-react";
 import { SignInButton } from "../auth/auth-buttons.tsx";
+import { CliInstallCommand } from "../cli-install-command.tsx";
 import { DevelopmentEnvironmentShowcase } from "./development-environment-showcase.tsx";
 import { ProductPreview } from "./product-preview.tsx";
 import { SiteHeader } from "./site-header.tsx";
@@ -26,6 +27,13 @@ export function LandingPage() {
               <a className="inline-flex h-11 items-center gap-2 px-1 text-sm font-medium text-zinc-600 transition hover:text-zinc-950" href="#environment">
                 See how it works <ArrowRight size={15} />
               </a>
+            </div>
+            <div className="mt-8 max-w-md" id="install">
+              <p className="mb-2 text-xs font-medium uppercase tracking-[0.16em] text-zinc-500">Install the CLI</p>
+              <CliInstallCommand />
+              <p className="mt-2 text-xs text-zinc-500">
+                Requires <a className="underline decoration-zinc-300 underline-offset-2 transition hover:text-zinc-950" href="https://bun.sh">Bun</a>. Then run <code className="font-mono text-zinc-700">stoke login</code>.
+              </p>
             </div>
           </div>
           <ProductPreview />
