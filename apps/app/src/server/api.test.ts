@@ -287,6 +287,33 @@ describe("Hono control-plane API", () => {
     });
   });
 
+  test("discovers the workflow for dashboard workspace creation", async () => {
+    const api = createApi({
+      authenticate: async () => user,
+      startRemoteProjectExecution: async (_userId, _projectId, input) => {
+        expect(input).toEqual({
+          operation: "create",
+          workspace: "sunny-ridge",
+          origin: "dashboard",
+        });
+        return {
+          run: { ...run, operation: "create", origin: "dashboard" },
+          disposition: "created",
+        };
+      },
+    });
+    const response = await api.request(`http://localhost/api/v1/projects/${project.id}/executions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ operation: "create", workspace: "sunny-ridge", origin: "dashboard" }),
+    });
+
+    expect(response.status).toBe(202);
+    expect(await response.json()).toMatchObject({
+      run: { operation: "create", status: "running" },
+    });
+  });
+
   test("keeps CLI remote execution responses synchronous", async () => {
     const result = { workflow: "default", nodeCount: 2, cachedNodeCount: 1, nodes: [] };
     const api = createApi({

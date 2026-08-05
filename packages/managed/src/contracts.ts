@@ -232,7 +232,7 @@ export const RemoteExecutionRequestSchema = z.discriminatedUnion("operation", [
   }),
   z.object({
     operation: z.literal("create"),
-    workflow: z.string().trim().min(1).max(120),
+    workflow: RemoteWorkflowSchema,
     workspace: z.string().trim().min(1).max(120),
     origin: RemoteOriginSchema,
   }),

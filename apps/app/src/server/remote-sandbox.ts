@@ -158,7 +158,8 @@ async function runCommand(
 
 function remoteCliArgs(request: RemoteExecutionRequest, workflow: string | undefined): string[] {
   if (request.operation === "create") {
-    return [STOKE_CLI_PATH, "create", request.workspace, "--workflow", request.workflow, "--json"];
+    if (!workflow) throw new Error("Could not resolve a workflow for workspace creation");
+    return [STOKE_CLI_PATH, "create", request.workspace, "--workflow", workflow, "--json"];
   }
   if (request.operation === "remove") {
     return [STOKE_CLI_PATH, "rm", request.workspace, "--workflow", request.workflow, "--yes", "--json"];
