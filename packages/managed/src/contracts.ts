@@ -95,13 +95,15 @@ export const ManagedRunStatusSchema = z.enum([
   "orphaned",
 ]);
 
+export const ManagedRunOperationSchema = z.enum(["plan", "apply"]);
+
 export const ManagedRunSchema = z.object({
   id: z.uuid(),
   projectId: z.uuid(),
   checkoutId: z.uuid(),
   deviceId: z.string().min(1),
   deviceName: z.string().min(1),
-  operation: z.literal("apply"),
+  operation: ManagedRunOperationSchema,
   workflow: z.string().min(1),
   fingerprint: z.string().min(1),
   status: ManagedRunStatusSchema,
@@ -124,7 +126,7 @@ export const ManagedRunEventSchema = z.object({
 export const ClaimRunRequestSchema = z.object({
   projectId: z.uuid(),
   checkoutId: z.uuid(),
-  operation: z.literal("apply"),
+  operation: ManagedRunOperationSchema,
   workflow: z.string().trim().min(1).max(120).default("default"),
   fingerprint: z.string().min(1).max(255),
 });
@@ -140,6 +142,19 @@ export const RunResponseSchema = z.object({ run: ManagedRunSchema });
 export const RunEventsResponseSchema = z.object({ events: z.array(ManagedRunEventSchema) });
 export const RunSocketTicketResponseSchema = z.object({ socketUrl: z.url() });
 
+const RemoteWorkflowSchema = z.string().trim().min(1).max(120).optional();
+
+export const RemoteExecutionRequestSchema = z.discriminatedUnion("operation", [
+  z.object({ operation: z.literal("plan"), workflow: RemoteWorkflowSchema }),
+  z.object({ operation: z.literal("apply"), workflow: RemoteWorkflowSchema, dryRun: z.boolean().optional() }),
+]);
+
+export const RemoteExecutionResponseSchema = z.object({
+  run: ManagedRunSchema,
+  disposition: z.enum(["created", "joined"]),
+  result: z.unknown().optional(),
+});
+
 export type GitHubProjectSource = z.infer<typeof GitHubProjectSourceSchema>;
 export type LocalProjectSource = z.infer<typeof LocalProjectSourceSchema>;
 export type ProjectSource = z.infer<typeof ProjectSourceSchema>;
@@ -151,7 +166,10 @@ export type RegisterDeviceRequest = z.infer<typeof RegisterDeviceRequestSchema>;
 export type ManagedCheckout = z.infer<typeof ManagedCheckoutSchema>;
 export type RegisterCheckoutRequest = z.infer<typeof RegisterCheckoutRequestSchema>;
 export type ManagedRunStatus = z.infer<typeof ManagedRunStatusSchema>;
+export type ManagedRunOperation = z.infer<typeof ManagedRunOperationSchema>;
 export type ManagedRun = z.infer<typeof ManagedRunSchema>;
 export type ManagedRunEvent = z.infer<typeof ManagedRunEventSchema>;
 export type ClaimRunRequest = z.infer<typeof ClaimRunRequestSchema>;
 export type ClaimRunResponse = z.infer<typeof ClaimRunResponseSchema>;
+export type RemoteExecutionRequest = z.infer<typeof RemoteExecutionRequestSchema>;
+export type RemoteExecutionResponse = z.infer<typeof RemoteExecutionResponseSchema>;

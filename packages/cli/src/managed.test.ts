@@ -325,6 +325,34 @@ describe("managed project source resolution", () => {
           });
         }
         if (url.pathname === "/api/v1/projects") return Response.json({ projects: [project] });
+        if (url.pathname === `/api/v1/projects/${project.id}/executions`) {
+          return Response.json({
+            run: {
+              id: "2923c579-7457-410c-a5bb-d47cd7131f0a",
+              projectId: project.id,
+              checkoutId: "09f90166-18fb-4851-a31c-6a4dac353215",
+              deviceId: "vercel-sandbox:test",
+              deviceName: "Vercel Sandbox",
+              operation: "plan",
+              workflow: "stoke-example",
+              fingerprint: "remote-test",
+              status: "completed",
+              nodeCount: 3,
+              cachedNodeCount: 0,
+              startedAt: "2026-08-04T00:00:00.000Z",
+              updatedAt: "2026-08-04T00:00:01.000Z",
+              completedAt: "2026-08-04T00:00:01.000Z",
+            },
+            disposition: "created",
+            result: {
+              workflow: "stoke-example",
+              providerFingerprint: "test",
+              nodeCount: 3,
+              cachedNodeCount: 0,
+              nodes: [],
+            },
+          });
+        }
         if (url.pathname === "/api/v1/checkouts") return Response.json({ checkouts: [] });
         if (url.pathname === "/api/v1/runs") return Response.json({ runs: [] });
         return Response.json({ error: "not_found" }, { status: 404 });
@@ -353,6 +381,15 @@ describe("managed project source resolution", () => {
           deviceName: "Benjamin's MacBook",
         },
         workflows: [],
+      });
+
+      const planned = await runManagedCli(["plan", "--json"], cwd, environment);
+      expect(planned.exitCode).toBe(0);
+      expect(planned.stderr).toBe("");
+      expect(JSON.parse(planned.stdout)).toMatchObject({
+        workflow: "stoke-example",
+        nodeCount: 3,
+        cachedNodeCount: 0,
       });
     } finally {
       server.stop(true);

@@ -3,6 +3,7 @@ import { api } from "../../../../server/api.ts";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+export const maxDuration = 300;
 
 const handler = handle(api);
 

@@ -5,8 +5,10 @@
 Stoke is Rigkit's typed workflow engine plus a managed control plane. It has one
 cloud platform: Vercel.
 
-- The CLI discovers and evaluates `rigkit/index.ts` on the user's machine or in
-  CI. The control plane never evaluates arbitrary project TypeScript.
+- The CLI evaluates `rigkit/index.ts` in a local checkout when one is available.
+  Checkout-free `plan` and `apply` requests evaluate the same configuration in
+  an isolated, ephemeral Vercel Sandbox; arbitrary project code does not run in
+  the control-plane function itself.
 - The control plane is a client-rendered React application served as a static
   Next.js shell on Vercel. Product API routes are composed in one Hono
   application and mounted through a single Vercel Function.
@@ -54,6 +56,7 @@ The initial API is deliberately small:
 - `GET /api/v1/projects`
 - `POST /api/v1/projects`
 - `DELETE /api/v1/projects/:projectId`
+- `POST /api/v1/projects/:projectId/executions`
 - `POST /api/v1/devices`
 - `GET /api/v1/checkouts`
 - `POST /api/v1/checkouts`
@@ -103,10 +106,11 @@ server functions for product behavior.
 - `--project <id|slug|name|path>` and `STOKE_PROJECT` select a project for one
   invocation without changing the saved preference. Explicit CLI selection
   wins over the environment and saved selection.
-- Runtime commands resolve the selected project's checkout on the current
+- Runtime commands prefer the selected project's checkout on the current
   device and run from that path. Multiple checkouts require an explicit path.
-  A local checkout is an execution target, not a requirement for managed
-  project identity or listing.
+  If a GitHub-backed project has no local checkout, `plan` and `apply` run in an
+  ephemeral Vercel Sandbox. Host-bound workspace operations still require a
+  local checkout.
 - `stoke project ls` lists managed projects, their checkout locations, and the
   current selection. `stoke project rm` removes one managed project.
 - `stoke ls` always lists the selected managed project. With a local checkout it
@@ -126,10 +130,10 @@ by `stoke login`.
 1. Authenticated project, device, and checkout registry with deterministic CLI
    selection.
 2. Vercel Sandbox execution for GitHub-backed projects, addressed by the same
-   managed project identity.
+   managed project identity. Plan and apply runs share the managed run model,
+   dedupe active work, emit live events, and heartbeat until completion.
 3. Managed workflow state and shared cache metadata, with large artifacts in
    object storage rather than Postgres.
-4. A CI adapter that invokes the same CLI and workflow graph as local usage.
 
 ## Deliberate interview-scope cuts
 
@@ -137,5 +141,5 @@ by `stoke login`.
 - No arbitrary TypeScript evaluation in the control plane.
 - No dashboard before the CLI loop works.
 - No organization/RBAC model in the first private preview.
-- No GitHub Actions replacement; Stoke first runs inside CI.
+- No CI product surface in the interview project.
 - No global rewrite of inherited `@rigkit/*` internals.

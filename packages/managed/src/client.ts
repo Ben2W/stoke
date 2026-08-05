@@ -10,6 +10,8 @@ import {
   type ClaimRunResponse,
   type ManagedRun,
   type ManagedRunEvent,
+  type RemoteExecutionRequest,
+  type RemoteExecutionResponse,
   CheckoutListResponseSchema,
   CheckoutResponseSchema,
   CreateProjectRequestSchema,
@@ -25,6 +27,8 @@ import {
   RunListResponseSchema,
   RunResponseSchema,
   RunSocketTicketResponseSchema,
+  RemoteExecutionRequestSchema,
+  RemoteExecutionResponseSchema,
 } from "./contracts.ts";
 
 export type ManagedClientOptions = {
@@ -51,6 +55,7 @@ export type ManagedClient = {
   getRun(runId: string): Promise<ManagedRun>;
   listRunEvents(runId: string, after?: number): Promise<ManagedRunEvent[]>;
   createRunSocketTicket(runId: string, role?: "viewer" | "producer"): Promise<string>;
+  executeProject(projectId: string, input: RemoteExecutionRequest): Promise<RemoteExecutionResponse>;
 };
 
 export class ManagedApiError extends Error {
@@ -80,7 +85,10 @@ export function createManagedClient(options: ManagedClientOptions): ManagedClien
     });
     const body = await response.json().catch(() => undefined);
     if (!response.ok) {
-      throw new ManagedApiError(`Stoke API request failed with ${response.status}`, response.status, body);
+      const message = typeof body === "object" && body !== null && "message" in body && typeof body.message === "string"
+        ? body.message
+        : `Stoke API request failed with ${response.status}`;
+      throw new ManagedApiError(message, response.status, body);
     }
     return body;
   }
@@ -149,6 +157,15 @@ export function createManagedClient(options: ManagedClientOptions): ManagedClien
       return RunSocketTicketResponseSchema.parse(
         await request(`/api/v1/runs/${encodeURIComponent(runId)}/ticket?role=${role}`, { method: "POST" }),
       ).socketUrl;
+    },
+    async executeProject(projectId, input) {
+      const payload = RemoteExecutionRequestSchema.parse(input);
+      return RemoteExecutionResponseSchema.parse(
+        await request(`/api/v1/projects/${encodeURIComponent(projectId)}/executions`, {
+          method: "POST",
+          body: JSON.stringify(payload),
+        }),
+      );
     },
   };
 }

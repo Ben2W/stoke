@@ -181,7 +181,7 @@ export const runs = pgTable(
     deviceId: text("device_id")
       .notNull()
       .references(() => devices.id, { onDelete: "cascade" }),
-    operation: text("operation").$type<"apply">().notNull(),
+    operation: text("operation").$type<"plan" | "apply">().notNull(),
     workflow: text("workflow").notNull(),
     fingerprint: text("fingerprint").notNull(),
     status: text("status").$type<"running" | "completed" | "failed" | "orphaned">().notNull(),

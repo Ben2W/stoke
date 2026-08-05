@@ -22,6 +22,7 @@ import type {
   ManagedProject,
   ManagedRun,
   ProjectSource,
+  RemoteExecutionRequest,
 } from "@stoke/managed";
 import {
   cmuxHostCapabilities,
@@ -825,6 +826,17 @@ async function runProjectOperation(
     return;
   }
 
+  const managed = await resolveManagedProjectContext(invocation, { requireCheckout: false });
+  if (managed && !managed.checkout) {
+    if (requestedOperation !== "plan" && requestedOperation !== "apply") {
+      throw new Error(
+        `${requestedOperation} requires a local checkout. Remote execution currently supports stoke plan and stoke apply.`,
+      );
+    }
+    await runRemoteProjectOperation(invocation, managed, requestedOperation, args);
+    return;
+  }
+
   const runtime = await loadRuntime(invocation);
   const { operation, parsed, result } = await executeRuntimeOperation(
     invocation,
@@ -843,6 +855,65 @@ async function runProjectOperation(
     await printWorkspaceNextSteps(runtime, result.name, result.workflow);
   }
   printInteractiveOutputGap(invocation);
+}
+
+async function runRemoteProjectOperation(
+  invocation: CliInvocation,
+  managed: ResolvedManagedProjectContext,
+  operation: "plan" | "apply",
+  args: string[],
+): Promise<void> {
+  const input = parseRemoteExecutionArgs(operation, args);
+  if (!wantsJson(invocation)) {
+    console.log(`${ui.accent(ui.sym.active)} ${ui.bold(managed.project.name)}  ${ui.dim("Vercel Sandbox")}`);
+  }
+  const response = await managed.client.executeProject(managed.project.id, input);
+  const result = response.result ?? managedRunResult(response.run);
+
+  if (wantsJson(invocation)) {
+    printJson(result);
+    return;
+  }
+
+  await renderOperationResult({
+    workflow: "",
+    id: operation,
+    source: "core",
+    title: operation === "plan" ? "Plan" : "Apply",
+    description: operation === "plan" ? "Show cached and pending steps" : "Apply project workflow changes",
+  }, result, {});
+  console.log(ui.dim(`managed run ${response.run.id}`));
+  printInteractiveOutputGap(invocation);
+}
+
+function parseRemoteExecutionArgs(
+  operation: "plan" | "apply",
+  args: string[],
+): RemoteExecutionRequest {
+  let workflow: string | undefined;
+  let dryRun = false;
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index]!;
+    if (arg === "--workflow") {
+      workflow = readOptionValue(args, ++index, "--workflow");
+      continue;
+    }
+    if (arg.startsWith("--workflow=")) {
+      workflow = arg.slice("--workflow=".length);
+      if (!workflow) throw new Error("--workflow requires a value");
+      continue;
+    }
+    if (arg === "--dry-run" && operation === "apply") {
+      dryRun = true;
+      continue;
+    }
+    throw new Error(`Remote ${operation} does not support ${arg}`);
+  }
+  return {
+    operation,
+    ...(workflow ? { workflow } : {}),
+    ...(dryRun ? { dryRun: true } : {}),
+  };
 }
 
 function parseRunCommandOptions(

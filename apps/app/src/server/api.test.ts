@@ -171,6 +171,30 @@ describe("Hono control-plane API", () => {
     });
   });
 
+  test("starts remote project execution through the managed API", async () => {
+    const plan = { workflow: "default", nodeCount: 2, cachedNodeCount: 1, nodes: [] };
+    const api = createApi({
+      authenticate: async () => user,
+      executeRemoteProject: async (userId, projectId, input) => {
+        expect([userId, projectId]).toEqual([user.id, project.id]);
+        expect(input).toEqual({ operation: "plan", workflow: "default" });
+        return {
+          run: { ...run, operation: "plan", status: "completed" },
+          disposition: "created",
+          result: plan,
+        };
+      },
+    });
+    const response = await api.request(`http://localhost/api/v1/projects/${project.id}/executions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ operation: "plan", workflow: "default" }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ disposition: "created", result: plan });
+  });
+
   test("centralizes managed resource conflicts", async () => {
     const api = createApi({
       authenticate: async () => user,

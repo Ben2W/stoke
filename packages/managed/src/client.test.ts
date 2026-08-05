@@ -134,6 +134,13 @@ describe("managed client", () => {
         if (request.url.endsWith("/claim")) {
           return Response.json({ run, disposition: "created", socketUrl: "wss://usestoke.dev/api/ws?ticket=signed" }, { status: 201 });
         }
+        if (request.url.endsWith(`/projects/${project.id}/executions`)) {
+          return Response.json({
+            run: { ...run, operation: "plan" },
+            disposition: "created",
+            result: { workflow: "default", nodeCount: 1, cachedNodeCount: 0, nodes: [] },
+          });
+        }
         if (request.url.endsWith("/events?after=1")) return Response.json({ events: [event] });
         if (request.url.includes("/ticket?role=")) return Response.json({ socketUrl: "wss://usestoke.dev/api/ws?ticket=viewer" });
         if (request.url.includes("/runs/")) return Response.json({ run });
@@ -152,12 +159,17 @@ describe("managed client", () => {
     expect(await client.getRun(run.id)).toEqual(run);
     expect(await client.listRunEvents(run.id, 1)).toEqual([event]);
     expect(await client.createRunSocketTicket(run.id)).toBe("wss://usestoke.dev/api/ws?ticket=viewer");
+    expect(await client.executeProject(project.id, { operation: "plan" })).toMatchObject({
+      disposition: "created",
+      result: { workflow: "default", nodeCount: 1 },
+    });
     expect(requests.map((request) => `${request.method} ${new URL(request.url).pathname}${new URL(request.url).search}`)).toEqual([
       "POST /api/v1/runs/claim",
       `GET /api/v1/runs?projectId=${project.id}`,
       `GET /api/v1/runs/${run.id}`,
       `GET /api/v1/runs/${run.id}/events?after=1`,
       `POST /api/v1/runs/${run.id}/ticket?role=viewer`,
+      `POST /api/v1/projects/${project.id}/executions`,
     ]);
   });
 });
