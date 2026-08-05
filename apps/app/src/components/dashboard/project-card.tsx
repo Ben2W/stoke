@@ -1,24 +1,21 @@
 import type { ManagedCheckout, ManagedProject, ManagedRun } from "@stoke/managed";
-import { Check, ExternalLink, GitBranch, Laptop, MapPin } from "lucide-react";
+import { ArrowUpRight, Check, GitBranch, Laptop, MapPin } from "lucide-react";
 
 type ProjectCardProps = {
   project: ManagedProject;
   checkouts: ManagedCheckout[];
   run?: ManagedRun;
   now: number;
+  onSelect(): void;
 };
 
-export function ProjectCard({ project, checkouts, run, now }: ProjectCardProps) {
-  const githubSource = project.source.kind === "github" ? project.source : undefined;
+export function ProjectCard({ project, checkouts, run, now, onSelect }: ProjectCardProps) {
   const source = project.source.kind === "github"
     ? `${project.source.owner}/${project.source.repository}`
     : project.source.path;
-  const sourceUrl = githubSource
-    ? githubSource.url ?? `https://github.com/${source}`
-    : undefined;
 
   return (
-    <article className="group flex min-h-64 flex-col rounded-lg border border-zinc-200 bg-white p-5 shadow-xs transition hover:border-zinc-300 hover:shadow-sm">
+    <button className="group flex min-h-64 flex-col rounded-lg border border-zinc-200 bg-white p-5 text-left shadow-xs transition hover:-translate-y-0.5 hover:border-zinc-300 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-950 focus-visible:ring-offset-2" onClick={onSelect} type="button">
       <div className="flex items-start gap-3">
         <div className="grid size-10 shrink-0 place-items-center rounded-full bg-zinc-950 text-xs font-semibold uppercase text-white">
           {project.name.slice(0, 2)}
@@ -27,11 +24,12 @@ export function ProjectCard({ project, checkouts, run, now }: ProjectCardProps) 
           <div className="flex items-center gap-2">
             <h3 className="truncate text-base font-medium tracking-tight text-zinc-950">{project.name}</h3>
             <span className="grid size-5 shrink-0 place-items-center rounded-full border border-zinc-200 text-emerald-600"><Check size={11} strokeWidth={2.2} /></span>
+            <ArrowUpRight className="ml-auto shrink-0 text-zinc-300 transition group-hover:text-zinc-700" size={15} />
           </div>
-          {sourceUrl ? (
-            <a className="mt-1 flex w-fit max-w-full items-center gap-1.5 truncate text-xs text-zinc-500 transition hover:text-zinc-950" href={sourceUrl} rel="noreferrer" target="_blank">
-              <GitBranch size={12} /> <span className="truncate">{source}</span> <ExternalLink className="shrink-0" size={10} />
-            </a>
+          {project.source.kind === "github" ? (
+            <span className="mt-1 flex max-w-full items-center gap-1.5 truncate text-xs text-zinc-500">
+              <GitBranch size={12} /> <span className="truncate">{source}</span>
+            </span>
           ) : (
             <span className="mt-1 flex items-center gap-1.5 truncate text-xs text-zinc-500"><MapPin size={12} />{source}</span>
           )}
@@ -66,7 +64,7 @@ export function ProjectCard({ project, checkouts, run, now }: ProjectCardProps) 
           <span className="shrink-0 text-[10px] text-zinc-400">Updated {relativeTime(project.updatedAt, now)}</span>
         )}
       </div>
-    </article>
+    </button>
   );
 }
 

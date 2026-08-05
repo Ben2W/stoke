@@ -69,13 +69,15 @@ describe("remote managed execution", () => {
         });
         return { run: running, disposition: "created" };
       },
-      getRun: async () => ({
-        ...running,
-        workflow: "stoke-example",
-        status: "completed",
-        nodeCount: 3,
-        cachedNodeCount: 0,
-      }),
+      getRun: async () => {
+        const completed = events.some((event) => (event as { type?: string }).type === "run.completed");
+        return {
+          ...running,
+          workflow: "stoke-example",
+          status: completed ? "completed" : "running",
+          ...(completed ? { nodeCount: 3, cachedNodeCount: 0 } : {}),
+        };
+      },
       appendRunEvent: async (_userId, _runId, event) => {
         events.push(event);
         return {

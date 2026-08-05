@@ -1,5 +1,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 
+const RUN_SOCKET_TICKET_TTL_MS = 5 * 60_000;
+
 export type RunSocketClaims = {
   runId: string;
   userId: string;
@@ -15,7 +17,7 @@ export function createRunSocketUrl(
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
   url.searchParams.set("ticket", signRunSocketTicket({
     ...claims,
-    expiresAt: Date.now() + 60_000,
+    expiresAt: Date.now() + RUN_SOCKET_TICKET_TTL_MS,
   }));
   return url.toString();
 }

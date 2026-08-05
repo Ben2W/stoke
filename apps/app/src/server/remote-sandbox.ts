@@ -25,6 +25,7 @@ export type RunRemoteSandboxInput = {
   project: ManagedProject;
   request: RemoteExecutionRequest;
   state: ProjectStateResponse;
+  producerSocketUrl: string;
   githubToken?: string;
   onStage?: (stage: RemoteSandboxStage) => Promise<void> | void;
 };
@@ -88,6 +89,7 @@ export async function runRemoteSandbox(input: RunRemoteSandboxInput): Promise<Re
     FORCE_COLOR: "0",
     STOKE_STATE_FILE: STATE_FILE,
     STOKE_RUNTIME_BIN: STOKE_RUNTIME_PATH,
+    STOKE_MANAGED_RUN_SOCKET_URL: input.producerSocketUrl,
   };
   let workflow = input.request.workflow;
   if (!workflow) {

@@ -2700,7 +2700,10 @@ async function runRuntimeOperation<T>(
   input: Record<string, unknown>,
   options: { renderEvents: boolean },
 ): Promise<T> {
-  const managedClaim = await tryClaimManagedApply(runtime, operation, input);
+  const externalManagedSocketUrl = process.env.STOKE_MANAGED_RUN_SOCKET_URL?.trim();
+  const managedClaim = externalManagedSocketUrl
+    ? undefined
+    : await tryClaimManagedApply(runtime, operation, input);
   if (managedClaim?.disposition === "joined") {
     const managedPresenter = options.renderEvents ? createRunPresenter(operation) : undefined;
     if (options.renderEvents) {
@@ -2714,20 +2717,24 @@ async function runRuntimeOperation<T>(
     }
   }
 
-  const managedPublisher = managedClaim?.disposition === "created"
-    ? createManagedRunPublisher(
-      managedClaim.socketUrl,
-      () => managedClaim.client.createRunSocketTicket(managedClaim.run.id, "producer"),
-    )
-    : undefined;
+  const managedPublisher = externalManagedSocketUrl
+    ? createManagedRunPublisher(externalManagedSocketUrl)
+    : managedClaim?.disposition === "created"
+      ? createManagedRunPublisher(
+        managedClaim.socketUrl,
+        () => managedClaim.client.createRunSocketTicket(managedClaim.run.id, "producer"),
+      )
+      : undefined;
   let started: Awaited<ReturnType<typeof runtime.control.startRun>>;
   try {
     started = await runtime.control.startRun({ operation, input });
   } catch (error) {
-    await managedPublisher?.publish({
-      type: "run.failed",
-      error: { message: error instanceof Error ? error.message : String(error) },
-    }, true);
+    if (!externalManagedSocketUrl) {
+      await managedPublisher?.publish({
+        type: "run.failed",
+        error: { message: error instanceof Error ? error.message : String(error) },
+      }, true);
+    }
     managedPublisher?.close();
     throw error;
   }
@@ -2752,8 +2759,15 @@ async function runRuntimeOperation<T>(
     respond?: (id: string, response: unknown) => void | Promise<void>,
     sendSession?: (message: unknown) => void | Promise<void>,
   ) => {
-    if (isRecord(event) && (isDevMachineEvent(event) || event.type === "run.completed" || event.type === "run.failed")) {
-      await managedPublisher?.publish(event, event.type === "run.completed" || event.type === "run.failed");
+    if (
+      isRecord(event)
+      && (isDevMachineEvent(event) || event.type === "run.completed" || event.type === "run.failed")
+      && (!externalManagedSocketUrl || !isRemoteControlledLifecycleEvent(event.type))
+    ) {
+      await managedPublisher?.publish(
+        event,
+        Boolean(externalManagedSocketUrl) || event.type === "run.completed" || event.type === "run.failed",
+      );
     }
     logger?.append(event);
     if (isRecord(event)) {
@@ -2886,6 +2900,11 @@ async function runRuntimeOperation<T>(
   }
   if (result === undefined) throw new Error(`Runtime operation ${operation} finished without a result`);
   return result;
+}
+
+function isRemoteControlledLifecycleEvent(type: unknown): boolean {
+  return type === "run.completed"
+    || type === "run.failed";
 }
 
 function printRunFailure(input: {

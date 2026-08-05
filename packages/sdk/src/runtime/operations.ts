@@ -4,6 +4,7 @@ import {
   type EngineOperationSummary,
   type JsonValue,
   type LocalHostCapabilityRequestOptions,
+  type WorkspaceRecord,
 } from "@rigkit/engine";
 import { normalizeRuntimeRunError } from "./errors.ts";
 import {
@@ -41,6 +42,7 @@ export async function loadEngine(input: EngineLoadOptions): Promise<DevMachineEn
     configPath: input.configPath,
     state: state.project,
     stateFactory: state.stateFactory,
+    workspaceOwner: workspaceOwnerFromSource(input.source),
   });
   await engine.load();
   return engine;
@@ -57,6 +59,7 @@ async function executeOperation(run: RunRecord, store: RunStore, options: Engine
     configPath: options.configPath,
     state: state.project,
     stateFactory: state.stateFactory,
+    workspaceOwner: workspaceOwnerFromSource(options.source),
     interaction: {
       present: async (request) => {
         await requestHost(store, run, "open.external", {
@@ -120,6 +123,17 @@ async function executeOperation(run: RunRecord, store: RunStore, options: Engine
   const result = await engine.runRuntimeOperation({ operation: run.operation, input: run.input });
   await state.persist();
   completeRun(run, result, store);
+}
+
+function workspaceOwnerFromSource(source: JsonValue | undefined): WorkspaceRecord["owner"] {
+  if (!source || typeof source !== "object" || Array.isArray(source)) return undefined;
+  const deviceId = source.deviceId;
+  const checkoutId = source.checkoutId;
+  if (typeof deviceId !== "string" || !deviceId) return undefined;
+  return {
+    deviceId,
+    ...(typeof checkoutId === "string" && checkoutId ? { checkoutId } : {}),
+  };
 }
 
 export function operationsFor(engine: DevMachineEngine): RuntimeOperation[] {

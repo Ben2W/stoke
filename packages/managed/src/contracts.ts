@@ -79,6 +79,23 @@ export const DeviceResponseSchema = z.object({ device: ManagedDeviceSchema });
 export const CheckoutResponseSchema = z.object({ checkout: ManagedCheckoutSchema });
 export const CheckoutListResponseSchema = z.object({ checkouts: z.array(ManagedCheckoutSchema) });
 
+export const ManagedWorkspaceSchema = z.object({
+  id: z.string().min(1),
+  projectId: z.uuid(),
+  name: z.string().min(1),
+  workflow: z.string().min(1),
+  deviceId: z.string().min(1).optional(),
+  deviceName: z.string().min(1).optional(),
+  checkoutId: z.uuid().optional(),
+  checkoutPath: z.string().min(1).optional(),
+  createdAt: z.iso.datetime(),
+  updatedAt: z.iso.datetime(),
+});
+
+export const ProjectWorkspaceListResponseSchema = z.object({
+  workspaces: z.array(ManagedWorkspaceSchema),
+});
+
 export const ManagedUserSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
@@ -186,6 +203,7 @@ export type ManagedUser = z.infer<typeof ManagedUserSchema>;
 export type ManagedDevice = z.infer<typeof ManagedDeviceSchema>;
 export type RegisterDeviceRequest = z.infer<typeof RegisterDeviceRequestSchema>;
 export type ManagedCheckout = z.infer<typeof ManagedCheckoutSchema>;
+export type ManagedWorkspace = z.infer<typeof ManagedWorkspaceSchema>;
 export type RegisterCheckoutRequest = z.infer<typeof RegisterCheckoutRequestSchema>;
 export type ManagedRunStatus = z.infer<typeof ManagedRunStatusSchema>;
 export type ManagedRunOperation = z.infer<typeof ManagedRunOperationSchema>;

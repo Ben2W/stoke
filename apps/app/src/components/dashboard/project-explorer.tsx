@@ -1,21 +1,23 @@
 "use client";
 
 import type { ManagedCheckout, ManagedProject, ManagedRun } from "@stoke/managed";
-import { Check, Grid2X2, List, Plus, Search } from "lucide-react";
+import { Grid2X2, List, Plus, Search } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ProjectCard } from "./project-card.tsx";
+import { AddProjectDialog } from "./add-project-dialog.tsx";
 
 type ProjectExplorerProps = {
   projects: ManagedProject[];
   checkouts: ManagedCheckout[];
   runs: ManagedRun[];
   now: number;
+  onProjectSelect(project: ManagedProject): void;
 };
 
-export function ProjectExplorer({ projects, checkouts, runs, now }: ProjectExplorerProps) {
+export function ProjectExplorer({ projects, checkouts, runs, now, onProjectSelect }: ProjectExplorerProps) {
   const [query, setQuery] = useState("");
   const [view, setView] = useState<"grid" | "list">("grid");
-  const [copied, setCopied] = useState(false);
+  const [showAddProject, setShowAddProject] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
   const filteredProjects = useMemo(() => {
     const normalized = query.trim().toLowerCase();
@@ -40,12 +42,6 @@ export function ProjectExplorer({ projects, checkouts, runs, now }: ProjectExplo
     return () => window.removeEventListener("keydown", focusSearch);
   }, []);
 
-  async function copyAddCommand() {
-    await navigator.clipboard.writeText("stoke add .");
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1800);
-  }
-
   return (
     <>
       <div className="flex flex-col gap-3 sm:flex-row">
@@ -67,10 +63,10 @@ export function ProjectExplorer({ projects, checkouts, runs, now }: ProjectExplo
             <ViewButton active={view === "grid"} label="Grid view" onClick={() => setView("grid")}><Grid2X2 size={16} /></ViewButton>
             <ViewButton active={view === "list"} label="List view" onClick={() => setView("list")}><List size={17} /></ViewButton>
           </div>
-          <button className="inline-flex h-11 items-center gap-2 rounded-md bg-zinc-950 px-4 text-sm font-medium text-white shadow-sm transition hover:bg-zinc-800" onClick={copyAddCommand} type="button">
-            {copied ? <Check size={16} /> : <Plus size={16} />}
-            <span className="hidden sm:inline">{copied ? "Command copied" : "Add Project"}</span>
-            <span className="sm:hidden">{copied ? "Copied" : "Add"}</span>
+          <button className="inline-flex h-11 items-center gap-2 rounded-md bg-zinc-950 px-4 text-sm font-medium text-white shadow-sm transition hover:bg-zinc-800" onClick={() => setShowAddProject(true)} type="button">
+            <Plus size={16} />
+            <span className="hidden sm:inline">Add Project</span>
+            <span className="sm:hidden">Add</span>
           </button>
         </div>
       </div>
@@ -89,12 +85,18 @@ export function ProjectExplorer({ projects, checkouts, runs, now }: ProjectExplo
               checkouts={checkouts.filter((checkout) => checkout.projectId === project.id)}
               key={project.id}
               now={now}
+              onSelect={() => onProjectSelect(project)}
               project={project}
               run={runs.find((run) => run.projectId === project.id)}
             />
           ))}
         </div>
       )}
+      <AddProjectDialog
+        onClose={() => setShowAddProject(false)}
+        onProjectAdded={onProjectSelect}
+        open={showAddProject}
+      />
     </>
   );
 }

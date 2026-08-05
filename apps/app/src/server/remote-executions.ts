@@ -9,6 +9,7 @@ import { registerCheckout, registerDevice } from "./devices.ts";
 import { getProject } from "./projects.ts";
 import { accountRepository } from "./repositories/account-repository.ts";
 import { getProjectState, updateProjectState } from "./project-state.ts";
+import { createRunSocketUrl } from "./run-tickets.ts";
 import {
   runRemoteSandbox,
   type RemoteSandboxResult,
@@ -98,6 +99,11 @@ export async function executeRemoteProject(
         project,
         request,
         state: projectState,
+        producerSocketUrl: createRunSocketUrl(controlPlaneUrl(), {
+          runId: claimed.run.id,
+          userId,
+          role: "producer",
+        }),
         githubToken,
         onStage: async (stage) => {
           await dependencies.appendRunEvent(userId, claimed.run.id, stage);
@@ -111,7 +117,10 @@ export async function executeRemoteProject(
     } finally {
       clearInterval(heartbeat);
     }
-    await appendResultEvents(userId, claimed.run.id, request, result, dependencies.appendRunEvent);
+    const observed = await dependencies.getRun(userId, claimed.run.id);
+    if (observed.nodeCount === undefined) {
+      await appendResultEvents(userId, claimed.run.id, request, result, dependencies.appendRunEvent);
+    }
     await dependencies.appendRunEvent(userId, claimed.run.id, { type: "run.completed" });
     return {
       run: await dependencies.getRun(userId, claimed.run.id),
@@ -126,6 +135,14 @@ export async function executeRemoteProject(
     });
     throw new RemoteExecutionError(message, await dependencies.getRun(userId, claimed.run.id));
   }
+}
+
+function controlPlaneUrl(): string {
+  if (process.env.BETTER_AUTH_URL) return process.env.BETTER_AUTH_URL;
+  if (process.env.VERCEL_PROJECT_PRODUCTION_URL) {
+    return `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`;
+  }
+  return "https://usestoke.dev";
 }
 
 export class RemoteExecutionError extends Error {

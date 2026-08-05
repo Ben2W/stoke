@@ -9,10 +9,10 @@ import { queryKeys, runEventsQuery, runsQuery } from "../../lib/queries.ts";
 import { RunEventList } from "./run-event-list.tsx";
 import { RunList } from "./run-list.tsx";
 
-export function RunActivity({ projects }: { projects: ManagedProject[] }) {
+export function RunActivity({ project }: { project: ManagedProject }) {
   const queryClient = useQueryClient();
   const runsResult = useQuery(runsQuery);
-  const runs = runsResult.data ?? [];
+  const runs = (runsResult.data ?? []).filter((run) => run.projectId === project.id);
   const [selectedRunId, setSelectedRunId] = useState<string>();
   const selectedRun = useMemo(
     () => runs.find((run) => run.id === selectedRunId),
@@ -22,9 +22,14 @@ export function RunActivity({ projects }: { projects: ManagedProject[] }) {
   const { mutateAsync: createTicketForRun } = useMutation({ mutationFn: createRunTicket });
 
   useEffect(() => {
+    const activeRun = runs.find((run) => run.status === "running");
+    if (activeRun && selectedRun?.status !== "running") {
+      setSelectedRunId(activeRun.id);
+      return;
+    }
     if (selectedRunId && runs.some((run) => run.id === selectedRunId)) return;
-    setSelectedRunId(runs.find((run) => run.status === "running")?.id ?? runs[0]?.id);
-  }, [runs, selectedRunId]);
+    setSelectedRunId(activeRun?.id ?? runs[0]?.id);
+  }, [runs, selectedRun?.status, selectedRunId]);
 
   useEffect(() => {
     if (!selectedRunId || selectedRun?.status !== "running") return;
@@ -83,15 +88,18 @@ export function RunActivity({ projects }: { projects: ManagedProject[] }) {
   return (
     <section className="mt-8" aria-labelledby="activity-heading">
       <div className="mb-3 flex items-center justify-between">
-        <h2 className="text-sm font-medium" id="activity-heading">Run activity</h2>
-        <span className="text-[11px] text-zinc-400">Live from managed apply</span>
+        <div>
+          <h2 className="text-sm font-medium" id="activity-heading">Runs</h2>
+          <p className="mt-1 text-xs text-zinc-500">The same live execution stream shown by the CLI.</p>
+        </div>
+        <span className="inline-flex items-center gap-1.5 text-[11px] text-zinc-400"><span className="size-1.5 rounded-full bg-emerald-500" /> Postgres + WebSocket</span>
       </div>
 
       {runs.length && selectedRun ? (
         <div className="grid overflow-hidden rounded-lg border border-zinc-200 bg-white shadow-xs lg:grid-cols-[20rem_1fr]">
           <div className="border-b border-zinc-200 lg:border-b-0 lg:border-r">
             <div className="border-b border-zinc-100 px-4 py-3 text-[11px] font-medium uppercase tracking-wide text-zinc-400">Recent runs</div>
-            <RunList onSelect={setSelectedRunId} projects={projects} runs={runs} selectedRunId={selectedRunId} />
+            <RunList onSelect={setSelectedRunId} projects={[project]} runs={runs} selectedRunId={selectedRunId} />
           </div>
           {eventsResult.isPending ? (
             <div className="grid min-h-72 place-items-center text-xs text-zinc-400">Loading run events…</div>

@@ -266,6 +266,7 @@ describe("DevMachineEngine workflow runtime", () => {
     const engine = await createDevMachineEngine({
       projectDir,
       providerFactory: () => provider,
+      workspaceOwner: { deviceId: "device-1", checkoutId: "checkout-1" },
       local: {
         open: async (target) => {
           opened.push(target);
@@ -281,6 +282,7 @@ describe("DevMachineEngine workflow runtime", () => {
 
     const workspace = await engine.fork({ workflow: "create-test", name: "created" });
     expect(workspace.name).toBe("created");
+    expect(workspace.owner).toEqual({ deviceId: "device-1", checkoutId: "checkout-1" });
     expect(workspace.ctx).toMatchObject({
       name: "created",
       vmId: "vm-2",

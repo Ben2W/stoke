@@ -3,6 +3,7 @@ import {
   getCheckouts,
   getCurrentUser,
   getProjects,
+  getProjectWorkspaces,
   getRunEvents,
   getRuns,
 } from "./api-client.ts";
@@ -13,6 +14,7 @@ export const queryKeys = {
   checkouts: ["checkouts"] as const,
   runs: ["runs"] as const,
   runEvents: (runId: string) => ["runs", runId, "events"] as const,
+  projectWorkspaces: (projectId: string) => ["projects", projectId, "workspaces"] as const,
   deviceAuthorization: (userCode: string) => ["device-authorization", userCode] as const,
 };
 
@@ -38,8 +40,7 @@ export const checkoutsQuery = queryOptions({
 export const runsQuery = queryOptions({
   queryKey: queryKeys.runs,
   queryFn: getRuns,
-  refetchInterval: (query) =>
-    query.state.data?.some((run) => run.status === "running") ? 5_000 : false,
+  refetchInterval: 3_000,
 });
 
 export function runEventsQuery(runId: string | undefined) {
@@ -47,5 +48,14 @@ export function runEventsQuery(runId: string | undefined) {
     queryKey: queryKeys.runEvents(runId ?? "none"),
     queryFn: () => getRunEvents(runId!),
     enabled: Boolean(runId),
+  });
+}
+
+export function projectWorkspacesQuery(projectId: string | undefined) {
+  return queryOptions({
+    queryKey: queryKeys.projectWorkspaces(projectId ?? "none"),
+    queryFn: () => getProjectWorkspaces(projectId!),
+    enabled: Boolean(projectId),
+    refetchInterval: 5_000,
   });
 }

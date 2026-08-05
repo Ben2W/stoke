@@ -72,6 +72,7 @@ export type CreateDevMachineEngineOptions = {
     present?: InteractionPresenter;
   };
   local?: LocalWorkspaceRuntimeOptions;
+  workspaceOwner?: WorkspaceRecord["owner"];
 };
 
 export type { InteractionPresenter, InteractionPresentationRequest };
@@ -397,6 +398,7 @@ export class DevMachineEngine {
   private readonly providerHostStorage = new Map<string, ReturnType<ProviderHostStorageFactory>>();
   private readonly interactionPresenter: InteractionPresenter;
   private readonly local: LocalWorkspaceRuntime;
+  private readonly workspaceOwner?: WorkspaceRecord["owner"];
   private readonly handlers = new Set<EventHandler>();
   private workflows = new Map<string, LoadedWorkflow>();
   private definitionSources: DefinitionSourceFile[] = [];
@@ -416,6 +418,7 @@ export class DevMachineEngine {
     this.hostStorageDir = options.hostStorageDir ? resolve(options.hostStorageDir) : defaultProviderHostStorageDir();
     this.hostStorageFactory = options.hostStorageFactory ?? createFileProviderHostStorage;
     this.interactionPresenter = options.interaction?.present ?? defaultInteractionPresenter;
+    this.workspaceOwner = options.workspaceOwner ? { ...options.workspaceOwner } : undefined;
     this.local = {
       open: options.local?.open ?? openLocalTarget,
       prompt: {
@@ -1081,6 +1084,7 @@ export class DevMachineEngine {
       workflow: workflow.name,
       workflowCtx: { ...applied.context },
       ctx: {},
+      ...(this.workspaceOwner ? { owner: { ...this.workspaceOwner } } : {}),
       createdAt: now,
       updatedAt: now,
     };
@@ -2307,6 +2311,7 @@ function cloneWorkspace(workspace: WorkspaceRecord): WorkspaceRecord {
     ...workspace,
     workflowCtx: { ...workspace.workflowCtx },
     ctx: { ...workspace.ctx },
+    ...(workspace.owner ? { owner: { ...workspace.owner } } : {}),
   };
 }
 

@@ -2,11 +2,14 @@ import {
   CheckoutListResponseSchema,
   CurrentUserResponseSchema,
   ProjectListResponseSchema,
+  ProjectResponseSchema,
+  ProjectWorkspaceListResponseSchema,
   RunEventsResponseSchema,
   RunListResponseSchema,
   RunSocketTicketResponseSchema,
   type ManagedCheckout,
   type ManagedProject,
+  type ManagedWorkspace,
   type ManagedRun,
   type ManagedRunEvent,
   type ManagedUser,
@@ -53,6 +56,20 @@ export async function getProjects(): Promise<ManagedProject[]> {
   return ProjectListResponseSchema.parse(await request("/api/v1/projects")).projects;
 }
 
+export async function createGitHubProject(input: { url: string }): Promise<ManagedProject> {
+  const source = parseGitHubProjectUrl(input.url);
+  return ProjectResponseSchema.parse(await request("/api/v1/projects", {
+    method: "POST",
+    body: JSON.stringify({ name: source.repository, source }),
+  })).project;
+}
+
+export async function getProjectWorkspaces(projectId: string): Promise<ManagedWorkspace[]> {
+  return ProjectWorkspaceListResponseSchema.parse(
+    await request(`/api/v1/projects/${encodeURIComponent(projectId)}/workspaces`),
+  ).workspaces;
+}
+
 export async function getCheckouts(): Promise<ManagedCheckout[]> {
   return CheckoutListResponseSchema.parse(await request("/api/v1/checkouts")).checkouts;
 }
@@ -93,4 +110,25 @@ export async function decideDeviceAuthorization(input: {
     method: "POST",
     body: JSON.stringify({ userCode: input.userCode }),
   });
+}
+
+export function parseGitHubProjectUrl(value: string) {
+  let url: URL;
+  try {
+    url = new URL(value.trim());
+  } catch {
+    throw new Error("Enter a complete GitHub URL, such as https://github.com/vercel/next.js");
+  }
+  if (url.protocol !== "https:" || url.hostname.toLowerCase() !== "github.com") {
+    throw new Error("Enter a github.com repository URL");
+  }
+  const [owner, rawRepository, ...rest] = url.pathname.split("/").filter(Boolean);
+  const repository = rawRepository?.replace(/\.git$/, "");
+  if (!owner || !repository || rest.length) throw new Error("Enter a GitHub repository URL");
+  return {
+    kind: "github" as const,
+    owner,
+    repository,
+    url: `https://github.com/${owner}/${repository}`,
+  };
 }

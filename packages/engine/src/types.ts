@@ -853,6 +853,10 @@ export type WorkspaceRecord = {
   workflow: string;
   workflowCtx: Record<string, JsonValue>;
   ctx: Record<string, JsonValue>;
+  owner?: {
+    deviceId: string;
+    checkoutId?: string;
+  };
   createdAt: string;
   updatedAt: string;
 };

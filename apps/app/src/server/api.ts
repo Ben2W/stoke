@@ -12,6 +12,7 @@ import {
   RemoteExecutionRequestSchema,
   RemoteExecutionResponseSchema,
   ProjectStateResponseSchema,
+  ProjectWorkspaceListResponseSchema,
   UpdateProjectStateRequestSchema,
   RunEventsResponseSchema,
   RunListResponseSchema,
@@ -23,6 +24,7 @@ import { authenticateRequest } from "./auth.ts";
 import { listCheckouts, registerCheckout, registerDevice } from "./devices.ts";
 import { createProject, deleteProject, listProjects } from "./projects.ts";
 import { getProjectState, ProjectStateConflictError, updateProjectState } from "./project-state.ts";
+import { listProjectWorkspaces } from "./project-workspaces.ts";
 import { executeRemoteProject, RemoteExecutionError } from "./remote-executions.ts";
 import { createRunSocketUrl } from "./run-tickets.ts";
 import { claimRun, getRun, listRunEvents, listRuns } from "./runs.ts";
@@ -44,6 +46,7 @@ type ApiDependencies = {
   executeRemoteProject: typeof executeRemoteProject;
   getProjectState: typeof getProjectState;
   updateProjectState: typeof updateProjectState;
+  listProjectWorkspaces: typeof listProjectWorkspaces;
 };
 
 const defaultDependencies: ApiDependencies = {
@@ -61,6 +64,7 @@ const defaultDependencies: ApiDependencies = {
   executeRemoteProject,
   getProjectState,
   updateProjectState,
+  listProjectWorkspaces,
 };
 
 export function createApi(overrides: Partial<ApiDependencies> = {}) {
@@ -127,6 +131,14 @@ export function createApi(overrides: Partial<ApiDependencies> = {}) {
       parsed.data,
     );
     return context.json(RemoteExecutionResponseSchema.parse(executed));
+  });
+
+  managed.get("/projects/:projectId/workspaces", async (context) => {
+    const workspaces = await dependencies.listProjectWorkspaces(
+      context.get("user").id,
+      context.req.param("projectId"),
+    );
+    return context.json(ProjectWorkspaceListResponseSchema.parse({ workspaces }));
   });
 
   managed.get("/projects/:projectId/state", async (context) => {

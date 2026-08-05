@@ -220,6 +220,32 @@ describe("Hono control-plane API", () => {
     expect(await updated.json()).toEqual({ revision: 5, snapshot });
   });
 
+  test("lists safe project workspaces for the dashboard", async () => {
+    const workspace = {
+      id: "workspace-1",
+      projectId: project.id,
+      name: "quiet-forest",
+      workflow: "default",
+      deviceId: checkout.deviceId,
+      deviceName: checkout.deviceName,
+      checkoutId: checkout.id,
+      checkoutPath: checkout.path,
+      createdAt: "2026-08-04T00:00:00.000Z",
+      updatedAt: "2026-08-04T00:01:00.000Z",
+    };
+    const api = createApi({
+      authenticate: async () => user,
+      listProjectWorkspaces: async (userId, projectId) => {
+        expect([userId, projectId]).toEqual([user.id, project.id]);
+        return [workspace];
+      },
+    });
+
+    const response = await api.request(`http://localhost/api/v1/projects/${project.id}/workspaces`);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ workspaces: [workspace] });
+  });
+
   test("centralizes managed resource conflicts", async () => {
     const api = createApi({
       authenticate: async () => user,

@@ -1,19 +1,31 @@
 import type { ManagedRun, ManagedRunEvent } from "@stoke/managed";
-import { Check, Circle, CircleDashed, Terminal, X } from "lucide-react";
+import { Check, Circle, CircleDashed, Cloud, Terminal, X } from "lucide-react";
+import { useEffect, useRef } from "react";
 
 export function RunEventList({ events, run }: { events: ManagedRunEvent[]; run: ManagedRun }) {
+  const timelineRef = useRef<HTMLOListElement>(null);
+  useEffect(() => {
+    if (run.status === "running") timelineRef.current?.scrollTo({ top: timelineRef.current.scrollHeight, behavior: "smooth" });
+  }, [events.length, run.status]);
+
+  const completeNodes = events.filter((event) => event.type === "node.completed" || event.type === "node.cached").length;
+  const nodeCount = run.nodeCount ?? Math.max(completeNodes, 1);
+  const progress = run.status === "completed" ? 100 : Math.min(100, Math.round((completeNodes / nodeCount) * 100));
   return (
     <div className="flex min-h-72 flex-col">
-      <div className="flex items-center justify-between border-b border-zinc-100 px-5 py-3">
-        <div className="min-w-0">
-          <p className="truncate text-xs font-medium text-zinc-900">{run.workflow}</p>
-          <p className="mt-0.5 truncate text-[11px] text-zinc-500">{run.deviceName} · {run.id.slice(0, 8)}</p>
+      <div className="border-b border-zinc-100 px-5 py-3">
+        <div className="flex items-center justify-between">
+          <div className="min-w-0">
+            <p className="truncate text-xs font-medium capitalize text-zinc-900">{run.operation} · {run.workflow}</p>
+            <p className="mt-0.5 truncate text-[11px] text-zinc-500">{run.deviceName} · {run.id.slice(0, 8)}</p>
+          </div>
+          <StatusBadge status={run.status} />
         </div>
-        <StatusBadge status={run.status} />
+        <div className="mt-3 h-1 overflow-hidden rounded-full bg-zinc-100"><div className="h-full rounded-full bg-emerald-500 transition-[width] duration-500" style={{ width: `${progress}%` }} /></div>
       </div>
 
       {events.length ? (
-        <ol className="max-h-[23rem] flex-1 overflow-y-auto px-5 py-3">
+        <ol className="max-h-[28rem] flex-1 overflow-y-auto px-5 py-4" ref={timelineRef}>
           {events.map((event) => <RunEvent event={event} key={event.id} />)}
         </ol>
       ) : (
@@ -29,7 +41,7 @@ export function RunEventList({ events, run }: { events: ManagedRunEvent[]; run: 
 }
 
 function RunEvent({ event }: { event: ManagedRunEvent }) {
-  const commandOutput = event.type === "command.output" && typeof event.data.data === "string"
+  const commandOutput = (event.type === "command.output" || event.type === "log.output") && typeof event.data.data === "string"
     ? event.data.data.trimEnd()
     : undefined;
 
@@ -53,6 +65,8 @@ function EventIcon({ event }: { event: ManagedRunEvent }) {
   if (event.type === "node.completed" || event.type === "node.cached" || event.type === "run.completed") {
     return <Check className="relative z-10 mt-0.5 shrink-0 rounded-full bg-white text-emerald-600" size={12} />;
   }
+  if (event.type === "node.started") return <CircleDashed className="relative z-10 mt-0.5 shrink-0 animate-spin rounded-full bg-white text-blue-600" size={12} />;
+  if (event.type.startsWith("remote.")) return <Cloud className="relative z-10 mt-0.5 shrink-0 bg-white text-violet-500" size={12} />;
   if (event.type.startsWith("command.")) return <Terminal className="relative z-10 mt-0.5 shrink-0 bg-white text-zinc-400" size={12} />;
   return <Circle className="relative z-10 mt-1 shrink-0 fill-white text-zinc-300" size={11} />;
 }
@@ -74,6 +88,7 @@ function StatusBadge({ status }: { status: ManagedRun["status"] }) {
 function eventLabel(event: ManagedRunEvent): string {
   const node = typeof event.data.nodePath === "string" ? event.data.nodePath : undefined;
   const command = typeof event.data.commandName === "string" ? event.data.commandName : undefined;
+  const remoteCommand = typeof event.data.command === "string" ? event.data.command : undefined;
   switch (event.type) {
     case "workflow.apply.started": return `Applying ${String(event.data.workflow ?? "workflow")}`;
     case "workflow.apply.completed": return `Applied ${String(event.data.workflow ?? "workflow")}`;
@@ -83,12 +98,21 @@ function eventLabel(event: ManagedRunEvent): string {
     case "node.cached": return `Restored ${node ?? "node"} from cache`;
     case "command.started": return `Running ${command ?? "command"}`;
     case "command.output": return command ?? "Command output";
+    case "log.output": return `${node ?? "Workflow"} · ${String(event.data.stream ?? "log")}`;
     case "command.completed": return `${command ?? "Command"} exited ${String(event.data.exitCode ?? 0)}`;
     case "artifact.created": return `Created ${String(event.data.kind ?? "artifact")}`;
+    case "remote.sandbox.created": return `Vercel Sandbox ${String(event.data.sandboxName ?? "created")}`;
+    case "remote.command.started": return `Starting ${formatRemoteCommand(remoteCommand)}`;
+    case "remote.command.completed": return `${formatRemoteCommand(remoteCommand)} completed`;
     case "run.completed": return "Apply completed";
     case "run.failed": return typeof event.data.error === "object" ? "Apply failed" : "Apply failed";
     default: return event.type.replaceAll(".", " ");
   }
+}
+
+function formatRemoteCommand(command: string | undefined): string {
+  if (!command) return "remote command";
+  return command.replaceAll("-", " ");
 }
 
 function formatEventTime(value: string): string {

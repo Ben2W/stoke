@@ -57,6 +57,7 @@ The initial API is deliberately small:
 - `POST /api/v1/projects`
 - `DELETE /api/v1/projects/:projectId`
 - `POST /api/v1/projects/:projectId/executions`
+- `GET /api/v1/projects/:projectId/workspaces`
 - `GET /api/v1/projects/:projectId/state`
 - `PUT /api/v1/projects/:projectId/state`
 - `POST /api/v1/devices`
@@ -84,9 +85,11 @@ the Hono and Better Auth handlers; React components do not import control-plane
 services, repositories, or database code.
 
 TanStack Query owns all remote browser state, including the current user,
-projects, checkouts, runs, run events, and device authorization. Browser calls
-go through one typed API client into Hono. WebSocket events update the same
-TanStack Query cache rather than maintaining a second copy of run state.
+projects, checkouts, workspaces, runs, run events, and device authorization.
+Browser calls go through one typed API client into Hono. The projects overview
+stays intentionally quiet: selecting a project opens its workspace ownership
+and run history. WebSocket events update the same TanStack Query cache rather
+than maintaining a second copy of run state.
 
 React state is reserved for local presentation concerns such as search text,
 view mode, and the selected run. Stoke does not use Next.js server actions or
@@ -134,6 +137,11 @@ versioned JSON snapshot containing workflow cache records, workspace metadata,
 and provider storage, partitioned by engine scope. There is no SQLite database
 and no durable state file in a checkout.
 
+Each workspace records the device and checkout that created it. The project
+workspace endpoint exposes a safe metadata projection—not the raw state
+snapshot—so the dashboard can group workspaces beneath their owning machines.
+Older unowned workspaces remain visible as unassigned.
+
 For a local command, the runtime reads the selected project's latest snapshot
 from the Hono API, evaluates the TypeScript workflow locally, and commits the
 updated snapshot with an expected revision. A revision conflict fails instead
@@ -146,6 +154,12 @@ it into the Vercel Sandbox as a transient transport file, and commits the
 returned snapshot to Postgres after a successful command. The transient file is
 discarded with the Sandbox; it is not a second state store. Local development
 and Vercel Sandbox therefore consume the same managed cache.
+
+The sandbox CLI publishes the same engine events produced by a local CLI to a
+short-lived, run-scoped WebSocket. The control plane authenticates and persists
+each event in Postgres before broadcasting it to dashboard viewers; terminal
+run completion remains control-plane-owned. Reconnecting viewers replay the
+persisted event log before receiving live events.
 
 ## Build order
 
