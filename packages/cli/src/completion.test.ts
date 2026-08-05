@@ -103,6 +103,7 @@ describe("CLI completion", () => {
     expect(items.map((item) => item.value)).toEqual([
       "--chdir=",
       "--state=",
+      "--project=",
       "--json",
       "--help",
       "--version",
@@ -430,6 +431,13 @@ describe("CLI completion", () => {
       currentIndex: 2,
     });
     expect(doctorFlags.map((item) => item.value)).toEqual(["--cli", "--json", "--help"]);
+
+    const useFlags = await completeRig({
+      cwd: process.cwd(),
+      words: ["stoke", "use", "--"],
+      currentIndex: 2,
+    });
+    expect(useFlags.map((item) => item.value)).toEqual(["--clear", "--json", "--help"]);
 
     const completionShells = await completeRig({
       cwd: process.cwd(),

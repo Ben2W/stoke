@@ -38,4 +38,49 @@ describe("managed client", () => {
       new ManagedApiError("Stoke API request failed with 401", 401, { error: "unauthorized" }),
     );
   });
+
+  test("registers devices and project checkouts", async () => {
+    const requests: Request[] = [];
+    const device = {
+      id: "device-1",
+      name: "Benjamin's MacBook",
+      createdAt: "2026-08-04T00:00:00.000Z",
+      lastSeenAt: "2026-08-04T00:00:00.000Z",
+    };
+    const checkout = {
+      id: "a73d1f16-c7e2-4ef9-a799-bd99a81a7c2b",
+      projectId: project.id,
+      deviceId: device.id,
+      deviceName: device.name,
+      path: "/Users/ben/src/rigkit",
+      gitRemote: "git@github.com:freestyle-sh/rigkit.git",
+      createdAt: "2026-08-04T00:00:00.000Z",
+      lastSeenAt: "2026-08-04T00:00:00.000Z",
+    };
+    const client = createManagedClient({
+      baseUrl: "https://usestoke.dev",
+      token: "secret",
+      fetch: async (input, init) => {
+        const request = new Request(input, init);
+        requests.push(request);
+        if (request.url.endsWith("/devices")) return Response.json({ device });
+        if (request.method === "POST") return Response.json({ checkout });
+        return Response.json({ checkouts: [checkout] });
+      },
+    });
+
+    expect(await client.registerDevice({ id: device.id, name: device.name })).toEqual(device);
+    expect(await client.listCheckouts(device.id)).toEqual([checkout]);
+    expect(await client.registerCheckout({
+      projectId: project.id,
+      deviceId: device.id,
+      path: checkout.path,
+      gitRemote: checkout.gitRemote,
+    })).toEqual(checkout);
+    expect(requests.map((request) => `${request.method} ${new URL(request.url).pathname}${new URL(request.url).search}`)).toEqual([
+      "POST /api/v1/devices",
+      "GET /api/v1/checkouts?deviceId=device-1",
+      "POST /api/v1/checkouts",
+    ]);
+  });
 });

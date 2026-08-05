@@ -59,6 +59,18 @@ pnpm --filter @rigkit/cli stoke -- version
 pnpm --filter @rigkit/cli stoke -- login
 ```
 
+Register the current checkout and select its managed project:
+
+```sh
+stoke add .
+stoke use stoke
+stoke ls
+```
+
+Stoke records the project once in the managed service and links each local copy
+as a checkout on a stable device identity. Use `--project <id|slug|name|path>`
+for a one-command override without changing the saved selection.
+
 ## Quickstart
 
 Create a project:
@@ -81,7 +93,7 @@ Create and manage a workspace:
 
 ```sh
 stoke create dev
-stoke ls
+stoke run dev ssh
 stoke rm dev
 ```
 

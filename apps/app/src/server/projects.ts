@@ -14,15 +14,18 @@ export async function listProjects(userId: string): Promise<ManagedProject[]> {
 }
 
 export async function createProject(userId: string, input: CreateProjectRequest): Promise<ManagedProject> {
-  const source = normalizeSource(input.source);
-  const sourceKey = keyForSource(source);
+  const source = normalizeProjectSource(input.source);
+  const sourceKey = keyForProjectSource(source);
+  const existing = await findProjectBySource(userId, source);
+  if (existing) return existing;
+  const slug = await availableSlug(userId, input.slug ?? defaultProjectSlug(input.name, source));
   const now = new Date();
   const [row] = await getDatabase()
     .insert(projects)
     .values({
       id: randomUUID(),
       userId,
-      slug: input.slug ?? defaultSlug(input.name, source),
+      slug,
       name: input.name,
       source,
       sourceKey,
@@ -39,6 +42,20 @@ export async function createProject(userId: string, input: CreateProjectRequest)
   return toManagedProject(row);
 }
 
+async function availableSlug(userId: string, desired: string): Promise<string> {
+  const rows = await getDatabase()
+    .select({ slug: projects.slug })
+    .from(projects)
+    .where(eq(projects.userId, userId));
+  const used = new Set(rows.map((row) => row.slug));
+  if (!used.has(desired)) return desired;
+  for (let suffix = 2; suffix < 10_000; suffix += 1) {
+    const candidate = `${desired.slice(0, 63 - String(suffix).length - 1)}-${suffix}`;
+    if (!used.has(candidate)) return candidate;
+  }
+  return `project-${randomUUID().slice(0, 8)}`;
+}
+
 export async function findProjectBySource(
   userId: string,
   source: ProjectSource,
@@ -46,12 +63,12 @@ export async function findProjectBySource(
   const [row] = await getDatabase()
     .select()
     .from(projects)
-    .where(and(eq(projects.userId, userId), eq(projects.sourceKey, keyForSource(source))))
+    .where(and(eq(projects.userId, userId), eq(projects.sourceKey, keyForProjectSource(source))))
     .limit(1);
   return row ? toManagedProject(row) : undefined;
 }
 
-function normalizeSource(source: ProjectSource): ProjectSource {
+export function normalizeProjectSource(source: ProjectSource): ProjectSource {
   if (source.kind === "github") {
     return {
       kind: "github",
@@ -63,13 +80,13 @@ function normalizeSource(source: ProjectSource): ProjectSource {
   return source;
 }
 
-function keyForSource(source: ProjectSource): string {
+export function keyForProjectSource(source: ProjectSource): string {
   return source.kind === "github"
     ? `github:${source.owner}/${source.repository}`
     : `local:${source.machineId}:${source.path}`;
 }
 
-function defaultSlug(name: string, source: ProjectSource): string {
+export function defaultProjectSlug(name: string, source: ProjectSource): string {
   const value = source.kind === "github" ? `${source.owner}-${source.repository}` : name;
   const slug = value
     .normalize("NFKD")
