@@ -1392,7 +1392,7 @@ export class DevMachineEngine {
     const cacheNodePath = [...input.cachePrefix, input.node.name].join(".");
     const upstreamRunIds = [...input.state.upstreamRunIds];
     const nodeKey = hash({
-      cache: "task-v6",
+      cache: "task-v7",
       kind: "task",
       path: cacheNodePath,
       name: input.node.name,
@@ -2939,7 +2939,7 @@ function functionFingerprintFor(fn: Function): { name: string; length: number; s
   return {
     name: fn.name,
     length: fn.length,
-    source: Function.prototype.toString.call(fn),
+    source: canonicalFingerprintSource(Function.prototype.toString.call(fn)),
   };
 }
 
@@ -2952,8 +2952,66 @@ function taskDefinitionContextFingerprintFor(
     dependencies: collectDefinitionDependencySnippets(
       sources,
       identifiersIn(Function.prototype.toString.call(fn)),
-    ),
+    ).map((snippet) => ({
+      ...snippet,
+      source: canonicalFingerprintSource(snippet.source),
+    })),
   });
+}
+
+function canonicalFingerprintSource(source: string): string {
+  let result = "";
+  let pendingWhitespace = false;
+  let quote: "\"" | "'" | "`" | undefined;
+  let escaped = false;
+
+  for (const character of source) {
+    if (quote) {
+      result += character;
+      if (escaped) {
+        escaped = false;
+      } else if (character === "\\") {
+        escaped = true;
+      } else if (character === quote) {
+        quote = undefined;
+      }
+      continue;
+    }
+
+    if (character === "\"" || character === "'" || character === "`") {
+      if (pendingWhitespace && result && fingerprintTokensNeedSeparator(result.at(-1)!, character)) {
+        result += " ";
+      }
+      pendingWhitespace = false;
+      quote = character;
+      result += character;
+      continue;
+    }
+
+    if (/\s/.test(character)) {
+      pendingWhitespace = true;
+      continue;
+    }
+
+    if ((character === ")" || character === "}") && result.endsWith(",")) {
+      result = result.slice(0, -1);
+      pendingWhitespace = false;
+    }
+    if (pendingWhitespace && result && fingerprintTokensNeedSeparator(result.at(-1)!, character)) {
+      result += " ";
+    }
+    pendingWhitespace = false;
+    result += character;
+  }
+
+  return result.trim();
+}
+
+function fingerprintTokensNeedSeparator(left: string, right: string): boolean {
+  const identifier = /[$0-9A-Z_a-z]/;
+  if (identifier.test(left) && identifier.test(right)) return true;
+  const operator = /[!%&*+\-./:<=>?@\\^|~]/;
+  return operator.test(left) && operator.test(right);
 }
 
 const jsReservedWords = new Set([

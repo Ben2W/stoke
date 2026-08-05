@@ -685,6 +685,113 @@ describe("DevMachineEngine workflow runtime", () => {
     expect(reapplied.context).toEqual({ base: true, extra: true });
   });
 
+  test("keeps upstream task cache when only the final task changes", async () => {
+    const rootDir = mkdtempSync(join(tmpdir(), "stoke-final-task-cache-"));
+    const firstProjectDir = join(rootDir, "one");
+    const secondProjectDir = join(rootDir, "two");
+    const state = createStateStore({ projectDir: rootDir });
+    const writeConfig = (projectDir: string, finalValue: string) =>
+      writeStokeIndex(
+        projectDir,
+        `
+          import { workflow } from "${import.meta.dir}/index.ts";
+
+          const app = workflow("final-task-cache");
+
+          export const root = app.sequence("root")
+            .task("first", async () => ({ ctx: { first: true } }))
+            .task("second", async ({ step }) => ({ ctx: { ...step.ctx, second: true } }))
+            .task("final", async ({ step }) => ({ ctx: { ...step.ctx, final: "${finalValue}" } }));
+        `,
+      );
+
+    writeConfig(firstProjectDir, "one");
+    writeConfig(secondProjectDir, "two");
+
+    const first = await createDevMachineEngine({ projectDir: firstProjectDir, state });
+    await first.load();
+    await first.apply({ workflow: "final-task-cache" });
+
+    const second = await createDevMachineEngine({ projectDir: secondProjectDir, state });
+    await second.load();
+    const changed = await second.plan({ workflow: "final-task-cache" });
+
+    expect(changed.nodes.map((node) => node.status)).toEqual(["cached", "cached", "pending"]);
+    expect(changed.cachedNodeCount).toBe(2);
+  });
+
+  test("keeps upstream task cache when formatting changes with the final task", async () => {
+    const rootDir = mkdtempSync(join(tmpdir(), "stoke-formatted-final-task-cache-"));
+    const firstProjectDir = join(rootDir, "one");
+    const secondProjectDir = join(rootDir, "two");
+    const state = createStateStore({ projectDir: rootDir });
+
+    writeStokeIndex(
+      firstProjectDir,
+      `
+        import { workflow } from "${import.meta.dir}/index.ts";
+        const merge = (ctx: Record<string, unknown>, value: string) => ({ ...ctx, value });
+        const app = workflow("formatted-final-task-cache");
+        export const root = app.sequence("root")
+          .task("first", async () => ({ ctx: { first: true, label: "same" } }))
+          .task("second", async ({ step }) => ({ ctx: merge(step.ctx, "second") }))
+          .task("final", async ({ step }) => ({ ctx: { ...step.ctx, final: "one" } }));
+      `,
+    );
+    writeStokeIndex(
+      secondProjectDir,
+      `
+        import { workflow } from "${import.meta.dir}/index.ts";
+
+        const merge = (
+          ctx: Record<string, unknown>,
+          value: string,
+        ) => ({
+          ...ctx,
+          value,
+        });
+
+        const app = workflow("formatted-final-task-cache");
+
+        export const root = app
+          .sequence("root")
+          .task(
+            "first",
+            async () => ({
+              ctx: {
+                first: true,
+                label:
+                  "same",
+              },
+            }),
+          )
+          .task(
+            "second",
+            async ({ step }) => ({
+              ctx: merge(step.ctx, "second"),
+            }),
+          )
+          .task(
+            "final",
+            async ({ step }) => ({
+              ctx: { ...step.ctx, final: "two" },
+            }),
+          );
+      `,
+    );
+
+    const first = await createDevMachineEngine({ projectDir: firstProjectDir, state });
+    await first.load();
+    await first.apply({ workflow: "formatted-final-task-cache" });
+
+    const second = await createDevMachineEngine({ projectDir: secondProjectDir, state });
+    await second.load();
+    const changed = await second.plan({ workflow: "formatted-final-task-cache" });
+
+    expect(changed.nodes.map((node) => node.status)).toEqual(["cached", "cached", "pending"]);
+    expect(changed.cachedNodeCount).toBe(2);
+  });
+
   test("invalidates task cache when task version changes", async () => {
     const rootDir = mkdtempSync(join(tmpdir(), "stoke-task-version-cache-"));
     const firstProjectDir = join(rootDir, "one");
