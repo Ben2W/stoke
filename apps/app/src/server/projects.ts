@@ -26,6 +26,11 @@ export async function createProject(userId: string, input: CreateProjectRequest)
   return toManagedProject(row);
 }
 
+export async function deleteProject(userId: string, projectId: string): Promise<ManagedProject | undefined> {
+  const row = await projectRepository.deleteOwnedById(userId, projectId);
+  return row ? toManagedProject(row) : undefined;
+}
+
 async function availableSlug(userId: string, desired: string): Promise<string> {
   const used = new Set(await projectRepository.listSlugs(userId));
   if (!used.has(desired)) return desired;

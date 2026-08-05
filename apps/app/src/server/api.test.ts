@@ -91,6 +91,37 @@ describe("Hono control-plane API", () => {
     expect(await checkoutsResponse.json()).toEqual({ checkouts: [checkout] });
   });
 
+  test("deletes only a project owned by the authenticated user", async () => {
+    const api = createApi({
+      authenticate: async () => user,
+      deleteProject: async (userId, projectId) => {
+        expect([userId, projectId]).toEqual([user.id, project.id]);
+        return project;
+      },
+    });
+
+    const response = await api.request(`http://localhost/api/v1/projects/${project.id}`, {
+      method: "DELETE",
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ project });
+  });
+
+  test("returns not found when deleting a project the user does not own", async () => {
+    const api = createApi({
+      authenticate: async () => user,
+      deleteProject: async () => undefined,
+    });
+
+    const response = await api.request(`http://localhost/api/v1/projects/${project.id}`, {
+      method: "DELETE",
+    });
+
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({ error: "not_found" });
+  });
+
   test("returns structured validation and authentication failures", async () => {
     const authenticated = createApi({ authenticate: async () => user });
     const invalid = await authenticated.request("http://localhost/api/v1/projects", {

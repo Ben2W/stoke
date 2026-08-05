@@ -1,6 +1,7 @@
 import { readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { getOrStartRuntime } from "@rigkit/runtime-client";
+import { managedClientFromEnvironment } from "./managed.ts";
 import { DEFAULT_CONFIG_PATH } from "./project.ts";
 
 export type CompletionShell = "bash" | "fish" | "zsh";
@@ -26,6 +27,7 @@ type CommandName =
   | "whoami"
   | "add"
   | "use"
+  | "project"
   | "plan"
   | "apply"
   | "create"
@@ -133,6 +135,7 @@ const GROUP_PATHS = "Paths";
 const GROUP_SHELLS = "Shells";
 const GROUP_CACHE = "Cache entries";
 const GROUP_PROVIDERS = "Providers";
+const GROUP_PROJECTS = "Managed projects";
 
 const COMMANDS: CompletionItem[] = withGroup(GROUP_COMMANDS, [
   { value: "help", description: "show CLI help" },
@@ -142,6 +145,7 @@ const COMMANDS: CompletionItem[] = withGroup(GROUP_COMMANDS, [
   { value: "whoami", description: "show the current Stoke user" },
   { value: "add", description: "add a repository or local directory to Stoke" },
   { value: "use", description: "select the default managed project" },
+  { value: "project", description: "manage Stoke projects" },
   { value: "plan", description: "plan project workflow changes" },
   { value: "apply", description: "apply project workflow changes" },
   { value: "create", description: "create a workspace" },
@@ -222,6 +226,9 @@ const COMMAND_OPTIONS: Record<CommandName, OptionDefinition[]> = {
   use: [
     option(["--clear"], "clear the selected project"),
     JSON_OPTION,
+    HELP_OPTION,
+  ],
+  project: [
     HELP_OPTION,
   ],
   plan: [
@@ -358,6 +365,16 @@ const COMPLETION_SHELLS: CompletionItem[] = withGroup(GROUP_SHELLS, [
   { value: "fish", description: "fish completion" },
   { value: "zsh", description: "zsh completion" },
 ]);
+
+const PROJECT_SUBCOMMANDS: CompletionItem[] = withGroup(GROUP_SUBCOMMANDS, [
+  { value: "remove", description: "remove a project from the Stoke control plane" },
+]);
+
+const PROJECT_REMOVE_OPTIONS: OptionDefinition[] = [
+  option(["-y", "--yes"], "remove without confirmation"),
+  JSON_OPTION,
+  HELP_OPTION,
+];
 
 const PROJECT_OPERATION_COMMANDS = new Set<CommandName>(["plan", "apply", "create"]);
 
@@ -544,6 +561,11 @@ async function optionsForCommandContext(context: CompletionContext): Promise<Opt
     if (providers.provider) return PROVIDER_TARGET_OPTIONS[providers.provider] ?? [HELP_OPTION];
   }
 
+  if (context.command === "project") {
+    const project = parseProjectArgs(context);
+    if (project.subcommand === "remove") return PROJECT_REMOVE_OPTIONS;
+  }
+
   return COMMAND_OPTIONS[context.command] ?? [];
 }
 
@@ -619,6 +641,8 @@ async function completeCommand(context: CompletionContext): Promise<CompletionIt
       return await completeCacheCommand(context);
     case "providers":
       return completeProvidersCommand(context);
+    case "project":
+      return await completeManagedProjectCommand(context);
     case "completion":
       return completeCompletionCommand(context);
     case "init":
@@ -785,6 +809,27 @@ function completeProvidersCommand(context: CompletionContext): CompletionItem[] 
 
   const options = PROVIDER_SUBCOMMAND_OPTIONS[providers.provider]?.[providers.subcommand] ?? [HELP_OPTION];
   return completeOptionsOnlyCommand(context, options);
+}
+
+async function completeManagedProjectCommand(context: CompletionContext): Promise<CompletionItem[]> {
+  const project = parseProjectArgs(context);
+  if (!project.subcommand) {
+    if (context.current.startsWith("-")) {
+      return filterItems(optionItems(COMMAND_OPTIONS.project), context.current);
+    }
+    return filterItems(PROJECT_SUBCOMMANDS, context.current);
+  }
+
+  if (project.subcommand !== "remove") return [];
+  if (context.current.startsWith("-") || project.args.length > 0) {
+    return filterItems(optionItems(PROJECT_REMOVE_OPTIONS), context.current);
+  }
+
+  return completeMixed({
+    primary: await safeManagedProjectTargets(),
+    options: PROJECT_REMOVE_OPTIONS,
+    current: context.current,
+  });
 }
 
 function completeCompletionCommand(context: CompletionContext): CompletionItem[] {
@@ -996,6 +1041,14 @@ function parseProvidersArgs(context: CompletionContext): { provider?: string; su
     provider: positionals[0],
     subcommand: positionals[1],
     args: positionals.slice(2),
+  };
+}
+
+function parseProjectArgs(context: CompletionContext): { subcommand?: string; args: string[] } {
+  const positionals = positionalsFrom(context.argsBefore, PROJECT_REMOVE_OPTIONS);
+  return {
+    subcommand: positionals[0],
+    args: positionals.slice(1),
   };
 }
 
@@ -1242,6 +1295,21 @@ function splitCompletionPath(baseDir: string, current: string): {
     namePrefix,
     dir: resolve(baseDir, dirPart || "."),
   };
+}
+
+async function safeManagedProjectTargets(): Promise<CompletionItem[]> {
+  try {
+    const projects = await managedClientFromEnvironment().listProjects();
+    return projects.map((project) => ({
+      value: project.slug,
+      description: project.source.kind === "github"
+        ? `${project.source.owner}/${project.source.repository}`
+        : `${project.source.machineName} · ${project.source.path}`,
+      group: GROUP_PROJECTS,
+    }));
+  } catch {
+    return [];
+  }
 }
 
 async function safeWorkspaceTargets(

@@ -32,6 +32,14 @@ export const projectRepository = {
     return row;
   },
 
+  async deleteOwnedById(userId: string, projectId: string): Promise<ProjectRow | undefined> {
+    const [row] = await getDatabase()
+      .delete(projects)
+      .where(and(eq(projects.id, projectId), eq(projects.userId, userId)))
+      .returning();
+    return row;
+  },
+
   async listSlugs(userId: string): Promise<string[]> {
     const rows = await getDatabase()
       .select({ slug: projects.slug })

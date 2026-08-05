@@ -17,7 +17,7 @@ import {
 import { Hono } from "hono";
 import { authenticateRequest } from "./auth.ts";
 import { listCheckouts, registerCheckout, registerDevice } from "./devices.ts";
-import { createProject, listProjects } from "./projects.ts";
+import { createProject, deleteProject, listProjects } from "./projects.ts";
 import { createRunSocketUrl } from "./run-tickets.ts";
 import { claimRun, getRun, listRunEvents, listRuns } from "./runs.ts";
 
@@ -26,6 +26,7 @@ type AuthenticatedUser = Awaited<ReturnType<typeof authenticateRequest>>;
 type ApiDependencies = {
   authenticate: typeof authenticateRequest;
   createProject: typeof createProject;
+  deleteProject: typeof deleteProject;
   listProjects: typeof listProjects;
   listCheckouts: typeof listCheckouts;
   registerCheckout: typeof registerCheckout;
@@ -39,6 +40,7 @@ type ApiDependencies = {
 const defaultDependencies: ApiDependencies = {
   authenticate: authenticateRequest,
   createProject,
+  deleteProject,
   listProjects,
   listCheckouts,
   registerCheckout,
@@ -91,6 +93,15 @@ export function createApi(overrides: Partial<ApiDependencies> = {}) {
     }
     const project = await dependencies.createProject(context.get("user").id, parsed.data);
     return context.json(ProjectResponseSchema.parse({ project }), 201);
+  });
+
+  managed.delete("/projects/:projectId", async (context) => {
+    const project = await dependencies.deleteProject(
+      context.get("user").id,
+      context.req.param("projectId"),
+    );
+    if (!project) return context.json({ error: "not_found" }, 404);
+    return context.json(ProjectResponseSchema.parse({ project }));
   });
 
   managed.post("/devices", async (context) => {

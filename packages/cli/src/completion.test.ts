@@ -235,7 +235,7 @@ describe("CLI completion", () => {
         currentIndex: 1,
       });
 
-      expect(items.map((item) => item.value)).toEqual(["plan", "providers"]);
+      expect(items.map((item) => item.value)).toEqual(["project", "plan", "providers"]);
     });
   });
 
@@ -438,6 +438,20 @@ describe("CLI completion", () => {
       currentIndex: 2,
     });
     expect(useFlags.map((item) => item.value)).toEqual(["--clear", "--json", "--help"]);
+
+    const projectSubcommands = await completeRig({
+      cwd: process.cwd(),
+      words: ["stoke", "project", ""],
+      currentIndex: 2,
+    });
+    expect(projectSubcommands.map((item) => item.value)).toEqual(["remove"]);
+
+    const projectRemoveFlags = await completeRig({
+      cwd: process.cwd(),
+      words: ["stoke", "project", "remove", "--"],
+      currentIndex: 3,
+    });
+    expect(projectRemoveFlags.map((item) => item.value)).toEqual(["--yes", "--json", "--help"]);
 
     const completionShells = await completeRig({
       cwd: process.cwd(),

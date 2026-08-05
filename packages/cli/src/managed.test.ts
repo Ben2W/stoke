@@ -102,7 +102,7 @@ describe("managed project source resolution", () => {
     }
   });
 
-  test("adds and lists managed projects through the CLI", async () => {
+  test("adds, lists, and removes managed projects through the CLI", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "stoke-cli-"));
     const gitInit = Bun.spawnSync(["git", "init", "-q"], { cwd });
     expect(gitInit.exitCode).toBe(0);
@@ -167,6 +167,11 @@ describe("managed project source resolution", () => {
           projectCreated = true;
           return Response.json({ project });
         }
+        if (url.pathname === `/api/v1/projects/${project.id}` && request.method === "DELETE") {
+          projectCreated = false;
+          checkoutCreated = false;
+          return Response.json({ project });
+        }
         if (url.pathname === "/api/v1/projects") {
           return Response.json({ projects: projectCreated ? [project] : [] });
         }
@@ -184,6 +189,11 @@ describe("managed project source resolution", () => {
       };
       const added = await runManagedCli(["add", ".", "--json"], cwd, environment);
       const listed = await runManagedCli(["ls", "--json"], cwd, environment);
+      const removed = await runManagedCli(
+        ["project", "remove", project.slug, "--yes", "--json"],
+        cwd,
+        environment,
+      );
 
       expect(added.exitCode).toBe(0);
       expect(JSON.parse(added.stdout)).toEqual({
@@ -198,6 +208,14 @@ describe("managed project source resolution", () => {
         checkouts: [checkout],
         currentProjectId: project.id,
       });
+      expect(removed.exitCode).toBe(0);
+      expect(JSON.parse(removed.stdout)).toEqual({
+        project,
+        clearedCurrentProject: true,
+        localDirectoriesDeleted: false,
+        githubRepositoryDeleted: false,
+      });
+      expect(readStokeSettings(environment)?.currentProjectId).toBeUndefined();
       expect(requests).toEqual([
         {
           method: "POST",
@@ -253,6 +271,19 @@ describe("managed project source resolution", () => {
         {
           method: "GET",
           path: "/api/v1/checkouts?deviceId=device-1",
+          authorization: "Bearer test-secret",
+          body: undefined,
+        },
+        { method: "GET", path: "/api/v1/projects", authorization: "Bearer test-secret", body: undefined },
+        {
+          method: "GET",
+          path: "/api/v1/checkouts?deviceId=device-1",
+          authorization: "Bearer test-secret",
+          body: undefined,
+        },
+        {
+          method: "DELETE",
+          path: `/api/v1/projects/${project.id}`,
           authorization: "Bearer test-secret",
           body: undefined,
         },

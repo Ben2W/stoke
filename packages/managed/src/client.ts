@@ -42,6 +42,7 @@ export type ManagedClient = {
   currentUser(): Promise<ManagedUser>;
   listProjects(): Promise<ManagedProject[]>;
   createProject(input: CreateProjectRequest): Promise<ManagedProject>;
+  deleteProject(projectId: string): Promise<ManagedProject>;
   registerDevice(input: RegisterDeviceRequest): Promise<ManagedDevice>;
   listCheckouts(deviceId?: string): Promise<ManagedCheckout[]>;
   registerCheckout(input: RegisterCheckoutRequest): Promise<ManagedCheckout>;
@@ -97,6 +98,12 @@ export function createManagedClient(options: ManagedClientOptions): ManagedClien
       const payload = CreateProjectRequestSchema.parse(input);
       const response = ProjectResponseSchema.parse(
         await request("/api/v1/projects", { method: "POST", body: JSON.stringify(payload) }),
+      );
+      return response.project;
+    },
+    async deleteProject(projectId) {
+      const response = ProjectResponseSchema.parse(
+        await request(`/api/v1/projects/${encodeURIComponent(projectId)}`, { method: "DELETE" }),
       );
       return response.project;
     },

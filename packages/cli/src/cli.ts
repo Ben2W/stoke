@@ -100,6 +100,10 @@ type AddOptions = {
   newProject: boolean;
 };
 
+type ProjectRemoveOptions = {
+  yes: boolean;
+};
+
 type CacheListOptions = {
   workflow: string;
 };
@@ -381,6 +385,23 @@ async function runCli(argv: string[]): Promise<void> {
     .option("--json", "Print machine-readable JSON")
     .action(async (options: { json?: boolean }) => {
       await runManagedProjects(makeInvocation(rootOptions(program), options.json));
+    });
+
+  const projectCommand = program
+    .command("project")
+    .description("Manage Stoke projects");
+
+  projectCommand
+    .command("remove <project>")
+    .description("Remove a project from the Stoke control plane")
+    .option("-y, --yes", "Remove without confirmation")
+    .option("--json", "Print machine-readable JSON")
+    .action(async (project: string, options: { yes?: boolean; json?: boolean }) => {
+      await runManagedProjectRemove(
+        makeInvocation(rootOptions(program), options.json),
+        project,
+        { yes: Boolean(options.yes) },
+      );
     });
 
   const cache = program
@@ -1324,6 +1345,62 @@ async function runManagedProjects(invocation: CliInvocation): Promise<void> {
   ));
 }
 
+async function runManagedProjectRemove(
+  invocation: CliInvocation,
+  selector: string,
+  options: ProjectRemoveOptions,
+): Promise<void> {
+  const client = managedClientFromEnvironment();
+  const device = ensureStokeDevice();
+  const [projects, checkouts] = await Promise.all([
+    client.listProjects(),
+    client.listCheckouts(device.id),
+  ]);
+  const project = resolveManagedProjectSelector(selector, projects, checkouts, {
+    cwd: resolve(process.cwd(), invocation.global.chdir ?? "."),
+    deviceId: device.id,
+  });
+
+  if (!options.yes) {
+    if (wantsJson(invocation) || !canPrompt()) {
+      throw new Error(`Removing ${project.slug} requires --yes in a non-interactive terminal.`);
+    }
+    const projectCheckouts = checkouts.filter((checkout) => checkout.projectId === project.id);
+    const answer = await inquirer.prompt<{ confirmed: boolean }>([{
+      type: "confirm",
+      name: "confirmed",
+      message: [
+        `Remove managed project ${project.slug}`,
+        `and its ${projectCheckouts.length} registered checkout${projectCheckouts.length === 1 ? "" : "s"} and run history?`,
+        "Local directories and the GitHub repository will be preserved.",
+      ].join(" "),
+      default: false,
+    }]);
+    if (!answer.confirmed) {
+      console.log(ui.dim("project removal cancelled"));
+      return;
+    }
+  }
+
+  const removed = await client.deleteProject(project.id);
+  const wasCurrent = readStokeSettings()?.currentProjectId === project.id;
+  if (wasCurrent) setCurrentProject(undefined);
+
+  if (wantsJson(invocation)) {
+    printJson({
+      project: removed,
+      clearedCurrentProject: wasCurrent,
+      localDirectoriesDeleted: false,
+      githubRepositoryDeleted: false,
+    });
+    return;
+  }
+
+  console.log(`${ui.ok(ui.sym.ok)} removed ${ui.bold(removed.name)} from Stoke`);
+  console.log(ui.dim("Local directories and the GitHub repository were not deleted."));
+  if (wasCurrent) console.log(ui.dim("Cleared the current project selection."));
+}
+
 function sameProjectSource(project: ManagedProject, source: ProjectSource): boolean {
   if (project.source.kind !== source.kind) return false;
   return source.kind === "github" && project.source.kind === "github"
@@ -2105,6 +2182,7 @@ async function runHelp(invocation: CliInvocation): Promise<void> {
         { name: "whoami", description: "Show the current Stoke user" },
         { name: "add", description: "Add a repository or local directory to Stoke" },
         { name: "use", description: "Select the default managed project" },
+        { name: "project", description: "Manage Stoke projects" },
         { name: "plan", description: "Plan project workflow changes" },
         { name: "apply", description: "Apply project workflow changes" },
         { name: "create", description: "Create a workspace" },
@@ -2145,6 +2223,7 @@ async function runHelp(invocation: CliInvocation): Promise<void> {
     cmd("whoami",     "Show the current Stoke user"),
     cmd("add",        "Add a repository or local directory to Stoke"),
     cmd("use",        "Select the default managed project"),
+    cmd("project",    "Manage Stoke projects"),
     cmd("ls",         "List managed projects"),
     cmd("cache",      "Inspect and clear workflow cache"),
     cmd("providers",  "Manage provider-owned local state"),

@@ -87,6 +87,15 @@ Stoke records the project once in the managed service and links each local copy
 as a checkout on a stable device identity. Use `--project <id|slug|name|path>`
 for a one-command override without changing the saved selection.
 
+Remove a project from the managed control plane with:
+
+```sh
+stoke project remove <id|slug|name|path>
+```
+
+This removes managed checkouts and run history. It never deletes a local
+directory or GitHub repository. Pass `--yes` for non-interactive use.
+
 ## Quickstart
 
 Create a project:
