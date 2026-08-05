@@ -136,6 +136,7 @@ describe("remote managed execution", () => {
     expect(result).toMatchObject({ disposition: "created", result: plan });
     expect(events).toEqual([
       { type: "remote.sandbox.created", sandboxName: "test-sandbox" },
+      { type: "plan.nodes", workflow: "stoke-example", nodes: [] },
       {
         type: "plan.created",
         workflow: "stoke-example",

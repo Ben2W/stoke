@@ -81,21 +81,26 @@ export async function runRemoteSandbox(input: RunRemoteSandboxInput): Promise<Re
     args: ["install"],
   });
 
-  const commandEnvironment = {
+  const baseCommandEnvironment = {
     RIGKIT_UPDATE_CHECK: "0",
     NO_COLOR: "1",
     FORCE_COLOR: "0",
     STOKE_STATE_FILE: STATE_FILE,
     STOKE_RUNTIME_BIN: STOKE_RUNTIME_PATH,
-    STOKE_MANAGED_RUN_SOCKET_URL: input.producerSocketUrl,
     ...(input.request.origin === "dashboard" ? { STOKE_WORKSPACE_ORIGIN: "dashboard" } : {}),
+  };
+  const commandEnvironment = {
+    ...baseCommandEnvironment,
+    STOKE_MANAGED_RUN_SOCKET_URL: input.producerSocketUrl,
   };
   let workflow = input.request.workflow;
   if (!workflow) {
     const discovered = await runCommand(sandbox, input, "discover-workflow", {
       cmd: "bun",
       args: [STOKE_CLI_PATH, "ls", "--json"],
-      env: commandEnvironment,
+      // Workflow discovery is setup, not part of the requested run. Keeping it
+      // off the managed socket prevents a duplicate task flow in the dashboard.
+      env: baseCommandEnvironment,
     });
     workflow = singleWorkflowFromList(await discovered.stdout());
   }

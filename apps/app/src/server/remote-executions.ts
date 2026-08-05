@@ -145,6 +145,7 @@ async function completeRemoteProjectExecution(
     } finally {
       clearInterval(heartbeat);
     }
+    await appendPlanNodes(userId, run.id, result, dependencies.appendRunEvent);
     const observed = await dependencies.getRun(userId, run.id);
     if (observed.nodeCount === undefined) {
       await appendResultEvents(userId, run.id, request, result, dependencies.appendRunEvent);
@@ -163,6 +164,21 @@ async function completeRemoteProjectExecution(
     });
     throw new RemoteExecutionError(message, await dependencies.getRun(userId, run.id));
   }
+}
+
+async function appendPlanNodes(
+  userId: string,
+  runId: string,
+  result: unknown,
+  append: typeof appendRunEvent,
+): Promise<void> {
+  const plan = resultPlan(result);
+  if (!plan) return;
+  await append(userId, runId, {
+    type: "plan.nodes",
+    workflow: plan.workflow,
+    nodes: plan.nodes,
+  });
 }
 
 function controlPlaneUrl(): string {
@@ -231,6 +247,39 @@ function resultSummary(result: unknown): {
     nodeCount: value.nodeCount,
     cachedNodeCount: value.cachedNodeCount,
   };
+}
+
+function resultPlan(result: unknown): {
+  workflow: string;
+  nodes: Array<{
+    index: number;
+    path: string;
+    name: string;
+    status: "cached" | "pending";
+    reason?: string;
+    runId?: string;
+    upstreamRunIds: string[];
+  }>;
+} | undefined {
+  if (!isRecord(result)) return undefined;
+  const value = isRecord(result.plan) ? result.plan : result;
+  if (typeof value.workflow !== "string" || !Array.isArray(value.nodes)) return undefined;
+  const nodes = value.nodes.flatMap((node) => {
+    if (!isRecord(node) || typeof node.index !== "number" || typeof node.path !== "string"
+      || typeof node.name !== "string" || (node.status !== "cached" && node.status !== "pending")
+      || !Array.isArray(node.upstreamRunIds) || !node.upstreamRunIds.every((id) => typeof id === "string")) return [];
+    const status: "cached" | "pending" = node.status;
+    return [{
+      index: node.index,
+      path: node.path,
+      name: node.name,
+      status,
+      ...(typeof node.reason === "string" ? { reason: node.reason } : {}),
+      ...(typeof node.runId === "string" ? { runId: node.runId } : {}),
+      upstreamRunIds: node.upstreamRunIds,
+    }];
+  });
+  return { workflow: value.workflow, nodes };
 }
 
 async function waitForRun(

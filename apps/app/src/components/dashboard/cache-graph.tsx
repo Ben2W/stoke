@@ -1,43 +1,62 @@
-import type { ManagedCacheEntry } from "@stoke/managed";
-import { Database, RotateCcw, Waypoints } from "lucide-react";
+import type { ManagedCacheEntry, ManagedRun } from "@stoke/managed";
+import { Check, CircleDashed, Database, RotateCcw, Waypoints } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { shortFingerprint } from "../../lib/fingerprint.ts";
+import { projectCacheGraph } from "./cache-graph-model.ts";
+import { CacheRunOutput } from "./cache-run-output.tsx";
 import {
   CACHE_NODE_HEIGHT,
   CACHE_NODE_WIDTH,
   cacheInvalidationIds,
   layoutCacheGraph,
 } from "./cache-graph-layout.ts";
+import type { RunTaskFlow, RunTaskStatus } from "./run-task-flow.ts";
 
 export function CacheGraph({
+  activeFlow,
+  activeRun,
   entries,
   invalidatingId,
   onInvalidate,
+  plannedFlow,
+  plannedRun,
 }: {
+  activeFlow?: RunTaskFlow;
+  activeRun?: ManagedRun;
   entries: ManagedCacheEntry[];
   invalidatingId?: string;
   onInvalidate(entry: ManagedCacheEntry): void;
+  plannedFlow?: RunTaskFlow;
+  plannedRun?: ManagedRun;
 }) {
-  const graph = useMemo(() => layoutCacheGraph(entries), [entries]);
+  const model = useMemo(() => projectCacheGraph(
+    entries,
+    plannedFlow && plannedRun ? { flow: plannedFlow, run: plannedRun } : undefined,
+    activeFlow && activeRun ? { flow: activeFlow, run: activeRun } : undefined,
+  ), [activeFlow, activeRun, entries, plannedFlow, plannedRun]);
+  const graph = useMemo(() => layoutCacheGraph(model.entries), [model.entries]);
   const [selectedId, setSelectedId] = useState<string>();
   const [hoveredId, setHoveredId] = useState<string>();
   const previewId = hoveredId ?? selectedId;
   const previewIds = useMemo(
-    () => previewId ? cacheInvalidationIds(entries, previewId) : new Set<string>(),
-    [entries, previewId],
+    () => previewId ? cacheInvalidationIds(model.entries, previewId) : new Set<string>(),
+    [model.entries, previewId],
   );
-  const impactById = useMemo(() => new Map(entries.map((entry) => [
+  const impactById = useMemo(() => new Map(model.entries.map((entry) => [
     entry.id,
-    [...cacheInvalidationIds(entries, entry.id)]
-      .filter((id) => !entries.find((candidate) => candidate.id === id)?.invalidated)
+    [...cacheInvalidationIds(model.entries, entry.id)]
+      .filter((id) => !model.entries.find((candidate) => candidate.id === id)?.invalidated)
       .length,
-  ])), [entries]);
+  ])), [model.entries]);
 
   useEffect(() => {
-    if (selectedId && entries.find((entry) => entry.id === selectedId)?.invalidated) {
+    if (selectedId && !entries.some((entry) => entry.id === selectedId)) {
       setSelectedId(undefined);
     }
   }, [entries, selectedId]);
+
+  const displayRun = activeRun ?? plannedRun;
+  const displayFlow = activeRun ? activeFlow : plannedFlow;
 
   return (
     <div className="overflow-hidden rounded-lg border border-zinc-200 bg-white shadow-xs">
@@ -46,9 +65,12 @@ export function CacheGraph({
           <div className="grid size-8 shrink-0 place-items-center rounded-md bg-zinc-100 text-zinc-500">
             <Waypoints size={15} />
           </div>
-          <div>
-            <p className="text-xs font-medium text-zinc-800">Dependency graph</p>
-            <p className="mt-0.5 text-[11px] text-zinc-500">Each node shows its cache fingerprint. Select an invalidation to preview its downstream impact.</p>
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="text-xs font-medium text-zinc-800">Dependency graph</p>
+              {displayRun ? <RunIndicator flow={displayFlow} run={displayRun} /> : null}
+            </div>
+            <p className="mt-0.5 truncate text-[11px] text-zinc-500">Plan builds this graph. Apply plays task state and output across the same nodes.</p>
           </div>
         </div>
         <div className="flex items-center gap-3 text-[10px] text-zinc-400">
@@ -89,30 +111,34 @@ export function CacheGraph({
             const affected = previewIds.has(entry.id);
             const dimmed = Boolean(previewId) && !affected;
             const impact = impactById.get(entry.id) ?? 0;
+            const activity = model.activities.get(entry.id);
+            const live = activity?.status === "running";
+            const planned = activity?.status === "pending";
+            const completed = activity?.status === "completed";
             return (
               <article
                 aria-label={`${entry.nodePath} cache entry`}
-                className={`absolute flex flex-col rounded-lg border p-3 shadow-sm transition-all ${entry.invalidated ? "border-dashed border-zinc-200 bg-zinc-50 text-zinc-400" : target ? "border-amber-400 bg-amber-50 ring-2 ring-amber-100" : affected ? "border-amber-200 bg-amber-50/70" : "border-zinc-200 bg-white"} ${dimmed ? "opacity-40" : "opacity-100"}`}
+                className={`absolute flex flex-col rounded-lg border p-3 shadow-sm transition-all ${live ? "border-blue-400 bg-blue-50/60 ring-2 ring-blue-100" : completed ? "border-emerald-300 bg-emerald-50/40" : planned ? "border-dashed border-amber-300 bg-amber-50/50" : target ? "border-amber-400 bg-amber-50 ring-2 ring-amber-100" : affected ? "border-amber-200 bg-amber-50/70" : "border-zinc-200 bg-white"} ${dimmed ? "opacity-40" : "opacity-100"}`}
                 key={`${entry.scope}:${entry.id}`}
                 style={{ height: CACHE_NODE_HEIGHT, left: x, top: y, width: CACHE_NODE_WIDTH }}
               >
                 <div className="flex items-start gap-2.5">
-                  <Database className={entry.invalidated ? "text-zinc-300" : affected ? "text-amber-600" : "text-zinc-400"} size={14} />
+                  {live ? <CircleDashed className="animate-spin text-blue-600" size={14} /> : completed ? <Check className="text-emerald-600" size={14} /> : <Database className={planned ? "text-amber-500" : affected ? "text-amber-600" : "text-zinc-400"} size={14} />}
                   <div className="min-w-0 flex-1">
                     <h3 className="truncate text-xs font-medium text-zinc-800">{entry.nodePath}</h3>
                     <p className="mt-0.5 truncate text-[10px] text-zinc-400">
-                      <code className="font-mono text-zinc-500" title={entry.fingerprint}>{shortFingerprint(entry.fingerprint)}</code> · {entry.workflow} · {entry.scope}
+                      <code className="font-mono text-zinc-500" title={entry.fingerprint}>{shortFingerprint(entry.fingerprint)}</code> · {entry.workflow} · {activity?.synthetic ? "planned" : entry.scope}
                     </p>
                   </div>
                 </div>
                 <div className="mt-auto flex items-center justify-between gap-2">
-                  {entry.invalidated ? (
-                    <span className="text-[10px] font-medium text-zinc-400">Invalidated</span>
+                  {activity ? (
+                    <NodeActivity status={activity.status} />
                   ) : (
                     <button
                       aria-pressed={selectedId === entry.id}
                       className={`inline-flex items-center gap-1 rounded px-1.5 py-1 text-[10px] font-medium transition ${selectedId === entry.id ? "bg-amber-600 text-white hover:bg-amber-700" : "text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900"}`}
-                      disabled={Boolean(invalidatingId)}
+                      disabled={Boolean(invalidatingId) || Boolean(activeRun)}
                       onBlur={() => setHoveredId(undefined)}
                       onClick={() => {
                         if (selectedId === entry.id) onInvalidate(entry);
@@ -130,7 +156,7 @@ export function CacheGraph({
                     </button>
                   )}
                   <span className="shrink-0 text-[10px] text-zinc-400">
-                    {impact > 1 && !entry.invalidated ? `+${impact - 1} downstream` : relativeTime(entry.createdAt)}
+                    {activity?.status === "running" ? "now" : impact > 1 && !activity?.synthetic ? `+${impact - 1} downstream` : relativeTime(entry.createdAt)}
                   </span>
                 </div>
               </article>
@@ -138,6 +164,7 @@ export function CacheGraph({
           })}
         </div>
       </div>
+      {activeRun && activeFlow ? <CacheRunOutput flow={activeFlow} run={activeRun} /> : null}
     </div>
   );
 }
@@ -159,6 +186,47 @@ export function CacheGraphSkeleton() {
       </div>
     </div>
   );
+}
+
+function RunIndicator({ flow, run }: { flow?: RunTaskFlow; run: ManagedRun }) {
+  const fingerprint = shortFingerprint(run.fingerprint);
+  const settingUp = run.status === "running" && (!flow || flow.tasks.length === 0);
+  const pending = flow?.tasks.filter((task) => task.status === "pending").length ?? 0;
+  const label = settingUp
+    ? `Setting up ${fingerprint}`
+    : run.status === "running"
+      ? `${run.operation === "apply" ? "Applying" : "Planning"} ${fingerprint}`
+      : run.operation === "plan"
+        ? `Plan ${fingerprint} · ${pending} ${pending === 1 ? "task" : "tasks"} will run`
+        : `${run.operation} ${fingerprint}`;
+  return (
+    <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-[9px] font-medium ${run.status === "running" ? "bg-blue-50 text-blue-700" : "bg-zinc-100 text-zinc-600"}`} title={run.fingerprint}>
+      {run.status === "running" ? <span className="size-1.5 animate-pulse rounded-full bg-blue-500" /> : null}
+      {label}
+    </span>
+  );
+}
+
+function NodeActivity({ status }: { status: RunTaskStatus }) {
+  const label = status === "pending"
+    ? "Will run"
+    : status === "running"
+      ? "Running…"
+      : status === "cached"
+        ? "Cached"
+        : status === "failed"
+          ? "Failed"
+          : "Completed";
+  const color = status === "running"
+    ? "text-blue-700"
+    : status === "pending"
+      ? "text-amber-700"
+      : status === "completed"
+        ? "text-emerald-700"
+        : status === "failed"
+          ? "text-red-700"
+          : "text-zinc-500";
+  return <span className={`text-[10px] font-medium ${color}`}>{label}</span>;
 }
 
 function relativeTime(value: string): string {

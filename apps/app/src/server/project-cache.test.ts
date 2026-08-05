@@ -37,6 +37,19 @@ describe("project cache", () => {
     ]);
   });
 
+  test("returns only the current reusable DAG instead of cache history", () => {
+    const snapshot = cacheSnapshot();
+    snapshot.scopes.project!.nodeRuns.push(
+      { ...nodeRun("old-build"), nodePath: "build", invalidated: true, createdAt: "2026-08-04T00:02:00.000Z" },
+      { ...nodeRun("new-build"), nodePath: "build", createdAt: "2026-08-04T00:03:00.000Z" },
+      { ...nodeRun("newer-build"), nodePath: "build", createdAt: "2026-08-04T00:04:00.000Z" },
+    );
+
+    const entries = projectCacheEntries(snapshot);
+    expect(entries.filter((entry) => entry.nodePath === "build").map((entry) => entry.id)).toEqual(["newer-build"]);
+    expect(entries.some((entry) => entry.invalidated)).toBe(false);
+  });
+
   test("invalidates a target and all dependent results", () => {
     const snapshot = cacheSnapshot();
     expect(invalidateCacheSnapshot(snapshot, { scope: "project", entryId: "build" })).toBe(2);

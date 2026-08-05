@@ -1,16 +1,36 @@
 "use client";
 
-import type { ManagedCacheEntry } from "@stoke/managed";
+import type { ManagedCacheEntry, ManagedProject } from "@stoke/managed";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Database, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { clearProjectCache, invalidateProjectCacheEntry } from "../../lib/api-client.ts";
-import { projectCacheQuery, queryKeys } from "../../lib/queries.ts";
+import { projectCacheQuery, queryKeys, runsQuery } from "../../lib/queries.ts";
+import { CacheActions } from "./cache-actions.tsx";
 import { CacheGraph, CacheGraphSkeleton } from "./cache-graph.tsx";
+import { projectRunTaskFlow } from "./run-task-flow.ts";
+import { useRunObserver } from "./use-run-observer.ts";
 
-export function ProjectCache({ projectId }: { projectId: string }) {
+export function ProjectCache({ project }: { project: ManagedProject }) {
+  const projectId = project.id;
   const queryClient = useQueryClient();
   const cache = useQuery(projectCacheQuery(projectId));
+  const runsResult = useQuery(runsQuery);
+  const projectRuns = (runsResult.data ?? []).filter((run) => run.projectId === projectId);
+  const activeRun = projectRuns.find((run) => run.status === "running");
+  const latestPlan = projectRuns.find((run) => run.operation === "plan" && run.status === "completed");
+  const latestApply = projectRuns.find((run) => run.operation === "apply" && run.status === "completed");
+  const plannedRun = latestPlan && (!latestApply || latestPlan.startedAt > latestApply.startedAt) ? latestPlan : undefined;
+  const { eventsResult: activeEventsResult } = useRunObserver(activeRun?.id);
+  const { eventsResult: planEventsResult } = useRunObserver(plannedRun?.id);
+  const activeFlow = useMemo(
+    () => activeRun ? projectRunTaskFlow(activeEventsResult.data ?? [], activeRun) : undefined,
+    [activeRun, activeEventsResult.data],
+  );
+  const plannedFlow = useMemo(
+    () => plannedRun ? projectRunTaskFlow(planEventsResult.data ?? [], plannedRun) : undefined,
+    [plannedRun, planEventsResult.data],
+  );
   const [confirmClear, setConfirmClear] = useState(false);
   const refresh = () => queryClient.invalidateQueries({ queryKey: queryKeys.projectCache(projectId) });
   const invalidate = useMutation({
@@ -31,33 +51,40 @@ export function ProjectCache({ projectId }: { projectId: string }) {
 
   return (
     <section className="mt-8" aria-labelledby="cache-heading">
-      <div className="mb-3 flex items-end justify-between gap-4">
+      <div className="mb-3 flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
         <div>
           <h2 className="text-sm font-medium" id="cache-heading">Cache</h2>
           <p className="mt-1 text-xs text-zinc-500">Shared node results and their cascading dependencies across local and Vercel Sandbox runs.</p>
         </div>
-        {entries.length ? (
-          <button
-            className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[11px] transition ${confirmClear ? "border-red-200 bg-red-50 text-red-700" : "border-zinc-200 bg-white text-zinc-500 hover:text-zinc-900"}`}
-            disabled={clear.isPending}
-            onClick={() => confirmClear ? clear.mutate() : setConfirmClear(true)}
-            onBlur={() => setConfirmClear(false)}
-            type="button"
-          >
-            <Trash2 size={12} /> {clear.isPending ? "Clearing…" : confirmClear ? "Confirm clear" : "Clear all"}
-          </button>
-        ) : null}
+        <div className="flex items-start gap-2">
+          {entries.length ? (
+            <button
+              className={`inline-flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-[11px] transition ${confirmClear ? "border-red-200 bg-red-50 text-red-700" : "border-zinc-200 bg-white text-zinc-500 hover:text-zinc-900"}`}
+              disabled={clear.isPending || Boolean(activeRun)}
+              onClick={() => confirmClear ? clear.mutate() : setConfirmClear(true)}
+              onBlur={() => setConfirmClear(false)}
+              type="button"
+            >
+              <Trash2 size={12} /> {clear.isPending ? "Clearing…" : confirmClear ? "Confirm clear" : "Clear all"}
+            </button>
+          ) : null}
+          <CacheActions activeRun={activeRun} project={project} />
+        </div>
       </div>
 
       {cache.isPending ? (
         <CacheGraphSkeleton />
       ) : cache.isError ? (
         <button className="grid h-28 w-full place-items-center rounded-lg border border-zinc-200 bg-white text-sm text-zinc-500" onClick={() => void cache.refetch()} type="button">Could not load cache. Try again.</button>
-      ) : entries.length ? (
+      ) : entries.length || activeRun || plannedFlow?.tasks.length ? (
         <CacheGraph
+          activeFlow={activeFlow}
+          activeRun={activeRun}
           entries={entries}
           invalidatingId={invalidate.isPending ? invalidate.variables?.id : undefined}
           onInvalidate={(entry) => invalidate.mutate(entry)}
+          plannedFlow={plannedFlow}
+          plannedRun={plannedRun}
         />
       ) : (
         <div className="rounded-lg border border-dashed border-zinc-300 bg-white px-5 py-7 text-center">

@@ -41,12 +41,23 @@ export async function clearProjectCache(
 }
 
 export function projectCacheEntries(snapshot: ManagedProjectStateSnapshot): ManagedCacheEntry[] {
-  return Object.entries(snapshot.scopes).flatMap(([scope, state]) =>
+  const entries = Object.entries(snapshot.scopes).flatMap(([scope, state]) =>
     state.nodeRuns.flatMap((value) => {
       const entry = parseCacheEntry(value);
       return entry ? [{ scope, ...entry }] : [];
     })
-  ).sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+  ).filter((entry) => !entry.invalidated)
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+
+  // nodeRuns is an append-only cache history. The dashboard graph represents
+  // the reusable DAG, not that history, so keep only the newest live result for
+  // each logical workflow node.
+  const current = new Map<string, ManagedCacheEntry>();
+  for (const entry of entries) {
+    const key = `${entry.scope}\0${entry.workflow}\0${entry.nodePath}`;
+    if (!current.has(key)) current.set(key, entry);
+  }
+  return [...current.values()];
 }
 
 export function invalidateCacheSnapshot(
