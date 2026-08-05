@@ -4,15 +4,12 @@ import type {
   ManagedRun,
   ManagedRunEvent,
 } from "@stoke/managed";
-import { and, asc, desc, eq, gt, lt } from "drizzle-orm";
-import { getDatabase } from "./db/client.ts";
+import { runs } from "./db/schema.ts";
 import {
-  devices,
-  projectCheckouts,
-  projects,
-  runEvents,
-  runs,
-} from "./db/schema.ts";
+  runRepository,
+  type RunEventRow,
+  type RunRow,
+} from "./repositories/run-repository.ts";
 
 const STALE_RUN_MS = 2 * 60_000;
 const MAX_EVENT_DATA_LENGTH = 8_192;
@@ -23,104 +20,59 @@ export type RunClaim = {
 };
 
 export async function claimRun(userId: string, input: ClaimRunRequest): Promise<RunClaim> {
-  const database = getDatabase();
-  const [scope] = await database
-    .select({
-      checkout: projectCheckouts,
-      deviceName: devices.name,
-    })
-    .from(projectCheckouts)
-    .innerJoin(devices, eq(projectCheckouts.deviceId, devices.id))
-    .innerJoin(projects, eq(projectCheckouts.projectId, projects.id))
-    .where(and(
-      eq(projectCheckouts.id, input.checkoutId),
-      eq(projectCheckouts.projectId, input.projectId),
-      eq(projectCheckouts.userId, userId),
-      eq(projects.userId, userId),
-    ))
-    .limit(1);
+  const scope = await runRepository.findClaimScope(userId, input.projectId, input.checkoutId);
   if (!scope) throw new Error("Managed checkout was not found");
 
   const now = new Date();
-  await database
-    .update(runs)
-    .set({ status: "orphaned", completedAt: now, updatedAt: now, error: "Executor heartbeat expired" })
-    .where(and(
-      eq(runs.userId, userId),
-      eq(runs.projectId, input.projectId),
-      eq(runs.checkoutId, input.checkoutId),
-      eq(runs.fingerprint, input.fingerprint),
-      eq(runs.status, "running"),
-      lt(runs.updatedAt, new Date(now.getTime() - STALE_RUN_MS)),
-    ));
+  await runRepository.orphanClaim({
+    userId,
+    projectId: input.projectId,
+    checkoutId: input.checkoutId,
+    fingerprint: input.fingerprint,
+    before: new Date(now.getTime() - STALE_RUN_MS),
+    now,
+  });
 
-  const [created] = await database
-    .insert(runs)
-    .values({
-      id: randomUUID(),
-      userId,
-      projectId: input.projectId,
-      checkoutId: input.checkoutId,
-      deviceId: scope.checkout.deviceId,
-      operation: input.operation,
-      workflow: input.workflow,
-      fingerprint: input.fingerprint,
-      status: "running",
-      startedAt: now,
-      updatedAt: now,
-    })
-    .onConflictDoNothing()
-    .returning();
+  const created = await runRepository.create({
+    id: randomUUID(),
+    userId,
+    projectId: input.projectId,
+    checkoutId: input.checkoutId,
+    deviceId: scope.checkout.deviceId,
+    operation: input.operation,
+    workflow: input.workflow,
+    fingerprint: input.fingerprint,
+    status: "running",
+    startedAt: now,
+    updatedAt: now,
+  });
 
   if (created) {
     return { run: toManagedRun(created, scope.deviceName), disposition: "created" };
   }
 
-  const [existing] = await database
-    .select({ run: runs, deviceName: devices.name })
-    .from(runs)
-    .innerJoin(devices, eq(runs.deviceId, devices.id))
-    .where(and(
-      eq(runs.userId, userId),
-      eq(runs.projectId, input.projectId),
-      eq(runs.checkoutId, input.checkoutId),
-      eq(runs.fingerprint, input.fingerprint),
-      eq(runs.status, "running"),
-    ))
-    .limit(1);
+  const existing = await runRepository.findActive({
+    userId,
+    projectId: input.projectId,
+    checkoutId: input.checkoutId,
+    fingerprint: input.fingerprint,
+  });
   if (!existing) throw new Error("Could not claim or locate the active run");
   return { run: toManagedRun(existing.run, existing.deviceName), disposition: "joined" };
 }
 
 export async function listRuns(userId: string, projectId?: string, limit = 30): Promise<ManagedRun[]> {
   await orphanStaleRuns(userId, projectId);
-  const where = projectId
-    ? and(eq(runs.userId, userId), eq(runs.projectId, projectId))
-    : eq(runs.userId, userId);
-  const rows = await getDatabase()
-    .select({ run: runs, deviceName: devices.name })
-    .from(runs)
-    .innerJoin(devices, eq(runs.deviceId, devices.id))
-    .where(where)
-    .orderBy(desc(runs.startedAt))
-    .limit(Math.min(Math.max(limit, 1), 100));
+  const rows = await runRepository.listForUser(userId, projectId, limit);
   return rows.map(({ run, deviceName }) => toManagedRun(run, deviceName));
 }
 
 export async function getRun(userId: string, runId: string): Promise<ManagedRun> {
-  const [row] = await getDatabase()
-    .select({ run: runs, deviceName: devices.name })
-    .from(runs)
-    .innerJoin(devices, eq(runs.deviceId, devices.id))
-    .where(and(eq(runs.id, runId), eq(runs.userId, userId)))
-    .limit(1);
+  const row = await runRepository.findOwnedById(userId, runId);
   if (!row) throw new Error("Managed run was not found");
   if (row.run.status === "running" && row.run.updatedAt < new Date(Date.now() - STALE_RUN_MS)) {
     const completedAt = new Date();
-    await getDatabase()
-      .update(runs)
-      .set({ status: "orphaned", completedAt, updatedAt: completedAt, error: "Executor heartbeat expired" })
-      .where(and(eq(runs.id, runId), eq(runs.userId, userId), eq(runs.status, "running")));
+    await runRepository.orphanById(userId, runId, completedAt);
     return toManagedRun({
       ...row.run,
       status: "orphaned",
@@ -138,12 +90,7 @@ export async function listRunEvents(
   after = 0,
 ): Promise<ManagedRunEvent[]> {
   await getRun(userId, runId);
-  const rows = await getDatabase()
-    .select()
-    .from(runEvents)
-    .where(and(eq(runEvents.runId, runId), gt(runEvents.id, after)))
-    .orderBy(asc(runEvents.id))
-    .limit(500);
+  const rows = await runRepository.listEvents(runId, after);
   return rows.map(toManagedRunEvent);
 }
 
@@ -157,39 +104,25 @@ export async function appendRunEvent(
   const data = sanitizeRunEvent(value);
   const type = data.type as string;
   const now = new Date();
-  const database = getDatabase();
-  const [row] = await database
-    .insert(runEvents)
-    .values({ runId, type, data, createdAt: now })
-    .returning();
-  if (!row) throw new Error("Postgres did not return the appended run event");
+  const row = await runRepository.appendEvent({ runId, type, data, createdAt: now });
 
   const lifecycle = runUpdateForEvent(data, now);
-  await database
-    .update(runs)
-    .set({ updatedAt: now, ...lifecycle })
-    .where(and(eq(runs.id, runId), eq(runs.userId, userId)));
+  await runRepository.update(userId, runId, { updatedAt: now, ...lifecycle });
   return toManagedRunEvent(row);
 }
 
 export async function heartbeatRun(userId: string, runId: string): Promise<void> {
-  await getDatabase()
-    .update(runs)
-    .set({ updatedAt: new Date() })
-    .where(and(eq(runs.id, runId), eq(runs.userId, userId), eq(runs.status, "running")));
+  await runRepository.heartbeat(userId, runId, new Date());
 }
 
 async function orphanStaleRuns(userId: string, projectId?: string): Promise<void> {
   const now = new Date();
-  await getDatabase()
-    .update(runs)
-    .set({ status: "orphaned", completedAt: now, updatedAt: now, error: "Executor heartbeat expired" })
-    .where(and(
-      eq(runs.userId, userId),
-      ...(projectId ? [eq(runs.projectId, projectId)] : []),
-      eq(runs.status, "running"),
-      lt(runs.updatedAt, new Date(now.getTime() - STALE_RUN_MS)),
-    ));
+  await runRepository.orphanStale(
+    userId,
+    new Date(now.getTime() - STALE_RUN_MS),
+    now,
+    projectId,
+  );
 }
 
 function runUpdateForEvent(data: Record<string, unknown>, now: Date): Partial<typeof runs.$inferInsert> {
@@ -247,7 +180,7 @@ function redactSecrets(value: string): string {
     .replace(/((?:token|secret|password)\s*[:=]\s*)([^\s,;]+)/gi, "$1[redacted]");
 }
 
-function toManagedRun(row: typeof runs.$inferSelect, deviceName: string): ManagedRun {
+function toManagedRun(row: RunRow, deviceName: string): ManagedRun {
   return {
     id: row.id,
     projectId: row.projectId,
@@ -267,7 +200,7 @@ function toManagedRun(row: typeof runs.$inferSelect, deviceName: string): Manage
   };
 }
 
-function toManagedRunEvent(row: typeof runEvents.$inferSelect): ManagedRunEvent {
+function toManagedRunEvent(row: RunEventRow): ManagedRunEvent {
   return {
     id: row.id,
     runId: row.runId,

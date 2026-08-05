@@ -2,7 +2,7 @@ import type { ManagedRun, ManagedRunEvent } from "@stoke/managed";
 import { and, asc, eq, gt, lt } from "drizzle-orm";
 import { drizzle, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
-import * as schema from "../src/server/db/schema.js";
+import * as schema from "../../src/server/db/schema.js";
 
 const STALE_RUN_MS = 2 * 60_000;
 const MAX_EVENT_DATA_LENGTH = 8_192;
