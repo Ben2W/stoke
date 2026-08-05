@@ -1,19 +1,18 @@
 "use client";
 
 import type { ManagedCacheEntry, ManagedRun, ManagedWorkspace } from "@usestoke/managed";
-import { Check, ChevronDown, CircleDashed, Database, RotateCcw, Waypoints } from "lucide-react";
-import Link from "next/link";
+import { Check, CircleDashed, Database, RotateCcw, Waypoints } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { shortFingerprint } from "../../../../lib/fingerprint.ts";
-import { dashboardRoutes } from "../../../../lib/routes.ts";
 import { projectCacheGraph } from "./cache-graph-model.ts";
-import { cacheOwnershipLabel, groupCacheOwnership, type CacheOwnershipGroup } from "./cache-ownership.ts";
+import { groupCacheOwnership } from "./cache-ownership.ts";
 import {
   CACHE_NODE_HEIGHT,
   CACHE_NODE_WIDTH,
   cacheInvalidationIds,
   layoutCacheGraph,
 } from "./cache-graph-layout.ts";
+import { CacheWorkflowVersions } from "./cache-workflow-versions.tsx";
 import type { RunTaskFlow, RunTaskStatus } from "../runs/_components/run-task-flow.ts";
 
 export function CacheGraph({
@@ -49,12 +48,15 @@ export function CacheGraph({
   ), [activeFlow, activeRun, entries, plannedFlow, plannedRun, workspaceEntryIds]);
   const graph = useMemo(() => layoutCacheGraph(model.entries), [model.entries]);
   const ownershipGroups = useMemo(
-    () => groupCacheOwnership(model.mainEntryIds, workspaces),
-    [model.mainEntryIds, workspaces],
+    () => groupCacheOwnership(model.mainEntryIds, workspaces, model.entries),
+    [model.entries, model.mainEntryIds, workspaces],
   );
   const [selectedId, setSelectedId] = useState<string>();
   const [selectedOwnershipKey, setSelectedOwnershipKey] = useState<string>();
+  const [hoveredOwnershipKey, setHoveredOwnershipKey] = useState<string>();
   const [hoveredId, setHoveredId] = useState<string>();
+  const highlightedOwnership = ownershipGroups.find((group) => group.key === hoveredOwnershipKey);
+  const highlightedOwnershipIds = highlightedOwnership?.entryIds;
   const previewId = hoveredId ?? selectedId;
   const previewIds = useMemo(
     () => previewId ? cacheInvalidationIds(model.entries, previewId) : new Set<string>(),
@@ -92,186 +94,115 @@ export function CacheGraph({
           </div>
         </div>
         <div className="flex items-center gap-3 text-[10px] text-zinc-400">
-          <span className="inline-flex items-center gap-1.5"><span className="size-2 rounded-sm border border-blue-300 bg-blue-50" /> Remote main</span>
-          <span className="inline-flex items-center gap-1.5"><span className="size-2 rounded-sm border border-violet-300 bg-violet-50" /> Checkout version</span>
           <span className="inline-flex items-center gap-1 text-emerald-700"><Check size={11} /> Cached</span>
           <span className="inline-flex items-center gap-1.5"><span className="size-2 rounded-full border border-amber-300 bg-amber-50" /> Invalidated next</span>
         </div>
       </div>
 
-      <div className="overflow-x-auto bg-zinc-50/50">
-        <div className="relative" onMouseDown={() => setSelectedOwnershipKey(undefined)} style={{ height: graph.height, width: graph.width }}>
-          {ownershipGroups.map((group) => (
-            <GraphBoundary
-              expanded={selectedOwnershipKey === group.key}
-              graph={graph}
-              ids={group.entryIds}
-              key={group.key}
-              onToggle={() => setSelectedOwnershipKey((selected) => selected === group.key ? undefined : group.key)}
-              ownership={group}
-              projectSlug={projectSlug}
-              tone={group.main ? "main" : "workspace"}
-            />
-          ))}
-          <svg aria-hidden="true" className="pointer-events-none absolute inset-0" height={graph.height} width={graph.width}>
-            <defs>
-              <marker id="cache-arrow" markerHeight="6" markerWidth="6" orient="auto" refX="5" refY="3">
-                <path d="M0,0 L6,3 L0,6 Z" fill="#d4d4d8" />
-              </marker>
-              <marker id="cache-arrow-active" markerHeight="6" markerWidth="6" orient="auto" refX="5" refY="3">
-                <path d="M0,0 L6,3 L0,6 Z" fill="#f59e0b" />
-              </marker>
-            </defs>
-            {graph.edges.map((edge) => {
-              const active = previewIds.has(edge.fromId) && previewIds.has(edge.toId);
-              const middleY = (edge.fromY + edge.toY) / 2;
+      <div className="flex flex-col bg-zinc-50/50 lg:flex-row">
+        <CacheWorkflowVersions
+          expandedKey={selectedOwnershipKey}
+          groups={ownershipGroups}
+          highlightedKey={hoveredOwnershipKey}
+          onExpandedChange={setSelectedOwnershipKey}
+          onHighlightedChange={setHoveredOwnershipKey}
+          projectSlug={projectSlug}
+        />
+        <div className="min-w-0 flex-1 overflow-x-auto">
+          <div className="relative" onMouseDown={() => setSelectedOwnershipKey(undefined)} style={{ height: graph.height, width: graph.width }}>
+            <svg aria-hidden="true" className="pointer-events-none absolute inset-0" height={graph.height} width={graph.width}>
+              <defs>
+                <marker id="cache-arrow" markerHeight="6" markerWidth="6" orient="auto" refX="5" refY="3">
+                  <path d="M0,0 L6,3 L0,6 Z" fill="#d4d4d8" />
+                </marker>
+                <marker id="cache-arrow-active" markerHeight="6" markerWidth="6" orient="auto" refX="5" refY="3">
+                  <path d="M0,0 L6,3 L0,6 Z" fill="#f59e0b" />
+                </marker>
+              </defs>
+              {graph.edges.map((edge) => {
+                const active = previewIds.has(edge.fromId) && previewIds.has(edge.toId);
+                const workflowActive = highlightedOwnershipIds?.has(edge.fromId) && highlightedOwnershipIds.has(edge.toId);
+                const workflowDimmed = Boolean(highlightedOwnershipIds) && !workflowActive;
+                const middleY = (edge.fromY + edge.toY) / 2;
+                return (
+                  <path
+                    d={`M ${edge.fromX} ${edge.fromY} C ${edge.fromX} ${middleY}, ${edge.toX} ${middleY}, ${edge.toX} ${edge.toY}`}
+                    fill="none"
+                    key={`${edge.fromId}:${edge.toId}`}
+                    markerEnd={active ? "url(#cache-arrow-active)" : "url(#cache-arrow)"}
+                    opacity={workflowDimmed ? 0.18 : 1}
+                    stroke={active ? "#f59e0b" : workflowActive ? highlightedOwnership?.main ? "#60a5fa" : "#a78bfa" : "#d4d4d8"}
+                    strokeWidth={active || workflowActive ? 2 : 1.5}
+                    style={{ transition: "opacity 150ms ease, stroke 150ms ease" }}
+                  />
+                );
+              })}
+            </svg>
+
+            {graph.nodes.map(({ entry, x, y }) => {
+              const target = previewId === entry.id;
+              const affected = previewIds.has(entry.id);
+              const invalidationDimmed = Boolean(previewId) && !affected;
+              const workflowHighlighted = highlightedOwnershipIds?.has(entry.id);
+              const workflowDimmed = Boolean(highlightedOwnershipIds) && !workflowHighlighted;
+              const impact = impactById.get(entry.id) ?? 0;
+              const activity = model.activities.get(entry.id);
+              const live = activity?.status === "running";
+              const planned = activity?.status === "pending";
+              const completed = activity?.status === "completed";
+              const cached = !entry.invalidated && (activity?.status === "cached" || !activity);
               return (
-                <path
-                  d={`M ${edge.fromX} ${edge.fromY} C ${edge.fromX} ${middleY}, ${edge.toX} ${middleY}, ${edge.toX} ${edge.toY}`}
-                  fill="none"
-                  key={`${edge.fromId}:${edge.toId}`}
-                  markerEnd={active ? "url(#cache-arrow-active)" : "url(#cache-arrow)"}
-                  stroke={active ? "#f59e0b" : "#d4d4d8"}
-                  strokeWidth={active ? 2 : 1.5}
-                />
+                <article
+                  aria-label={`${entry.nodePath} cache entry`}
+                  className={`absolute flex flex-col rounded-lg border p-3 shadow-sm transition-all ${live ? "border-blue-400 bg-blue-50/60 ring-2 ring-blue-100" : completed ? "border-emerald-300 bg-emerald-50/40" : planned ? "border-dashed border-amber-300 bg-amber-50/50" : target ? "border-amber-400 bg-amber-50 ring-2 ring-amber-100" : affected ? "border-amber-200 bg-amber-50/70" : cached ? "border-emerald-300 bg-emerald-50/40" : entry.invalidated ? "border-dashed border-zinc-300 bg-zinc-50" : "border-zinc-200 bg-white"} ${workflowHighlighted && !live && !target ? highlightedOwnership?.main ? "ring-2 ring-blue-200" : "ring-2 ring-violet-200" : ""} ${invalidationDimmed || workflowDimmed ? "opacity-30" : "opacity-100"}`}
+                  key={entry.id}
+                  style={{ height: CACHE_NODE_HEIGHT, left: x, top: y, width: CACHE_NODE_WIDTH }}
+                >
+                  <div className="flex items-start gap-2.5">
+                    {live ? <CircleDashed className="animate-spin text-blue-600" size={14} /> : completed || cached ? <Check className="text-emerald-600" size={14} /> : <Database className={planned ? "text-amber-500" : affected ? "text-amber-600" : "text-zinc-400"} size={14} />}
+                    <div className="min-w-0 flex-1">
+                      <h3 className="truncate text-xs font-medium text-zinc-800">{entry.nodePath}</h3>
+                      <p className="mt-0.5 truncate text-[10px] text-zinc-400">
+                        <code className="font-mono text-zinc-500" title={entry.fingerprint}>{shortFingerprint(entry.fingerprint)}</code> · {entry.workflow} · {activity?.synthetic ? "planned" : entry.scope}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="mt-auto flex items-center justify-between gap-2">
+                    {activity ? (
+                      <NodeActivity status={activity.status} />
+                    ) : entry.invalidated ? (
+                      <span className="text-[10px] font-medium text-zinc-400">Invalidated</span>
+                    ) : (
+                      <button
+                        aria-pressed={selectedId === entry.id}
+                        className={`inline-flex items-center gap-1 rounded px-1.5 py-1 text-[10px] font-medium transition ${selectedId === entry.id ? "bg-amber-600 text-white hover:bg-amber-700" : "text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900"}`}
+                        disabled={Boolean(invalidatingId) || activeRun?.status === "running"}
+                        onBlur={() => setHoveredId(undefined)}
+                        onClick={() => {
+                          if (selectedId === entry.id) onInvalidate(entry);
+                          else setSelectedId(entry.id);
+                        }}
+                        onFocus={() => setHoveredId(entry.id)}
+                        onMouseEnter={() => setHoveredId(entry.id)}
+                        onMouseLeave={() => setHoveredId(undefined)}
+                        type="button"
+                      >
+                        <RotateCcw className={invalidatingId === entry.id ? "animate-spin" : ""} size={10} />
+                        {invalidatingId === entry.id
+                          ? "Invalidating…"
+                          : selectedId === entry.id ? `Confirm ${impact}` : "Invalidate"}
+                      </button>
+                    )}
+                    <span className="shrink-0 text-[10px] text-zinc-400">
+                      {activity?.status === "running" ? "now" : impact > 1 && !activity?.synthetic ? `+${impact - 1} downstream` : relativeTime(entry.createdAt)}
+                    </span>
+                  </div>
+                </article>
               );
             })}
-          </svg>
-
-          {graph.nodes.map(({ entry, x, y }) => {
-            const target = previewId === entry.id;
-            const affected = previewIds.has(entry.id);
-            const dimmed = Boolean(previewId) && !affected;
-            const impact = impactById.get(entry.id) ?? 0;
-            const activity = model.activities.get(entry.id);
-            const live = activity?.status === "running";
-            const planned = activity?.status === "pending";
-            const completed = activity?.status === "completed";
-            const cached = !entry.invalidated && (activity?.status === "cached" || !activity);
-            return (
-              <article
-                aria-label={`${entry.nodePath} cache entry`}
-                className={`absolute flex flex-col rounded-lg border p-3 shadow-sm transition-all ${live ? "border-blue-400 bg-blue-50/60 ring-2 ring-blue-100" : completed ? "border-emerald-300 bg-emerald-50/40" : planned ? "border-dashed border-amber-300 bg-amber-50/50" : target ? "border-amber-400 bg-amber-50 ring-2 ring-amber-100" : affected ? "border-amber-200 bg-amber-50/70" : cached ? "border-emerald-300 bg-emerald-50/40" : entry.invalidated ? "border-dashed border-zinc-300 bg-zinc-50" : "border-zinc-200 bg-white"} ${dimmed ? "opacity-40" : "opacity-100"}`}
-                key={entry.id}
-                style={{ height: CACHE_NODE_HEIGHT, left: x, top: y, width: CACHE_NODE_WIDTH }}
-              >
-                <div className="flex items-start gap-2.5">
-                  {live ? <CircleDashed className="animate-spin text-blue-600" size={14} /> : completed || cached ? <Check className="text-emerald-600" size={14} /> : <Database className={planned ? "text-amber-500" : affected ? "text-amber-600" : "text-zinc-400"} size={14} />}
-                  <div className="min-w-0 flex-1">
-                    <h3 className="truncate text-xs font-medium text-zinc-800">{entry.nodePath}</h3>
-                    <p className="mt-0.5 truncate text-[10px] text-zinc-400">
-                      <code className="font-mono text-zinc-500" title={entry.fingerprint}>{shortFingerprint(entry.fingerprint)}</code> · {entry.workflow} · {activity?.synthetic ? "planned" : entry.scope}
-                    </p>
-                  </div>
-                </div>
-                <div className="mt-auto flex items-center justify-between gap-2">
-                  {activity ? (
-                    <NodeActivity status={activity.status} />
-                  ) : entry.invalidated ? (
-                    <span className="text-[10px] font-medium text-zinc-400">Invalidated</span>
-                  ) : (
-                    <button
-                      aria-pressed={selectedId === entry.id}
-                      className={`inline-flex items-center gap-1 rounded px-1.5 py-1 text-[10px] font-medium transition ${selectedId === entry.id ? "bg-amber-600 text-white hover:bg-amber-700" : "text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900"}`}
-                      disabled={Boolean(invalidatingId) || activeRun?.status === "running"}
-                      onBlur={() => setHoveredId(undefined)}
-                      onClick={() => {
-                        if (selectedId === entry.id) onInvalidate(entry);
-                        else setSelectedId(entry.id);
-                      }}
-                      onFocus={() => setHoveredId(entry.id)}
-                      onMouseEnter={() => setHoveredId(entry.id)}
-                      onMouseLeave={() => setHoveredId(undefined)}
-                      type="button"
-                    >
-                      <RotateCcw className={invalidatingId === entry.id ? "animate-spin" : ""} size={10} />
-                      {invalidatingId === entry.id
-                        ? "Invalidating…"
-                        : selectedId === entry.id ? `Confirm ${impact}` : "Invalidate"}
-                    </button>
-                  )}
-                  <span className="shrink-0 text-[10px] text-zinc-400">
-                    {activity?.status === "running" ? "now" : impact > 1 && !activity?.synthetic ? `+${impact - 1} downstream` : relativeTime(entry.createdAt)}
-                  </span>
-                </div>
-              </article>
-            );
-          })}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function GraphBoundary({
-  expanded,
-  graph,
-  ids,
-  onToggle,
-  ownership,
-  projectSlug,
-  tone,
-}: {
-  expanded: boolean;
-  graph: ReturnType<typeof layoutCacheGraph>;
-  ids: Set<string>;
-  onToggle(): void;
-  ownership: CacheOwnershipGroup;
-  projectSlug: string;
-  tone: "main" | "workspace";
-}) {
-  const nodes = graph.nodes.filter((node) => ids.has(node.entry.id));
-  if (!nodes.length) return null;
-  const padding = tone === "main" ? 18 : 10;
-  const left = Math.min(...nodes.map((node) => node.x)) - padding;
-  const top = Math.min(...nodes.map((node) => node.y)) - padding;
-  const right = Math.max(...nodes.map((node) => node.x + CACHE_NODE_WIDTH)) + padding;
-  const bottom = Math.max(...nodes.map((node) => node.y + CACHE_NODE_HEIGHT)) + padding;
-  const label = cacheOwnershipLabel(ownership);
-  const interactive = ownership.workspaces.length > 0;
-  return (
-    <div
-      aria-label={label}
-      className={`pointer-events-none absolute rounded-xl border ${tone === "main" ? "border-blue-300 bg-blue-50/20" : "border-violet-300 bg-violet-50/15"}`}
-      style={{ height: bottom - top, left, top, width: right - left }}
-    >
-      {interactive ? (
-        <button
-          aria-expanded={expanded}
-          className={`pointer-events-auto absolute -top-2.5 left-3 z-20 inline-flex items-center gap-1 rounded border bg-white px-1.5 py-0.5 text-[9px] font-medium shadow-xs transition hover:shadow-sm ${tone === "main" ? "border-blue-200 text-blue-700" : "border-violet-200 text-violet-700"}`}
-          onClick={onToggle}
-          onMouseDown={(event) => event.stopPropagation()}
-          type="button"
-        >
-          {label}<ChevronDown className={`transition-transform ${expanded ? "rotate-180" : ""}`} size={10} />
-        </button>
-      ) : (
-        <span className={`absolute -top-2.5 left-3 rounded border bg-white px-1.5 py-0.5 text-[9px] font-medium shadow-xs ${tone === "main" ? "border-blue-200 text-blue-700" : "border-violet-200 text-violet-700"}`}>
-          {label}
-        </span>
-      )}
-      {expanded ? (
-        <div
-          className="pointer-events-auto absolute left-3 top-5 z-30 w-56 rounded-lg border border-zinc-200 bg-white p-2 shadow-lg"
-          onMouseDown={(event) => event.stopPropagation()}
-        >
-          <p className="px-2 py-1 text-[9px] font-medium uppercase tracking-wide text-zinc-400">
-            {ownership.main ? "Using the main cache" : "Using this cache version"}
-          </p>
-          <div className="mt-1 space-y-0.5">
-            {ownership.workspaces.map((workspace) => (
-              <Link
-                className="flex items-center justify-between gap-3 rounded px-2 py-1.5 text-[10px] hover:bg-zinc-50"
-                href={dashboardRoutes.workspace(projectSlug, workspace.id)}
-                key={workspace.id}
-              >
-                <span className="truncate font-medium text-zinc-700">{workspace.name}</span>
-                <code className="shrink-0 font-mono text-zinc-400">{workspace.revision?.slice(0, 7) ?? "unversioned"}</code>
-              </Link>
-            ))}
           </div>
         </div>
-      ) : null}
+      </div>
     </div>
   );
 }
