@@ -72,6 +72,8 @@ export async function claimRemoteRun(
     projectId: string;
     operation: ManagedRunOperation;
     workflow: string;
+    workspace?: string;
+    workspaceOperation?: string;
     fingerprint: string;
     origin: Exclude<ManagedRunOrigin, "machine">;
   },
@@ -99,6 +101,8 @@ export async function claimRemoteRun(
     executionKey,
     operation: input.operation,
     workflow: input.workflow,
+    workspace: input.workspace,
+    workspaceOperation: input.workspaceOperation,
     fingerprint: input.fingerprint,
     status: "running",
     startedAt: now,
@@ -155,15 +159,22 @@ export async function appendRunEvent(
   value: unknown,
 ): Promise<ManagedRunEvent> {
   const run = await getRun(userId, runId);
-  if (run.status !== "running") throw new Error("Managed run is no longer active");
   const data = sanitizeRunEvent(value);
   const type = data.type as string;
+  if (run.status !== "running" && !acceptsPostFailureEvent(run.status, type)) {
+    throw new Error("Managed run is no longer active");
+  }
   const now = new Date();
   const row = await runRepository.appendEvent({ runId, type, data, createdAt: now });
 
   const lifecycle = runUpdateForEvent(data, now);
   await runRepository.update(userId, runId, { updatedAt: now, ...lifecycle });
   return toManagedRunEvent(row);
+}
+
+function acceptsPostFailureEvent(status: ManagedRun["status"], type: string): boolean {
+  if (status !== "failed" && status !== "orphaned") return false;
+  return type === "remote.log.output" || type === "remote.command.completed" || type === "run.failed";
 }
 
 export async function heartbeatRun(userId: string, runId: string): Promise<void> {
@@ -245,6 +256,8 @@ function toManagedRun(row: RunRow, deviceName: string | null): ManagedRun {
     origin: row.origin,
     operation: row.operation,
     workflow: row.workflow,
+    ...(row.workspace ? { workspace: row.workspace } : {}),
+    ...(row.workspaceOperation ? { workspaceOperation: row.workspaceOperation } : {}),
     fingerprint: row.fingerprint,
     status: row.status,
     nodeCount: row.nodeCount ?? undefined,

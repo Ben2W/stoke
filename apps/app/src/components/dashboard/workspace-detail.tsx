@@ -7,6 +7,7 @@ import { useState } from "react";
 import { executeProjectRequest } from "../../lib/api-client.ts";
 import { projectWorkspacesQuery, queryKeys } from "../../lib/queries.ts";
 import { WorkspaceOperations } from "./workspace-operations.tsx";
+import { WorkspaceRunHistory } from "./workspace-run-history.tsx";
 
 export function WorkspaceDetail({ onBack, project, workspaceId }: { onBack(): void; project: ManagedProject; workspaceId: string }) {
   const workspaces = useQuery(projectWorkspacesQuery(project.id));
@@ -55,6 +56,7 @@ function WorkspaceDetailContent({ onBack, project, workspace }: { onBack(): void
       </div>
 
       <WorkspaceOperations project={project} workspace={workspace} />
+      <WorkspaceRunHistory workspace={workspace} />
 
       <section className="mt-8 rounded-lg border border-red-200 bg-white p-5"><div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center"><div><h2 className="text-sm font-medium">Remove workspace</h2><p className="mt-1 text-xs text-zinc-500">Run the workflow’s remove handler and delete its managed state.</p></div><button className={`inline-flex h-9 items-center gap-1.5 rounded-md border px-3 text-xs font-medium ${confirmRemove ? "border-red-600 bg-red-600 text-white" : "border-red-200 text-red-600 hover:bg-red-50"}`} disabled={removeWorkspace.isPending} onBlur={() => setConfirmRemove(false)} onClick={() => confirmRemove ? removeWorkspace.mutate() : setConfirmRemove(true)} type="button"><Trash2 size={13} /> {removeWorkspace.isPending ? "Removing…" : confirmRemove ? "Confirm remove" : "Remove workspace"}</button></div>{removeWorkspace.isError ? <p className="mt-3 text-xs text-red-600">{removeWorkspace.error.message}</p> : null}</section>
     </div>

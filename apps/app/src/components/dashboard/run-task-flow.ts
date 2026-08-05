@@ -136,6 +136,18 @@ export function projectRunTaskFlow(events: ManagedRunEvent[], run: ManagedRun): 
         appendOutput(tasks, workflowOutput, nodePath, event, "detail", `+ ${provider ? `${provider}:` : ""}${kind}`);
         break;
       }
+      case "host.capability.request": {
+        const capability = stringField(event.data.capability);
+        if (capability === "browser.open") {
+          const params = isRecord(event.data.params) ? event.data.params : undefined;
+          const url = params ? stringField(params.url) : undefined;
+          appendOutput(tasks, workflowOutput, nodePath, event, "detail", url ? `Opening ${url}…` : "Opening development preview…");
+        }
+        if (capability === "ssh") {
+          appendOutput(tasks, workflowOutput, nodePath, event, "detail", "Opening SSH session…");
+        }
+        break;
+      }
     }
   }
 

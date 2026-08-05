@@ -199,6 +199,8 @@ export const runs = pgTable(
     executionKey: text("execution_key").notNull(),
     operation: text("operation").$type<"plan" | "apply" | "create" | "remove" | "run">().notNull(),
     workflow: text("workflow").notNull(),
+    workspace: text("workspace"),
+    workspaceOperation: text("workspace_operation"),
     fingerprint: text("fingerprint").notNull(),
     status: text("status").$type<"running" | "completed" | "failed" | "orphaned">().notNull(),
     nodeCount: integer("node_count"),

@@ -128,4 +128,59 @@ describe("persistent remote evaluator", () => {
       ["bun", "/tmp/stoke-cli.js"],
     ]);
   });
+
+  test("uploads the complete Stoke failure log before returning an operation error", async () => {
+    const logPath = ".stoke/logs/2026-08-05T10-00-00-000Z-run.log";
+    const fullLog = `${"diagnostic output\n".repeat(500)}final failure detail`;
+    const files = new Map<string, Buffer>([[logPath, Buffer.from(fullLog)]]);
+    const stages: Array<Record<string, unknown>> = [];
+    const sandbox = {
+      name: "stoke-evaluator-test",
+      async writeFiles(input: Array<{ path: string; content: string | Buffer }>) {
+        for (const file of input) files.set(file.path, Buffer.from(file.content));
+      },
+      async readFileToBuffer(input: { path: string }) {
+        return files.get(input.path) ?? null;
+      },
+      async runCommand(command: { cmd: string; args?: string[] }) {
+        const isWorkspaceOperation = command.cmd === "bun" && command.args?.includes("run");
+        return {
+          exitCode: isWorkspaceOperation ? 1 : 0,
+          durationMs: 8,
+          stdout: async () => "",
+          stderr: async () => isWorkspaceOperation ? `test failed\nfull log  ${logPath}` : "",
+        };
+      },
+    };
+    let created = false;
+    const getOrCreate = async (input: any) => {
+      if (!created) {
+        created = true;
+        await input.onCreate(sandbox);
+      }
+      return sandbox as any;
+    };
+
+    await expect(runRemoteSandbox({
+      project,
+      request: {
+        operation: "run",
+        workflow: "stoke-example",
+        workspace: "demo",
+        workspaceOperation: "test",
+        input: {},
+        origin: "dashboard",
+      },
+      state,
+      producerSocketUrl: "wss://usestoke.dev/runs/test",
+      revision: "revision-one",
+      sandboxToken: "sandbox-token",
+      onStage: (stage) => { stages.push(stage); },
+    }, { getOrCreate })).rejects.toThrow("test failed");
+
+    const logEvents = stages.filter((stage) => stage.type === "remote.log.output");
+    expect(logEvents.length).toBeGreaterThan(1);
+    expect(logEvents.map((event) => event.data).join("")).toBe(fullLog);
+    expect(logEvents[0]).toMatchObject({ path: logPath, source: "stoke-runtime", stream: "log", sequence: 0 });
+  });
 });

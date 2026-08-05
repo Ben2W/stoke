@@ -63,19 +63,25 @@ export function WorkspaceOperations({ project, workspace }: {
       if (event.data.capability === "browser.open") {
         const url = browserUrl(event.data.params);
         if (!url) continue;
-        if (previewWindow.current && !previewWindow.current.closed) previewWindow.current.location.replace(url);
-        else window.open(url, "_blank", "noopener,noreferrer");
-        previewWindow.current = null;
         setCapabilityReady(true);
+        const target = previewWindow.current;
+        previewWindow.current = null;
+        void waitForNavigationFeedback().then(() => {
+          if (target && !target.closed) target.location.replace(url);
+          else window.open(url, "_blank", "noopener,noreferrer");
+        });
       }
       if (event.data.capability === "ssh") {
         const request = sandboxTerminalRequest(event.data.params, workspace.name);
         if (!request) continue;
         const url = terminalUrl(project.id, request);
-        if (terminalWindow.current && !terminalWindow.current.closed) terminalWindow.current.location.replace(url);
-        else window.open(url, "_blank");
-        terminalWindow.current = null;
         setCapabilityReady(true);
+        const target = terminalWindow.current;
+        terminalWindow.current = null;
+        void waitForNavigationFeedback().then(() => {
+          if (target && !target.closed) target.location.replace(url);
+          else window.open(url, "_blank");
+        });
       }
     }
   }, [observed.eventsResult.data, project.id, workspace.name]);
@@ -197,4 +203,8 @@ function renderPreviewPlaceholder(target: Window | null): void {
   const status = target.document.createElement("p");
   status.textContent = "Opening preview…";
   target.document.body.replaceChildren(status);
+}
+
+function waitForNavigationFeedback(): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, 500));
 }

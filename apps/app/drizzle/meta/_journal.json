@@ -43,6 +43,13 @@
       "when": 1785912450279,
       "tag": "0005_neat_goliath",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1785951073487,
+      "tag": "0006_rapid_falcon",
+      "breakpoints": true
     }
   ]
 }

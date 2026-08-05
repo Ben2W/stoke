@@ -88,6 +88,8 @@ export async function startRemoteProjectExecution(
     projectId: project.id,
     operation: request.operation,
     workflow: request.workflow ?? "default",
+    ...("workspace" in request ? { workspace: request.workspace } : {}),
+    ...(request.operation === "run" ? { workspaceOperation: request.workspaceOperation } : {}),
     fingerprint: remoteExecutionFingerprint(project, request, revision),
     origin: request.origin,
   });

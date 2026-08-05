@@ -10,19 +10,30 @@ import {
 const SANDBOX_TIMEOUT_MS = 60 * 60_000;
 const COMMAND_TIMEOUT_MS = 4 * 60_000;
 const MAX_ERROR_OUTPUT_LENGTH = 4_000;
+const MAX_FAILURE_LOG_LENGTH = 256_000;
+const FAILURE_LOG_CHUNK_LENGTH = 6_000;
 const STATE_FILE = "/tmp/stoke-managed-state.json";
 const STOKE_CLI_PATH = "/tmp/stoke-cli.js";
 const STOKE_RUNTIME_PATH = "/tmp/stoke-runtime.js";
 const EVALUATOR_MARKER_PATH = "/tmp/stoke-evaluator.json";
 const EVALUATOR_VERSION = 1;
 
-export type RemoteSandboxStage = {
-  type: "remote.sandbox.created" | "remote.command.started" | "remote.command.completed";
-  sandboxName?: string;
-  command?: string;
-  exitCode?: number;
-  durationMs?: number;
-};
+export type RemoteSandboxStage =
+  | {
+    type: "remote.sandbox.created" | "remote.command.started" | "remote.command.completed";
+    sandboxName?: string;
+    command?: string;
+    exitCode?: number;
+    durationMs?: number;
+  }
+  | {
+    type: "remote.log.output";
+    data: string;
+    path?: string;
+    sequence: number;
+    source: "stoke-runtime" | "command";
+    stream: "log" | "stderr" | "stdout";
+  };
 
 export type RunRemoteSandboxInput = {
   project: ManagedProject;
@@ -344,7 +355,11 @@ async function runCommand(
     exitCode: result.exitCode,
     durationMs: result.durationMs,
   });
-  if (result.exitCode !== 0) throw await commandFailure(name, result);
+  if (result.exitCode !== 0) {
+    const output = await commandOutput(result);
+    await persistFailureLog(sandbox, input, output);
+    throw commandFailure(name, result.exitCode, output);
+  }
   return result;
 }
 
@@ -402,14 +417,49 @@ function singleWorkflowFromList(stdout: string): string {
   throw new Error(`Choose a workflow with --workflow. Available workflows: ${workflows.join(", ")}`);
 }
 
-async function commandFailure(
+async function commandOutput(
+  result: { stderr(): Promise<string>; stdout(): Promise<string> },
+): Promise<{ stderr: string; stdout: string }> {
+  const [stderr, stdout] = await Promise.all([result.stderr(), result.stdout()]);
+  return { stderr: stderr.trim(), stdout: stdout.trim() };
+}
+
+async function persistFailureLog(
+  sandbox: EvaluatorSandbox,
+  input: RunRemoteSandboxInput,
+  output: { stderr: string; stdout: string },
+): Promise<void> {
+  const path = failureLogPath(`${output.stderr}\n${output.stdout}`);
+  const buffer = path ? await sandbox.readFileToBuffer({ path }) : null;
+  const data = (buffer?.toString("utf8") || output.stderr || output.stdout || "Command failed without output")
+    .slice(0, MAX_FAILURE_LOG_LENGTH);
+  const stream = buffer ? "log" : output.stderr ? "stderr" : "stdout";
+  const source = buffer ? "stoke-runtime" : "command";
+  for (let offset = 0, sequence = 0; offset < data.length; offset += FAILURE_LOG_CHUNK_LENGTH, sequence += 1) {
+    await input.onStage?.({
+      type: "remote.log.output",
+      data: data.slice(offset, offset + FAILURE_LOG_CHUNK_LENGTH),
+      ...(path ? { path } : {}),
+      sequence,
+      source,
+      stream,
+    });
+  }
+}
+
+function failureLogPath(output: string): string | undefined {
+  const value = output.match(/(?:^|\n)\s*full log\s+([^\r\n]+)/i)?.[1]?.trim();
+  if (!value || !/^\.stoke\/logs\/[a-zA-Z0-9._-]+\.log$/.test(value)) return undefined;
+  return value;
+}
+
+function commandFailure(
   name: string,
-  result: { exitCode: number; stderr(): Promise<string>; stdout(): Promise<string> },
-): Promise<Error> {
-  const stderr = (await result.stderr()).trim();
-  const stdout = (await result.stdout()).trim();
+  exitCode: number,
+  output: { stderr: string; stdout: string },
+): Error {
   return new Error(
-    `${name} failed with exit code ${result.exitCode}: ${truncateOutput(stderr || stdout || "no output")}`,
+    `${name} failed with exit code ${exitCode}: ${truncateOutput(output.stderr || output.stdout || "no output")}`,
   );
 }
 

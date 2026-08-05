@@ -1,14 +1,16 @@
 import type { ManagedRun, ManagedRunEvent } from "@usestoke/managed";
-import { CircleDashed } from "lucide-react";
-import { useEffect, useRef } from "react";
+import { CircleDashed, FileText } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { shortFingerprint } from "../../lib/fingerprint.ts";
 import { runOriginLabel } from "./run-origin.ts";
 import { projectRunTaskFlow } from "./run-task-flow.ts";
 import { RunTaskFlowView } from "./run-task-flow-view.tsx";
 import { formatRunDuration } from "./run-duration.ts";
+import { RunLogsDialog } from "./run-logs-dialog.tsx";
 
 export function RunEventList({ events, run, title }: { events: ManagedRunEvent[]; run: ManagedRun; title?: string }) {
   const timelineRef = useRef<HTMLDivElement>(null);
+  const [showLogs, setShowLogs] = useState(false);
   useEffect(() => {
     if (run.status === "running") timelineRef.current?.scrollTo({ top: timelineRef.current.scrollHeight, behavior: "smooth" });
   }, [events.length, run.status]);
@@ -26,7 +28,10 @@ export function RunEventList({ events, run, title }: { events: ManagedRunEvent[]
               {runOriginLabel(run)} · <code className="font-mono" title={run.fingerprint}>{shortFingerprint(run.fingerprint)}</code> · {run.id.slice(0, 8)}
             </p>
           </div>
-          <StatusBadge run={run} />
+          <div className="flex shrink-0 items-center gap-2">
+            {run.status === "failed" || run.status === "orphaned" ? <button className="inline-flex h-7 items-center gap-1.5 rounded-md border border-zinc-200 px-2.5 text-[10px] font-medium text-zinc-600 hover:bg-zinc-50" onClick={() => setShowLogs(true)} type="button"><FileText size={11} /> View logs</button> : null}
+            <StatusBadge run={run} />
+          </div>
         </div>
         <div className="mt-3 h-1 overflow-hidden rounded-full bg-zinc-100"><div className="h-full rounded-full bg-emerald-500 transition-[width] duration-500" style={{ width: `${progress}%` }} /></div>
       </div>
@@ -43,6 +48,7 @@ export function RunEventList({ events, run, title }: { events: ManagedRunEvent[]
           </div>
         </div>
       )}
+      {showLogs ? <RunLogsDialog events={events} onClose={() => setShowLogs(false)} run={run} /> : null}
     </div>
   );
 }

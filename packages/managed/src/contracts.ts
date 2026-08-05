@@ -182,6 +182,8 @@ export const ManagedRunSchema = z.object({
   origin: ManagedRunOriginSchema,
   operation: ManagedRunOperationSchema,
   workflow: z.string().min(1),
+  workspace: z.string().min(1).optional(),
+  workspaceOperation: z.string().min(1).optional(),
   fingerprint: z.string().min(1),
   status: ManagedRunStatusSchema,
   nodeCount: z.number().int().nonnegative().optional(),
