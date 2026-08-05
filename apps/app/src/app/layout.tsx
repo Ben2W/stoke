@@ -3,10 +3,10 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://usestoke.dev"),
-  title: "Stoke — One project identity, everywhere code runs",
+  title: "Stoke — Your project, wherever the work runs",
   description: "Managed development environments connecting local checkouts, coding agents, CI, and Vercel Sandbox.",
   openGraph: {
-    title: "Stoke — One project identity, everywhere code runs",
+    title: "Stoke — Your project, wherever the work runs",
     description: "Managed development environments for local work, coding agents, CI, and Vercel Sandbox.",
     siteName: "Stoke",
     type: "website",
@@ -15,7 +15,7 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
-    title: "Stoke — One project identity, everywhere code runs",
+    title: "Stoke — Your project, wherever the work runs",
     description: "Managed development environments for local work, coding agents, CI, and Vercel Sandbox.",
     images: ["/og.png"],
   },

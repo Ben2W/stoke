@@ -57,20 +57,20 @@ export function DeviceAuthorization() {
     setState(action === "approve" ? "approved" : "denied");
   }
 
-  if (isPending) return <section className="panel">Loading authorization request…</section>;
+  if (isPending) return <section className="w-full max-w-lg rounded-xl border border-zinc-200 bg-white p-8 shadow-sm">Loading authorization request…</section>;
 
   return (
-    <section className="panel">
-      <div className="eyebrow">Stoke CLI authorization</div>
-      <h1 className="panel-title">Connect this terminal?</h1>
-      <p className="panel-copy">
+    <section className="w-full max-w-lg rounded-xl border border-zinc-200 bg-white p-7 shadow-sm sm:p-10">
+      <div className="text-xs font-medium text-zinc-500">Stoke CLI authorization</div>
+      <h1 className="mt-4 text-3xl font-semibold tracking-[-0.04em]">Connect this terminal?</h1>
+      <p className="mt-3 text-sm leading-6 text-zinc-600">
         Confirm the code shown by <code>stoke login</code>. Only approve terminals you recognize.
       </p>
 
-      <label className="code-label" htmlFor="device-code">Device code</label>
+      <label className="mt-7 block text-xs font-medium text-zinc-700" htmlFor="device-code">Device code</label>
       <input
         id="device-code"
-        className="code-input"
+        className="mt-2 h-12 w-full rounded-md border border-zinc-200 bg-zinc-50 px-3 font-mono text-lg uppercase tracking-[0.14em] outline-none transition placeholder:text-zinc-300 focus:border-zinc-400 focus:bg-white focus:ring-2 focus:ring-zinc-100"
         value={userCode}
         onChange={(event) => {
           setUserCode(event.target.value.toUpperCase());
@@ -81,27 +81,27 @@ export function DeviceAuthorization() {
       />
 
       {!session ? (
-        <button className="primary-button" disabled={!userCode} onClick={signIn}>
+        <button className="mt-4 inline-flex h-11 items-center justify-center rounded-md bg-zinc-950 px-4 text-sm font-medium text-white transition hover:bg-zinc-800 disabled:opacity-40" disabled={!userCode} onClick={signIn}>
           Sign in with GitHub
         </button>
       ) : state === "approved" ? (
-        <p className="success-message">Terminal connected. You can return to the CLI.</p>
+        <p className="mt-5 text-sm text-emerald-600">Terminal connected. You can return to the CLI.</p>
       ) : state === "denied" ? (
-        <p className="error-message">Request denied.</p>
+        <p className="mt-5 text-sm text-red-600">Request denied.</p>
       ) : (
-        <div className="button-row">
-          <button className="primary-button" disabled={state !== "ready"} onClick={() => decide("approve")}>
+        <div className="mt-4 flex gap-2">
+          <button className="inline-flex h-11 items-center justify-center rounded-md bg-zinc-950 px-4 text-sm font-medium text-white transition hover:bg-zinc-800 disabled:opacity-40" disabled={state !== "ready"} onClick={() => decide("approve")}>
             Approve
           </button>
-          <button className="secondary-button" disabled={state !== "ready"} onClick={() => decide("deny")}>
+          <button className="inline-flex h-11 items-center justify-center rounded-md border border-zinc-200 bg-white px-4 text-sm font-medium text-zinc-700 transition hover:bg-zinc-50 disabled:opacity-40" disabled={state !== "ready"} onClick={() => decide("deny")}>
             Deny
           </button>
         </div>
       )}
 
-      {state === "checking" && <p className="helper-message">Checking device code…</p>}
-      {state === "error" && <p className="error-message">{message}</p>}
-      {session && <p className="helper-message">Signed in as {session.user.email}</p>}
+      {state === "checking" && <p className="mt-4 text-xs text-zinc-500">Checking device code…</p>}
+      {state === "error" && <p className="mt-4 text-sm text-red-600">{message}</p>}
+      {session && <p className="mt-5 border-t border-zinc-100 pt-4 text-xs text-zinc-500">Signed in as {session.user.email}</p>}
     </section>
   );
 }
