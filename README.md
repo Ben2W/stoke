@@ -5,15 +5,6 @@ Sandbox.
 
 > Stoke is forked from [Rigkit](https://rigkit.dev), an open-source framework I made for defining development environments. Stoke adapts Rigkit into a managed service. The managed control plane lives in [`apps/app`](./apps/app).
 
-## Install the CLI
-
-The Stoke CLI requires [Bun](https://bun.sh). Install Bun first if needed, then install Stoke globally and sign in:
-
-```bash
-bun add --global @usestoke/cli
-stoke login
-```
-
 ## Try it
 
 1. Open [usestoke.dev](https://usestoke.dev) and sign in with GitHub.
@@ -34,6 +25,13 @@ This configuration defines the project's development, agent, and CI/CD
 environments.
 
 ## CLI
+
+The Stoke CLI requires [Bun](https://bun.sh). Install Bun first if needed, then install Stoke globally and sign in:
+
+```bash
+bun add --global @usestoke/cli
+stoke login
+```
 
 The CLI controls the same projects, workflows, and Vercel Sandbox workspaces
 from your terminal or an agent. To try the full workflow with the public
