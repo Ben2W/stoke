@@ -1,10 +1,13 @@
 "use client";
 
 import type { ManagedCacheEntry, ManagedRun, ManagedWorkspace } from "@usestoke/managed";
-import { Check, CircleDashed, Database, RotateCcw, Waypoints } from "lucide-react";
+import { Check, ChevronDown, CircleDashed, Database, RotateCcw, Waypoints } from "lucide-react";
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { shortFingerprint } from "../../../../lib/fingerprint.ts";
+import { dashboardRoutes } from "../../../../lib/routes.ts";
 import { projectCacheGraph } from "./cache-graph-model.ts";
+import { cacheOwnershipLabel, groupCacheOwnership, type CacheOwnershipGroup } from "./cache-ownership.ts";
 import {
   CACHE_NODE_HEIGHT,
   CACHE_NODE_WIDTH,
@@ -21,6 +24,7 @@ export function CacheGraph({
   onInvalidate,
   plannedFlow,
   plannedRun,
+  projectSlug,
   workspaces,
 }: {
   activeFlow?: RunTaskFlow;
@@ -30,6 +34,7 @@ export function CacheGraph({
   onInvalidate(entry: ManagedCacheEntry): void;
   plannedFlow?: RunTaskFlow;
   plannedRun?: ManagedRun;
+  projectSlug: string;
   workspaces: ManagedWorkspace[];
 }) {
   const workspaceEntryIds = useMemo(
@@ -43,8 +48,12 @@ export function CacheGraph({
     workspaceEntryIds,
   ), [activeFlow, activeRun, entries, plannedFlow, plannedRun, workspaceEntryIds]);
   const graph = useMemo(() => layoutCacheGraph(model.entries), [model.entries]);
-  const workspaceGroups = useMemo(() => groupWorkspacesByCache(workspaces), [workspaces]);
+  const ownershipGroups = useMemo(
+    () => groupCacheOwnership(model.mainEntryIds, workspaces),
+    [model.mainEntryIds, workspaces],
+  );
   const [selectedId, setSelectedId] = useState<string>();
+  const [selectedOwnershipKey, setSelectedOwnershipKey] = useState<string>();
   const [hoveredId, setHoveredId] = useState<string>();
   const previewId = hoveredId ?? selectedId;
   const previewIds = useMemo(
@@ -91,21 +100,17 @@ export function CacheGraph({
       </div>
 
       <div className="overflow-x-auto bg-zinc-50/50">
-        <div className="relative" style={{ height: graph.height, width: graph.width }}>
-          <GraphBoundary
-            graph={graph}
-            ids={model.mainEntryIds}
-            label="main workflow"
-            tone="main"
-          />
-          {workspaceGroups.map((group, index) => (
+        <div className="relative" onMouseDown={() => setSelectedOwnershipKey(undefined)} style={{ height: graph.height, width: graph.width }}>
+          {ownershipGroups.map((group) => (
             <GraphBoundary
+              expanded={selectedOwnershipKey === group.key}
               graph={graph}
               ids={group.entryIds}
               key={group.key}
-              label={`${group.names.join(", ")}${group.revision ? ` · ${group.revision.slice(0, 7)}` : ""}`}
-              offset={index * 4}
-              tone="workspace"
+              onToggle={() => setSelectedOwnershipKey((selected) => selected === group.key ? undefined : group.key)}
+              ownership={group}
+              projectSlug={projectSlug}
+              tone={group.main ? "main" : "workspace"}
             />
           ))}
           <svg aria-hidden="true" className="pointer-events-none absolute inset-0" height={graph.height} width={graph.width}>
@@ -199,58 +204,76 @@ export function CacheGraph({
 }
 
 function GraphBoundary({
+  expanded,
   graph,
   ids,
-  label,
-  offset = 0,
+  onToggle,
+  ownership,
+  projectSlug,
   tone,
 }: {
+  expanded: boolean;
   graph: ReturnType<typeof layoutCacheGraph>;
   ids: Set<string>;
-  label: string;
-  offset?: number;
+  onToggle(): void;
+  ownership: CacheOwnershipGroup;
+  projectSlug: string;
   tone: "main" | "workspace";
 }) {
   const nodes = graph.nodes.filter((node) => ids.has(node.entry.id));
   if (!nodes.length) return null;
-  const padding = tone === "main" ? 18 : 10 + offset;
+  const padding = tone === "main" ? 18 : 10;
   const left = Math.min(...nodes.map((node) => node.x)) - padding;
   const top = Math.min(...nodes.map((node) => node.y)) - padding;
   const right = Math.max(...nodes.map((node) => node.x + CACHE_NODE_WIDTH)) + padding;
   const bottom = Math.max(...nodes.map((node) => node.y + CACHE_NODE_HEIGHT)) + padding;
+  const label = cacheOwnershipLabel(ownership);
+  const interactive = ownership.workspaces.length > 0;
   return (
     <div
       aria-label={label}
       className={`pointer-events-none absolute rounded-xl border ${tone === "main" ? "border-blue-300 bg-blue-50/20" : "border-violet-300 bg-violet-50/15"}`}
       style={{ height: bottom - top, left, top, width: right - left }}
     >
-      <span className={`absolute -top-2.5 left-3 rounded border bg-white px-1.5 py-0.5 text-[9px] font-medium shadow-xs ${tone === "main" ? "border-blue-200 text-blue-700" : "border-violet-200 text-violet-700"}`}>
-        {label}
-      </span>
+      {interactive ? (
+        <button
+          aria-expanded={expanded}
+          className={`pointer-events-auto absolute -top-2.5 left-3 z-20 inline-flex items-center gap-1 rounded border bg-white px-1.5 py-0.5 text-[9px] font-medium shadow-xs transition hover:shadow-sm ${tone === "main" ? "border-blue-200 text-blue-700" : "border-violet-200 text-violet-700"}`}
+          onClick={onToggle}
+          onMouseDown={(event) => event.stopPropagation()}
+          type="button"
+        >
+          {label}<ChevronDown className={`transition-transform ${expanded ? "rotate-180" : ""}`} size={10} />
+        </button>
+      ) : (
+        <span className={`absolute -top-2.5 left-3 rounded border bg-white px-1.5 py-0.5 text-[9px] font-medium shadow-xs ${tone === "main" ? "border-blue-200 text-blue-700" : "border-violet-200 text-violet-700"}`}>
+          {label}
+        </span>
+      )}
+      {expanded ? (
+        <div
+          className="pointer-events-auto absolute left-3 top-5 z-30 w-56 rounded-lg border border-zinc-200 bg-white p-2 shadow-lg"
+          onMouseDown={(event) => event.stopPropagation()}
+        >
+          <p className="px-2 py-1 text-[9px] font-medium uppercase tracking-wide text-zinc-400">
+            {ownership.main ? "Using the main cache" : "Using this cache version"}
+          </p>
+          <div className="mt-1 space-y-0.5">
+            {ownership.workspaces.map((workspace) => (
+              <Link
+                className="flex items-center justify-between gap-3 rounded px-2 py-1.5 text-[10px] hover:bg-zinc-50"
+                href={dashboardRoutes.workspace(projectSlug, workspace.id)}
+                key={workspace.id}
+              >
+                <span className="truncate font-medium text-zinc-700">{workspace.name}</span>
+                <code className="shrink-0 font-mono text-zinc-400">{workspace.revision?.slice(0, 7) ?? "unversioned"}</code>
+              </Link>
+            ))}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
-}
-
-function groupWorkspacesByCache(workspaces: ManagedWorkspace[]): Array<{
-  key: string;
-  entryIds: Set<string>;
-  names: string[];
-  revision?: string;
-}> {
-  const groups = new Map<string, { entryIds: Set<string>; names: string[]; revision?: string }>();
-  for (const workspace of workspaces) {
-    if (!workspace.cacheEntryIds?.length) continue;
-    const ids = [...workspace.cacheEntryIds].sort();
-    const key = `${workspace.sourceRevision ?? "unknown"}:${ids.join(",")}`;
-    const group = groups.get(key) ?? {
-      entryIds: new Set(ids),
-      names: [],
-      ...(workspace.sourceRevision ? { revision: workspace.sourceRevision } : {}),
-    };
-    group.names.push(workspace.name);
-    groups.set(key, group);
-  }
-  return [...groups.entries()].map(([key, value]) => ({ key, ...value }));
 }
 
 export function CacheGraphSkeleton() {

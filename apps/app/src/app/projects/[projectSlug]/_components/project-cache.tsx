@@ -114,6 +114,7 @@ export function ProjectCache({ project }: { project: ManagedProject }) {
           onInvalidate={(entry) => invalidate.mutate(entry)}
           plannedFlow={headFlow}
           plannedRun={headRun}
+          projectSlug={project.slug}
           workspaces={workspaces.data ?? []}
         />
       ) : (
