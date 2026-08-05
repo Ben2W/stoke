@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { existsSync, rmSync } from "node:fs";
-import { dirname, join, relative, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { Command, CommanderError, Option } from "commander";
 import inquirer from "inquirer";
 import * as ui from "./ui.ts";
@@ -16,7 +16,7 @@ import {
   type WorkflowPlan,
   type WorkspaceRecord,
 } from "@rigkit/engine";
-import type { ManagedProject } from "@stoke/managed";
+import type { ManagedCheckout, ManagedProject, ProjectSource } from "@stoke/managed";
 import {
   cmuxHostCapabilities,
   type CmuxHostCapabilityHandler,
@@ -45,16 +45,21 @@ import {
   clearStokeCredential,
   DeviceAuthorizationError,
   exchangeDeviceAuthorization,
+  ensureStokeDevice,
   managedClientFromEnvironment,
   readStokeCredential,
+  readStokeSettings,
   requestDeviceAuthorization,
+  resolveManagedProjectSelector,
   revokeStokeSession,
   resolveProjectSource,
+  setCurrentProject,
   writeStokeCredential,
 } from "./managed.ts";
 
 type GlobalOptions = {
   chdir?: string;
+  project?: string;
   state?: string;
   json: boolean;
 };
@@ -85,6 +90,8 @@ type RunOptions = {
 
 type AddOptions = {
   name?: string;
+  project?: string;
+  newProject: boolean;
 };
 
 type CacheListOptions = {
@@ -212,12 +219,14 @@ async function runCli(argv: string[]): Promise<void> {
     .exitOverride()
     .argument("[command]")
     .addOption(new Option("--chdir <dir>", `Switch to a directory containing ${DEFAULT_CONFIG_PATH} before running the command`).hideHelp())
+    .addOption(new Option("--project <project>", "Use a managed project for this command").hideHelp())
     .addOption(new Option("--state <file>", "Local runtime state database path").hideHelp())
     .addOption(new Option("--json", "Print machine-readable JSON where supported").hideHelp())
     .addHelpText("after", [
       "",
       "Global Options:",
       "  --chdir <dir>     Switch to a directory containing rigkit/index.ts before running the command",
+      "  --project <ref>   Override the current managed project",
       "  --state <file>    Local runtime state database path",
       "  --json            Print machine-readable JSON where supported",
       "",
@@ -340,11 +349,24 @@ async function runCli(argv: string[]): Promise<void> {
     .command("add <source>")
     .description("Add a GitHub repository or local directory to Stoke")
     .option("--name <name>", "Managed project name")
+    .option("--project <project>", "Link a local checkout to an existing project")
+    .option("--new", "Create a separate project when a name already exists")
     .option("--json", "Print machine-readable JSON")
-    .action(async (source: string, options: { name?: string; json?: boolean }) => {
+    .action(async (source: string, options: { name?: string; project?: string; new?: boolean; json?: boolean }) => {
       await runManagedAdd(makeInvocation(rootOptions(program), options.json), source, {
         name: options.name,
+        project: options.project,
+        newProject: Boolean(options.new),
       });
+    });
+
+  program
+    .command("use [project]")
+    .description("Select the default managed project")
+    .option("--clear", "Clear the selected project")
+    .option("--json", "Print machine-readable JSON")
+    .action(async (project: string | undefined, options: { clear?: boolean; json?: boolean }) => {
+      await runUse(makeInvocation(rootOptions(program), options.json), project, Boolean(options.clear));
     });
 
   program
@@ -457,11 +479,13 @@ async function runCli(argv: string[]): Promise<void> {
 function rootOptions(program: Command): GlobalOptions {
   const options = program.opts<{
     chdir?: string;
+    project?: string;
     state?: string;
     json?: boolean;
   }>();
   return {
     chdir: options.chdir,
+    project: options.project,
     state: options.state,
     json: Boolean(options.json),
   };
@@ -1074,20 +1098,126 @@ async function runManagedAdd(
   input: string,
   options: AddOptions,
 ): Promise<void> {
+  if (options.project && options.newProject) {
+    throw new Error("--project and --new cannot be used together");
+  }
+  const client = managedClientFromEnvironment();
+  const device = ensureStokeDevice();
+  await client.registerDevice({ id: device.id, name: device.name });
+  const [projects, checkouts] = await Promise.all([
+    client.listProjects(),
+    client.listCheckouts(device.id),
+  ]);
   const resolved = resolveProjectSource(input, {
     cwd: resolve(process.cwd(), invocation.global.chdir ?? "."),
+    device,
   });
-  const project = await managedClientFromEnvironment().createProject({
-    name: options.name?.trim() || resolved.name,
-    source: resolved.source,
-  });
+  const existingCheckout = resolved.checkout
+    ? checkouts.find((checkout) => checkout.path === resolved.checkout?.path)
+    : undefined;
+  const sourceProject = projects.find((project) => sameProjectSource(project, resolved.source));
+  let project = options.project
+    ? resolveManagedProjectSelector(options.project, projects, checkouts, {
+        cwd: resolve(process.cwd(), invocation.global.chdir ?? "."),
+        deviceId: device.id,
+      })
+    : existingCheckout
+      ? projects.find((candidate) => candidate.id === existingCheckout.projectId)
+      : sourceProject;
+  let created = false;
+
+  if (!project) {
+    const name = options.name?.trim() || resolved.name;
+    const nameMatches = projects.filter((candidate) => candidate.name.toLowerCase() === name.toLowerCase());
+    if (nameMatches.length > 0 && !options.newProject) {
+      if (!resolved.checkout || wantsJson(invocation) || !canPrompt()) {
+        throw new Error([
+          `A managed project named ${JSON.stringify(name)} already exists.`,
+          resolved.checkout
+            ? `Run \`stoke add ${JSON.stringify(input)} --project ${nameMatches[0]!.slug}\` to link this checkout, or add \`--new\` to create a separate project.`
+            : `Choose another --name or add --new to create a separate project.`,
+        ].join(" "));
+      }
+      const answer = await inquirer.prompt<{ action: "link" | "new" | "cancel" }>([{
+        type: "select",
+        name: "action",
+        message: `A project named ${name} already exists. What would you like to do?`,
+        choices: [
+          { name: `Link this checkout to ${nameMatches[0]!.slug}`, value: "link" },
+          { name: "Create a separate managed project", value: "new" },
+          { name: "Cancel", value: "cancel" },
+        ],
+      }]);
+      if (answer.action === "cancel") return;
+      if (answer.action === "link") project = nameMatches[0];
+    }
+    if (!project) {
+      project = await client.createProject({ name, source: resolved.source });
+      created = true;
+    }
+  }
+
+  if (!project) throw new Error("Could not resolve or create the managed project");
+  const checkout = resolved.checkout
+    ? await client.registerCheckout({
+        projectId: project.id,
+        deviceId: device.id,
+        path: resolved.checkout.path,
+        gitRemote: resolved.checkout.gitRemote,
+        relink: Boolean(options.project) || Boolean(existingCheckout && existingCheckout.projectId !== project.id),
+      })
+    : undefined;
+  setCurrentProject(project.id);
 
   if (wantsJson(invocation)) {
-    printJson({ project });
+    printJson({ project, checkout, created, currentProjectId: project.id });
     return;
   }
 
-  console.log(`${ui.ok(ui.sym.ok)} added ${ui.bold(project.name)}`);
+  console.log(`${ui.ok(ui.sym.ok)} ${created ? "added" : "linked"} ${ui.bold(project.name)}`);
+  console.log(ui.kvList([
+    ["project", project.slug],
+    ["source", formatManagedProjectSource(project)],
+    ...(checkout ? [["checkout", `${checkout.deviceName} · ${checkout.path}`] as [string, string]] : []),
+  ]));
+}
+
+async function runUse(
+  invocation: CliInvocation,
+  selector: string | undefined,
+  clear: boolean,
+): Promise<void> {
+  if (clear && selector) throw new Error("Pass a project or --clear, not both");
+  if (clear) {
+    const settings = setCurrentProject(undefined);
+    if (wantsJson(invocation)) printJson({ currentProjectId: null, deviceId: settings.deviceId });
+    else console.log(`${ui.ok(ui.sym.ok)} cleared the current project`);
+    return;
+  }
+
+  const client = managedClientFromEnvironment();
+  const device = ensureStokeDevice();
+  await client.registerDevice({ id: device.id, name: device.name });
+  const [projects, checkouts] = await Promise.all([
+    client.listProjects(),
+    client.listCheckouts(device.id),
+  ]);
+  const selected = selector ?? invocation.global.project ?? process.env.STOKE_PROJECT;
+  const currentId = selected ?? readStokeSettings()?.currentProjectId;
+  if (!currentId) {
+    throw new Error("No managed project is selected. Run `stoke use <project>` or pass --project.");
+  }
+  const project = resolveManagedProjectSelector(currentId, projects, checkouts, {
+    cwd: resolve(process.cwd(), invocation.global.chdir ?? "."),
+    deviceId: device.id,
+  });
+  if (selector) setCurrentProject(project.id);
+
+  if (wantsJson(invocation)) {
+    printJson({ project, currentProjectId: project.id, persisted: Boolean(selector) });
+    return;
+  }
+  console.log(`${ui.ok(ui.sym.ok)} ${selector ? "using" : "current project"} ${ui.bold(project.name)}`);
   console.log(ui.kvList([
     ["project", project.slug],
     ["source", formatManagedProjectSource(project)],
@@ -1111,7 +1241,12 @@ async function runLogin(): Promise<void> {
         accessToken: token.accessToken,
         expiresAt: new Date(Date.now() + token.expiresIn * 1_000).toISOString(),
       });
-      const user = await managedClientFromEnvironment().currentUser();
+      const client = managedClientFromEnvironment();
+      const device = ensureStokeDevice();
+      const [user] = await Promise.all([
+        client.currentUser(),
+        client.registerDevice({ id: device.id, name: device.name }),
+      ]);
       console.log(`${ui.ok(ui.sym.ok)} authenticated as ${ui.bold(user.email)}`);
       return;
     } catch (error) {
@@ -1150,9 +1285,22 @@ async function runWhoAmI(invocation: CliInvocation): Promise<void> {
 }
 
 async function runManagedProjects(invocation: CliInvocation): Promise<void> {
-  const projects = await managedClientFromEnvironment().listProjects();
+  const client = managedClientFromEnvironment();
+  const device = ensureStokeDevice();
+  await client.registerDevice({ id: device.id, name: device.name });
+  const [projects, checkouts] = await Promise.all([
+    client.listProjects(),
+    client.listCheckouts(device.id),
+  ]);
+  const selector = invocation.global.project ?? process.env.STOKE_PROJECT;
+  const selectedProject = selector
+    ? resolveManagedProjectSelector(selector, projects, checkouts, {
+        cwd: resolve(process.cwd(), invocation.global.chdir ?? "."),
+        deviceId: device.id,
+      })
+    : projects.find((project) => project.id === readStokeSettings()?.currentProjectId);
   if (wantsJson(invocation)) {
-    printJson({ projects });
+    printJson({ projects, checkouts, currentProjectId: selectedProject?.id ?? null });
     return;
   }
   if (projects.length === 0) {
@@ -1163,11 +1311,28 @@ async function runManagedProjects(invocation: CliInvocation): Promise<void> {
   console.log(ui.columns(
     ["project", "source", "location"],
     projects.map((project) => [
-      { text: project.name, style: ui.bold },
+      { text: `${project.id === selectedProject?.id ? "* " : "  "}${project.name}`, style: ui.bold },
       project.source.kind,
-      { text: formatManagedProjectSource(project), style: ui.dim },
+      { text: formatManagedProjectLocation(project, checkouts), style: ui.dim },
     ]),
   ));
+}
+
+function sameProjectSource(project: ManagedProject, source: ProjectSource): boolean {
+  if (project.source.kind !== source.kind) return false;
+  return source.kind === "github" && project.source.kind === "github"
+    ? project.source.owner.toLowerCase() === source.owner.toLowerCase()
+      && project.source.repository.toLowerCase() === source.repository.toLowerCase()
+    : source.kind === "local" && project.source.kind === "local"
+      ? project.source.machineId === source.machineId && project.source.path === source.path
+      : false;
+}
+
+function formatManagedProjectLocation(project: ManagedProject, checkouts: ManagedCheckout[]): string {
+  const locations = checkouts.filter((checkout) => checkout.projectId === project.id);
+  if (locations.length === 1) return `${locations[0]!.deviceName} · ${locations[0]!.path}`;
+  if (locations.length > 1) return `${formatManagedProjectSource(project)} · ${locations.length} local checkouts`;
+  return formatManagedProjectSource(project);
 }
 
 function formatManagedProjectSource(project: ManagedProject): string {
@@ -1933,6 +2098,7 @@ async function runHelp(invocation: CliInvocation): Promise<void> {
         { name: "logout", description: "Remove this terminal's Stoke session" },
         { name: "whoami", description: "Show the current Stoke user" },
         { name: "add", description: "Add a repository or local directory to Stoke" },
+        { name: "use", description: "Select the default managed project" },
         { name: "plan", description: "Plan project workflow changes" },
         { name: "apply", description: "Apply project workflow changes" },
         { name: "create", description: "Create a workspace" },
@@ -1972,6 +2138,7 @@ async function runHelp(invocation: CliInvocation): Promise<void> {
     cmd("logout",     "Remove this terminal's Stoke session"),
     cmd("whoami",     "Show the current Stoke user"),
     cmd("add",        "Add a repository or local directory to Stoke"),
+    cmd("use",        "Select the default managed project"),
     cmd("ls",         "List managed projects"),
     cmd("cache",      "Inspect and clear workflow cache"),
     cmd("providers",  "Manage provider-owned local state"),
@@ -1982,6 +2149,7 @@ async function runHelp(invocation: CliInvocation): Promise<void> {
     "",
     ui.dim("Options:"),
     opt("--chdir <dir>",   "Switch to a directory containing rigkit/index.ts before running the command"),
+    opt("--project <ref>", "Override the current managed project"),
     opt("--state <file>",  "Local runtime state database path"),
     opt("--json",          "Print machine-readable JSON where supported"),
   ].join("\n"));
@@ -1991,12 +2159,75 @@ async function loadRuntime(
   invocation: CliInvocation,
   options: { checkCompatibility?: boolean } = {},
 ): Promise<RuntimeClient> {
+  const managedSource = await resolveManagedRuntimeSource(invocation);
   const engineOptions = resolveEngineOptions(invocation);
+  if (managedSource) engineOptions.source = managedSource;
   const runtime = await getOrStartRuntime(engineOptions);
   if (options.checkCompatibility !== false) {
     await checkRuntimeCompatibility(invocation, runtime);
   }
   return runtime;
+}
+
+async function resolveManagedRuntimeSource(
+  invocation: CliInvocation,
+): Promise<{ projectId: string; checkoutId: string; deviceId: string } | undefined> {
+  const settings = readStokeSettings();
+  const selector = invocation.global.project ?? process.env.STOKE_PROJECT ?? settings?.currentProjectId;
+  if (!selector) return undefined;
+
+  const client = managedClientFromEnvironment();
+  const device = ensureStokeDevice();
+  await client.registerDevice({ id: device.id, name: device.name });
+  const [projects, checkouts] = await Promise.all([
+    client.listProjects(),
+    client.listCheckouts(device.id),
+  ]);
+  const project = resolveManagedProjectSelector(selector, projects, checkouts, {
+    cwd: resolve(process.cwd(), invocation.global.chdir ?? "."),
+    deviceId: device.id,
+  });
+  const candidates = checkouts.filter((checkout) => checkout.projectId === project.id);
+  const requestedDir = resolve(process.cwd(), invocation.global.chdir ?? ".");
+  let checkout: ManagedCheckout | undefined = candidates
+    .filter((candidate) => isPathWithin(requestedDir, candidate.path))
+    .sort((left, right) => right.path.length - left.path.length)[0];
+
+  if (!checkout && candidates.length === 1) checkout = candidates[0];
+  if (!checkout && candidates.length > 1) {
+    if (!wantsJson(invocation) && canPrompt()) {
+      const answer = await inquirer.prompt<{ checkoutId: string }>([{
+        type: "select",
+        name: "checkoutId",
+        message: `Choose a checkout for ${project.name}`,
+        choices: candidates.map((candidate) => ({
+          name: candidate.path,
+          value: candidate.id,
+          description: candidate.deviceName,
+        })),
+      }]);
+      checkout = candidates.find((candidate) => candidate.id === answer.checkoutId);
+    } else {
+      throw new Error(
+        `Project ${project.slug} has multiple checkouts on this device. Pass --chdir with the checkout to use.`,
+      );
+    }
+  }
+  if (!checkout) {
+    throw new Error(
+      `Project ${project.slug} has no checkout on ${device.name}. Run \`stoke add <local-dir> --project ${project.slug}\` first.`,
+    );
+  }
+  if (!invocation.global.chdir) invocation.global.chdir = checkout.path;
+  process.env.STOKE_PROJECT_ID = project.id;
+  process.env.STOKE_CHECKOUT_ID = checkout.id;
+  process.env.STOKE_DEVICE_ID = device.id;
+  return { projectId: project.id, checkoutId: checkout.id, deviceId: device.id };
+}
+
+function isPathWithin(path: string, parent: string): boolean {
+  const value = relative(parent, path);
+  return value === "" || (value !== ".." && !value.startsWith(`..${sep}`) && !isAbsolute(value));
 }
 
 async function checkRuntimeCompatibility(invocation: CliInvocation, runtime: RuntimeClient): Promise<void> {
@@ -2298,7 +2529,12 @@ function uninstallRunCancelHandler(): void {
   uninstallActiveRunCancelHandler?.();
 }
 
-function resolveEngineOptions(invocation: CliInvocation): { projectDir: string; configPath: string; statePath?: string } {
+function resolveEngineOptions(invocation: CliInvocation): {
+  projectDir: string;
+  configPath: string;
+  statePath?: string;
+  source?: unknown;
+} {
   const paths = resolveCommandConfigPaths(invocation);
   const options = invocation.global;
   return {

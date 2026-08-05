@@ -25,6 +25,7 @@ type CommandName =
   | "logout"
   | "whoami"
   | "add"
+  | "use"
   | "plan"
   | "apply"
   | "create"
@@ -140,6 +141,7 @@ const COMMANDS: CompletionItem[] = withGroup(GROUP_COMMANDS, [
   { value: "logout", description: "remove this terminal's session" },
   { value: "whoami", description: "show the current Stoke user" },
   { value: "add", description: "add a repository or local directory to Stoke" },
+  { value: "use", description: "select the default managed project" },
   { value: "plan", description: "plan project workflow changes" },
   { value: "apply", description: "apply project workflow changes" },
   { value: "create", description: "create a workspace" },
@@ -176,6 +178,11 @@ const GLOBAL_OPTIONS: OptionDefinition[] = [
       { value: "--state=", noSpace: true },
     ],
   }),
+  option(["--project"], "managed project override", {
+    group: GROUP_GLOBAL,
+    takesValue: true,
+    completions: [{ value: "--project=", noSpace: true }],
+  }),
   option(["--json"], "print JSON", {
     group: GROUP_GLOBAL,
     completions: [{ value: "--json" }],
@@ -207,6 +214,13 @@ const COMMAND_OPTIONS: Record<CommandName, OptionDefinition[]> = {
   ],
   add: [
     option(["--name"], "managed project name", { takesValue: true }),
+    option(["--project"], "link to an existing managed project", { takesValue: true }),
+    option(["--new"], "create a separate managed project"),
+    JSON_OPTION,
+    HELP_OPTION,
+  ],
+  use: [
+    option(["--clear"], "clear the selected project"),
     JSON_OPTION,
     HELP_OPTION,
   ],
@@ -611,6 +625,7 @@ async function completeCommand(context: CompletionContext): Promise<CompletionIt
     case "login":
     case "logout":
     case "whoami":
+    case "use":
     case "discover":
     case "doctor":
     case "version":

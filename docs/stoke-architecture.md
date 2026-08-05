@@ -18,13 +18,21 @@ remain in the fork only while the product surface is extracted.
 
 ## Project identity
 
-A managed project points to either a GitHub repository or a machine-scoped local
-directory. A local source records both its machine name and absolute path, so the
-UI can present `Benjamin's MacBook · /path/to/project` without implying that the
-path is available to a cloud worker.
+A managed project is the durable identity for a codebase. A GitHub repository is
+the canonical source when one is available; it is not tied to any particular
+filesystem path.
 
-Managed projects belong to a Better Auth user. Slugs and source identities are
-unique within that user, not globally.
+Each CLI installation registers a stable device identity. A checkout links one
+managed project to one path on one device, so the same project can safely exist
+at multiple paths on a MacBook, another computer, and a CI runner. The UI can
+present `Benjamin's MacBook · /path/to/project` without implying that the path
+is available to a cloud worker.
+
+Managed projects, devices, and checkouts belong to a Better Auth user. Project
+slugs and source identities are unique within that user, while checkout paths
+are unique per device. The project source still accepts the original local
+shape for backwards compatibility; new local registrations use checkouts as
+the authoritative location mapping.
 
 ## Authentication and API
 
@@ -43,6 +51,9 @@ The initial API is deliberately small:
 - `GET /api/v1/auth/me`
 - `GET /api/v1/projects`
 - `POST /api/v1/projects`
+- `POST /api/v1/devices`
+- `GET /api/v1/checkouts`
+- `POST /api/v1/checkouts`
 
 Project and identity endpoints require an authenticated bearer session.
 `DATABASE_URL` points at Neon; `BETTER_AUTH_SECRET`, `GITHUB_CLIENT_ID`, and
@@ -51,9 +62,20 @@ Project and identity endpoints require an authenticated bearer session.
 ## CLI semantics
 
 - `stoke add owner/repository` registers a GitHub source.
-- `stoke add ./local-directory` registers a machine-scoped local source.
-- `stoke ls` always lists managed projects. It does not inspect a selected local
-  runtime and has no `projects` or `workspaces` target.
+- `stoke add ./local-directory` inspects its Git remote, registers or finds the
+  managed project, and links that path as a checkout on the current device.
+- Adding another checkout for an existing repository links it automatically.
+  Ambiguous name collisions require an explicit link or `--new`.
+- `stoke use <project>` chooses the persistent current project. `stoke use
+  --clear` removes that preference.
+- `--project <id|slug|name|path>` and `STOKE_PROJECT` select a project for one
+  invocation without changing the saved preference. Explicit CLI selection
+  wins over the environment and saved selection.
+- Runtime commands resolve the selected project's checkout on the current
+  device and run from that path. Multiple checkouts require an explicit path;
+  a missing checkout produces an attach command instead of guessing.
+- `stoke ls` always lists managed projects, their checkout locations, and the
+  current selection. It does not double as a workspace listing command.
 - `stoke discover` finds local Stoke configurations when that lower-level view is
   needed.
 - Existing workspace commands (`stoke create`, `stoke run`, `stoke rm`) continue
@@ -65,8 +87,10 @@ by `stoke login`.
 
 ## Build order
 
-1. Authenticated project registry and deterministic CLI project listing.
-2. Vercel Sandbox execution for GitHub-backed projects.
+1. Authenticated project, device, and checkout registry with deterministic CLI
+   selection.
+2. Vercel Sandbox execution for GitHub-backed projects, addressed by the same
+   managed project identity.
 3. Managed workflow state and shared cache metadata, with large artifacts in
    object storage rather than Postgres.
 4. A CI adapter that invokes the same CLI and workflow graph as local usage.

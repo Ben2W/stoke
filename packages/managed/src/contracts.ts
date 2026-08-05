@@ -43,6 +43,41 @@ export const CreateProjectRequestSchema = z.object({
 export const ProjectResponseSchema = z.object({ project: ManagedProjectSchema });
 export const ProjectListResponseSchema = z.object({ projects: z.array(ManagedProjectSchema) });
 
+export const ManagedDeviceSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().trim().min(1).max(120),
+  createdAt: z.iso.datetime(),
+  lastSeenAt: z.iso.datetime(),
+});
+
+export const RegisterDeviceRequestSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().trim().min(1).max(120),
+});
+
+export const ManagedCheckoutSchema = z.object({
+  id: z.uuid(),
+  projectId: z.uuid(),
+  deviceId: z.string().min(1),
+  deviceName: z.string().min(1),
+  path: z.string().min(1),
+  gitRemote: z.string().min(1).nullable().optional(),
+  createdAt: z.iso.datetime(),
+  lastSeenAt: z.iso.datetime(),
+});
+
+export const RegisterCheckoutRequestSchema = z.object({
+  projectId: z.uuid(),
+  deviceId: z.string().min(1),
+  path: z.string().min(1),
+  gitRemote: z.string().trim().min(1).optional(),
+  relink: z.boolean().optional(),
+});
+
+export const DeviceResponseSchema = z.object({ device: ManagedDeviceSchema });
+export const CheckoutResponseSchema = z.object({ checkout: ManagedCheckoutSchema });
+export const CheckoutListResponseSchema = z.object({ checkouts: z.array(ManagedCheckoutSchema) });
+
 export const ManagedUserSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
@@ -58,3 +93,7 @@ export type ProjectSource = z.infer<typeof ProjectSourceSchema>;
 export type ManagedProject = z.infer<typeof ManagedProjectSchema>;
 export type CreateProjectRequest = z.infer<typeof CreateProjectRequestSchema>;
 export type ManagedUser = z.infer<typeof ManagedUserSchema>;
+export type ManagedDevice = z.infer<typeof ManagedDeviceSchema>;
+export type RegisterDeviceRequest = z.infer<typeof RegisterDeviceRequestSchema>;
+export type ManagedCheckout = z.infer<typeof ManagedCheckoutSchema>;
+export type RegisterCheckoutRequest = z.infer<typeof RegisterCheckoutRequestSchema>;

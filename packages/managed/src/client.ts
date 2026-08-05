@@ -1,11 +1,20 @@
 import {
   type CreateProjectRequest,
   type ManagedProject,
+  type ManagedCheckout,
+  type ManagedDevice,
   type ManagedUser,
+  type RegisterCheckoutRequest,
+  type RegisterDeviceRequest,
+  CheckoutListResponseSchema,
+  CheckoutResponseSchema,
   CreateProjectRequestSchema,
   CurrentUserResponseSchema,
+  DeviceResponseSchema,
   ProjectListResponseSchema,
   ProjectResponseSchema,
+  RegisterCheckoutRequestSchema,
+  RegisterDeviceRequestSchema,
 } from "./contracts.ts";
 
 export type ManagedClientOptions = {
@@ -23,6 +32,9 @@ export type ManagedClient = {
   currentUser(): Promise<ManagedUser>;
   listProjects(): Promise<ManagedProject[]>;
   createProject(input: CreateProjectRequest): Promise<ManagedProject>;
+  registerDevice(input: RegisterDeviceRequest): Promise<ManagedDevice>;
+  listCheckouts(deviceId?: string): Promise<ManagedCheckout[]>;
+  registerCheckout(input: RegisterCheckoutRequest): Promise<ManagedCheckout>;
 };
 
 export class ManagedApiError extends Error {
@@ -72,6 +84,25 @@ export function createManagedClient(options: ManagedClientOptions): ManagedClien
         await request("/api/v1/projects", { method: "POST", body: JSON.stringify(payload) }),
       );
       return response.project;
+    },
+    async registerDevice(input) {
+      const payload = RegisterDeviceRequestSchema.parse(input);
+      const response = DeviceResponseSchema.parse(
+        await request("/api/v1/devices", { method: "POST", body: JSON.stringify(payload) }),
+      );
+      return response.device;
+    },
+    async listCheckouts(deviceId) {
+      const query = deviceId ? `?deviceId=${encodeURIComponent(deviceId)}` : "";
+      const response = CheckoutListResponseSchema.parse(await request(`/api/v1/checkouts${query}`));
+      return response.checkouts;
+    },
+    async registerCheckout(input) {
+      const payload = RegisterCheckoutRequestSchema.parse(input);
+      const response = CheckoutResponseSchema.parse(
+        await request("/api/v1/checkouts", { method: "POST", body: JSON.stringify(payload) }),
+      );
+      return response.checkout;
     },
   };
 }

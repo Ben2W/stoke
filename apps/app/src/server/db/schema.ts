@@ -125,10 +125,51 @@ export const projects = pgTable(
   ],
 );
 
+export const devices = pgTable(
+  "devices",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [index("devices_user_last_seen_idx").on(table.userId, table.lastSeenAt)],
+);
+
+export const projectCheckouts = pgTable(
+  "project_checkouts",
+  {
+    id: uuid("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    deviceId: text("device_id")
+      .notNull()
+      .references(() => devices.id, { onDelete: "cascade" }),
+    path: text("path").notNull(),
+    gitRemote: text("git_remote"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("project_checkouts_device_path_uidx").on(table.deviceId, table.path),
+    index("project_checkouts_project_idx").on(table.projectId),
+    index("project_checkouts_user_device_idx").on(table.userId, table.deviceId),
+  ],
+);
+
 export const userRelations = relations(user, ({ many }) => ({
   sessions: many(session),
   accounts: many(account),
   projects: many(projects),
+  devices: many(devices),
+  projectCheckouts: many(projectCheckouts),
 }));
 
 export const sessionRelations = relations(session, ({ one }) => ({
@@ -139,6 +180,18 @@ export const accountRelations = relations(account, ({ one }) => ({
   user: one(user, { fields: [account.userId], references: [user.id] }),
 }));
 
-export const projectsRelations = relations(projects, ({ one }) => ({
+export const projectsRelations = relations(projects, ({ one, many }) => ({
   user: one(user, { fields: [projects.userId], references: [user.id] }),
+  checkouts: many(projectCheckouts),
+}));
+
+export const devicesRelations = relations(devices, ({ one, many }) => ({
+  user: one(user, { fields: [devices.userId], references: [user.id] }),
+  checkouts: many(projectCheckouts),
+}));
+
+export const projectCheckoutsRelations = relations(projectCheckouts, ({ one }) => ({
+  user: one(user, { fields: [projectCheckouts.userId], references: [user.id] }),
+  project: one(projects, { fields: [projectCheckouts.projectId], references: [projects.id] }),
+  device: one(devices, { fields: [projectCheckouts.deviceId], references: [devices.id] }),
 }));
