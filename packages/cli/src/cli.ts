@@ -379,9 +379,10 @@ async function runCli(argv: string[]): Promise<void> {
     .option("--new", "Create a separate project when a name already exists")
     .option("--json", "Print machine-readable JSON")
     .action(async (source: string, options: { name?: string; project?: string; new?: boolean; json?: boolean }) => {
-      await runManagedAdd(makeInvocation(rootOptions(program), options.json), source, {
+      const global = rootOptions(program);
+      await runManagedAdd(makeInvocation(global, options.json), source, {
         name: options.name,
-        project: options.project,
+        project: options.project ?? global.project,
         newProject: Boolean(options.new),
       });
     });

@@ -475,6 +475,25 @@ describe("managed project source resolution", () => {
       expect(ambiguous.stderr).toContain("--project vercel-next-js");
       expect(ambiguous.stderr).toContain("--new --name <name>");
 
+      const linked = await runManagedCli(
+        ["add", ".", "--project", existing.slug, "--json"],
+        cwd,
+        environment,
+      );
+      expect(linked.exitCode).toBe(0);
+      expect(JSON.parse(linked.stdout)).toMatchObject({ project: existing, created: false });
+      expect(requests).toContainEqual({
+        path: "/api/v1/checkouts",
+        method: "POST",
+        body: {
+          projectId: existing.id,
+          deviceId: "device-1",
+          path: realpathSync(cwd),
+          gitRemote: "git@github.com:vercel/next.js.git",
+          relink: true,
+        },
+      });
+
       const separate = await runManagedCli(
         ["add", ".", "--new", "--name", "next-local", "--json"],
         cwd,
