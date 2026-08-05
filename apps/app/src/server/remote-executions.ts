@@ -5,7 +5,6 @@ import type {
   RemoteExecutionRequest,
   RemoteExecutionResponse,
 } from "@stoke/managed";
-import { registerCheckout, registerDevice } from "./devices.ts";
 import { getProject } from "./projects.ts";
 import { accountRepository } from "./repositories/account-repository.ts";
 import { getProjectState, updateProjectState } from "./project-state.ts";
@@ -15,18 +14,15 @@ import {
   type RemoteSandboxResult,
   type RunRemoteSandboxInput,
 } from "./remote-sandbox.ts";
-import { appendRunEvent, claimRun, getRun, heartbeatRun } from "./runs.ts";
+import { appendRunEvent, claimRemoteRun, getRun, heartbeatRun } from "./runs.ts";
 
-const CLOUD_DEVICE_NAME = "Vercel Sandbox";
 const JOIN_POLL_MS = 500;
 const JOIN_TIMEOUT_MS = 5 * 60_000;
 const HEARTBEAT_INTERVAL_MS = 20_000;
 
 export type RemoteExecutionDependencies = {
   getProject: typeof getProject;
-  registerDevice: typeof registerDevice;
-  registerCheckout: typeof registerCheckout;
-  claimRun: typeof claimRun;
+  claimRemoteRun: typeof claimRemoteRun;
   getRun: typeof getRun;
   appendRunEvent: typeof appendRunEvent;
   heartbeatRun: typeof heartbeatRun;
@@ -38,9 +34,7 @@ export type RemoteExecutionDependencies = {
 
 const defaultDependencies: RemoteExecutionDependencies = {
   getProject,
-  registerDevice,
-  registerCheckout,
-  claimRun,
+  claimRemoteRun,
   getRun,
   appendRunEvent,
   heartbeatRun,
@@ -63,21 +57,12 @@ export async function executeRemoteProject(
     throw new Error("Remote execution currently requires a GitHub project source");
   }
 
-  const deviceId = cloudDeviceId(userId);
-  await dependencies.registerDevice(userId, { id: deviceId, name: CLOUD_DEVICE_NAME });
-  const checkout = await dependencies.registerCheckout(userId, {
+  const claimed = await dependencies.claimRemoteRun(userId, {
     projectId: project.id,
-    deviceId,
-    path: `vercel-sandbox://${project.id}`,
-    gitRemote: `https://github.com/${project.source.owner}/${project.source.repository}.git`,
-    relink: true,
-  });
-  const claimed = await dependencies.claimRun(userId, {
-    projectId: project.id,
-    checkoutId: checkout.id,
     operation: request.operation,
     workflow: request.workflow ?? "default",
     fingerprint: remoteExecutionFingerprint(project, request),
+    origin: request.origin,
   });
 
   if (claimed.disposition === "joined") {
@@ -153,13 +138,15 @@ export class RemoteExecutionError extends Error {
   }
 }
 
-function cloudDeviceId(userId: string): string {
-  return `vercel-sandbox:${createHash("sha256").update(userId).digest("hex").slice(0, 24)}`;
-}
-
 function remoteExecutionFingerprint(project: ManagedProject, request: RemoteExecutionRequest): string {
   return `remote:${createHash("sha256")
-    .update(JSON.stringify({ projectId: project.id, updatedAt: project.updatedAt, request }))
+    .update(JSON.stringify({
+      projectId: project.id,
+      updatedAt: project.updatedAt,
+      operation: request.operation,
+      workflow: request.workflow,
+      ...(request.operation === "apply" ? { dryRun: request.dryRun } : {}),
+    }))
     .digest("hex")}`;
 }
 

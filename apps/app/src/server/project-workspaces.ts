@@ -12,27 +12,33 @@ export async function listProjectWorkspaces(
   ]);
   const checkouts = allCheckouts.filter((checkout) => checkout.projectId === projectId);
   const byId = new Map(checkouts.map((checkout) => [checkout.id, checkout]));
-  const byDevice = new Map(checkouts.map((checkout) => [checkout.deviceId, checkout]));
   const records = state.snapshot.scopes.project?.workspaces ?? [];
 
   return records.flatMap((value) => {
     const workspace = parseWorkspace(value);
     if (!workspace) return [];
-    const checkout = workspace.checkoutId
-      ? byId.get(workspace.checkoutId)
-      : workspace.deviceId ? byDevice.get(workspace.deviceId) : undefined;
+    const checkout = workspace.createdFrom.kind === "checkout" && workspace.createdFrom.checkoutId
+      ? byId.get(workspace.createdFrom.checkoutId)
+      : undefined;
+    let createdFrom: ManagedWorkspace["createdFrom"];
+    if (workspace.createdFrom.kind === "dashboard") {
+      createdFrom = { kind: "dashboard" };
+    } else {
+      if (!checkout) return [];
+      createdFrom = {
+        kind: "checkout",
+        deviceId: checkout.deviceId,
+        deviceName: checkout.deviceName,
+        checkoutId: checkout.id,
+        checkoutPath: checkout.path,
+      };
+    }
     return [{
       id: workspace.id,
       projectId,
       name: workspace.name,
       workflow: workspace.workflow,
-      ...(workspace.deviceId ? { deviceId: workspace.deviceId } : {}),
-      ...(checkout ? {
-        deviceId: checkout.deviceId,
-        deviceName: checkout.deviceName,
-        checkoutId: checkout.id,
-        checkoutPath: checkout.path,
-      } : {}),
+      createdFrom,
       createdAt: workspace.createdAt,
       updatedAt: workspace.updatedAt,
     }];
@@ -43,8 +49,7 @@ function parseWorkspace(value: unknown): {
   id: string;
   name: string;
   workflow: string;
-  deviceId?: string;
-  checkoutId?: string;
+  createdFrom: { kind: "checkout"; deviceId: string; checkoutId?: string } | { kind: "dashboard" };
   createdAt: string;
   updatedAt: string;
 } | undefined {
@@ -56,13 +61,22 @@ function parseWorkspace(value: unknown): {
     || typeof value.createdAt !== "string"
     || typeof value.updatedAt !== "string"
   ) return undefined;
-  const owner = isRecord(value.owner) ? value.owner : undefined;
+  const createdFrom = isRecord(value.createdFrom) ? value.createdFrom : undefined;
+  if (createdFrom?.kind !== "checkout" && createdFrom?.kind !== "dashboard") return undefined;
+  if (createdFrom.kind === "checkout" && (typeof createdFrom.deviceId !== "string" || !createdFrom.deviceId)) {
+    return undefined;
+  }
   return {
     id: value.id,
     name: value.name,
     workflow: value.workflow,
-    ...(typeof owner?.deviceId === "string" ? { deviceId: owner.deviceId } : {}),
-    ...(typeof owner?.checkoutId === "string" ? { checkoutId: owner.checkoutId } : {}),
+    createdFrom: createdFrom.kind === "dashboard"
+      ? { kind: "dashboard" }
+      : {
+          kind: "checkout",
+          deviceId: createdFrom.deviceId as string,
+          ...(typeof createdFrom.checkoutId === "string" ? { checkoutId: createdFrom.checkoutId } : {}),
+        },
     createdAt: value.createdAt,
     updatedAt: value.updatedAt,
   };

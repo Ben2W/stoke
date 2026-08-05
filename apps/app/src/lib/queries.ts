@@ -3,6 +3,7 @@ import {
   getCheckouts,
   getCurrentUser,
   getProjects,
+  getProjectCache,
   getProjectWorkspaces,
   getRunEvents,
   getRuns,
@@ -15,6 +16,7 @@ export const queryKeys = {
   runs: ["runs"] as const,
   runEvents: (runId: string) => ["runs", runId, "events"] as const,
   projectWorkspaces: (projectId: string) => ["projects", projectId, "workspaces"] as const,
+  projectCache: (projectId: string) => ["projects", projectId, "cache"] as const,
   deviceAuthorization: (userCode: string) => ["device-authorization", userCode] as const,
 };
 
@@ -57,5 +59,13 @@ export function projectWorkspacesQuery(projectId: string | undefined) {
     queryFn: () => getProjectWorkspaces(projectId!),
     enabled: Boolean(projectId),
     refetchInterval: 5_000,
+  });
+}
+
+export function projectCacheQuery(projectId: string | undefined) {
+  return queryOptions({
+    queryKey: queryKeys.projectCache(projectId ?? "none"),
+    queryFn: () => getProjectCache(projectId!),
+    enabled: Boolean(projectId),
   });
 }

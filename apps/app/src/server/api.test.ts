@@ -39,6 +39,7 @@ const run: ManagedRun = {
   checkoutId: checkout.id,
   deviceId: checkout.deviceId,
   deviceName: checkout.deviceName,
+  origin: "machine",
   operation: "apply",
   workflow: "default",
   fingerprint: "sha256-example",
@@ -177,7 +178,7 @@ describe("Hono control-plane API", () => {
       authenticate: async () => user,
       executeRemoteProject: async (userId, projectId, input) => {
         expect([userId, projectId]).toEqual([user.id, project.id]);
-        expect(input).toEqual({ operation: "plan", workflow: "default" });
+        expect(input).toEqual({ operation: "plan", workflow: "default", origin: "dashboard" });
         return {
           run: { ...run, operation: "plan", status: "completed" },
           disposition: "created",
@@ -188,7 +189,7 @@ describe("Hono control-plane API", () => {
     const response = await api.request(`http://localhost/api/v1/projects/${project.id}/executions`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ operation: "plan", workflow: "default" }),
+      body: JSON.stringify({ operation: "plan", workflow: "default", origin: "dashboard" }),
     });
 
     expect(response.status).toBe(200);
@@ -220,16 +221,62 @@ describe("Hono control-plane API", () => {
     expect(await updated.json()).toEqual({ revision: 5, snapshot });
   });
 
+  test("lists, invalidates, and clears managed cache", async () => {
+    const cache = {
+      revision: 2,
+      entries: [{
+        id: "run-1",
+        scope: "project",
+        workflow: "default",
+        nodePath: "build",
+        nodeName: "Build",
+        nodeKind: "task",
+        invalidated: false,
+        createdAt: "2026-08-04T00:00:00.000Z",
+      }],
+    };
+    const api = createApi({
+      authenticate: async () => user,
+      listProjectCache: async (userId, projectId) => {
+        expect([userId, projectId]).toEqual([user.id, project.id]);
+        return cache;
+      },
+      invalidateProjectCache: async (userId, projectId, input) => {
+        expect([userId, projectId, input]).toEqual([
+          user.id,
+          project.id,
+          { scope: "project", entryId: "run-1" },
+        ]);
+        return { revision: 3, affected: 2 };
+      },
+      clearProjectCache: async () => ({ revision: 4, affected: 2 }),
+    });
+
+    const listed = await api.request(`http://localhost/api/v1/projects/${project.id}/cache`);
+    expect(await listed.json()).toEqual(cache);
+    const invalidated = await api.request(`http://localhost/api/v1/projects/${project.id}/cache/invalidate`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ scope: "project", entryId: "run-1" }),
+    });
+    expect(await invalidated.json()).toEqual({ revision: 3, affected: 2 });
+    const cleared = await api.request(`http://localhost/api/v1/projects/${project.id}/cache`, { method: "DELETE" });
+    expect(await cleared.json()).toEqual({ revision: 4, affected: 2 });
+  });
+
   test("lists safe project workspaces for the dashboard", async () => {
     const workspace = {
       id: "workspace-1",
       projectId: project.id,
       name: "quiet-forest",
       workflow: "default",
-      deviceId: checkout.deviceId,
-      deviceName: checkout.deviceName,
-      checkoutId: checkout.id,
-      checkoutPath: checkout.path,
+      createdFrom: {
+        kind: "checkout" as const,
+        deviceId: checkout.deviceId,
+        deviceName: checkout.deviceName,
+        checkoutId: checkout.id,
+        checkoutPath: checkout.path,
+      },
       createdAt: "2026-08-04T00:00:00.000Z",
       updatedAt: "2026-08-04T00:01:00.000Z",
     };

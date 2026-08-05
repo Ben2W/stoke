@@ -16,6 +16,7 @@ const run = {
   checkoutId: "a73d1f16-c7e2-4ef9-a799-bd99a81a7c2b",
   deviceId: "device-1",
   deviceName: "Benjamin's MacBook",
+  origin: "machine" as const,
   operation: "apply" as const,
   workflow: "default",
   fingerprint: "sha256-example",
@@ -166,7 +167,7 @@ describe("managed client", () => {
     expect(await client.getRun(run.id)).toEqual(run);
     expect(await client.listRunEvents(run.id, 1)).toEqual([event]);
     expect(await client.createRunSocketTicket(run.id)).toBe("wss://usestoke.dev/api/ws?ticket=viewer");
-    expect(await client.executeProject(project.id, { operation: "plan" })).toMatchObject({
+    expect(await client.executeProject(project.id, { operation: "plan", origin: "cli" })).toMatchObject({
       disposition: "created",
       result: { workflow: "default", nodeCount: 1 },
     });

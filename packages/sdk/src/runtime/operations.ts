@@ -42,7 +42,7 @@ export async function loadEngine(input: EngineLoadOptions): Promise<DevMachineEn
     configPath: input.configPath,
     state: state.project,
     stateFactory: state.stateFactory,
-    workspaceOwner: workspaceOwnerFromSource(input.source),
+    workspaceCreatedFrom: workspaceCreatedFromSource(input.source),
   });
   await engine.load();
   return engine;
@@ -59,7 +59,7 @@ async function executeOperation(run: RunRecord, store: RunStore, options: Engine
     configPath: options.configPath,
     state: state.project,
     stateFactory: state.stateFactory,
-    workspaceOwner: workspaceOwnerFromSource(options.source),
+    workspaceCreatedFrom: workspaceCreatedFromSource(options.source),
     interaction: {
       present: async (request) => {
         await requestHost(store, run, "open.external", {
@@ -125,12 +125,14 @@ async function executeOperation(run: RunRecord, store: RunStore, options: Engine
   completeRun(run, result, store);
 }
 
-function workspaceOwnerFromSource(source: JsonValue | undefined): WorkspaceRecord["owner"] {
+function workspaceCreatedFromSource(source: JsonValue | undefined): WorkspaceRecord["createdFrom"] {
   if (!source || typeof source !== "object" || Array.isArray(source)) return undefined;
+  if (source.kind === "dashboard") return { kind: "dashboard" };
   const deviceId = source.deviceId;
   const checkoutId = source.checkoutId;
   if (typeof deviceId !== "string" || !deviceId) return undefined;
   return {
+    kind: "checkout",
     deviceId,
     ...(typeof checkoutId === "string" && checkoutId ? { checkoutId } : {}),
   };

@@ -4,11 +4,11 @@ import { devices, projectCheckouts, projects, runEvents, runs } from "../db/sche
 
 export type RunRow = typeof runs.$inferSelect;
 export type RunEventRow = typeof runEvents.$inferSelect;
-export type RunWithDevice = { run: RunRow; deviceName: string };
+export type RunWithDevice = { run: RunRow; deviceName: string | null };
 type RunIdentity = {
   userId: string;
   projectId: string;
-  checkoutId: string;
+  executionKey: string;
   fingerprint: string;
 };
 type StaleRunClaim = RunIdentity & { before: Date; now: Date };
@@ -30,6 +30,15 @@ export const runRepository = {
     return scope;
   },
 
+  async findProjectScope(userId: string, projectId: string) {
+    const [project] = await getDatabase()
+      .select()
+      .from(projects)
+      .where(and(eq(projects.id, projectId), eq(projects.userId, userId)))
+      .limit(1);
+    return project;
+  },
+
   async orphanClaim(input: StaleRunClaim): Promise<void> {
     await getDatabase()
       .update(runs)
@@ -42,7 +51,7 @@ export const runRepository = {
       .where(and(
         eq(runs.userId, input.userId),
         eq(runs.projectId, input.projectId),
-        eq(runs.checkoutId, input.checkoutId),
+        eq(runs.executionKey, input.executionKey),
         eq(runs.fingerprint, input.fingerprint),
         eq(runs.status, "running"),
         lt(runs.updatedAt, input.before),
@@ -58,11 +67,11 @@ export const runRepository = {
     const [row] = await getDatabase()
       .select({ run: runs, deviceName: devices.name })
       .from(runs)
-      .innerJoin(devices, eq(runs.deviceId, devices.id))
+      .leftJoin(devices, eq(runs.deviceId, devices.id))
       .where(and(
         eq(runs.userId, input.userId),
         eq(runs.projectId, input.projectId),
-        eq(runs.checkoutId, input.checkoutId),
+        eq(runs.executionKey, input.executionKey),
         eq(runs.fingerprint, input.fingerprint),
         eq(runs.status, "running"),
       ))
@@ -77,7 +86,7 @@ export const runRepository = {
     return await getDatabase()
       .select({ run: runs, deviceName: devices.name })
       .from(runs)
-      .innerJoin(devices, eq(runs.deviceId, devices.id))
+      .leftJoin(devices, eq(runs.deviceId, devices.id))
       .where(where)
       .orderBy(desc(runs.startedAt))
       .limit(Math.min(Math.max(limit, 1), 100));
@@ -87,7 +96,7 @@ export const runRepository = {
     const [row] = await getDatabase()
       .select({ run: runs, deviceName: devices.name })
       .from(runs)
-      .innerJoin(devices, eq(runs.deviceId, devices.id))
+      .leftJoin(devices, eq(runs.deviceId, devices.id))
       .where(and(eq(runs.id, runId), eq(runs.userId, userId)))
       .limit(1);
     return row;

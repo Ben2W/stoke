@@ -918,6 +918,7 @@ function parseRemoteExecutionArgs(
   }
   return {
     operation,
+    origin: "cli",
     ...(workflow ? { workflow } : {}),
     ...(dryRun ? { dryRun: true } : {}),
   };
@@ -2998,6 +2999,7 @@ function resolveEngineOptions(invocation: CliInvocation): {
     projectDir: paths.projectDir,
     configPath: paths.configPath,
     ...(process.env.STOKE_STATE_FILE ? { stateFile: resolve(process.env.STOKE_STATE_FILE) } : {}),
+    ...(process.env.STOKE_WORKSPACE_ORIGIN === "dashboard" ? { source: { kind: "dashboard" } } : {}),
   };
 }
 

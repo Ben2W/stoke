@@ -2,17 +2,24 @@ import {
   CheckoutListResponseSchema,
   CurrentUserResponseSchema,
   ProjectListResponseSchema,
+  ProjectCacheMutationResponseSchema,
+  ProjectCacheResponseSchema,
   ProjectResponseSchema,
   ProjectWorkspaceListResponseSchema,
   RunEventsResponseSchema,
   RunListResponseSchema,
   RunSocketTicketResponseSchema,
+  RemoteExecutionResponseSchema,
   type ManagedCheckout,
   type ManagedProject,
+  type ManagedRunOperation,
   type ManagedWorkspace,
   type ManagedRun,
   type ManagedRunEvent,
   type ManagedUser,
+  type ProjectCacheMutationResponse,
+  type ProjectCacheResponse,
+  type RemoteExecutionResponse,
 } from "@stoke/managed";
 
 export class StokeApiError extends Error {
@@ -38,7 +45,10 @@ async function request(path: string, init?: RequestInit): Promise<unknown> {
   });
   const body = await response.json().catch(() => undefined);
   if (!response.ok) {
-    throw new StokeApiError(`Stoke API request failed with ${response.status}`, response.status, body);
+    const message = isRecord(body) && typeof body.message === "string"
+      ? body.message
+      : `Stoke API request failed with ${response.status}`;
+    throw new StokeApiError(message, response.status, body);
   }
   return body;
 }
@@ -68,6 +78,42 @@ export async function getProjectWorkspaces(projectId: string): Promise<ManagedWo
   return ProjectWorkspaceListResponseSchema.parse(
     await request(`/api/v1/projects/${encodeURIComponent(projectId)}/workspaces`),
   ).workspaces;
+}
+
+export async function executeProject(
+  projectId: string,
+  operation: ManagedRunOperation,
+): Promise<RemoteExecutionResponse> {
+  return RemoteExecutionResponseSchema.parse(await request(
+    `/api/v1/projects/${encodeURIComponent(projectId)}/executions`,
+    {
+      method: "POST",
+      body: JSON.stringify({ operation, origin: "dashboard" }),
+    },
+  ));
+}
+
+export async function getProjectCache(projectId: string): Promise<ProjectCacheResponse> {
+  return ProjectCacheResponseSchema.parse(
+    await request(`/api/v1/projects/${encodeURIComponent(projectId)}/cache`),
+  );
+}
+
+export async function invalidateProjectCacheEntry(
+  projectId: string,
+  input: { scope: string; entryId: string },
+): Promise<ProjectCacheMutationResponse> {
+  return ProjectCacheMutationResponseSchema.parse(await request(
+    `/api/v1/projects/${encodeURIComponent(projectId)}/cache/invalidate`,
+    { method: "POST", body: JSON.stringify(input) },
+  ));
+}
+
+export async function clearProjectCache(projectId: string): Promise<ProjectCacheMutationResponse> {
+  return ProjectCacheMutationResponseSchema.parse(await request(
+    `/api/v1/projects/${encodeURIComponent(projectId)}/cache`,
+    { method: "DELETE" },
+  ));
 }
 
 export async function getCheckouts(): Promise<ManagedCheckout[]> {
@@ -131,4 +177,8 @@ export function parseGitHubProjectUrl(value: string) {
     repository,
     url: `https://github.com/${owner}/${repository}`,
   };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

@@ -32,11 +32,14 @@ at multiple paths on a MacBook, another computer, and a CI runner. The UI can
 present `Benjamin's MacBook · /path/to/project` without implying that the path
 is available to a cloud worker.
 
+A Vercel Sandbox is an ephemeral executor, not a device or checkout. Remote runs
+record whether they were initiated by the CLI or dashboard, but never create a
+durable machine record. Git remains the source of truth for cloud execution;
+the control plane clones the project's GitHub repository for each remote run.
+
 Managed projects, devices, and checkouts belong to a Better Auth user. Project
 slugs and source identities are unique within that user, while checkout paths
-are unique per device. The project source still accepts the original local
-shape for backwards compatibility; new local registrations use checkouts as
-the authoritative location mapping.
+are unique per device.
 
 ## Authentication and API
 
@@ -58,6 +61,9 @@ The initial API is deliberately small:
 - `DELETE /api/v1/projects/:projectId`
 - `POST /api/v1/projects/:projectId/executions`
 - `GET /api/v1/projects/:projectId/workspaces`
+- `GET /api/v1/projects/:projectId/cache`
+- `POST /api/v1/projects/:projectId/cache/invalidate`
+- `DELETE /api/v1/projects/:projectId/cache`
 - `GET /api/v1/projects/:projectId/state`
 - `PUT /api/v1/projects/:projectId/state`
 - `POST /api/v1/devices`
@@ -85,11 +91,12 @@ the Hono and Better Auth handlers; React components do not import control-plane
 services, repositories, or database code.
 
 TanStack Query owns all remote browser state, including the current user,
-projects, checkouts, workspaces, runs, run events, and device authorization.
-Browser calls go through one typed API client into Hono. The projects overview
-stays intentionally quiet: selecting a project opens its workspace ownership
-and run history. WebSocket events update the same TanStack Query cache rather
-than maintaining a second copy of run state.
+projects, checkouts, workspaces, cache metadata, runs, run events, remote
+execution mutations, and device authorization. Browser calls go through one
+typed API client into Hono. Selecting a project opens the web management
+surface: Plan, Apply, cache controls, independent workspace state, local
+checkouts, and run history. WebSocket events update the same TanStack Query
+cache rather than maintaining a second copy of run state.
 
 React state is reserved for local presentation concerns such as search text,
 view mode, and the selected run. Stoke does not use Next.js server actions or
@@ -137,10 +144,11 @@ versioned JSON snapshot containing workflow cache records, workspace metadata,
 and provider storage, partitioned by engine scope. There is no SQLite database
 and no durable state file in a checkout.
 
-Each workspace records the device and checkout that created it. The project
-workspace endpoint exposes a safe metadata projection—not the raw state
-snapshot—so the dashboard can group workspaces beneath their owning machines.
-Older unowned workspaces remain visible as unassigned.
+Workspaces are project state and are never owned by a machine. Each workspace
+records creation provenance: either the local checkout that created it or the
+Stoke dashboard. The project workspace endpoint resolves that provenance into
+a safe metadata projection without exposing workspace context or the raw state
+snapshot.
 
 For a local command, the runtime reads the selected project's latest snapshot
 from the Hono API, evaluates the TypeScript workflow locally, and commits the
@@ -155,6 +163,8 @@ returned snapshot to Postgres after a successful command. The transient file is
 discarded with the Sandbox; it is not a second state store. Local development
 and Vercel Sandbox therefore consume the same managed cache.
 
+Remote CLI and dashboard requests dedupe against one project-level execution
+scope, so the same active work is joined without inventing a cloud checkout.
 The sandbox CLI publishes the same engine events produced by a local CLI to a
 short-lived, run-scoped WebSocket implemented with Vercel's native Function
 upgrade API. The control plane authenticates and persists each event in
@@ -170,14 +180,14 @@ log before receiving live events.
    managed project identity. Plan and apply runs share the managed run model,
    dedupe active work, emit live events, and heartbeat until completion.
 3. Managed workflow state and shared cache metadata in revisioned Postgres
-   snapshots. Large binary artifacts remain provider-owned rather than being
-   copied into Postgres.
+   snapshots. The dashboard exposes safe cache inspection, downstream-aware
+   invalidation, and clearing. Large binary artifacts remain provider-owned
+   rather than being copied into Postgres.
 
 ## Deliberate interview-scope cuts
 
 - No multi-cloud abstraction or Cloudflare deployment path.
 - No arbitrary TypeScript evaluation in the control plane.
-- No dashboard before the CLI loop works.
 - No organization/RBAC model in the first private preview.
 - No CI product surface in the interview project.
 - No global rewrite of inherited `@rigkit/*` internals.

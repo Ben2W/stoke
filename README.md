@@ -109,6 +109,12 @@ checkout. Local runtimes and Vercel Sandboxes load and commit the same
 revisioned project snapshot, so work applied in one environment can be reused
 by the other.
 
+The web dashboard can run Plan and Apply directly from the GitHub source,
+inspect and invalidate shared cache entries, list project-owned workspaces with
+their creation provenance, and follow the same persisted live event stream as
+the CLI. Vercel Sandboxes are ephemeral executors and do not appear as devices
+or local checkouts.
+
 Remove a project from the managed control plane with:
 
 ```sh

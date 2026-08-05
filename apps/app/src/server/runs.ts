@@ -3,6 +3,8 @@ import type {
   ClaimRunRequest,
   ManagedRun,
   ManagedRunEvent,
+  ManagedRunOperation,
+  ManagedRunOrigin,
 } from "@stoke/managed";
 import { runs } from "./db/schema.ts";
 import {
@@ -24,10 +26,11 @@ export async function claimRun(userId: string, input: ClaimRunRequest): Promise<
   if (!scope) throw new Error("Managed checkout was not found");
 
   const now = new Date();
+  const executionKey = `checkout:${input.checkoutId}`;
   await runRepository.orphanClaim({
     userId,
     projectId: input.projectId,
-    checkoutId: input.checkoutId,
+    executionKey,
     fingerprint: input.fingerprint,
     before: new Date(now.getTime() - STALE_RUN_MS),
     now,
@@ -39,6 +42,8 @@ export async function claimRun(userId: string, input: ClaimRunRequest): Promise<
     projectId: input.projectId,
     checkoutId: input.checkoutId,
     deviceId: scope.checkout.deviceId,
+    origin: "machine",
+    executionKey,
     operation: input.operation,
     workflow: input.workflow,
     fingerprint: input.fingerprint,
@@ -54,7 +59,57 @@ export async function claimRun(userId: string, input: ClaimRunRequest): Promise<
   const existing = await runRepository.findActive({
     userId,
     projectId: input.projectId,
-    checkoutId: input.checkoutId,
+    executionKey,
+    fingerprint: input.fingerprint,
+  });
+  if (!existing) throw new Error("Could not claim or locate the active run");
+  return { run: toManagedRun(existing.run, existing.deviceName), disposition: "joined" };
+}
+
+export async function claimRemoteRun(
+  userId: string,
+  input: {
+    projectId: string;
+    operation: ManagedRunOperation;
+    workflow: string;
+    fingerprint: string;
+    origin: Exclude<ManagedRunOrigin, "machine">;
+  },
+): Promise<RunClaim> {
+  if (!await runRepository.findProjectScope(userId, input.projectId)) {
+    throw new Error("Managed project was not found");
+  }
+
+  const now = new Date();
+  const executionKey = "remote";
+  await runRepository.orphanClaim({
+    userId,
+    projectId: input.projectId,
+    executionKey,
+    fingerprint: input.fingerprint,
+    before: new Date(now.getTime() - STALE_RUN_MS),
+    now,
+  });
+
+  const created = await runRepository.create({
+    id: randomUUID(),
+    userId,
+    projectId: input.projectId,
+    origin: input.origin,
+    executionKey,
+    operation: input.operation,
+    workflow: input.workflow,
+    fingerprint: input.fingerprint,
+    status: "running",
+    startedAt: now,
+    updatedAt: now,
+  });
+  if (created) return { run: toManagedRun(created, null), disposition: "created" };
+
+  const existing = await runRepository.findActive({
+    userId,
+    projectId: input.projectId,
+    executionKey,
     fingerprint: input.fingerprint,
   });
   if (!existing) throw new Error("Could not claim or locate the active run");
@@ -180,13 +235,14 @@ function redactSecrets(value: string): string {
     .replace(/((?:token|secret|password)\s*[:=]\s*)([^\s,;]+)/gi, "$1[redacted]");
 }
 
-function toManagedRun(row: RunRow, deviceName: string): ManagedRun {
+function toManagedRun(row: RunRow, deviceName: string | null): ManagedRun {
   return {
     id: row.id,
     projectId: row.projectId,
-    checkoutId: row.checkoutId,
-    deviceId: row.deviceId,
-    deviceName,
+    ...(row.checkoutId ? { checkoutId: row.checkoutId } : {}),
+    ...(row.deviceId ? { deviceId: row.deviceId } : {}),
+    ...(deviceName ? { deviceName } : {}),
+    origin: row.origin,
     operation: row.operation,
     workflow: row.workflow,
     fingerprint: row.fingerprint,

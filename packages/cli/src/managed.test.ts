@@ -330,9 +330,7 @@ describe("managed project source resolution", () => {
             run: {
               id: "2923c579-7457-410c-a5bb-d47cd7131f0a",
               projectId: project.id,
-              checkoutId: "09f90166-18fb-4851-a31c-6a4dac353215",
-              deviceId: "vercel-sandbox:test",
-              deviceName: "Vercel Sandbox",
+              origin: "cli",
               operation: "plan",
               workflow: "stoke-example",
               fingerprint: "remote-test",

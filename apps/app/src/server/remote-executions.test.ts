@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { ManagedCheckout, ManagedProject, ManagedRun } from "@stoke/managed";
+import type { ManagedProject, ManagedRun } from "@stoke/managed";
 import { executeRemoteProject } from "./remote-executions.ts";
 
 const project: ManagedProject = {
@@ -11,22 +11,10 @@ const project: ManagedProject = {
   updatedAt: "2026-08-01T00:00:00.000Z",
 };
 
-const checkout: ManagedCheckout = {
-  id: "09f90166-18fb-4851-a31c-6a4dac353215",
-  projectId: project.id,
-  deviceId: "vercel-sandbox:test",
-  deviceName: "Vercel Sandbox",
-  path: `vercel-sandbox://${project.id}`,
-  createdAt: "2026-08-01T00:00:00.000Z",
-  lastSeenAt: "2026-08-01T00:00:00.000Z",
-};
-
 const running: ManagedRun = {
   id: "2923c579-7457-410c-a5bb-d47cd7131f0a",
   projectId: project.id,
-  checkoutId: checkout.id,
-  deviceId: checkout.deviceId,
-  deviceName: checkout.deviceName,
+  origin: "dashboard",
   operation: "plan",
   workflow: "default",
   fingerprint: "remote-test",
@@ -47,25 +35,14 @@ describe("remote managed execution", () => {
       cachedNodeCount: 0,
       nodes: [],
     };
-    const result = await executeRemoteProject("user-1", project.id, { operation: "plan" }, {
+    const result = await executeRemoteProject("user-1", project.id, { operation: "plan", origin: "dashboard" }, {
       getProject: async () => project,
-      registerDevice: async (_userId, input) => ({
-        ...input,
-        createdAt: "2026-08-04T00:00:00.000Z",
-        lastSeenAt: "2026-08-04T00:00:00.000Z",
-      }),
-      registerCheckout: async (_userId, input) => ({
-        ...checkout,
-        projectId: input.projectId,
-        deviceId: input.deviceId,
-        path: input.path,
-      }),
-      claimRun: async (_userId, input) => {
+      claimRemoteRun: async (_userId, input) => {
         expect(input).toMatchObject({
           projectId: project.id,
-          checkoutId: checkout.id,
           operation: "plan",
           workflow: "default",
+          origin: "dashboard",
         });
         return { run: running, disposition: "created" };
       },
@@ -118,15 +95,9 @@ describe("remote managed execution", () => {
   test("records apply summaries from the nested plan", async () => {
     const events: unknown[] = [];
     const applyRun = { ...running, operation: "apply" as const };
-    await executeRemoteProject("user-1", project.id, { operation: "apply" }, {
+    await executeRemoteProject("user-1", project.id, { operation: "apply", origin: "cli" }, {
       getProject: async () => project,
-      registerDevice: async (_userId, input) => ({
-        ...input,
-        createdAt: "2026-08-04T00:00:00.000Z",
-        lastSeenAt: "2026-08-04T00:00:00.000Z",
-      }),
-      registerCheckout: async () => checkout,
-      claimRun: async () => ({ run: applyRun, disposition: "created" }),
+      claimRemoteRun: async () => ({ run: { ...applyRun, origin: "cli" }, disposition: "created" }),
       getRun: async () => ({ ...applyRun, status: "completed" }),
       appendRunEvent: async (_userId, _runId, event) => {
         events.push(event);

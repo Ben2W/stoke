@@ -1,6 +1,7 @@
 import type { ManagedRun, ManagedRunEvent } from "@stoke/managed";
 import { Check, Circle, CircleDashed, Cloud, Terminal, X } from "lucide-react";
 import { useEffect, useRef } from "react";
+import { runOriginLabel } from "./run-origin.ts";
 
 export function RunEventList({ events, run }: { events: ManagedRunEvent[]; run: ManagedRun }) {
   const timelineRef = useRef<HTMLOListElement>(null);
@@ -17,7 +18,7 @@ export function RunEventList({ events, run }: { events: ManagedRunEvent[]; run: 
         <div className="flex items-center justify-between">
           <div className="min-w-0">
             <p className="truncate text-xs font-medium capitalize text-zinc-900">{run.operation} · {run.workflow}</p>
-            <p className="mt-0.5 truncate text-[11px] text-zinc-500">{run.deviceName} · {run.id.slice(0, 8)}</p>
+            <p className="mt-0.5 truncate text-[11px] text-zinc-500">{runOriginLabel(run)} · {run.id.slice(0, 8)}</p>
           </div>
           <StatusBadge status={run.status} />
         </div>

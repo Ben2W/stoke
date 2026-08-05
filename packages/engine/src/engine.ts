@@ -72,7 +72,7 @@ export type CreateDevMachineEngineOptions = {
     present?: InteractionPresenter;
   };
   local?: LocalWorkspaceRuntimeOptions;
-  workspaceOwner?: WorkspaceRecord["owner"];
+  workspaceCreatedFrom?: WorkspaceRecord["createdFrom"];
 };
 
 export type { InteractionPresenter, InteractionPresentationRequest };
@@ -398,7 +398,7 @@ export class DevMachineEngine {
   private readonly providerHostStorage = new Map<string, ReturnType<ProviderHostStorageFactory>>();
   private readonly interactionPresenter: InteractionPresenter;
   private readonly local: LocalWorkspaceRuntime;
-  private readonly workspaceOwner?: WorkspaceRecord["owner"];
+  private readonly workspaceCreatedFrom?: WorkspaceRecord["createdFrom"];
   private readonly handlers = new Set<EventHandler>();
   private workflows = new Map<string, LoadedWorkflow>();
   private definitionSources: DefinitionSourceFile[] = [];
@@ -418,7 +418,7 @@ export class DevMachineEngine {
     this.hostStorageDir = options.hostStorageDir ? resolve(options.hostStorageDir) : defaultProviderHostStorageDir();
     this.hostStorageFactory = options.hostStorageFactory ?? createFileProviderHostStorage;
     this.interactionPresenter = options.interaction?.present ?? defaultInteractionPresenter;
-    this.workspaceOwner = options.workspaceOwner ? { ...options.workspaceOwner } : undefined;
+    this.workspaceCreatedFrom = options.workspaceCreatedFrom ? { ...options.workspaceCreatedFrom } : undefined;
     this.local = {
       open: options.local?.open ?? openLocalTarget,
       prompt: {
@@ -1084,7 +1084,7 @@ export class DevMachineEngine {
       workflow: workflow.name,
       workflowCtx: { ...applied.context },
       ctx: {},
-      ...(this.workspaceOwner ? { owner: { ...this.workspaceOwner } } : {}),
+      ...(this.workspaceCreatedFrom ? { createdFrom: { ...this.workspaceCreatedFrom } } : {}),
       createdAt: now,
       updatedAt: now,
     };
@@ -2311,7 +2311,7 @@ function cloneWorkspace(workspace: WorkspaceRecord): WorkspaceRecord {
     ...workspace,
     workflowCtx: { ...workspace.workflowCtx },
     ctx: { ...workspace.ctx },
-    ...(workspace.owner ? { owner: { ...workspace.owner } } : {}),
+    ...(workspace.createdFrom ? { createdFrom: { ...workspace.createdFrom } } : {}),
   };
 }
 

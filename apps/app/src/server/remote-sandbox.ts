@@ -90,6 +90,7 @@ export async function runRemoteSandbox(input: RunRemoteSandboxInput): Promise<Re
     STOKE_STATE_FILE: STATE_FILE,
     STOKE_RUNTIME_BIN: STOKE_RUNTIME_PATH,
     STOKE_MANAGED_RUN_SOCKET_URL: input.producerSocketUrl,
+    ...(input.request.origin === "dashboard" ? { STOKE_WORKSPACE_ORIGIN: "dashboard" } : {}),
   };
   let workflow = input.request.workflow;
   if (!workflow) {

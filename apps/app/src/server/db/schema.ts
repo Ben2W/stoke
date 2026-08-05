@@ -192,11 +192,11 @@ export const runs = pgTable(
       .notNull()
       .references(() => projects.id, { onDelete: "cascade" }),
     checkoutId: uuid("checkout_id")
-      .notNull()
-      .references(() => projectCheckouts.id, { onDelete: "cascade" }),
+      .references(() => projectCheckouts.id, { onDelete: "set null" }),
     deviceId: text("device_id")
-      .notNull()
-      .references(() => devices.id, { onDelete: "cascade" }),
+      .references(() => devices.id, { onDelete: "set null" }),
+    origin: text("origin").$type<"machine" | "cli" | "dashboard">().default("machine").notNull(),
+    executionKey: text("execution_key").notNull(),
     operation: text("operation").$type<"plan" | "apply">().notNull(),
     workflow: text("workflow").notNull(),
     fingerprint: text("fingerprint").notNull(),
@@ -210,7 +210,7 @@ export const runs = pgTable(
   },
   (table) => [
     uniqueIndex("runs_active_fingerprint_uidx")
-      .on(table.projectId, table.checkoutId, table.fingerprint)
+      .on(table.projectId, table.executionKey, table.fingerprint)
       .where(sql`${table.status} = 'running'`),
     index("runs_user_started_at_idx").on(table.userId, table.startedAt),
     index("runs_project_started_at_idx").on(table.projectId, table.startedAt),

@@ -1,5 +1,6 @@
 import type { ManagedProject, ManagedRun } from "@stoke/managed";
 import { CheckCircle2, CircleDashed, XCircle } from "lucide-react";
+import { runOriginLabel } from "./run-origin.ts";
 
 type RunListProps = {
   projects: ManagedProject[];
@@ -29,7 +30,7 @@ export function RunList({ projects, runs, selectedRunId, onSelect }: RunListProp
             <span className="mt-1 flex items-center gap-1.5 text-[11px] text-zinc-500">
               <span className="truncate">{run.workflow}</span>
               <span aria-hidden="true">·</span>
-              <span className="truncate">{run.deviceName}</span>
+              <span className="truncate">{runOriginLabel(run)}</span>
             </span>
           </span>
         </button>

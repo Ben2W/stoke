@@ -5,6 +5,9 @@ import {
   ClaimRunResponseSchema,
   CreateProjectRequestSchema,
   DeviceResponseSchema,
+  InvalidateProjectCacheRequestSchema,
+  ProjectCacheMutationResponseSchema,
+  ProjectCacheResponseSchema,
   ProjectListResponseSchema,
   ProjectResponseSchema,
   RegisterCheckoutRequestSchema,
@@ -23,6 +26,7 @@ import { Hono } from "hono";
 import { authenticateRequest } from "./auth.ts";
 import { listCheckouts, registerCheckout, registerDevice } from "./devices.ts";
 import { createProject, deleteProject, listProjects } from "./projects.ts";
+import { clearProjectCache, invalidateProjectCache, listProjectCache } from "./project-cache.ts";
 import { getProjectState, ProjectStateConflictError, updateProjectState } from "./project-state.ts";
 import { listProjectWorkspaces } from "./project-workspaces.ts";
 import { executeRemoteProject, RemoteExecutionError } from "./remote-executions.ts";
@@ -47,6 +51,9 @@ type ApiDependencies = {
   getProjectState: typeof getProjectState;
   updateProjectState: typeof updateProjectState;
   listProjectWorkspaces: typeof listProjectWorkspaces;
+  listProjectCache: typeof listProjectCache;
+  invalidateProjectCache: typeof invalidateProjectCache;
+  clearProjectCache: typeof clearProjectCache;
 };
 
 const defaultDependencies: ApiDependencies = {
@@ -65,6 +72,9 @@ const defaultDependencies: ApiDependencies = {
   getProjectState,
   updateProjectState,
   listProjectWorkspaces,
+  listProjectCache,
+  invalidateProjectCache,
+  clearProjectCache,
 };
 
 export function createApi(overrides: Partial<ApiDependencies> = {}) {
@@ -139,6 +149,35 @@ export function createApi(overrides: Partial<ApiDependencies> = {}) {
       context.req.param("projectId"),
     );
     return context.json(ProjectWorkspaceListResponseSchema.parse({ workspaces }));
+  });
+
+  managed.get("/projects/:projectId/cache", async (context) => {
+    const cache = await dependencies.listProjectCache(
+      context.get("user").id,
+      context.req.param("projectId"),
+    );
+    return context.json(ProjectCacheResponseSchema.parse(cache));
+  });
+
+  managed.post("/projects/:projectId/cache/invalidate", async (context) => {
+    const parsed = InvalidateProjectCacheRequestSchema.safeParse(await readJson(context.req.raw));
+    if (!parsed.success) {
+      return context.json({ error: "invalid_request", issues: parsed.error.issues }, 400);
+    }
+    const result = await dependencies.invalidateProjectCache(
+      context.get("user").id,
+      context.req.param("projectId"),
+      parsed.data,
+    );
+    return context.json(ProjectCacheMutationResponseSchema.parse(result));
+  });
+
+  managed.delete("/projects/:projectId/cache", async (context) => {
+    const result = await dependencies.clearProjectCache(
+      context.get("user").id,
+      context.req.param("projectId"),
+    );
+    return context.json(ProjectCacheMutationResponseSchema.parse(result));
   });
 
   managed.get("/projects/:projectId/state", async (context) => {
