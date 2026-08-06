@@ -4,7 +4,7 @@
 
 Stoke explores a question: can one typed TypeScript definition describe the software environment used throughout the development lifecycle—from local development, to cloud workspaces and asynchronous agents, and eventually CI/CD?
 
-Ironically Cloudflare's new [CI/CD product](https://blog.cloudflare.com/ci-workflows/) explores using TypeScript to define CI/CD environments.
+Ironically Cloudflare's new [CI/CD product](https://blog.cloudflare.com/ci-workflows/) explores using TypeScript to define CI/CD environments in a very similiar way.
 
 The public [`stoke-example`](https://github.com/Ben2W/stoke-example) repository shows the idea in practice. Its [`stoke/index.ts`](https://github.com/Ben2W/stoke-example/blob/main/stoke/index.ts) defines:
 
@@ -37,22 +37,22 @@ The table below separates reused framework foundations from code created specifi
 
 ### Derived and modified from Rigkit
 
-| Stoke package               | Rigkit foundation retained                                               |
-| --------------------------- | ------------------------------------------------------------------------ |
-| `@usestoke/engine`          | Workflow authoring, DAG evaluation, caching, providers, and workspaces   |
-| `@usestoke/sdk`             | TypeScript authoring exports and the runtime server                      |
-| `@usestoke/runtime-client`  | Local runtime discovery, loading, and client management                  |
-| `@usestoke/cli`             | Terminal UI, runtime bootstrap, command structure, and completion system |
-| `@usestoke/provider-cmux`   | Rigkit's CMUX integration                                                |
-| `@usestoke/provider-vscode` | Rigkit's VS Code integration                                             |
+| Stoke package                                           | Rigkit foundation                                                        |
+| ------------------------------------------------------- | ------------------------------------------------------------------------ |
+| [@usestoke/engine](./packages/engine)                   | Workflow authoring, DAG evaluation, caching, providers, and workspaces   |
+| [@usestoke/sdk](./packages/sdk)                         | TypeScript authoring exports and the runtime server                      |
+| [@usestoke/runtime-client](./packages/runtime-client)   | Local runtime discovery, loading, and client management                  |
+| [@usestoke/cli](./packages/cli)                         | Terminal UI, runtime bootstrap, command structure, and completion system |
+| [@usestoke/provider-cmux](./packages/provider-cmux)     | Rigkit's CMUX integration                                                |
+| [@usestoke/provider-vscode](./packages/provider-vscode) | Rigkit's VS Code integration                                             |
 
 ### Created for Stoke
 
-| Component                           | Purpose                                                                                                                                                                                                   |
-| ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [`apps/app`](./apps/app)            | The Vercel-hosted control plane, Hono API, Better Auth integration, Drizzle/Postgres data layer, WebSocket run relay, persistent Sandbox evaluator, dashboard, cache DAG, workspace UI, and web terminal. |
-| `@usestoke/managed`                 | Shared API contracts and authenticated client for projects, checkouts, state, Sandboxes, runs, events, and cache operations.                                                                              |
-| `@usestoke/provider-vercel-sandbox` | The managed Vercel Sandbox implementation, including snapshots, restored workspaces, commands, ports, SSH, and dashboard/CLI host behavior.                                                               |
-| `@usestoke/provider-browser`        | A provider-defined browser capability that can be fulfilled by either the local CLI or the dashboard.                                                                                                     |
+| Component                                                               | Purpose                                                                                                                                                                                                   |
+| ----------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`apps/app`](./apps/app)                                                | The Vercel-hosted control plane, Hono API, Better Auth integration, Drizzle/Postgres data layer, WebSocket run relay, persistent Sandbox evaluator, dashboard, cache DAG, workspace UI, and web terminal. |
+| [@usestoke/managed](./packages/managed)                                 | Shared API contracts and authenticated client for projects, checkouts, state, Sandboxes, runs, events, and cache operations.                                                                              |
+| [@usestoke/provider-vercel-sandbox](./packages/provider-vercel-sandbox) | The managed Vercel Sandbox implementation, including snapshots, restored workspaces, commands, ports, SSH, and dashboard/CLI host behavior.                                                               |
+| [@usestoke/provider-browser](./packages/provider-browser)               | A provider-defined browser capability that can be fulfilled by either the local CLI or the dashboard.                                                                                                     |
 
 I also removed many Rigkit packages that were unused in this project.
