@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { Sandbox } from "@vercel/sandbox";
 import {
   ProjectStateResponseSchema,
@@ -7,7 +6,7 @@ import {
   type RemoteExecutionRequest,
 } from "@usestoke/managed";
 
-const SANDBOX_TIMEOUT_MS = 60 * 60_000;
+const SANDBOX_TIMEOUT_MS = 5 * 60_000;
 const COMMAND_TIMEOUT_MS = 4 * 60_000;
 const MAX_ERROR_OUTPUT_LENGTH = 4_000;
 const MAX_FAILURE_LOG_LENGTH = 256_000;
@@ -16,8 +15,6 @@ const STATE_FILE = "/tmp/stoke-managed-state.json";
 const SANDBOX_TOKEN_FILE = "/tmp/stoke-sandbox-token";
 const STOKE_CLI_PATH = "/tmp/stoke-cli.js";
 const STOKE_RUNTIME_PATH = "/tmp/stoke-runtime.js";
-const EVALUATOR_MARKER_PATH = "/tmp/stoke-evaluator.json";
-const EVALUATOR_VERSION = 1;
 
 export type RemoteSandboxStage =
   | {
@@ -54,23 +51,14 @@ export type RemoteSandboxResult = {
 type EvaluatorSandbox = Pick<
   Sandbox,
   "name" | "readFileToBuffer" | "runCommand" | "writeFiles"
->;
+> & AsyncDisposable;
 
 export type RemoteSandboxDependencies = {
-  getOrCreate(
-    input: NonNullable<Parameters<typeof Sandbox.getOrCreate>[0]>,
-  ): Promise<EvaluatorSandbox>;
+  create(input: Parameters<typeof Sandbox.create>[0]): Promise<EvaluatorSandbox>;
 };
 
 const defaultDependencies: RemoteSandboxDependencies = {
-  getOrCreate: (input) => Sandbox.getOrCreate(input),
-};
-
-type EvaluatorMarker = {
-  version: typeof EVALUATOR_VERSION;
-  revision: string;
-  runtimeRevision: string;
-  workflow?: string;
+  create: (input) => Sandbox.create(input),
 };
 
 export async function runRemoteSandbox(
@@ -82,38 +70,26 @@ export async function runRemoteSandbox(
   }
 
   const dependencies = { ...defaultDependencies, ...overrides };
-  const runtimeRevision = evaluatorRuntimeRevision();
   const source = {
     type: "git" as const,
     url: `https://github.com/${input.project.source.owner}/${input.project.source.repository}.git`,
     depth: 1,
     revision: input.revision,
   };
-  const sandbox = await dependencies.getOrCreate({
-    name: evaluatorSandboxName(input.project.id),
+  await using sandbox = await dependencies.create({
     source,
     runtime: "node24",
     resources: { vcpus: 2 },
     timeout: SANDBOX_TIMEOUT_MS,
-    persistent: true,
-    snapshotExpiration: 30 * 24 * 60 * 60_000,
-    keepLastSnapshots: { count: 3 },
+    persistent: false,
     tags: {
       service: "stoke",
       project: input.project.slug.slice(0, 80),
       role: "evaluator",
     },
-    onCreate: async (created) => {
-      await bootstrapEvaluator(created, input);
-      await writeEvaluatorMarker(created, {
-        version: EVALUATOR_VERSION,
-        revision: input.revision,
-        runtimeRevision,
-      });
-    },
   });
   await input.onStage?.({ type: "remote.sandbox.created", sandboxName: sandbox.name });
-  let marker = await prepareEvaluator(sandbox, input, runtimeRevision);
+  await bootstrapEvaluator(sandbox, input);
   await sandbox.writeFiles([
     { path: STATE_FILE, content: JSON.stringify(input.state) },
     { path: SANDBOX_TOKEN_FILE, content: `${input.sandboxToken}\n` },
@@ -136,7 +112,7 @@ export async function runRemoteSandbox(
     ...baseCommandEnvironment,
     STOKE_MANAGED_RUN_SOCKET_URL: input.producerSocketUrl,
   };
-  let workflow = input.request.workflow ?? marker.workflow;
+  let workflow = input.request.workflow;
   if (!workflow) {
     const discovered = await runCommand(sandbox, input, "discover-workflow", {
       cmd: "bun",
@@ -146,8 +122,6 @@ export async function runRemoteSandbox(
       env: baseCommandEnvironment,
     });
     workflow = singleWorkflowFromList(await discovered.stdout());
-    marker = { ...marker, workflow };
-    await writeEvaluatorMarker(sandbox, marker);
   }
   const result = await runCommand(sandbox, input, input.request.operation, {
     cmd: "bun",
@@ -170,46 +144,6 @@ export async function runRemoteSandbox(
     throw new Error("Remote Stoke execution returned invalid managed state");
   }
   return { result: parsedResult, state };
-}
-
-async function prepareEvaluator(
-  sandbox: EvaluatorSandbox,
-  input: RunRemoteSandboxInput,
-  runtimeRevision: string,
-): Promise<EvaluatorMarker> {
-  const current = await readEvaluatorMarker(sandbox);
-  if (!current) {
-    await syncEvaluatorSource(sandbox, input);
-    await bootstrapEvaluator(sandbox, input);
-    const marker = {
-      version: EVALUATOR_VERSION,
-      revision: input.revision,
-      runtimeRevision,
-    } satisfies EvaluatorMarker;
-    await writeEvaluatorMarker(sandbox, marker);
-    return marker;
-  }
-
-  const sourceChanged = current.revision !== input.revision;
-  const runtimeChanged = current.runtimeRevision !== runtimeRevision;
-  if (!sourceChanged && !runtimeChanged) return current;
-
-  if (sourceChanged) {
-    await syncEvaluatorSource(sandbox, input);
-    await installDependencies(sandbox, input);
-  }
-  if (runtimeChanged) {
-    await loadRuntimeArtifacts(sandbox, input, runtimeRevision);
-    await resetRuntimeDaemon(sandbox, input);
-  }
-
-  const marker = {
-    version: EVALUATOR_VERSION,
-    revision: input.revision,
-    runtimeRevision,
-  } satisfies EvaluatorMarker;
-  await writeEvaluatorMarker(sandbox, marker);
-  return marker;
 }
 
 async function bootstrapEvaluator(
@@ -266,70 +200,6 @@ async function installDependencies(
     cmd: "bun",
     args: ["install"],
   });
-}
-
-async function syncEvaluatorSource(
-  sandbox: EvaluatorSandbox,
-  input: RunRemoteSandboxInput,
-): Promise<void> {
-  await runCommand(sandbox, input, "sync-source", {
-    cmd: "git",
-    args: ["fetch", "--depth=1", "origin", input.revision],
-  });
-  await runCommand(sandbox, input, "checkout-source", {
-    cmd: "git",
-    args: ["checkout", "--detach", "--force", "FETCH_HEAD"],
-  });
-  await runCommand(sandbox, input, "clean-source", {
-    cmd: "git",
-    args: ["clean", "-fdx"],
-  });
-}
-
-async function resetRuntimeDaemon(
-  sandbox: EvaluatorSandbox,
-  input: RunRemoteSandboxInput,
-): Promise<void> {
-  await runCommand(sandbox, input, "refresh-stoke-runtime", {
-    cmd: "bash",
-    args: [
-      "-lc",
-      "pkill -f '[s]toke-runtime.js' >/dev/null 2>&1 || true; rm -f /home/vercel-sandbox/.stoke/runtimes/*.json /home/vercel-sandbox/.stoke/runtimes/*.token",
-    ],
-  });
-}
-
-async function readEvaluatorMarker(sandbox: EvaluatorSandbox): Promise<EvaluatorMarker | undefined> {
-  const buffer = await sandbox.readFileToBuffer({ path: EVALUATOR_MARKER_PATH });
-  if (!buffer) return undefined;
-  try {
-    const value = JSON.parse(buffer.toString("utf8"));
-    if (!isRecord(value)
-      || value.version !== EVALUATOR_VERSION
-      || typeof value.revision !== "string"
-      || typeof value.runtimeRevision !== "string"
-      || (value.workflow !== undefined && typeof value.workflow !== "string")) return undefined;
-    return {
-      version: EVALUATOR_VERSION,
-      revision: value.revision,
-      runtimeRevision: value.runtimeRevision,
-      ...(value.workflow ? { workflow: value.workflow } : {}),
-    };
-  } catch {
-    return undefined;
-  }
-}
-
-async function writeEvaluatorMarker(
-  sandbox: EvaluatorSandbox,
-  marker: EvaluatorMarker,
-): Promise<void> {
-  await sandbox.writeFiles([{ path: EVALUATOR_MARKER_PATH, content: JSON.stringify(marker) }]);
-}
-
-function evaluatorSandboxName(projectId: string): string {
-  const environment = process.env.VERCEL_ENV ?? "development";
-  return `stoke-evaluator-${createHash("sha256").update(`${environment}:${projectId}`).digest("hex").slice(0, 24)}`;
 }
 
 export function evaluatorRuntimeRevision(

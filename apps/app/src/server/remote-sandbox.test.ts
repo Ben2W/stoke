@@ -16,7 +16,7 @@ const state: ProjectStateResponse = {
   snapshot: { version: 1, scopes: {} },
 };
 
-describe("persistent remote evaluator", () => {
+describe("isolated remote evaluator", () => {
   test("refreshes runtime artifacts for every Vercel deployment", () => {
     expect(evaluatorRuntimeRevision({
       VERCEL_DEPLOYMENT_ID: "deployment-new",
@@ -24,13 +24,14 @@ describe("persistent remote evaluator", () => {
       VERCEL_URL: "stoke.example",
     })).toBe("deployment-new");
   });
-  test("bootstraps once and reuses the evaluator and discovered workflow", async () => {
+  test("creates and bootstraps a fresh evaluator for every execution", async () => {
     const files = new Map<string, Buffer>();
     const commands: Array<{ cmd: string; args?: string[]; env?: Record<string, string> }> = [];
-    let created = false;
-    let sandboxName: string | undefined;
+    let createCount = 0;
+    let disposeCount = 0;
     const sandbox = {
       name: "stoke-evaluator-test",
+      async [Symbol.asyncDispose]() { disposeCount += 1; },
       async writeFiles(input: Array<{ path: string; content: string | Buffer }>) {
         for (const file of input) files.set(file.path, Buffer.from(file.content));
       },
@@ -55,12 +56,8 @@ describe("persistent remote evaluator", () => {
         };
       },
     };
-    const getOrCreate = async (input: any) => {
-      sandboxName = input.name;
-      if (!created) {
-        created = true;
-        await input.onCreate(sandbox);
-      }
+    const create = async () => {
+      createCount += 1;
       return sandbox as any;
     };
     let sandboxToken = "sandbox-token-one";
@@ -71,7 +68,7 @@ describe("persistent remote evaluator", () => {
       producerSocketUrl: "wss://usestoke.dev/runs/test",
       revision: "e587a05a934ac7be12bf5233102939d4479f8625",
       sandboxToken,
-    }, { getOrCreate });
+    }, { create });
 
     const first = await run();
     sandboxToken = "sandbox-token-two";
@@ -87,10 +84,11 @@ describe("persistent remote evaluator", () => {
 
     expect(first.result).toMatchObject({ workflow: "stoke-example" });
     expect(second.result).toMatchObject({ workflow: "stoke-example" });
-    expect(sandboxName).toMatch(/^stoke-evaluator-[a-f0-9]{24}$/);
-    expect(commands.filter((command) => command.args?.includes("bun@1.3.7"))).toHaveLength(1);
-    expect(commands.filter((command) => command.cmd === "bun" && command.args?.[0] === "install")).toHaveLength(1);
-    expect(commands.filter((command) => command.cmd === "bun" && command.args?.includes("ls"))).toHaveLength(1);
+    expect(createCount).toBe(3);
+    expect(disposeCount).toBe(3);
+    expect(commands.filter((command) => command.args?.includes("bun@1.3.7"))).toHaveLength(3);
+    expect(commands.filter((command) => command.cmd === "bun" && command.args?.[0] === "install")).toHaveLength(3);
+    expect(commands.filter((command) => command.cmd === "bun" && command.args?.includes("ls"))).toHaveLength(2);
     expect(commands.filter((command) => command.cmd === "bun" && command.args?.includes("plan"))).toHaveLength(2);
     expect(commands.at(-1)?.env).toMatchObject({
       STOKE_RUNTIME_STATE_REVISION: "3",
@@ -104,55 +102,6 @@ describe("persistent remote evaluator", () => {
     expect(files.get("/tmp/stoke-sandbox-token")?.toString()).toBe("sandbox-token-two\n");
   });
 
-  test("refreshes source and dependencies when the repository revision changes", async () => {
-    const files = new Map<string, Buffer>();
-    const commands: Array<{ cmd: string; args?: string[] }> = [];
-    let created = false;
-    const sandbox = {
-      name: "stoke-evaluator-test",
-      async writeFiles(input: Array<{ path: string; content: string | Buffer }>) {
-        for (const file of input) files.set(file.path, Buffer.from(file.content));
-      },
-      async readFileToBuffer(input: { path: string }) {
-        return files.get(input.path) ?? null;
-      },
-      async runCommand(command: { cmd: string; args?: string[] }) {
-        commands.push(command);
-        const stdout = command.cmd === "bun" && command.args?.includes("plan")
-          ? JSON.stringify({ workflow: "stoke-example", nodeCount: 0, cachedNodeCount: 0, nodes: [] })
-          : "";
-        return { exitCode: 0, durationMs: 1, stdout: async () => stdout, stderr: async () => "" };
-      },
-    };
-    const getOrCreate = async (input: any) => {
-      if (!created) {
-        created = true;
-        await input.onCreate(sandbox);
-      }
-      return sandbox as any;
-    };
-    const execute = (revision: string) => runRemoteSandbox({
-      project,
-      request: { operation: "plan", workflow: "stoke-example", origin: "dashboard" },
-      state,
-      producerSocketUrl: "wss://usestoke.dev/runs/test",
-      revision,
-      sandboxToken: "sandbox-token",
-    }, { getOrCreate });
-
-    await execute("revision-one");
-    commands.length = 0;
-    await execute("revision-two");
-
-    expect(commands.map((command) => [command.cmd, command.args?.[0]])).toEqual([
-      ["git", "fetch"],
-      ["git", "checkout"],
-      ["git", "clean"],
-      ["bun", "install"],
-      ["bun", "/tmp/stoke-cli.js"],
-    ]);
-  });
-
   test("uploads the complete Stoke failure log before returning an operation error", async () => {
     const logPath = ".stoke/logs/2026-08-05T10-00-00-000Z-run.log";
     const fullLog = `${"diagnostic output\n".repeat(500)}final failure detail`;
@@ -160,6 +109,7 @@ describe("persistent remote evaluator", () => {
     const stages: Array<Record<string, unknown>> = [];
     const sandbox = {
       name: "stoke-evaluator-test",
+      async [Symbol.asyncDispose]() {},
       async writeFiles(input: Array<{ path: string; content: string | Buffer }>) {
         for (const file of input) files.set(file.path, Buffer.from(file.content));
       },
@@ -176,14 +126,7 @@ describe("persistent remote evaluator", () => {
         };
       },
     };
-    let created = false;
-    const getOrCreate = async (input: any) => {
-      if (!created) {
-        created = true;
-        await input.onCreate(sandbox);
-      }
-      return sandbox as any;
-    };
+    const create = async () => sandbox as any;
 
     await expect(runRemoteSandbox({
       project,
@@ -200,7 +143,7 @@ describe("persistent remote evaluator", () => {
       revision: "revision-one",
       sandboxToken: "sandbox-token",
       onStage: (stage) => { stages.push(stage); },
-    }, { getOrCreate })).rejects.toThrow("test failed");
+    }, { create })).rejects.toThrow("test failed");
 
     const logEvents = stages.filter((stage) => stage.type === "remote.log.output");
     expect(logEvents.length).toBeGreaterThan(1);
