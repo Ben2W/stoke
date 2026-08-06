@@ -5,9 +5,17 @@ import {
   cacheOwnershipOriginLabel,
   groupCacheOwnership,
   workflowVersionFingerprint,
+  workspaceMatchesWorkflowVersion,
 } from "./cache-ownership.ts";
 
 describe("cache ownership", () => {
+  test("detects whether a workspace uses the remote workflow cache version", () => {
+    expect(workspaceMatchesWorkflowVersion(["node-a", "node-b"], new Set(["node-b", "node-a"]))).toBe(true);
+    expect(workspaceMatchesWorkflowVersion(["node-a", "node-local"], new Set(["node-a", "node-main"]))).toBe(false);
+    expect(workspaceMatchesWorkflowVersion(undefined, new Set(["node-a"]))).toBeUndefined();
+    expect(workspaceMatchesWorkflowVersion(["node-a"], new Set())).toBeUndefined();
+  });
+
   test("combines main and workspaces that share the same cache flow", () => {
     const entries = [cacheEntry("node-a", "clone", "cache:aaa"), cacheEntry("node-b", "test", "cache:bbb", ["node-a"])];
     const groups = groupCacheOwnership(new Set(["node-a", "node-b"]), [

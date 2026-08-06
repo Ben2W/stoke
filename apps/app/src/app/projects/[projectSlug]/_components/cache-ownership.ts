@@ -104,6 +104,15 @@ export function workflowVersionFingerprint(
   return `workflow:${fnv1a64(values.join("\n"))}`;
 }
 
+export function workspaceMatchesWorkflowVersion(
+  workspaceEntryIds: readonly string[] | undefined,
+  workflowEntryIds: Set<string>,
+): boolean | undefined {
+  if (!workspaceEntryIds?.length || !workflowEntryIds.size) return undefined;
+  if (workspaceEntryIds.length !== workflowEntryIds.size) return false;
+  return workspaceEntryIds.every((entryId) => workflowEntryIds.has(entryId));
+}
+
 function fnv1a64(value: string): string {
   let hash = 0xcbf29ce484222325n;
   const prime = 0x100000001b3n;

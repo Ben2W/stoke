@@ -10,6 +10,7 @@ import { OperationInputDialog } from "./operation-input-dialog.tsx";
 import { operationHasInput, type OperationInput } from "./operation-input.ts";
 import { useRunObserver } from "../../../runs/_components/use-run-observer.ts";
 import { WorkspaceOperationRunDialog } from "./workspace-operation-run-dialog.tsx";
+import { useWorkspaceOperationCompatibility } from "./use-workspace-operation-compatibility.ts";
 
 const DASHBOARD_CAPABILITIES = new Set(["browser.open", "ssh"]);
 
@@ -25,6 +26,7 @@ export function WorkspaceOperations({ project, workspace }: {
   const terminalWindow = useRef<Window | null>(null);
   const handledEvents = useRef(new Set<number>());
   const observed = useRunObserver(activeRunId);
+  const compatibility = useWorkspaceOperationCompatibility(project, workspace);
   const execute = useMutation({
     mutationFn: (input: { workspaceOperation: string; operationInput: OperationInput }) => executeProjectRequest(project.id, {
       operation: "run",
@@ -100,6 +102,12 @@ export function WorkspaceOperations({ project, workspace }: {
     <section className="mt-8" aria-labelledby="operations-heading">
       <h2 className="text-sm font-medium" id="operations-heading">Operations</h2>
       <p className="mt-1 text-xs text-zinc-500">Actions exposed by this workspace’s Stoke workflow.</p>
+      {compatibility.unavailable ? (
+        <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
+          <p className="text-xs font-medium text-amber-900">Operations unavailable for this workflow version</p>
+          <p className="mt-1 text-xs leading-5 text-amber-700">This workspace was created from workflow changes that differ from the version currently in Git. Commit and push the workflow, then create a new workspace to run its operations.</p>
+        </div>
+      ) : null}
       <div className="mt-3 overflow-hidden rounded-lg border border-zinc-200 bg-white">
         {workspace.operations.length ? workspace.operations.map((operation, index) => {
           const unavailable = operation.requiredCapabilities.filter((capability) => !DASHBOARD_CAPABILITIES.has(capability.id));
@@ -116,7 +124,7 @@ export function WorkspaceOperations({ project, workspace }: {
                   {unavailable.length ? ` · Dashboard doesn’t support ${unavailable.map((item) => item.id).join(", ")}.` : hasInput ? " · Configurable input" : ""}
                 </p>
               </div>
-              <button className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-zinc-200 px-3 text-[11px] font-medium hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-40" disabled={operationIsRunning || unavailable.length > 0} onClick={() => hasInput ? setSelectedOperation(operation) : runOperation(operation)} type="button">
+              <button className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-zinc-200 px-3 text-[11px] font-medium hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-40" disabled={operationIsRunning || unavailable.length > 0 || compatibility.unavailable} onClick={() => hasInput ? setSelectedOperation(operation) : runOperation(operation)} title={compatibility.unavailable ? "This workspace’s workflow differs from the version in Git" : undefined} type="button">
                 {isStarting ? <CircleDashed className="animate-spin" size={12} /> : <Play size={12} />}{isStarting ? "Loading…" : isActive ? "Running…" : "Run"}
               </button>
             </div>
