@@ -33,6 +33,18 @@ describe("live cache graph", () => {
     expect(graph.activities.size).toBe(0);
   });
 
+  test("treats completed apply results missing from the authoritative cache as invalidated", () => {
+    const flow = taskFlow([
+      task("resolve", "completed", "cleared-resolve"),
+      task("install", "completed", "cleared-install"),
+    ]);
+
+    const graph = projectCacheGraph([], { flow, run: managedRun("apply", "completed") });
+
+    expect(graph.entries.every((entry) => entry.invalidated)).toBe(true);
+    expect(graph.activities.size).toBe(0);
+  });
+
   test("does not let historical cached activity override an invalidated entry", () => {
     const invalidated = { ...cacheEntry("invalidated-run", "resolve"), invalidated: true };
     const flow = taskFlow([task("resolve", "cached", invalidated.id)]);

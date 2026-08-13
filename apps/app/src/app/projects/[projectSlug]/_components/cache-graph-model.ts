@@ -48,15 +48,17 @@ function projectTasks(
 
   for (const task of tasks) {
     const cached = task.runId ? entryByRunId.get(task.runId) : undefined;
-    // A completed plan is historical; the cache response is authoritative. If a
-    // task was cached during that plan but its run is no longer present, it has
-    // since been invalidated or cleared.
-    const missingCachedRun = task.status === "cached" && Boolean(task.runId) && !cached;
+    // Completed plans and applies are historical; the cache response is
+    // authoritative. If a result referenced by that run is no longer present,
+    // it has since been invalidated or cleared.
+    const missingHistoricalResult = (
+      task.status === "cached" || task.status === "completed"
+    ) && Boolean(task.runId) && !cached;
     const entry = cached ?? syntheticEntry(
       task,
       run,
       resolveUpstreamIds(task, entryByRunId, projectedIdByRunId, previousId),
-      missingCachedRun,
+      missingHistoricalResult,
     );
     projected.push(entry);
     if (!entry.invalidated) {
