@@ -1,15 +1,24 @@
 "use client";
 
 import type { ManagedRun } from "@usestoke/managed";
-import { useRunObserver } from "../[projectSlug]/runs/_components/use-run-observer.ts";
+import { useQueryClient } from "@tanstack/react-query";
+import { useEffect, useRef } from "react";
+import { queryKeys } from "../../../lib/queries.ts";
 
 export function ActiveRunObservers({ runs }: { runs: ManagedRun[] }) {
-  return runs
-    .filter((run) => run.status === "running")
-    .map((run) => <ActiveRunObserver key={run.id} runId={run.id} />);
-}
+  const queryClient = useQueryClient();
+  const previousStatuses = useRef(new Map(runs.map((run) => [run.id, run.status])));
 
-function ActiveRunObserver({ runId }: { runId: string }) {
-  useRunObserver(runId);
+  useEffect(() => {
+    const nextStatuses = new Map(runs.map((run) => [run.id, run.status]));
+    for (const run of runs) {
+      if (previousStatuses.current.get(run.id) === "running" && run.status !== "running") {
+        void queryClient.invalidateQueries({ queryKey: queryKeys.projectCache(run.projectId) });
+        void queryClient.invalidateQueries({ queryKey: queryKeys.projectWorkspaces(run.projectId) });
+      }
+    }
+    previousStatuses.current = nextStatuses;
+  }, [queryClient, runs]);
+
   return null;
 }

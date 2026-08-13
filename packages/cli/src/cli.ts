@@ -2666,8 +2666,8 @@ async function runRuntimeOperation<T>(
   options: { renderEvents: boolean },
 ): Promise<T> {
   await assertOperationCapabilities(runtime, operation, input);
-  const externalManagedSocketUrl = process.env.STOKE_MANAGED_RUN_SOCKET_URL?.trim();
-  const managedClaim = externalManagedSocketUrl
+  const externalManagedRunId = process.env.STOKE_MANAGED_RUN_ID?.trim();
+  const managedClaim = externalManagedRunId
     ? undefined
     : await tryClaimManagedApply(runtime, operation, input);
   if (managedClaim?.disposition === "joined") {
@@ -2683,19 +2683,16 @@ async function runRuntimeOperation<T>(
     }
   }
 
-  const managedPublisher = externalManagedSocketUrl
-    ? createManagedRunPublisher(externalManagedSocketUrl, undefined, true)
+  const managedPublisher = externalManagedRunId
+    ? createManagedRunPublisher(managedClientFromEnvironment(), externalManagedRunId, true)
     : managedClaim?.disposition === "created"
-      ? createManagedRunPublisher(
-        managedClaim.socketUrl,
-        () => managedClaim.client.createRunSocketTicket(managedClaim.run.id, "producer"),
-      )
+      ? createManagedRunPublisher(managedClaim.client, managedClaim.run.id)
       : undefined;
   let started: Awaited<ReturnType<typeof runtime.control.startRun>>;
   try {
     started = await runtime.control.startRun({ operation, input });
   } catch (error) {
-    if (!externalManagedSocketUrl) {
+    if (!externalManagedRunId) {
       await managedPublisher?.publish({
         type: "run.failed",
         error: { message: error instanceof Error ? error.message : String(error) },
@@ -2729,11 +2726,11 @@ async function runRuntimeOperation<T>(
     if (
       isRecord(event)
       && (isDevMachineEvent(event) || event.type === "run.completed" || event.type === "run.failed")
-      && (!externalManagedSocketUrl || !isRemoteControlledLifecycleEvent(event.type))
+      && (!externalManagedRunId || !isRemoteControlledLifecycleEvent(event.type))
     ) {
       await managedPublisher?.publish(
         event,
-        Boolean(externalManagedSocketUrl) || event.type === "run.completed" || event.type === "run.failed",
+        Boolean(externalManagedRunId) || event.type === "run.completed" || event.type === "run.failed",
       );
     }
     logger?.append(event);
@@ -2746,7 +2743,7 @@ async function runRuntimeOperation<T>(
       }
     }
     if (isHostRequestEvent(event)) {
-      if (externalManagedSocketUrl) {
+      if (externalManagedRunId) {
         await managedPublisher?.publish(event, true);
         await answerDashboardHostRequest(runtime, event, respond);
         return;
@@ -2765,7 +2762,7 @@ async function runRuntimeOperation<T>(
       return;
     }
     if (isHostCapabilityRequestEvent(event)) {
-      if (externalManagedSocketUrl) {
+      if (externalManagedRunId) {
         await managedPublisher?.publish(event, true);
         if (event.capability === "browser.open") {
           const id = event.id ?? event.requestId;

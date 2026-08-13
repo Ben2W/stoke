@@ -213,7 +213,7 @@ describe("managed client", () => {
         const request = new Request(input, init);
         requests.push(request);
         if (request.url.endsWith("/claim")) {
-          return Response.json({ run, disposition: "created", socketUrl: "wss://usestoke.dev/api/ws?ticket=signed" }, { status: 201 });
+          return Response.json({ run, disposition: "created" }, { status: 201 });
         }
         if (request.url.endsWith(`/projects/${project.id}/executions`)) {
           return Response.json({
@@ -230,10 +230,13 @@ describe("managed client", () => {
           });
         }
         if (request.url.endsWith("/events?after=1")) return Response.json({ events: [event] });
+        if (request.url.endsWith(`/runs/${run.id}/events`) && request.method === "POST") {
+          return Response.json({ event }, { status: 201 });
+        }
+        if (request.url.endsWith(`/runs/${run.id}/heartbeat`)) return Response.json({ ok: true });
         if (request.url.endsWith("/capabilities/cap_req_preview/respond")) {
           return Response.json({ event: capabilityResponse });
         }
-        if (request.url.includes("/ticket?role=")) return Response.json({ socketUrl: "wss://usestoke.dev/api/ws?ticket=viewer" });
         if (request.url.includes("/runs/")) return Response.json({ run });
         return Response.json({ runs: [run] });
       },
@@ -249,7 +252,11 @@ describe("managed client", () => {
     expect(await client.listRuns(project.id)).toEqual([run]);
     expect(await client.getRun(run.id)).toEqual(run);
     expect(await client.listRunEvents(run.id, 1)).toEqual([event]);
-    expect(await client.createRunSocketTicket(run.id)).toBe("wss://usestoke.dev/api/ws?ticket=viewer");
+    expect(await client.appendRunEvent(run.id, {
+      clientEventId: "client-event-1",
+      event: event.data,
+    })).toEqual(event);
+    await client.heartbeatRun(run.id);
     expect(await client.respondRunCapability(run.id, "cap_req_preview", { result: { opened: true } }))
       .toEqual(capabilityResponse);
     expect(await client.executeProject(project.id, { operation: "plan", origin: "cli" })).toMatchObject({
@@ -264,7 +271,8 @@ describe("managed client", () => {
       `GET /api/v1/runs?projectId=${project.id}`,
       `GET /api/v1/runs/${run.id}`,
       `GET /api/v1/runs/${run.id}/events?after=1`,
-      `POST /api/v1/runs/${run.id}/ticket?role=viewer`,
+      `POST /api/v1/runs/${run.id}/events`,
+      `POST /api/v1/runs/${run.id}/heartbeat`,
       `POST /api/v1/runs/${run.id}/capabilities/cap_req_preview/respond`,
       `POST /api/v1/projects/${project.id}/executions`,
       `GET /api/v1/projects/${project.id}/state`,

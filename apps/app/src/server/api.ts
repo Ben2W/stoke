@@ -1,6 +1,8 @@
 import {
   CheckoutListResponseSchema,
   CheckoutResponseSchema,
+  AppendRunEventRequestSchema,
+  AppendRunEventResponseSchema,
   ClaimRunRequestSchema,
   ClaimRunResponseSchema,
   CreateManagedSandboxRequestSchema,
@@ -28,7 +30,7 @@ import {
   RunManagedSandboxCommandRequestSchema,
   RunListResponseSchema,
   RunResponseSchema,
-  RunSocketTicketResponseSchema,
+  HeartbeatRunResponseSchema,
   RespondRunCapabilityRequestSchema,
   RespondRunCapabilityResponseSchema,
 } from "@usestoke/managed";
@@ -54,9 +56,8 @@ import {
   startRemoteProjectExecution,
   WorkspaceRevisionRequiredError,
 } from "./remote-executions.ts";
-import { createRunSocketUrl } from "./run-tickets.ts";
 import { respondToRunCapability } from "./run-capabilities.ts";
-import { claimRun, getRun, listRunEvents, listRuns } from "./runs.ts";
+import { appendRunEvent, claimRun, getRun, heartbeatRun, listRunEvents, listRuns } from "./runs.ts";
 
 type AuthenticatedUser = Awaited<ReturnType<typeof authenticateRequest>>;
 
@@ -70,6 +71,8 @@ type ApiDependencies = {
   registerCheckout: typeof registerCheckout;
   registerDevice: typeof registerDevice;
   claimRun: typeof claimRun;
+  appendRunEvent: typeof appendRunEvent;
+  heartbeatRun: typeof heartbeatRun;
   getRun: typeof getRun;
   listRunEvents: typeof listRunEvents;
   listRuns: typeof listRuns;
@@ -99,6 +102,8 @@ const defaultDependencies: ApiDependencies = {
   registerCheckout,
   registerDevice,
   claimRun,
+  appendRunEvent,
+  heartbeatRun,
   getRun,
   listRunEvents,
   listRuns,
@@ -133,8 +138,12 @@ export function createApi(overrides: Partial<ApiDependencies> = {}) {
   const managed = new Hono<{ Variables: { user: AuthenticatedUser } }>();
   managed.use("*", async (context, next) => {
     const user = await dependencies.authenticate(context.req.raw);
-    if ("sandboxProjectId" in user && !context.req.path.startsWith("/api/v1/sandboxes")) {
-      return context.json({ error: "forbidden", message: "Sandbox credentials can only manage Vercel Sandboxes" }, 403);
+    if (
+      "sandboxProjectId" in user
+      && !context.req.path.startsWith("/api/v1/sandboxes")
+      && !isSandboxRunTransportPath(context.req.path, context.req.method)
+    ) {
+      return context.json({ error: "forbidden", message: "Sandbox credentials cannot access this resource" }, 403);
     }
     context.set("user", user);
     await next();
@@ -374,14 +383,7 @@ export function createApi(overrides: Partial<ApiDependencies> = {}) {
     }
     const user = context.get("user");
     const claimed = await dependencies.claimRun(user.id, parsed.data);
-    return context.json(ClaimRunResponseSchema.parse({
-      ...claimed,
-      socketUrl: createRunSocketUrl(context.req.url, {
-        runId: claimed.run.id,
-        userId: user.id,
-        role: claimed.disposition === "created" ? "producer" : "viewer",
-      }),
-    }), claimed.disposition === "created" ? 201 : 200);
+    return context.json(ClaimRunResponseSchema.parse(claimed), claimed.disposition === "created" ? 201 : 200);
   });
 
   managed.get("/runs", async (context) => {
@@ -399,12 +401,54 @@ export function createApi(overrides: Partial<ApiDependencies> = {}) {
     if (!Number.isSafeInteger(after) || after < 0) {
       return context.json({ error: "invalid_request", message: "after must be a non-negative integer" }, 400);
     }
-    const events = await dependencies.listRunEvents(
-      context.get("user").id,
-      context.req.param("runId"),
-      after,
-    );
+    const user = context.get("user");
+    const runId = context.req.param("runId");
+    const scopedProjectId = sandboxProjectId(user);
+    if (scopedProjectId) {
+      const run = await dependencies.getRun(user.id, runId);
+      if (scopedProjectId !== run.projectId) {
+        return context.json({ error: "forbidden" }, 403);
+      }
+    }
+    const events = await dependencies.listRunEvents(user.id, runId, after);
     return context.json(RunEventsResponseSchema.parse({ events }));
+  });
+
+  managed.post("/runs/:runId/events", async (context) => {
+    const parsed = AppendRunEventRequestSchema.safeParse(await readJson(context.req.raw));
+    if (!parsed.success) {
+      return context.json({ error: "invalid_request", issues: parsed.error.issues }, 400);
+    }
+    const user = context.get("user");
+    const runId = context.req.param("runId");
+    const scopedProjectId = sandboxProjectId(user);
+    if (scopedProjectId) {
+      const run = await dependencies.getRun(user.id, runId);
+      if (scopedProjectId !== run.projectId) {
+        return context.json({ error: "forbidden" }, 403);
+      }
+    }
+    const event = await dependencies.appendRunEvent(
+      user.id,
+      runId,
+      parsed.data.event,
+      parsed.data.clientEventId,
+    );
+    return context.json(AppendRunEventResponseSchema.parse({ event }), 201);
+  });
+
+  managed.post("/runs/:runId/heartbeat", async (context) => {
+    const user = context.get("user");
+    const runId = context.req.param("runId");
+    const scopedProjectId = sandboxProjectId(user);
+    if (scopedProjectId) {
+      const run = await dependencies.getRun(user.id, runId);
+      if (scopedProjectId !== run.projectId) {
+        return context.json({ error: "forbidden" }, 403);
+      }
+    }
+    await dependencies.heartbeatRun(user.id, runId);
+    return context.json(HeartbeatRunResponseSchema.parse({ ok: true }));
   });
 
   managed.post("/runs/:runId/capabilities/:requestId/respond", async (context) => {
@@ -419,22 +463,6 @@ export function createApi(overrides: Partial<ApiDependencies> = {}) {
       parsed.data,
     );
     return context.json(RespondRunCapabilityResponseSchema.parse({ event }));
-  });
-
-  managed.post("/runs/:runId/ticket", async (context) => {
-    const user = context.get("user");
-    const run = await dependencies.getRun(user.id, context.req.param("runId"));
-    const role = context.req.query("role") ?? "viewer";
-    if (role !== "viewer" && role !== "producer") {
-      return context.json({ error: "invalid_request", message: "role must be viewer or producer" }, 400);
-    }
-    return context.json(RunSocketTicketResponseSchema.parse({
-      socketUrl: createRunSocketUrl(context.req.url, {
-        runId: run.id,
-        userId: user.id,
-        role,
-      }),
-    }));
   });
 
   api.route("/", managed);
@@ -482,6 +510,16 @@ async function readJson(request: Request): Promise<unknown> {
 
 function sandboxProjectId(user: AuthenticatedUser): string | undefined {
   return "sandboxProjectId" in user ? user.sandboxProjectId : undefined;
+}
+
+function isSandboxRunTransportPath(path: string, method: string): boolean {
+  return (
+    /^\/api\/v1\/runs\/[^/]+\/events$/.test(path)
+    && (method === "GET" || method === "POST")
+  ) || (
+    /^\/api\/v1\/runs\/[^/]+\/heartbeat$/.test(path)
+    && method === "POST"
+  );
 }
 
 export const api = createApi();

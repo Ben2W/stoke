@@ -3,18 +3,18 @@ import type { RuntimeClient } from "@usestoke/runtime-client";
 import type {
   ManagedClient,
   ManagedRun,
-  ManagedRunEvent,
 } from "@usestoke/managed";
 import { managedClientFromEnvironment } from "./managed.ts";
 
 const CLAIM_TIMEOUT_MS = 2_500;
-const EVENT_ACK_TIMEOUT_MS = 2_500;
+const RUN_POLL_INTERVAL_MS = 750;
+const RUN_FOLLOW_TIMEOUT_MS = 5 * 60_000;
+const HEARTBEAT_INTERVAL_MS = 20_000;
 
 export type ManagedApplyClaim = {
   client: ManagedClient;
   run: ManagedRun;
   disposition: "created" | "joined";
-  socketUrl: string;
 };
 
 export type ManagedRunPublisher = {
@@ -68,112 +68,70 @@ export async function tryClaimManagedApply(
 }
 
 export function createManagedRunPublisher(
-  socketUrl: string,
-  refreshSocketUrl?: () => Promise<string>,
+  client: ManagedClient,
+  runId: string,
   required = false,
 ): ManagedRunPublisher {
-  const queue: string[] = [];
-  const pending = new Map<string, () => void>();
-  const queuedHostResponses: ManagedHostResponse[] = [];
   let hostResponseHandler: ((response: ManagedHostResponse) => void | Promise<void>) | undefined;
-  let socket: WebSocket | undefined;
-  let reconnect: ReturnType<typeof setTimeout> | undefined;
+  let responseCursor = 0;
+  let responsePoll: ReturnType<typeof setInterval> | undefined;
+  let responsePolling = false;
   let closed = false;
 
-  function connect(url: string): void {
-    if (closed) return;
-    socket = new WebSocket(url);
-    socket.addEventListener("open", () => {
-      for (const message of queue.splice(0)) socket?.send(message);
-    });
-    socket.addEventListener("message", (message) => {
-      try {
-        const data = JSON.parse(String(message.data)) as Record<string, unknown>;
-        if (data.type === "event.ack" && typeof data.clientEventId === "string") {
-          pending.get(data.clientEventId)?.();
-          pending.delete(data.clientEventId);
-        }
-        if (data.type === "host.response" && typeof data.id === "string") {
-          const response: ManagedHostResponse = {
-            id: data.id,
-            ...(data.result !== undefined ? { result: data.result } : {}),
-            ...(isHostResponseError(data.error) ? { error: data.error } : {}),
-          };
-          if (hostResponseHandler) void Promise.resolve(hostResponseHandler(response)).catch(() => undefined);
-          else queuedHostResponses.push(response);
-        }
-      } catch {
-        // Managed telemetry is intentionally best-effort.
-      }
-    });
-    socket.addEventListener("close", () => {
-      socket = undefined;
-      if (!closed && refreshSocketUrl) {
-        reconnect = setTimeout(async () => {
-          try {
-            connect(await refreshSocketUrl());
-          } catch {
-            if (!closed) connectLater();
-          }
-        }, 1_000);
-      }
-    });
-    socket.addEventListener("error", () => {
-      // Local execution must continue if managed telemetry is unavailable.
-    });
-  }
-
-  function connectLater(): void {
-    reconnect = setTimeout(async () => {
-      try {
-        if (refreshSocketUrl) connect(await refreshSocketUrl());
-      } catch {
-        if (!closed) connectLater();
-      }
-    }, 2_500);
-  }
-
-  connect(socketUrl);
-
   const heartbeat = setInterval(() => {
-    send(JSON.stringify({ type: "heartbeat" }));
-  }, 20_000);
+    if (!closed) void client.heartbeatRun(runId).catch(() => undefined);
+  }, HEARTBEAT_INTERVAL_MS);
 
-  function send(message: string): void {
-    if (closed) return;
-    if (socket?.readyState === WebSocket.OPEN) socket.send(message);
-    else if (queue.length < 500) queue.push(message);
+  async function pollHostResponses(): Promise<void> {
+    if (closed || responsePolling || !hostResponseHandler) return;
+    responsePolling = true;
+    try {
+      const events = await client.listRunEvents(runId, responseCursor);
+      if (events.length) responseCursor = events.at(-1)?.id ?? responseCursor;
+      for (const event of events) {
+        if (
+          event.data.type !== "host.capability.response"
+          || typeof event.data.requestId !== "string"
+        ) continue;
+        await hostResponseHandler({
+          id: event.data.requestId,
+          ...(event.data.result !== undefined ? { result: event.data.result } : {}),
+          ...(isHostResponseError(event.data.error) ? { error: event.data.error } : {}),
+        });
+      }
+    } catch {
+      // The next poll catches up from the last persisted event cursor.
+    } finally {
+      responsePolling = false;
+    }
   }
 
   return {
     async publish(event, waitForAck = false) {
-      const id = randomUUID();
-      let acknowledgement: Promise<void> | undefined;
-      if (waitForAck) {
-        acknowledgement = new Promise((resolve) => pending.set(id, resolve));
+      if (!isManagedRunEvent(event)) {
+        const error = new Error("Managed run events require a string type");
+        if (required || waitForAck) throw error;
+        return;
       }
-      send(JSON.stringify({ type: "event", id, event }));
-      if (acknowledgement) {
-        const acknowledged = withTimeout(acknowledgement, EVENT_ACK_TIMEOUT_MS);
-        if (required) await acknowledged;
-        else await acknowledged.catch(() => undefined);
-      }
+      const request = client.appendRunEvent(runId, {
+        clientEventId: randomUUID(),
+        event,
+      });
+      if (required || waitForAck) await request;
+      else await request.catch(() => undefined);
     },
     onHostResponse(handler) {
       hostResponseHandler = handler;
-      for (const response of queuedHostResponses.splice(0)) {
-        void Promise.resolve(handler(response)).catch(() => undefined);
+      if (!responsePoll) {
+        void pollHostResponses();
+        responsePoll = setInterval(() => void pollHostResponses(), RUN_POLL_INTERVAL_MS);
       }
     },
     close() {
       closed = true;
       clearInterval(heartbeat);
-      if (reconnect) clearTimeout(reconnect);
-      for (const resolve of pending.values()) resolve();
-      pending.clear();
-      queuedHostResponses.length = 0;
+      if (responsePoll) clearInterval(responsePoll);
       hostResponseHandler = undefined;
-      if (socket?.readyState === WebSocket.OPEN || socket?.readyState === WebSocket.CONNECTING) socket.close();
     },
   };
 }
@@ -182,20 +140,33 @@ function isHostResponseError(value: unknown): value is { code?: string; message?
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function isManagedRunEvent(value: unknown): value is { type: string; [key: string]: unknown } {
+  return typeof value === "object"
+    && value !== null
+    && !Array.isArray(value)
+    && "type" in value
+    && typeof value.type === "string";
+}
+
 export async function followManagedRun(
   claim: ManagedApplyClaim,
   onEvent: (event: { type: string; [key: string]: unknown }) => void,
 ): Promise<ManagedRun> {
-  let socketUrl = claim.socketUrl;
-  for (let attempt = 0; attempt < 12; attempt += 1) {
-    const observed = await observeSocket(socketUrl, onEvent).catch(() => undefined);
-    if (observed && observed.status !== "running") return observed;
+  const deadline = Date.now() + RUN_FOLLOW_TIMEOUT_MS;
+  let cursor = 0;
+  while (Date.now() < deadline) {
+    const events = await claim.client.listRunEvents(claim.run.id, cursor);
+    if (events.length) cursor = events.at(-1)?.id ?? cursor;
+    for (const event of events) {
+      if (typeof event.data.type === "string") {
+        onEvent(event.data as { type: string; [key: string]: unknown });
+      }
+    }
     const run = await claim.client.getRun(claim.run.id);
     if (run.status !== "running") return run;
-    await delay(Math.min(250 * 2 ** attempt, 4_000));
-    socketUrl = await claim.client.createRunSocketTicket(run.id, "viewer");
+    await delay(RUN_POLL_INTERVAL_MS);
   }
-  throw new Error(`Managed run ${claim.run.id} remained unavailable`);
+  throw new Error(`Managed run ${claim.run.id} did not finish within five minutes`);
 }
 
 export function managedRunResult(run: ManagedRun): Record<string, unknown> {
@@ -213,46 +184,6 @@ export function managedRunResult(run: ManagedRun): Record<string, unknown> {
       nodes: [],
     },
   };
-}
-
-function observeSocket(
-  socketUrl: string,
-  onEvent: (event: { type: string; [key: string]: unknown }) => void,
-): Promise<ManagedRun | undefined> {
-  return new Promise((resolve, reject) => {
-    const socket = new WebSocket(socketUrl);
-    let latest: ManagedRun | undefined;
-    socket.addEventListener("message", (message) => {
-      try {
-        const data = JSON.parse(String(message.data)) as Record<string, unknown>;
-        if (data.type === "events" && Array.isArray(data.events)) {
-          for (const item of data.events as ManagedRunEvent[]) {
-            if (typeof item.data.type === "string") {
-              onEvent(item.data as { type: string; [key: string]: unknown });
-            }
-          }
-        }
-        if (data.type === "run" && isManagedRun(data.run)) {
-          latest = data.run;
-          if (latest.status !== "running") {
-            socket.close();
-            resolve(latest);
-          }
-        }
-      } catch (error) {
-        socket.close();
-        reject(error);
-      }
-    });
-    socket.addEventListener("error", () => reject(new Error("Managed run socket failed")));
-    socket.addEventListener("close", () => resolve(latest));
-  });
-}
-
-function isManagedRun(value: unknown): value is ManagedRun {
-  return typeof value === "object" && value !== null &&
-    "id" in value && typeof value.id === "string" &&
-    "status" in value && typeof value.status === "string";
 }
 
 function stableJson(value: unknown): string {

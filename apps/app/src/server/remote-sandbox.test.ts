@@ -65,7 +65,7 @@ describe("isolated remote evaluator", () => {
       project,
       request,
       state,
-      producerSocketUrl: "wss://usestoke.dev/runs/test",
+      runId: "2923c579-7457-410c-a5bb-d47cd7131f0a",
       revision: "e587a05a934ac7be12bf5233102939d4479f8625",
       sandboxToken,
     }, { create });
@@ -91,6 +91,7 @@ describe("isolated remote evaluator", () => {
     expect(commands.filter((command) => command.cmd === "bun" && command.args?.includes("ls"))).toHaveLength(2);
     expect(commands.filter((command) => command.cmd === "bun" && command.args?.includes("plan"))).toHaveLength(2);
     expect(commands.at(-1)?.env).toMatchObject({
+      STOKE_MANAGED_RUN_ID: "2923c579-7457-410c-a5bb-d47cd7131f0a",
       STOKE_RUNTIME_STATE_REVISION: "3",
       STOKE_SOURCE_REVISION: "e587a05a934ac7be12bf5233102939d4479f8625",
       STOKE_TOKEN_FILE: "/tmp/stoke-sandbox-token",
@@ -139,7 +140,7 @@ describe("isolated remote evaluator", () => {
         origin: "dashboard",
       },
       state,
-      producerSocketUrl: "wss://usestoke.dev/runs/test",
+      runId: "2923c579-7457-410c-a5bb-d47cd7131f0a",
       revision: "revision-one",
       sandboxToken: "sandbox-token",
       onStage: (stage) => { stages.push(stage); },

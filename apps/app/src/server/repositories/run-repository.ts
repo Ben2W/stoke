@@ -140,10 +140,27 @@ export const runRepository = {
       .limit(500);
   },
 
-  async appendEvent(input: typeof runEvents.$inferInsert): Promise<RunEventRow> {
-    const [row] = await getDatabase().insert(runEvents).values(input).returning();
-    if (!row) throw new Error("Postgres did not return the appended run event");
+  async findEventByClientId(runId: string, clientEventId: string): Promise<RunEventRow | undefined> {
+    const [row] = await getDatabase()
+      .select()
+      .from(runEvents)
+      .where(and(eq(runEvents.runId, runId), eq(runEvents.clientEventId, clientEventId)))
+      .limit(1);
     return row;
+  },
+
+  async appendEvent(input: typeof runEvents.$inferInsert): Promise<{ row: RunEventRow; created: boolean }> {
+    const [row] = await getDatabase()
+      .insert(runEvents)
+      .values(input)
+      .onConflictDoNothing()
+      .returning();
+    if (row) return { row, created: true };
+    if (input.clientEventId) {
+      const existing = await this.findEventByClientId(input.runId, input.clientEventId);
+      if (existing) return { row: existing, created: false };
+    }
+    throw new Error("Postgres did not return the appended run event");
   },
 
   async update(userId: string, runId: string, values: Partial<typeof runs.$inferInsert>): Promise<void> {

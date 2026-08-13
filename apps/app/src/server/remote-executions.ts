@@ -9,7 +9,6 @@ import type {
 import { getProject } from "./projects.ts";
 import { resolvePublicGitHubRevision } from "./github-repository.ts";
 import { getProjectState, updateProjectState } from "./project-state.ts";
-import { createRunSocketUrl } from "./run-tickets.ts";
 import {
   runRemoteSandbox,
   type RemoteSandboxResult,
@@ -134,11 +133,7 @@ async function completeRemoteProjectExecution(
         project,
         request,
         state: projectState,
-        producerSocketUrl: createRunSocketUrl(controlPlaneUrl(), {
-          runId: run.id,
-          userId,
-          role: "producer",
-        }),
+        runId: run.id,
         revision,
         sandboxToken: createSandboxTicket(userId, project.id),
         onStage: async (stage) => {
@@ -210,14 +205,6 @@ async function appendPlanNodes(
     workflow: plan.workflow,
     nodes: plan.nodes,
   });
-}
-
-function controlPlaneUrl(): string {
-  if (process.env.BETTER_AUTH_URL) return process.env.BETTER_AUTH_URL;
-  if (process.env.VERCEL_PROJECT_PRODUCTION_URL) {
-    return `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`;
-  }
-  return "https://usestoke.dev";
 }
 
 export class RemoteExecutionError extends Error {

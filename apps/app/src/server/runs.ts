@@ -157,19 +157,32 @@ export async function appendRunEvent(
   userId: string,
   runId: string,
   value: unknown,
+  clientEventId?: string,
 ): Promise<ManagedRunEvent> {
   const run = await getRun(userId, runId);
+  if (clientEventId) {
+    const existing = await runRepository.findEventByClientId(runId, clientEventId);
+    if (existing) return toManagedRunEvent(existing);
+  }
   const data = sanitizeRunEvent(value);
   const type = data.type as string;
   if (run.status !== "running" && !acceptsPostFailureEvent(run.status, type)) {
     throw new Error("Managed run is no longer active");
   }
   const now = new Date();
-  const row = await runRepository.appendEvent({ runId, type, data, createdAt: now });
+  const appended = await runRepository.appendEvent({
+    runId,
+    clientEventId,
+    type,
+    data,
+    createdAt: now,
+  });
 
-  const lifecycle = runUpdateForEvent(data, now);
-  await runRepository.update(userId, runId, { updatedAt: now, ...lifecycle });
-  return toManagedRunEvent(row);
+  if (appended.created) {
+    const lifecycle = runUpdateForEvent(data, now);
+    await runRepository.update(userId, runId, { updatedAt: now, ...lifecycle });
+  }
+  return toManagedRunEvent(appended.row);
 }
 
 function acceptsPostFailureEvent(status: ManagedRun["status"], type: string): boolean {

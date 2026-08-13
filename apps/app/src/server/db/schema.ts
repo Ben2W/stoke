@@ -226,11 +226,17 @@ export const runEvents = pgTable(
     runId: uuid("run_id")
       .notNull()
       .references(() => runs.id, { onDelete: "cascade" }),
+    clientEventId: text("client_event_id"),
     type: text("type").notNull(),
     data: jsonb("data").$type<Record<string, unknown>>().notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },
-  (table) => [index("run_events_run_id_id_idx").on(table.runId, table.id)],
+  (table) => [
+    index("run_events_run_id_id_idx").on(table.runId, table.id),
+    uniqueIndex("run_events_run_client_event_uidx")
+      .on(table.runId, table.clientEventId)
+      .where(sql`${table.clientEventId} is not null`),
+  ],
 );
 
 export const userRelations = relations(user, ({ many }) => ({

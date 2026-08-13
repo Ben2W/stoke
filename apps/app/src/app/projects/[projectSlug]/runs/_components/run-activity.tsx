@@ -31,7 +31,7 @@ export function RunActivity({ className = "mt-8", project }: { className?: strin
           <h2 className="text-sm font-medium" id="activity-heading">Runs</h2>
           <p className="mt-1 text-xs text-zinc-500">The same live execution stream shown by the CLI.</p>
         </div>
-        <span className="inline-flex items-center gap-1.5 text-[11px] text-zinc-400"><span className="size-1.5 rounded-full bg-emerald-500" /> Postgres + WebSocket</span>
+        <span className="inline-flex items-center gap-1.5 text-[11px] text-zinc-400"><span className="size-1.5 rounded-full bg-emerald-500" /> Postgres + API polling</span>
       </div>
 
       {runs.length && selectedRun ? (

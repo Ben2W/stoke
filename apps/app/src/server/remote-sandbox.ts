@@ -37,7 +37,7 @@ export type RunRemoteSandboxInput = {
   project: ManagedProject;
   request: RemoteExecutionRequest;
   state: ProjectStateResponse;
-  producerSocketUrl: string;
+  runId: string;
   revision: string;
   sandboxToken: string;
   onStage?: (stage: RemoteSandboxStage) => Promise<void> | void;
@@ -108,17 +108,14 @@ export async function runRemoteSandbox(
     STOKE_RUNTIME_STATE_REVISION: String(input.state.revision),
     ...(input.request.origin === "dashboard" ? { STOKE_WORKSPACE_ORIGIN: "dashboard" } : {}),
   };
-  const commandEnvironment = {
-    ...baseCommandEnvironment,
-    STOKE_MANAGED_RUN_SOCKET_URL: input.producerSocketUrl,
-  };
+  const commandEnvironment = { ...baseCommandEnvironment, STOKE_MANAGED_RUN_ID: input.runId };
   let workflow = input.request.workflow;
   if (!workflow) {
     const discovered = await runCommand(sandbox, input, "discover-workflow", {
       cmd: "bun",
       args: [STOKE_CLI_PATH, "ls", "--json"],
       // Workflow discovery is setup, not part of the requested run. Keeping it
-      // off the managed socket prevents a duplicate task flow in the dashboard.
+      // out of the managed run transport prevents a duplicate task flow in the dashboard.
       env: baseCommandEnvironment,
     });
     workflow = singleWorkflowFromList(await discovered.stdout());

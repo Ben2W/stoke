@@ -8,6 +8,7 @@ import {
   type RegisterDeviceRequest,
   type ClaimRunRequest,
   type ClaimRunResponse,
+  type AppendRunEventRequest,
   type ManagedRun,
   type ManagedRunEvent,
   type RespondRunCapabilityRequest,
@@ -32,10 +33,12 @@ import {
   RegisterDeviceRequestSchema,
   ClaimRunRequestSchema,
   ClaimRunResponseSchema,
+  AppendRunEventRequestSchema,
+  AppendRunEventResponseSchema,
+  HeartbeatRunResponseSchema,
   RunEventsResponseSchema,
   RunListResponseSchema,
   RunResponseSchema,
-  RunSocketTicketResponseSchema,
   RespondRunCapabilityRequestSchema,
   RespondRunCapabilityResponseSchema,
   RemoteExecutionRequestSchema,
@@ -77,7 +80,8 @@ export type ManagedClient = {
   listRuns(projectId?: string): Promise<ManagedRun[]>;
   getRun(runId: string): Promise<ManagedRun>;
   listRunEvents(runId: string, after?: number): Promise<ManagedRunEvent[]>;
-  createRunSocketTicket(runId: string, role?: "viewer" | "producer"): Promise<string>;
+  appendRunEvent(runId: string, input: AppendRunEventRequest): Promise<ManagedRunEvent>;
+  heartbeatRun(runId: string): Promise<void>;
   respondRunCapability(
     runId: string,
     requestId: string,
@@ -234,10 +238,18 @@ export function createManagedClient(options: ManagedClientOptions): ManagedClien
         await request(`/api/v1/runs/${encodeURIComponent(runId)}/events${query}`),
       ).events;
     },
-    async createRunSocketTicket(runId, role = "viewer") {
-      return RunSocketTicketResponseSchema.parse(
-        await request(`/api/v1/runs/${encodeURIComponent(runId)}/ticket?role=${role}`, { method: "POST" }),
-      ).socketUrl;
+    async appendRunEvent(runId, input) {
+      const payload = AppendRunEventRequestSchema.parse(input);
+      return AppendRunEventResponseSchema.parse(await request(
+        `/api/v1/runs/${encodeURIComponent(runId)}/events`,
+        { method: "POST", body: JSON.stringify(payload) },
+      )).event;
+    },
+    async heartbeatRun(runId) {
+      HeartbeatRunResponseSchema.parse(await request(
+        `/api/v1/runs/${encodeURIComponent(runId)}/heartbeat`,
+        { method: "POST" },
+      ));
     },
     async respondRunCapability(runId, requestId, input) {
       const payload = RespondRunCapabilityRequestSchema.parse(input);

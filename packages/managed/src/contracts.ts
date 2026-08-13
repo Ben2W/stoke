@@ -234,13 +234,17 @@ export const ClaimRunRequestSchema = z.object({
 export const ClaimRunResponseSchema = z.object({
   run: ManagedRunSchema,
   disposition: z.enum(["created", "joined"]),
-  socketUrl: z.url(),
 });
 
 export const RunListResponseSchema = z.object({ runs: z.array(ManagedRunSchema) });
 export const RunResponseSchema = z.object({ run: ManagedRunSchema });
 export const RunEventsResponseSchema = z.object({ events: z.array(ManagedRunEventSchema) });
-export const RunSocketTicketResponseSchema = z.object({ socketUrl: z.url() });
+export const AppendRunEventRequestSchema = z.object({
+  clientEventId: z.string().min(1).max(120),
+  event: z.object({ type: z.string().min(1).max(100) }).catchall(z.unknown()),
+});
+export const AppendRunEventResponseSchema = z.object({ event: ManagedRunEventSchema });
+export const HeartbeatRunResponseSchema = z.object({ ok: z.literal(true) });
 export const RespondRunCapabilityRequestSchema = z.object({
   result: z.record(z.string(), z.unknown()),
 });
@@ -358,6 +362,7 @@ export type ManagedRunOperation = z.infer<typeof ManagedRunOperationSchema>;
 export type ManagedRunOrigin = z.infer<typeof ManagedRunOriginSchema>;
 export type ManagedRun = z.infer<typeof ManagedRunSchema>;
 export type ManagedRunEvent = z.infer<typeof ManagedRunEventSchema>;
+export type AppendRunEventRequest = z.infer<typeof AppendRunEventRequestSchema>;
 export type RespondRunCapabilityRequest = z.infer<typeof RespondRunCapabilityRequestSchema>;
 export type RespondRunCapabilityResponse = z.infer<typeof RespondRunCapabilityResponseSchema>;
 export type ClaimRunRequest = z.infer<typeof ClaimRunRequestSchema>;

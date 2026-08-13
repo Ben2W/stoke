@@ -496,6 +496,18 @@ describe("Hono control-plane API", () => {
         expect([userId, runId, after]).toEqual([user.id, run.id, 0]);
         return [runEvent];
       },
+      appendRunEvent: async (userId, runId, event, clientEventId) => {
+        expect({ userId, runId, event, clientEventId }).toEqual({
+          userId: user.id,
+          runId: run.id,
+          event: runEvent.data,
+          clientEventId: "client-event-1",
+        });
+        return runEvent;
+      },
+      heartbeatRun: async (userId, runId) => {
+        expect([userId, runId]).toEqual([user.id, run.id]);
+      },
     });
 
     const claim = await api.request("http://localhost/api/v1/runs/claim", {
@@ -513,15 +525,56 @@ describe("Hono control-plane API", () => {
     expect(await claim.json()).toMatchObject({
       run,
       disposition: "created",
-      socketUrl: expect.stringMatching(/^ws:\/\/localhost\/api\/ws\?ticket=/),
     });
 
     const listed = await api.request(`http://localhost/api/v1/runs?projectId=${project.id}`);
     expect(await listed.json()).toEqual({ runs: [run] });
     const events = await api.request(`http://localhost/api/v1/runs/${run.id}/events`);
     expect(await events.json()).toEqual({ events: [runEvent] });
-    const ticket = await api.request(`http://localhost/api/v1/runs/${run.id}/ticket`, { method: "POST" });
-    expect(await ticket.json()).toMatchObject({ socketUrl: expect.stringMatching(/^ws:\/\/localhost\/api\/ws\?ticket=/) });
+    const appended = await api.request(`http://localhost/api/v1/runs/${run.id}/events`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ clientEventId: "client-event-1", event: runEvent.data }),
+    });
+    expect(appended.status).toBe(201);
+    expect(await appended.json()).toEqual({ event: runEvent });
+    const heartbeat = await api.request(`http://localhost/api/v1/runs/${run.id}/heartbeat`, { method: "POST" });
+    expect(await heartbeat.json()).toEqual({ ok: true });
+  });
+
+  test("limits Sandbox run transport writes to the ticket's project", async () => {
+    const otherRun = {
+      ...run,
+      id: "3923c579-7457-410c-a5bb-d47cd7131f0a",
+      projectId: "495df42b-48da-4a02-926b-60def0ee77cf",
+    };
+    const appended: string[] = [];
+    const api = createApi({
+      authenticate: async () => ({ ...user, sandboxProjectId: project.id }),
+      getRun: async (_userId, runId) => runId === otherRun.id ? otherRun : run,
+      appendRunEvent: async (_userId, runId) => {
+        appended.push(runId);
+        return runEvent;
+      },
+    });
+    const body = JSON.stringify({ clientEventId: "sandbox-event-1", event: runEvent.data });
+
+    const accepted = await api.request(`http://localhost/api/v1/runs/${run.id}/events`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body,
+    });
+    const rejected = await api.request(`http://localhost/api/v1/runs/${otherRun.id}/events`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body,
+    });
+    const projects = await api.request("http://localhost/api/v1/projects");
+
+    expect(accepted.status).toBe(201);
+    expect(rejected.status).toBe(403);
+    expect(projects.status).toBe(403);
+    expect(appended).toEqual([run.id]);
   });
 
   test("acknowledges a dashboard host capability after the user acts", async () => {
