@@ -43,6 +43,20 @@ describe("live cache graph", () => {
     expect(graph.activities.has(invalidated.id)).toBe(false);
   });
 
+  test("does not let a bridged completed apply override cleared cache state", () => {
+    const planned = taskFlow([task("resolve", "cached", "cleared-run")]);
+    const completedApply = taskFlow([task("resolve", "completed", "cleared-run")]);
+
+    const graph = projectCacheGraph(
+      [],
+      { flow: planned, run: managedRun("plan", "completed") },
+      { flow: completedApply, run: managedRun("apply", "completed") },
+    );
+
+    expect(graph.entries[0]?.invalidated).toBe(true);
+    expect(graph.activities.size).toBe(0);
+  });
+
   test("plays active apply states over the planned graph", () => {
     const plan = taskFlow([task("resolve", "pending"), task("install", "pending")]);
     const active = taskFlow([task("resolve", "completed", "new-resolve"), task("install", "running")]);
