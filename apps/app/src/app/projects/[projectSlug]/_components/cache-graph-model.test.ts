@@ -20,6 +20,29 @@ describe("live cache graph", () => {
     expect(graph.activities.get(graph.entries[1]!.id)?.status).toBe("pending");
   });
 
+  test("treats a cached plan result missing from the authoritative cache as invalidated", () => {
+    const flow = taskFlow([
+      task("resolve", "cached", "cleared-run"),
+      task("install", "cached", "invalidated-run"),
+    ]);
+
+    const graph = projectCacheGraph([], { flow, run: managedRun("plan", "completed") });
+
+    expect(graph.entries).toHaveLength(2);
+    expect(graph.entries.every((entry) => entry.invalidated)).toBe(true);
+    expect(graph.activities.size).toBe(0);
+  });
+
+  test("does not let historical cached activity override an invalidated entry", () => {
+    const invalidated = { ...cacheEntry("invalidated-run", "resolve"), invalidated: true };
+    const flow = taskFlow([task("resolve", "cached", invalidated.id)]);
+
+    const graph = projectCacheGraph([invalidated], { flow, run: managedRun("plan", "completed") });
+
+    expect(graph.entries[0]?.invalidated).toBe(true);
+    expect(graph.activities.has(invalidated.id)).toBe(false);
+  });
+
   test("plays active apply states over the planned graph", () => {
     const plan = taskFlow([task("resolve", "pending"), task("install", "pending")]);
     const active = taskFlow([task("resolve", "completed", "new-resolve"), task("install", "running")]);

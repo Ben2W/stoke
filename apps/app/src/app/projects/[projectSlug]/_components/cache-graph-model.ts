@@ -48,9 +48,20 @@ function projectTasks(
 
   for (const task of tasks) {
     const cached = task.runId ? entryByRunId.get(task.runId) : undefined;
-    const entry = cached ?? syntheticEntry(task, run, resolveUpstreamIds(task, entryByRunId, projectedIdByRunId, previousId));
+    // A completed plan is historical; the cache response is authoritative. If a
+    // task was cached during that plan but its run is no longer present, it has
+    // since been invalidated or cleared.
+    const missingCachedRun = task.status === "cached" && Boolean(task.runId) && !cached;
+    const entry = cached ?? syntheticEntry(
+      task,
+      run,
+      resolveUpstreamIds(task, entryByRunId, projectedIdByRunId, previousId),
+      missingCachedRun,
+    );
     projected.push(entry);
-    activities.set(entry.id, { status: task.status, synthetic: !cached });
+    if (!entry.invalidated) {
+      activities.set(entry.id, { status: task.status, synthetic: !cached });
+    }
     if (task.runId) projectedIdByRunId.set(task.runId, entry.id);
     previousId = entry.id;
   }
@@ -92,7 +103,12 @@ function resolveUpstreamIds(
   return resolved.length ? resolved : previousId ? [previousId] : [];
 }
 
-function syntheticEntry(task: RunTask, run: ManagedRun, upstreamRunIds: string[]): ManagedCacheEntry {
+function syntheticEntry(
+  task: RunTask,
+  run: ManagedRun,
+  upstreamRunIds: string[],
+  invalidated = false,
+): ManagedCacheEntry {
   return {
     id: `run:${run.id}:${task.nodePath}`,
     scope: "planned",
@@ -102,7 +118,7 @@ function syntheticEntry(task: RunTask, run: ManagedRun, upstreamRunIds: string[]
     nodeKind: "task",
     fingerprint: run.fingerprint,
     upstreamRunIds,
-    invalidated: false,
+    invalidated,
     createdAt: task.startedAt ?? run.startedAt,
   };
 }
