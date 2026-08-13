@@ -29,6 +29,10 @@ export type ManagedHostResponse = {
   error?: { code?: string; message?: string };
 };
 
+export type ManagedHostResponseCursor = {
+  value: number;
+};
+
 export async function tryClaimManagedApply(
   runtime: RuntimeClient,
   operation: string,
@@ -73,7 +77,7 @@ export function createManagedRunPublisher(
   required = false,
 ): ManagedRunPublisher {
   let hostResponseHandler: ((response: ManagedHostResponse) => void | Promise<void>) | undefined;
-  let responseCursor = 0;
+  const responseCursor: ManagedHostResponseCursor = { value: 0 };
   let responsePolling = false;
   let notificationSocket: WebSocket | undefined;
   let reconnect: ReturnType<typeof setTimeout> | undefined;
@@ -90,21 +94,10 @@ export function createManagedRunPublisher(
     if (closed || responsePolling || !hostResponseHandler) return;
     responsePolling = true;
     try {
-      const events = await client.listRunEvents(runId, responseCursor);
-      if (events.length) responseCursor = events.at(-1)?.id ?? responseCursor;
-      for (const event of events) {
-        if (
-          event.data.type !== "host.capability.response"
-          || typeof event.data.requestId !== "string"
-        ) continue;
-        await hostResponseHandler({
-          id: event.data.requestId,
-          ...(event.data.result !== undefined ? { result: event.data.result } : {}),
-          ...(isHostResponseError(event.data.error) ? { error: event.data.error } : {}),
-        });
-      }
+      await relayManagedHostResponses(client, runId, responseCursor, hostResponseHandler);
     } catch {
-      // The next poll catches up from the last persisted event cursor.
+      // The cursor advances only after the runtime accepts each response, so the
+      // next notification or fallback poll safely retries transient failures.
     } finally {
       responsePolling = false;
     }
@@ -171,6 +164,28 @@ export function createManagedRunPublisher(
       hostResponseHandler = undefined;
     },
   };
+}
+
+export async function relayManagedHostResponses(
+  client: ManagedClient,
+  runId: string,
+  cursor: ManagedHostResponseCursor,
+  handler: (response: ManagedHostResponse) => void | Promise<void>,
+): Promise<void> {
+  const events = await client.listRunEvents(runId, cursor.value);
+  for (const event of events) {
+    if (
+      event.data.type === "host.capability.response"
+      && typeof event.data.requestId === "string"
+    ) {
+      await handler({
+        id: event.data.requestId,
+        ...(event.data.result !== undefined ? { result: event.data.result } : {}),
+        ...(isHostResponseError(event.data.error) ? { error: event.data.error } : {}),
+      });
+    }
+    cursor.value = event.id;
+  }
 }
 
 function isHostResponseError(value: unknown): value is { code?: string; message?: string } {

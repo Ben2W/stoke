@@ -3,6 +3,7 @@ import type { ManagedClient, ManagedRun } from "@usestoke/managed";
 import {
   createManagedRunPublisher,
   followManagedRun,
+  relayManagedHostResponses,
   type ManagedApplyClaim,
 } from "./managed-run.ts";
 
@@ -73,6 +74,57 @@ describe("managed run HTTP transport", () => {
     publisher.close();
 
     expect(response).toEqual({ id: "cap_req_preview", result: { opened: true } });
+  });
+
+  test("retries a persisted host response until the runtime accepts it", async () => {
+    const events = [
+      {
+        id: 1,
+        runId: run.id,
+        type: "host.capability.response",
+        data: {
+          type: "host.capability.response",
+          requestId: "cap_req_first",
+          result: { opened: true },
+        },
+        createdAt: "2026-08-04T00:00:01.000Z",
+      },
+      {
+        id: 2,
+        runId: run.id,
+        type: "host.capability.response",
+        data: {
+          type: "host.capability.response",
+          requestId: "cap_req_retry",
+          result: { opened: true },
+        },
+        createdAt: "2026-08-04T00:00:02.000Z",
+      },
+    ];
+    const client = {
+      listRunEvents: async (_runId: string, after: number) =>
+        events.filter((event) => event.id > after),
+    } as unknown as ManagedClient;
+    const cursor = { value: 0 };
+    const attempts: string[] = [];
+    let rejectRetry = true;
+    const handler = async (response: { id: string }) => {
+      attempts.push(response.id);
+      if (response.id === "cap_req_retry" && rejectRetry) {
+        rejectRetry = false;
+        throw new Error("runtime request is not ready yet");
+      }
+    };
+
+    await expect(relayManagedHostResponses(client, run.id, cursor, handler)).rejects.toThrow(
+      "runtime request is not ready yet",
+    );
+    expect(cursor.value).toBe(1);
+
+    await relayManagedHostResponses(client, run.id, cursor, handler);
+
+    expect(cursor.value).toBe(2);
+    expect(attempts).toEqual(["cap_req_first", "cap_req_retry", "cap_req_retry"]);
   });
 
   test("follows a joined run from authoritative events and status", async () => {

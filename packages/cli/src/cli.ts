@@ -2842,15 +2842,14 @@ async function runRuntimeOperation<T>(
           hostCapabilities: effectiveCliHostCapabilities(),
         },
         onOpen(session) {
-          managedPublisher?.onHostResponse((response) => {
+          managedPublisher?.onHostResponse(async (response) => {
+            await runtime.control.hostResponse(
+              response.id,
+              response.error ? { error: response.error } : { result: response.result },
+            );
             const timeout = dashboardCapabilityTimeouts.get(response.id);
             if (timeout) clearTimeout(timeout);
             dashboardCapabilityTimeouts.delete(response.id);
-            session.send({
-              type: "response",
-              id: response.id,
-              ...(response.error ? { error: response.error } : { result: response.result }),
-            });
           });
           return installRunCancelHandler(session);
         },
