@@ -82,12 +82,19 @@ function mergeActiveTasks(
     const existing = cached
       ? projected.find((entry) => entry.id === cached.id)
       : projected.find((entry) => entry.nodePath === task.nodePath);
-    const entry = existing ?? cached ?? syntheticEntry(task, run, task.upstreamRunIds.length ? task.upstreamRunIds : previousId ? [previousId] : []);
+    let entry = existing ?? cached ?? syntheticEntry(task, run, task.upstreamRunIds.length ? task.upstreamRunIds : previousId ? [previousId] : []);
+    const historicalResultMissing = run.status !== "running" && Boolean(task.runId) && !cached;
+    if (historicalResultMissing && !entry.invalidated) {
+      entry = { ...entry, invalidated: true };
+      if (existing) projected[projected.indexOf(existing)] = entry;
+    }
     if (!existing) projected.push(entry);
     // A completed execution is historical once the authoritative cache says
     // its result was invalidated or cleared. Only an execution that is still
     // running may temporarily paint live activity over that cache state.
-    if (!entry.invalidated || run.status === "running") {
+    if (entry.invalidated && run.status !== "running") {
+      activities.delete(entry.id);
+    } else {
       activities.set(entry.id, { status: task.status, synthetic: !sourceEntries.some((candidate) => candidate.id === entry.id) });
     }
     previousId = entry.id;

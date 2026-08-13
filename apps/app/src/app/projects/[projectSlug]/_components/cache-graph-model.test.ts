@@ -44,7 +44,7 @@ describe("live cache graph", () => {
   });
 
   test("does not let a bridged completed apply override cleared cache state", () => {
-    const planned = taskFlow([task("resolve", "cached", "cleared-run")]);
+    const planned = taskFlow([task("resolve", "pending")]);
     const completedApply = taskFlow([task("resolve", "completed", "cleared-run")]);
 
     const graph = projectCacheGraph(
