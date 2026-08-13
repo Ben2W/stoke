@@ -76,7 +76,9 @@ describe("remote managed execution", () => {
         stateWrites += 1;
         return { revision: input.expectedRevision + 1, snapshot: input.snapshot };
       },
-      resolveGitHubRevision: async () => "e587a05a934ac7be12bf5233102939d4479f8625",
+      resolveGitHubRevision: async () => {
+        throw new Error("Pinned workspace operations must not resolve GitHub HEAD");
+      },
       runSandbox: async (input) => {
         expect(input.revision).toBe(pinnedRevision);
         return { result: { ok: true }, state: structuredClone(managedStateWithWorkspace) };
@@ -84,6 +86,30 @@ describe("remote managed execution", () => {
     });
 
     expect(stateWrites).toBe(0);
+  });
+
+  test("removes a versioned workspace without resolving GitHub HEAD", async () => {
+    const removeRun = {
+      ...running,
+      operation: "remove" as const,
+      workflow: "stoke-example",
+      workspace: "demo",
+    };
+    const started = await startRemoteProjectExecution("user-1", project.id, {
+      operation: "remove",
+      workflow: "stoke-example",
+      workspace: "demo",
+      origin: "dashboard",
+    }, {
+      getProject: async () => project,
+      getProjectState: async () => managedStateWithWorkspace,
+      resolveGitHubRevision: async () => {
+        throw new Error("Pinned workspace removal must not resolve GitHub HEAD");
+      },
+      claimRemoteRun: async () => ({ run: removeRun, disposition: "joined" }),
+    });
+
+    expect(started).toEqual({ run: removeRun, disposition: "joined" });
   });
 
   test("does not run a pre-versioned workspace against the current workflow", async () => {

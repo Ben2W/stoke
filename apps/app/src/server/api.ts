@@ -38,7 +38,7 @@ import { waitUntil } from "@vercel/functions";
 import { Hono } from "hono";
 import { authenticateRequest } from "./auth.ts";
 import { listCheckouts, registerCheckout, registerDevice } from "./devices.ts";
-import { PublicGitHubRepositoryRequiredError } from "./github-repository.ts";
+import { GitHubRateLimitError, PublicGitHubRepositoryRequiredError } from "./github-repository.ts";
 import { createProject, deleteProject, listProjects, verifyProjectSource } from "./projects.ts";
 import {
   createManagedSandbox,
@@ -486,6 +486,13 @@ export function createApi(overrides: Partial<ApiDependencies> = {}) {
     }
     if (error instanceof PublicGitHubRepositoryRequiredError) {
       return context.json({ error: "public_github_repository_required", message: error.message }, 422);
+    }
+    if (error instanceof GitHubRateLimitError) {
+      return context.json({
+        error: "github_rate_limited",
+        message: error.message,
+        ...(error.retryAt ? { retryAt: error.retryAt } : {}),
+      }, 503);
     }
     if (error instanceof ProjectStateConflictError) {
       return context.json({

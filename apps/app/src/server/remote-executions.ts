@@ -82,9 +82,9 @@ export async function startRemoteProjectExecution(
     throw new Error("Remote execution currently requires a GitHub project source");
   }
 
-  const headRevision = await dependencies.resolveGitHubRevision(project.source);
   const projectState = await dependencies.getProjectState(userId, project.id);
-  const revision = executionRevision(request, projectState, headRevision);
+  const revision = workspaceRevision(request, projectState)
+    ?? await dependencies.resolveGitHubRevision(project.source);
   const claimed = await dependencies.claimRemoteRun(userId, {
     projectId: project.id,
     operation: request.operation,
@@ -171,12 +171,11 @@ async function completeRemoteProjectExecution(
   }
 }
 
-function executionRevision(
+function workspaceRevision(
   request: RemoteExecutionRequest,
   state: Awaited<ReturnType<typeof getProjectState>>,
-  headRevision: string,
-): string {
-  if (request.operation !== "run" && request.operation !== "remove") return headRevision;
+): string | undefined {
+  if (request.operation !== "run" && request.operation !== "remove") return undefined;
   const workspace = Object.values(state.snapshot.scopes)
     .flatMap((scope) => scope.workspaces)
     .find((value) => isRecord(value)
@@ -186,7 +185,7 @@ function executionRevision(
   if (typeof workspace.sourceRevision === "string" && /^[a-f0-9]{40}$/i.test(workspace.sourceRevision)) {
     return workspace.sourceRevision;
   }
-  if (request.operation === "remove") return headRevision;
+  if (request.operation === "remove") return undefined;
   throw new WorkspaceRevisionRequiredError(
     `Workspace ${request.workspace} predates versioned workflow definitions and cannot run remotely. Recreate it to pin its workflow revision.`,
   );

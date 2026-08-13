@@ -3,7 +3,7 @@ import type { ManagedCheckout, ManagedProject, ManagedRun, ManagedRunEvent } fro
 import { AuthenticationError } from "./auth.ts";
 import { createApi } from "./api.ts";
 import { ManagedResourceConflictError } from "./devices.ts";
-import { PublicGitHubRepositoryRequiredError } from "./github-repository.ts";
+import { GitHubRateLimitError, PublicGitHubRepositoryRequiredError } from "./github-repository.ts";
 
 const user = {
   id: "user-1",
@@ -224,6 +224,29 @@ describe("Hono control-plane API", () => {
     const unauthorized = await unauthenticated.request("http://localhost/api/v1/projects");
     expect(unauthorized.status).toBe(401);
     expect(await unauthorized.json()).toEqual({ error: "unauthorized" });
+  });
+
+  test("returns a retryable response when GitHub rate limits repository access", async () => {
+    const retryAt = "2026-08-13T21:00:00.000Z";
+    const api = createApi({
+      authenticate: async () => user,
+      startRemoteProjectExecution: async () => {
+        throw new GitHubRateLimitError("GitHub temporarily rate limited Stoke", retryAt);
+      },
+    });
+
+    const response = await api.request(`http://localhost/api/v1/projects/${project.id}/executions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ operation: "plan", origin: "dashboard" }),
+    });
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({
+      error: "github_rate_limited",
+      message: "GitHub temporarily rate limited Stoke",
+      retryAt,
+    });
   });
 
   test("passes explicit duplicate-project creation through the API", async () => {
