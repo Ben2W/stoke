@@ -10,6 +10,7 @@ import { queryKeys } from "../../../../../lib/queries.ts";
 export function RunCapabilityAction({ events, run }: { events: ManagedRunEvent[]; run: ManagedRun }) {
   const queryClient = useQueryClient();
   const [popupError, setPopupError] = useState<string>();
+  const [acknowledgedAt, setAcknowledgedAt] = useState<number>();
   const pending = pendingBrowserOpen(events);
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -21,12 +22,32 @@ export function RunCapabilityAction({ events, run }: { events: ManagedRunEvent[]
     mutationFn: (request: PendingBrowserOpen) =>
       respondRunCapability(run.id, request.requestId, { opened: true }),
     onSuccess: (event) => {
+      setAcknowledgedAt(Date.now());
       queryClient.setQueryData<ManagedRunEvent[]>(queryKeys.runEvents(run.id), (current = []) => [
         ...current.filter((candidate) => candidate.id !== event.id),
         event,
       ].sort((left, right) => left.id - right.id));
     },
   });
+
+  useEffect(() => {
+    if (!acknowledgedAt || run.status !== "running") return;
+    const refresh = () => {
+      void queryClient.refetchQueries({ queryKey: queryKeys.runs, exact: true, type: "active" });
+      void queryClient.refetchQueries({
+        queryKey: queryKeys.runEvents(run.id),
+        exact: true,
+        type: "active",
+      });
+    };
+    refresh();
+    const interval = window.setInterval(refresh, 1_000);
+    const timeout = window.setTimeout(() => window.clearInterval(interval), 30_000);
+    return () => {
+      window.clearInterval(interval);
+      window.clearTimeout(timeout);
+    };
+  }, [acknowledgedAt, queryClient, run.id, run.status]);
 
   if (!pending || run.status !== "running") return null;
   const secondsRemaining = pending.expiresAt

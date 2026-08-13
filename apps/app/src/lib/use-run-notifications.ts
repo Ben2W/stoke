@@ -4,6 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { getRunSocketUrl } from "./api-client.ts";
 import { queryKeys } from "./queries.ts";
+import { parseRunNotification } from "./run-notification.ts";
 
 export function useRunNotifications(runId: string | undefined, enabled = true): void {
   const queryClient = useQueryClient();
@@ -14,8 +15,14 @@ export function useRunNotifications(runId: string | undefined, enabled = true): 
     let reconnect: ReturnType<typeof setTimeout> | undefined;
     let closed = false;
 
-    const refresh = () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.runs });
+    const refresh = (changedRunId?: string) => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.runs, exact: true });
+      if (changedRunId) {
+        void queryClient.invalidateQueries({
+          queryKey: queryKeys.runEvents(changedRunId),
+          exact: true,
+        });
+      }
     };
     const scheduleReconnect = () => {
       if (closed || reconnect) return;
@@ -32,8 +39,9 @@ export function useRunNotifications(runId: string | undefined, enabled = true): 
         socket = next;
         next.addEventListener("message", (message) => {
           try {
-            const data = JSON.parse(String(message.data)) as Record<string, unknown>;
-            if (data.type === "run.changed" || data.type === "runs.changed") refresh();
+            const notification = parseRunNotification(JSON.parse(String(message.data)));
+            if (notification?.type === "run.changed") refresh(notification.runId);
+            if (notification?.type === "runs.changed") refresh();
           } catch {
             // Reconnects always trigger an authoritative HTTP catch-up.
           }
