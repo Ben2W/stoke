@@ -30,6 +30,7 @@ import {
   RunManagedSandboxCommandRequestSchema,
   RunListResponseSchema,
   RunResponseSchema,
+  RunSocketTicketResponseSchema,
   HeartbeatRunResponseSchema,
   RespondRunCapabilityRequestSchema,
   RespondRunCapabilityResponseSchema,
@@ -58,6 +59,7 @@ import {
 } from "./remote-executions.ts";
 import { respondToRunCapability } from "./run-capabilities.ts";
 import { appendRunEvent, claimRun, getRun, heartbeatRun, listRunEvents, listRuns } from "./runs.ts";
+import { createRunSocketUrl } from "./run-tickets.ts";
 
 type AuthenticatedUser = Awaited<ReturnType<typeof authenticateRequest>>;
 
@@ -414,6 +416,26 @@ export function createApi(overrides: Partial<ApiDependencies> = {}) {
     return context.json(RunEventsResponseSchema.parse({ events }));
   });
 
+  managed.post("/runs/notifications/ticket", async (context) => {
+    const user = context.get("user");
+    if (sandboxProjectId(user)) return context.json({ error: "forbidden" }, 403);
+    return context.json(RunSocketTicketResponseSchema.parse({
+      socketUrl: createRunSocketUrl(context.req.url, { userId: user.id }),
+    }));
+  });
+
+  managed.post("/runs/:runId/ticket", async (context) => {
+    const user = context.get("user");
+    const run = await dependencies.getRun(user.id, context.req.param("runId"));
+    const scopedProjectId = sandboxProjectId(user);
+    if (scopedProjectId && scopedProjectId !== run.projectId) {
+      return context.json({ error: "forbidden" }, 403);
+    }
+    return context.json(RunSocketTicketResponseSchema.parse({
+      socketUrl: createRunSocketUrl(context.req.url, { userId: user.id, runId: run.id }),
+    }));
+  });
+
   managed.post("/runs/:runId/events", async (context) => {
     const parsed = AppendRunEventRequestSchema.safeParse(await readJson(context.req.raw));
     if (!parsed.success) {
@@ -525,6 +547,9 @@ function isSandboxRunTransportPath(path: string, method: string): boolean {
     && (method === "GET" || method === "POST")
   ) || (
     /^\/api\/v1\/runs\/[^/]+\/heartbeat$/.test(path)
+    && method === "POST"
+  ) || (
+    /^\/api\/v1\/runs\/[^/]+\/ticket$/.test(path)
     && method === "POST"
   );
 }

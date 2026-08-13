@@ -50,7 +50,32 @@ describe("managed run HTTP transport", () => {
     });
   });
 
-  test("follows a joined run by polling authoritative events and status", async () => {
+  test("catches up persisted host responses when notification delivery reconnects", async () => {
+    const client = {
+      listRunEvents: async () => [{
+        id: 2,
+        runId: run.id,
+        type: "host.capability.response",
+        data: {
+          type: "host.capability.response",
+          requestId: "cap_req_preview",
+          result: { opened: true },
+        },
+        createdAt: "2026-08-04T00:00:02.000Z",
+      }],
+      heartbeatRun: async () => undefined,
+    } as unknown as ManagedClient;
+    const publisher = createManagedRunPublisher(client, run.id, true);
+
+    const response = await new Promise<{ id: string; result?: unknown }>((resolve) => {
+      publisher.onHostResponse(resolve);
+    });
+    publisher.close();
+
+    expect(response).toEqual({ id: "cap_req_preview", result: { opened: true } });
+  });
+
+  test("follows a joined run from authoritative events and status", async () => {
     const observed: unknown[] = [];
     const client = {
       listRunEvents: async () => [{

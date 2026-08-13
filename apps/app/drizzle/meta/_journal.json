@@ -57,6 +57,13 @@
       "when": 1786645876522,
       "tag": "0007_lethal_electro",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1786652203156,
+      "tag": "0008_run_notifications",
+      "breakpoints": true
     }
   ]
 }

@@ -9,6 +9,7 @@ import {
   ManagedSandboxInteractiveResponseSchema,
   RunEventsResponseSchema,
   RunListResponseSchema,
+  RunSocketTicketResponseSchema,
   RespondRunCapabilityResponseSchema,
   RemoteExecutionResponseSchema,
   type ManagedCheckout,
@@ -172,6 +173,15 @@ export async function getRunEvents(runId: string): Promise<ManagedRunEvent[]> {
     if (page.length < 500) return events;
     after = page.at(-1)?.id ?? after;
   }
+}
+
+export async function getRunSocketUrl(runId?: string): Promise<string> {
+  return RunSocketTicketResponseSchema.parse(await request(
+    runId
+      ? `/api/v1/runs/${encodeURIComponent(runId)}/ticket`
+      : "/api/v1/runs/notifications/ticket",
+    { method: "POST" },
+  )).socketUrl;
 }
 
 export async function respondRunCapability(

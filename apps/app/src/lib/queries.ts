@@ -42,7 +42,9 @@ export const checkoutsQuery = queryOptions({
 export const runsQuery = queryOptions({
   queryKey: queryKeys.runs,
   queryFn: getRuns,
-  refetchInterval: 3_000,
+  // WebSocket notifications drive normal refreshes. This only repairs state if
+  // a deployment, proxy, or network blocks the notification connection.
+  refetchInterval: 30_000,
 });
 
 export function runEventsQuery(runId: string | undefined) {

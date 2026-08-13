@@ -563,6 +563,12 @@ describe("Hono control-plane API", () => {
     expect(await appended.json()).toEqual({ event: runEvent });
     const heartbeat = await api.request(`http://localhost/api/v1/runs/${run.id}/heartbeat`, { method: "POST" });
     expect(await heartbeat.json()).toEqual({ ok: true });
+    const runTicket = await api.request(`http://localhost/api/v1/runs/${run.id}/ticket`, { method: "POST" });
+    expect(runTicket.status).toBe(200);
+    expect(await runTicket.json()).toMatchObject({ socketUrl: expect.stringContaining("ws://localhost/api/ws?ticket=") });
+    const dashboardTicket = await api.request("http://localhost/api/v1/runs/notifications/ticket", { method: "POST" });
+    expect(dashboardTicket.status).toBe(200);
+    expect(await dashboardTicket.json()).toMatchObject({ socketUrl: expect.stringContaining("ws://localhost/api/ws?ticket=") });
   });
 
   test("limits Sandbox run transport writes to the ticket's project", async () => {
@@ -593,10 +599,16 @@ describe("Hono control-plane API", () => {
       body,
     });
     const projects = await api.request("http://localhost/api/v1/projects");
+    const acceptedTicket = await api.request(`http://localhost/api/v1/runs/${run.id}/ticket`, { method: "POST" });
+    const rejectedTicket = await api.request(`http://localhost/api/v1/runs/${otherRun.id}/ticket`, { method: "POST" });
+    const dashboardTicket = await api.request("http://localhost/api/v1/runs/notifications/ticket", { method: "POST" });
 
     expect(accepted.status).toBe(201);
     expect(rejected.status).toBe(403);
     expect(projects.status).toBe(403);
+    expect(acceptedTicket.status).toBe(200);
+    expect(rejectedTicket.status).toBe(403);
+    expect(dashboardTicket.status).toBe(403);
     expect(appended).toEqual([run.id]);
   });
 

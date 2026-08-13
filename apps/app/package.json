@@ -26,7 +26,8 @@
     "next": "^16.1.6",
     "postgres": "^3.4.8",
     "react": "^19.2.5",
-    "react-dom": "^19.2.5"
+    "react-dom": "^19.2.5",
+    "ws": "8.20.0"
   },
   "devDependencies": {
     "@usestoke/cli": "workspace:*",
@@ -36,6 +37,7 @@
     "@types/node": "latest",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
+    "@types/ws": "8.18.1",
     "drizzle-kit": "^0.31.10",
     "esbuild": "^0.28.1",
     "postcss": "8.5.14",

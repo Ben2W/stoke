@@ -4,10 +4,12 @@ import type { ManagedRun } from "@usestoke/managed";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 import { queryKeys } from "../../../lib/queries.ts";
+import { useRunNotifications } from "../../../lib/use-run-notifications.ts";
 
 export function ActiveRunObservers({ runs }: { runs: ManagedRun[] }) {
   const queryClient = useQueryClient();
   const previousStatuses = useRef(new Map(runs.map((run) => [run.id, run.status])));
+  useRunNotifications(undefined);
 
   useEffect(() => {
     const nextStatuses = new Map(runs.map((run) => [run.id, run.status]));

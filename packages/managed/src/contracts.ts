@@ -239,6 +239,7 @@ export const ClaimRunResponseSchema = z.object({
 export const RunListResponseSchema = z.object({ runs: z.array(ManagedRunSchema) });
 export const RunResponseSchema = z.object({ run: ManagedRunSchema });
 export const RunEventsResponseSchema = z.object({ events: z.array(ManagedRunEventSchema) });
+export const RunSocketTicketResponseSchema = z.object({ socketUrl: z.url() });
 export const AppendRunEventRequestSchema = z.object({
   clientEventId: z.string().min(1).max(120),
   event: z.object({ type: z.string().min(1).max(100) }).catchall(z.unknown()),

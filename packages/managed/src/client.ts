@@ -39,6 +39,7 @@ import {
   RunEventsResponseSchema,
   RunListResponseSchema,
   RunResponseSchema,
+  RunSocketTicketResponseSchema,
   RespondRunCapabilityRequestSchema,
   RespondRunCapabilityResponseSchema,
   RemoteExecutionRequestSchema,
@@ -80,6 +81,7 @@ export type ManagedClient = {
   listRuns(projectId?: string): Promise<ManagedRun[]>;
   getRun(runId: string): Promise<ManagedRun>;
   listRunEvents(runId: string, after?: number): Promise<ManagedRunEvent[]>;
+  createRunSocketTicket(runId: string): Promise<string>;
   appendRunEvent(runId: string, input: AppendRunEventRequest): Promise<ManagedRunEvent>;
   heartbeatRun(runId: string): Promise<void>;
   respondRunCapability(
@@ -237,6 +239,12 @@ export function createManagedClient(options: ManagedClientOptions): ManagedClien
       return RunEventsResponseSchema.parse(
         await request(`/api/v1/runs/${encodeURIComponent(runId)}/events${query}`),
       ).events;
+    },
+    async createRunSocketTicket(runId) {
+      return RunSocketTicketResponseSchema.parse(await request(
+        `/api/v1/runs/${encodeURIComponent(runId)}/ticket`,
+        { method: "POST" },
+      )).socketUrl;
     },
     async appendRunEvent(runId, input) {
       const payload = AppendRunEventRequestSchema.parse(input);

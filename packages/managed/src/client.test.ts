@@ -234,6 +234,9 @@ describe("managed client", () => {
           return Response.json({ event }, { status: 201 });
         }
         if (request.url.endsWith(`/runs/${run.id}/heartbeat`)) return Response.json({ ok: true });
+        if (request.url.endsWith(`/runs/${run.id}/ticket`)) {
+          return Response.json({ socketUrl: `wss://usestoke.dev/api/ws?ticket=signed` });
+        }
         if (request.url.endsWith("/capabilities/cap_req_preview/respond")) {
           return Response.json({ event: capabilityResponse });
         }
@@ -257,6 +260,8 @@ describe("managed client", () => {
       event: event.data,
     })).toEqual(event);
     await client.heartbeatRun(run.id);
+    expect(await client.createRunSocketTicket(run.id))
+      .toBe("wss://usestoke.dev/api/ws?ticket=signed");
     expect(await client.respondRunCapability(run.id, "cap_req_preview", { result: { opened: true } }))
       .toEqual(capabilityResponse);
     expect(await client.executeProject(project.id, { operation: "plan", origin: "cli" })).toMatchObject({
@@ -273,6 +278,7 @@ describe("managed client", () => {
       `GET /api/v1/runs/${run.id}/events?after=1`,
       `POST /api/v1/runs/${run.id}/events`,
       `POST /api/v1/runs/${run.id}/heartbeat`,
+      `POST /api/v1/runs/${run.id}/ticket`,
       `POST /api/v1/runs/${run.id}/capabilities/cap_req_preview/respond`,
       `POST /api/v1/projects/${project.id}/executions`,
       `GET /api/v1/projects/${project.id}/state`,
